@@ -1,0 +1,31 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[manifest]
+members = [
+    "agent-platform",
+    "coding-agent",
+    "core-ai",
+    "core-harness",
+]
+
+[[package]]
+name = "agent-platform"
+version = "0.1.0"
+source = { virtual = "." }
+
+[[package]]
+name = "coding-agent"
+version = "0.1.0"
+source = { editable = "coding_agent" }
+
+[[package]]
+name = "core-ai"
+version = "0.1.0"
+source = { editable = "core_ai" }
+
+[[package]]
+name = "core-harness"
+version = "0.1.0"
+source = { editable = "core_harness" }
