@@ -7,7 +7,18 @@ authors = [
     { name = "Sarthak Chauhan", email = "sarthakchauhann@gmail.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "core-ai",
+    "pydantic>=2.0.0",
+]
+
+[tool.uv.sources]
+core-ai = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]
