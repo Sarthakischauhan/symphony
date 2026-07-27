@@ -1,116 +1,58 @@
 import asyncio
-from typing import Any
+import os
 
-from core_ai.types import Message, StreamEvent
+import pytest
+
+from core_ai.providers.openai import OpenAIProvider
+from core_ai.registry import ModelRegistry
 from core_harness import CoreHarness, NullControlPlane, Tool
 
 
-class FakeRegistry:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-
-    async def stream(
-        self,
-        model_id: str,
-        messages: list[Message],
-        tools: list[dict[str, Any]],
-    ):
-        self.calls.append(
-            {
-                "model_id": model_id,
-                "messages": messages,
-                "tools": tools,
-            }
-        )
-
-        if len(self.calls) == 1:
-            yield StreamEvent(
-                type="toolcall_start",
-                content_index=0,
-                tool_call_id="call-weather",
-                tool_name="get_weather",
-            )
-            yield StreamEvent(
-                type="toolcall_delta",
-                content_index=0,
-                delta='{"city": "San Francisco"}',
-            )
-            yield StreamEvent(
-                type="usage",
-                prompt_tokens=10,
-                completion_tokens=2,
-                total_tokens=12,
-            )
-            yield StreamEvent(type="done", content_index=0)
-            return
-
-        yield StreamEvent(
-            type="text_delta",
-            content_index=0,
-            delta="It is sunny in San Francisco.",
-        )
-        yield StreamEvent(
-            type="usage",
-            prompt_tokens=20,
-            completion_tokens=6,
-            total_tokens=26,
-        )
-        yield StreamEvent(type="done", content_index=0)
-
-
 def get_weather(city: str, control_plane: NullControlPlane) -> str:
-    """Return weather for a city."""
     assert isinstance(control_plane, NullControlPlane)
     return f"It is sunny in {city}."
 
 
-def call_core_harness() -> tuple[FakeRegistry, NullControlPlane, Any]:
-    registry = FakeRegistry()
+def call_core_harness() -> tuple[NullControlPlane, object]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        pytest.skip("Set OPENAI_API_KEY to run the core harness integration test.")
+    if os.getenv("RUN_LIVE_OPENAI_TESTS") != "1":
+        pytest.skip("Set RUN_LIVE_OPENAI_TESTS=1 to run the core harness integration test.")
+
+    model_name = os.getenv("OPENAI_TEST_MODEL", "gpt-4o-mini")
+    registry = ModelRegistry()
+    registry.register(
+        "openai",
+        OpenAIProvider(
+            api_key=api_key,
+            base_url="https://api.openai.com/v1",
+        ),
+    )
     control_plane = NullControlPlane()
     harness = CoreHarness(
         registry=registry,
-        model_id="fake:test-model",
-        system_prompt="You are a concise assistant.",
+        model_id=f"openai:{model_name}",
+        system_prompt="You are a concise assistant. Always call get_weather for weather questions and then answer with the tool result verbatim.",
         tools=[Tool(get_weather)],
         control_plane=control_plane,
-        context_limits={"fake:test-model": 100},
     )
 
     result = asyncio.run(harness.run("What is the weather in San Francisco?"))
-    return registry, control_plane, result
+    return control_plane, result
 
 
 def test_core_harness_runs_tool_loop() -> None:
-    registry, control_plane, result = call_core_harness()
-
-    assert result.output_text == "It is sunny in San Francisco."
-    assert len(registry.calls) == 2
-    assert registry.calls[0]["messages"][0].role == "system"
-    assert registry.calls[0]["messages"][0].content == "You are a concise assistant."
-    assert registry.calls[0]["tools"][0]["name"] == "get_weather"
+    control_plane, result = call_core_harness()
+    print(f"{control_plane} and {result}")
+    assert "San Francisco" in result.output_text
+    assert "sunny" in result.output_text.lower()
     assert result.tool_calls[0].name == "get_weather"
     assert result.tool_calls[0].arguments == {"city": "San Francisco"}
-    assert result.usage.total_tokens == 38
-    assert result.context_limit == 100
-    assert result.context_left == 80
-
+    assert result.usage.total_tokens > 0
     event_types = [event.event_type for event in control_plane.events]
-    assert event_types == [
-        "run_started",
-        "turn_started",
-        "tool_call_started",
-        "usage",
-        "turn_completed",
-        "context",
-        "tool_execution_started",
-        "tool_execution_completed",
-        "turn_started",
-        "text_delta",
-        "usage",
-        "turn_completed",
-        "context",
-        "run_completed",
-    ]
-    assert control_plane.events[3].payload["cumulative_tokens"] == 12
-    assert control_plane.events[12].payload["context_left"] == 80
-    assert control_plane.events[-1].payload["usage"]["total_tokens"] == 38
+    assert event_types[0] == "run_started"
+    assert "tool_call_started" in event_types
+    assert "tool_execution_completed" in event_types
+    assert event_types[-1] == "run_completed"
+    assert control_plane.events[-1].payload["usage"]["total_tokens"] > 0

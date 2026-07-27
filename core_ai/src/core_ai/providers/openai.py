@@ -27,13 +27,16 @@ class OpenAIProvider(BaseProvider):
             "model": model_name,
             "stream": True,
             "stream_options": {"include_usage": True},
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [],
         }
 
-        # Inject tool IDs for multi-turn execution
-        for m_orig, m_fmt in zip(messages, payload["messages"]):
-            if m_orig.tool_call_id:
-                m_fmt["tool_call_id"] = m_orig.tool_call_id
+        for message in messages:
+            formatted = {"role": message.role, "content": message.content}
+            if message.tool_call_id:
+                formatted["tool_call_id"] = message.tool_call_id
+            if message.tool_calls:
+                formatted["tool_calls"] = message.tool_calls
+            payload["messages"].append(formatted)
 
         if tools:
             payload["tools"] = [{"type": "function", "function": t} for t in tools]
