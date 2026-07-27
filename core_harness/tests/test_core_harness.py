@@ -35,6 +35,12 @@ class FakeRegistry:
                 content_index=0,
                 delta='{"city": "San Francisco"}',
             )
+            yield StreamEvent(
+                type="usage",
+                prompt_tokens=10,
+                completion_tokens=2,
+                total_tokens=12,
+            )
             yield StreamEvent(type="done", content_index=0)
             return
 
@@ -42,6 +48,12 @@ class FakeRegistry:
             type="text_delta",
             content_index=0,
             delta="It is sunny in San Francisco.",
+        )
+        yield StreamEvent(
+            type="usage",
+            prompt_tokens=20,
+            completion_tokens=6,
+            total_tokens=26,
         )
         yield StreamEvent(type="done", content_index=0)
 
@@ -61,6 +73,7 @@ def call_core_harness() -> tuple[FakeRegistry, NullControlPlane, Any]:
         system_prompt="You are a concise assistant.",
         tools=[Tool(get_weather)],
         control_plane=control_plane,
+        context_limits={"fake:test-model": 100},
     )
 
     result = asyncio.run(harness.run("What is the weather in San Francisco?"))
@@ -77,13 +90,27 @@ def test_core_harness_runs_tool_loop() -> None:
     assert registry.calls[0]["tools"][0]["name"] == "get_weather"
     assert result.tool_calls[0].name == "get_weather"
     assert result.tool_calls[0].arguments == {"city": "San Francisco"}
+    assert result.usage.total_tokens == 38
+    assert result.context_limit == 100
+    assert result.context_left == 80
 
     event_types = [event.event_type for event in control_plane.events]
     assert event_types == [
         "run_started",
+        "turn_started",
         "tool_call_started",
+        "usage",
+        "turn_completed",
+        "context",
         "tool_execution_started",
         "tool_execution_completed",
+        "turn_started",
         "text_delta",
+        "usage",
+        "turn_completed",
+        "context",
         "run_completed",
     ]
+    assert control_plane.events[3].payload["cumulative_tokens"] == 12
+    assert control_plane.events[12].payload["context_left"] == 80
+    assert control_plane.events[-1].payload["usage"]["total_tokens"] == 38

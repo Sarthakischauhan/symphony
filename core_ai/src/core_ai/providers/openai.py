@@ -26,6 +26,7 @@ class OpenAIProvider(BaseProvider):
         payload = {
             "model": model_name,
             "stream": True,
+            "stream_options": {"include_usage": True},
             "messages": [{"role": m.role, "content": m.content} for m in messages],
         }
 
@@ -70,6 +71,15 @@ class OpenAIProvider(BaseProvider):
                         chunk = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue  # Ignore malformed stream breaks
+
+                    usage = chunk.get("usage")
+                    if usage:
+                        yield StreamEvent(
+                            type="usage",
+                            prompt_tokens=usage.get("prompt_tokens"),
+                            completion_tokens=usage.get("completion_tokens"),
+                            total_tokens=usage.get("total_tokens"),
+                        )
 
                     if not chunk.get("choices"):
                         continue

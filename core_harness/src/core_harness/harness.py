@@ -5,9 +5,18 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 
 from core_harness.control_plane import ControlPlane, NullControlPlane
-from core_harness.models.harness import HarnessResult
+from core_harness.models.harness import HarnessResult, UsageTotals
 from core_harness.models.tools import PendingToolCall, ToolCall
 from core_harness.tools import Tool
+
+
+DEFAULT_CONTEXT_LIMITS = {
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 128000,
+    "gpt-4.1": 1047576,
+    "gpt-4.1-mini": 1047576,
+    "gpt-4.1-nano": 1047576,
+}
 
 
 class CoreHarness:
@@ -20,12 +29,14 @@ class CoreHarness:
         tools: Optional[List[Tool]] = None,
         control_plane: Optional[ControlPlane] = None,
         max_turns: int = 8,
+        context_limits: Optional[Dict[str, int]] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
         self.system_prompt = system_prompt
         self.control_plane = control_plane or NullControlPlane()
         self.max_turns = max_turns
+        self.context_limits = {**DEFAULT_CONTEXT_LIMITS, **(context_limits or {})}
         self.tools: Dict[str, Tool] = {}
 
         for tool in tools or []:
@@ -54,9 +65,18 @@ class CoreHarness:
         )
 
         all_tool_calls: List[ToolCall] = []
+        usage = UsageTotals()
+        context_limit = self._context_limit()
+        context_left: Optional[int] = None
         for turn in range(self.max_turns):
             assistant_text = ""
             pending_calls: Dict[int, PendingToolCall] = {}
+            budget_tokens = usage.total_tokens
+
+            await self.control_plane.emit(
+                "turn_started",
+                {"turn": turn, "message_count": len(messages)},
+            )
 
             async for event in self.registry.stream(
                 self.model_id,
@@ -88,17 +108,69 @@ class CoreHarness:
                         PendingToolCall(id=f"toolcall-{turn}-{event.content_index}"),
                     )
                     pending.arguments_json += event.delta
+                elif event.type == "usage":
+                    usage.prompt_tokens += event.prompt_tokens or 0
+                    usage.completion_tokens += event.completion_tokens or 0
+                    usage.total_tokens += event.total_tokens or 0
+                    budget_tokens = event.prompt_tokens or usage.total_tokens
+                    await self.control_plane.emit(
+                        "usage",
+                        {
+                            "turn": turn,
+                            "prompt_tokens": event.prompt_tokens or 0,
+                            "completion_tokens": event.completion_tokens or 0,
+                            "total_tokens": event.total_tokens or 0,
+                            "cumulative_tokens": usage.total_tokens,
+                        },
+                    )
+
+            await self.control_plane.emit(
+                "turn_completed",
+                {"turn": turn, "had_tool_calls": bool(pending_calls)},
+            )
+            context_left = (
+                max(context_limit - budget_tokens, 0)
+                if context_limit is not None
+                else None
+            )
+            await self.control_plane.emit(
+                "context",
+                {
+                    "turn": turn,
+                    "context_limit": context_limit,
+                    "tokens_used": budget_tokens,
+                    "context_left": context_left,
+                    "utilization": (
+                        budget_tokens / context_limit if context_limit else None
+                    ),
+                },
+            )
 
             if not pending_calls:
                 messages.append(Message(role="assistant", content=assistant_text))
                 await self.control_plane.emit(
                     "run_completed",
-                    {"turn": turn, "output_text": assistant_text},
+                    {
+                        "turn": turn,
+                        "output_text": assistant_text,
+                        "usage": usage.model_dump(),
+                        "context": {
+                            "context_limit": context_limit,
+                            "tokens_used": budget_tokens,
+                            "context_left": context_left,
+                            "utilization": (
+                                budget_tokens / context_limit if context_limit else None
+                            ),
+                        },
+                    },
                 )
                 return HarnessResult(
                     output_text=assistant_text,
                     messages=messages,
                     tool_calls=all_tool_calls,
+                    usage=usage,
+                    context_limit=context_limit,
+                    context_left=context_left,
                 )
 
             tool_calls = self._build_tool_calls(pending_calls)
@@ -121,7 +193,31 @@ class CoreHarness:
                     )
                 )
 
+        await self.control_plane.emit(
+            "run_failed",
+            {
+                "turn": self.max_turns - 1,
+                "error_type": "RuntimeError",
+                "message": f"Harness exceeded max_turns={self.max_turns}",
+            },
+        )
         raise RuntimeError(f"Harness exceeded max_turns={self.max_turns}")
+
+    def _context_limit(self) -> Optional[int]:
+        if self.model_id in self.context_limits:
+            return self.context_limits[self.model_id]
+
+        model_name = self.model_id.split(":", 1)[-1]
+        if model_name in self.context_limits:
+            return self.context_limits[model_name]
+
+        for known_model, limit in sorted(
+            self.context_limits.items(), key=lambda item: len(item[0]), reverse=True
+        ):
+            if model_name.startswith(f"{known_model}-"):
+                return limit
+
+        return None
 
     def _build_tool_calls(
         self,
