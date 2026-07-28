@@ -6,6 +6,7 @@ from core_ai.types import Message
 
 from core_harness.compaction import Compactor
 from core_harness.control_plane import ControlPlane, NullControlPlane
+from core_harness.models.control_plane import ControlCommandType
 from core_harness.models.harness import HarnessResult, UsageTotals
 from core_harness.models.tools import PendingToolCall, ToolCall
 from core_harness.tokens import (
@@ -23,6 +24,10 @@ DEFAULT_CONTEXT_LIMITS = {
     "gpt-4.1-mini": 1047576,
     "gpt-4.1-nano": 1047576,
 }
+
+
+class HarnessCancelled(RuntimeError):
+    """Raised when an inbound cancel command stops the harness run."""
 
 
 class CoreHarness:
@@ -85,6 +90,8 @@ class CoreHarness:
         try:
             for turn in range(self.max_turns):
                 current_turn = turn
+                messages = await self._apply_inbound_commands(messages, turn=turn)
+
                 assistant_text = ""
                 pending_calls: Dict[int, PendingToolCall] = {}
                 saw_usage = False
@@ -269,6 +276,8 @@ class CoreHarness:
                             tool_call_id=tool_call.id,
                         )
                     )
+        except HarnessCancelled:
+            raise
         except Exception as exc:
             await self.control_plane.emit(
                 "run_failed",
@@ -305,6 +314,43 @@ class CoreHarness:
                 return limit
 
         return None
+
+    async def _apply_inbound_commands(
+        self,
+        messages: List[Message],
+        *,
+        turn: int,
+    ) -> List[Message]:
+        wait_if_paused = getattr(self.control_plane, "wait_if_paused", None)
+        if wait_if_paused is not None and getattr(self.control_plane, "paused", False):
+            await self.control_plane.emit("paused", {"turn": turn})
+            await wait_if_paused()
+            await self.control_plane.emit("resumed", {"turn": turn})
+
+        drain = getattr(self.control_plane, "drain_commands", None)
+        if drain is None:
+            return messages
+
+        for command in await drain():
+            if command.type == ControlCommandType.CANCEL:
+                reason = str(command.payload.get("reason", "cancelled"))
+                await self.control_plane.emit(
+                    "run_cancelled",
+                    {"turn": turn, "reason": reason},
+                )
+                raise HarnessCancelled(reason)
+            if command.type == ControlCommandType.INJECT_MESSAGE:
+                injected = command.to_message()
+                messages.append(injected)
+                await self.control_plane.emit(
+                    "message_injected",
+                    {
+                        "turn": turn,
+                        "role": injected.role,
+                        "content": injected.content,
+                    },
+                )
+        return messages
 
     def _should_warn(self, context_left: Optional[int]) -> bool:
         return (

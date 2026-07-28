@@ -227,10 +227,10 @@ class ControlPlaneEvent(BaseModel):
 
 ### Phase D — Control plane as product surface
 
-1. Typed event catalog (enum or pydantic discriminated union) — optional behind compat layer
-2. Subscribers / fan-out (multiple sinks: log, metrics, UI websocket)
-3. Persistence adapter interface (append-only event log)
-4. Inbound commands later: cancel, inject message, pause — new Protocol methods, do not overload `emit`
+1. Typed event catalog (enum or pydantic discriminated union) — done (`ControlPlaneEventType`, string-compatible)
+2. Subscribers / fan-out (multiple sinks: log, metrics, UI websocket) — done (`FanoutControlPlane`, `InteractiveControlPlane` subscribers)
+3. Persistence adapter interface (append-only event log) — done (`EventLog`, `InMemoryEventLog`, `PersistingControlPlane`)
+4. Inbound commands later: cancel, inject message, pause — done (`ControlCommand`, `send_command` / `drain_commands`, harness `paused`/`run_cancelled`/`message_injected`)
 
 ### Phase E — General-purpose harness features (planning backlog)
 

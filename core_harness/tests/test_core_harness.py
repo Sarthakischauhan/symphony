@@ -9,9 +9,16 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message, StreamEvent
 from core_harness import (
+    ControlCommand,
+    ControlPlaneEventType,
     CoreHarness,
+    FanoutControlPlane,
+    HarnessCancelled,
+    InMemoryEventLog,
+    InteractiveControlPlane,
     KeepSystemRecentCompactor,
     NullControlPlane,
+    PersistingControlPlane,
     Tool,
 )
 from core_harness.tokens import estimate_prompt_tokens, message_size_breakdown
@@ -20,6 +27,16 @@ from core_harness.tokens import estimate_prompt_tokens, message_size_breakdown
 def get_weather(city: str, control_plane: NullControlPlane) -> str:
     assert isinstance(control_plane, NullControlPlane)
     return f"It is sunny in {city}."
+
+
+def call_tool_a() -> str:
+    """Mark that tool A ran in the multi-tool loop."""
+    return "tool_a_ok"
+
+
+def call_tool_b() -> str:
+    """Mark that tool B ran in the multi-tool loop."""
+    return "tool_b_ok"
 
 
 class FakeRegistry:
@@ -76,6 +93,86 @@ class FakeRegistry:
                 completion_tokens=6,
                 total_tokens=self.prompt_tokens + 16,
             )
+        yield StreamEvent(type="done", content_index=0)
+
+
+class TwoToolLoopRegistry:
+    """Deterministic registry: call_tool_a → call_tool_b → answer 15."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def stream(
+        self,
+        model_id: str,
+        messages: list[Message],
+        tools: list[dict[str, Any]],
+    ):
+        self.calls.append(
+            {
+                "model_id": model_id,
+                "messages": list(messages),
+                "tools": tools,
+            }
+        )
+        tool_names = {tool["name"] for tool in tools}
+        assert tool_names == {"call_tool_a", "call_tool_b"}
+
+        completed = {
+            message.tool_call_id
+            for message in messages
+            if message.role == "tool" and message.tool_call_id
+        }
+
+        if "call-a" not in completed:
+            yield StreamEvent(
+                type="toolcall_start",
+                content_index=0,
+                tool_call_id="call-a",
+                tool_name="call_tool_a",
+            )
+            yield StreamEvent(
+                type="toolcall_delta",
+                content_index=0,
+                delta="{}",
+            )
+            yield StreamEvent(
+                type="usage",
+                prompt_tokens=12,
+                completion_tokens=3,
+                total_tokens=15,
+            )
+            yield StreamEvent(type="done", content_index=0)
+            return
+
+        if "call-b" not in completed:
+            yield StreamEvent(
+                type="toolcall_start",
+                content_index=0,
+                tool_call_id="call-b",
+                tool_name="call_tool_b",
+            )
+            yield StreamEvent(
+                type="toolcall_delta",
+                content_index=0,
+                delta="{}",
+            )
+            yield StreamEvent(
+                type="usage",
+                prompt_tokens=18,
+                completion_tokens=3,
+                total_tokens=21,
+            )
+            yield StreamEvent(type="done", content_index=0)
+            return
+
+        yield StreamEvent(type="text_delta", content_index=0, delta="15")
+        yield StreamEvent(
+            type="usage",
+            prompt_tokens=24,
+            completion_tokens=1,
+            total_tokens=25,
+        )
         yield StreamEvent(type="done", content_index=0)
 
 
@@ -225,6 +322,101 @@ def test_message_size_breakdown_accounts_per_message() -> None:
     assert estimate_prompt_tokens(messages) == sum(entry["tokens"] for entry in sizes)
 
 
+def test_control_plane_fanout_and_event_log() -> None:
+    primary = NullControlPlane()
+    event_log = InMemoryEventLog()
+    plane = FanoutControlPlane(
+        [primary, PersistingControlPlane(event_log)],
+    )
+
+    async def _emit() -> None:
+        await plane.emit(ControlPlaneEventType.RUN_STARTED, {"model_id": "fake:test"})
+        await plane.emit("usage", {"turn": 0, "total_tokens": 3})
+
+    asyncio.run(_emit())
+    assert [event.event_type for event in primary.events] == ["run_started", "usage"]
+    assert [event.event_type for event in event_log.events] == ["run_started", "usage"]
+    assert event_log.events[0].payload["model_id"] == "fake:test"
+
+
+def test_control_plane_cancel_stops_harness() -> None:
+    registry = FakeRegistry()
+    control_plane = InteractiveControlPlane()
+
+    async def _run() -> None:
+        await control_plane.send_command(ControlCommand.cancel(reason="stop-now"))
+        harness = CoreHarness(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="fake:test-model",
+            system_prompt="You are a concise assistant.",
+            tools=[Tool(get_weather)],
+            control_plane=control_plane,
+            context_limits={"fake:test-model": 100},
+        )
+        await harness.run("What is the weather in San Francisco?")
+
+    with pytest.raises(HarnessCancelled, match="stop-now"):
+        asyncio.run(_run())
+    assert control_plane.events[0].event_type == "run_started"
+    assert control_plane.events[-1].event_type == "run_cancelled"
+    assert control_plane.events[-1].payload["reason"] == "stop-now"
+    assert len(registry.calls) == 0
+
+
+def test_e2e_two_tool_loop_answers_three_times_five() -> None:
+    """Full loop: call_tool_a → call_tool_b → answer 3 * 5 as a number only."""
+    registry = TwoToolLoopRegistry()
+    event_log = InMemoryEventLog()
+    recorder = NullControlPlane()
+    control_plane = InteractiveControlPlane(
+        event_log=event_log,
+        subscribers=[recorder],
+    )
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:math-model",
+        system_prompt=(
+            "You must call call_tool_a, then call call_tool_b, then answer "
+            "3 * 5 with only the number."
+        ),
+        tools=[Tool(call_tool_a), Tool(call_tool_b)],
+        control_plane=control_plane,
+        context_limits={"fake:math-model": 1000},
+        max_turns=8,
+    )
+
+    result = asyncio.run(
+        harness.run("Call both tools in order, then answer 3 * 5 only in number.")
+    )
+
+    assert result.output_text.strip() == "15"
+    assert [tool_call.name for tool_call in result.tool_calls] == [
+        "call_tool_a",
+        "call_tool_b",
+    ]
+    assert result.tool_calls[0].arguments == {}
+    assert result.tool_calls[1].arguments == {}
+    assert len(registry.calls) == 3
+    assert result.usage.total_tokens == 61
+
+    event_types = [event.event_type for event in control_plane.events]
+    assert event_types[0] == ControlPlaneEventType.RUN_STARTED.value
+    assert event_types.count("tool_execution_completed") == 2
+    assert event_types[-1] == ControlPlaneEventType.RUN_COMPLETED.value
+
+    completed_tools = [
+        event.payload["tool_name"]
+        for event in control_plane.events
+        if event.event_type == "tool_execution_completed"
+    ]
+    assert completed_tools == ["call_tool_a", "call_tool_b"]
+    assert control_plane.events[-1].payload["output_text"] == "15"
+
+    logged_types = [event.event_type for event in event_log.events]
+    assert logged_types == event_types
+    assert [event.event_type for event in recorder.events] == event_types
+
+
 def call_live_core_harness() -> tuple[NullControlPlane, object]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -260,6 +452,48 @@ def call_live_core_harness() -> tuple[NullControlPlane, object]:
     return control_plane, result
 
 
+def call_live_two_tool_math_harness() -> tuple[InteractiveControlPlane, object]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        pytest.skip("Set OPENAI_API_KEY to run the core harness integration test.")
+    if os.getenv("RUN_LIVE_OPENAI_TESTS") != "1":
+        pytest.skip("Set RUN_LIVE_OPENAI_TESTS=1 to run the core harness integration test.")
+
+    model_name = os.getenv("OPENAI_TEST_MODEL", "gpt-4o-mini")
+    registry = ModelRegistry()
+    registry.register(
+        "openai",
+        OpenAIProvider(
+            api_key=api_key,
+            base_url="https://api.openai.com/v1",
+        ),
+    )
+    event_log = InMemoryEventLog()
+    control_plane = InteractiveControlPlane(event_log=event_log)
+    harness = CoreHarness(
+        registry=registry,
+        model_id=f"openai:{model_name}",
+        system_prompt=(
+            "You are a careful tool-using assistant. You MUST call call_tool_a first, "
+            "then call call_tool_b, and only after both tools have returned should you "
+            "answer the arithmetic. Final answer must be only the number for 3 * 5."
+        ),
+        tools=[Tool(call_tool_a), Tool(call_tool_b)],
+        control_plane=control_plane,
+        max_turns=8,
+    )
+
+    try:
+        result = asyncio.run(
+            harness.run(
+                "Call call_tool_a, then call_tool_b, then answer 3 * 5 only in number."
+            )
+        )
+    except httpx.RequestError as exc:
+        pytest.skip(f"OpenAI endpoint unavailable in this environment: {exc}")
+    return control_plane, result
+
+
 def test_core_harness_runs_tool_loop() -> None:
     control_plane, result = call_live_core_harness()
     assert "San Francisco" in result.output_text
@@ -276,3 +510,23 @@ def test_core_harness_runs_tool_loop() -> None:
     assert event_types[-1] == "run_completed"
     assert control_plane.events[-1].payload["usage"]["total_tokens"] > 0
     assert "message_sizes" in control_plane.events[-1].payload["context"]
+
+
+def test_e2e_live_two_tool_loop_answers_three_times_five() -> None:
+    control_plane, result = call_live_two_tool_math_harness()
+    assert result.output_text.strip() == "15"
+    tool_names = [tool_call.name for tool_call in result.tool_calls]
+    assert tool_names == ["call_tool_a", "call_tool_b"]
+    event_types = [event.event_type for event in control_plane.events]
+    assert event_types[0] == "run_started"
+    assert event_types[-1] == "run_completed"
+    completed_tools = [
+        event.payload["tool_name"]
+        for event in control_plane.events
+        if event.event_type == "tool_execution_completed"
+    ]
+    assert completed_tools == ["call_tool_a", "call_tool_b"]
+    assert control_plane.event_log is not None
+    assert len(asyncio.run(control_plane.event_log.list_events())) == len(
+        control_plane.events
+    )
