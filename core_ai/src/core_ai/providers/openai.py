@@ -26,13 +26,17 @@ class OpenAIProvider(BaseProvider):
         payload = {
             "model": model_name,
             "stream": True,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "stream_options": {"include_usage": True},
+            "messages": [],
         }
 
-        # Inject tool IDs for multi-turn execution
-        for m_orig, m_fmt in zip(messages, payload["messages"]):
-            if m_orig.tool_call_id:
-                m_fmt["tool_call_id"] = m_orig.tool_call_id
+        for message in messages:
+            formatted = {"role": message.role, "content": message.content}
+            if message.tool_call_id:
+                formatted["tool_call_id"] = message.tool_call_id
+            if message.tool_calls:
+                formatted["tool_calls"] = message.tool_calls
+            payload["messages"].append(formatted)
 
         if tools:
             payload["tools"] = [{"type": "function", "function": t} for t in tools]
@@ -70,6 +74,15 @@ class OpenAIProvider(BaseProvider):
                         chunk = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue  # Ignore malformed stream breaks
+
+                    usage = chunk.get("usage")
+                    if usage:
+                        yield StreamEvent(
+                            type="usage",
+                            prompt_tokens=usage.get("prompt_tokens"),
+                            completion_tokens=usage.get("completion_tokens"),
+                            total_tokens=usage.get("total_tokens"),
+                        )
 
                     if not chunk.get("choices"):
                         continue

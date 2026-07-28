@@ -4,10 +4,30 @@ from typing import Any, Dict, List, Optional
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 
+from core_harness.compaction import Compactor
 from core_harness.control_plane import ControlPlane, NullControlPlane
-from core_harness.models.harness import HarnessResult
+from core_harness.models.control_plane import ControlCommandType
+from core_harness.models.harness import HarnessResult, UsageTotals
 from core_harness.models.tools import PendingToolCall, ToolCall
+from core_harness.tokens import (
+    estimate_completion_tokens,
+    estimate_prompt_tokens,
+    message_size_breakdown,
+)
 from core_harness.tools import Tool
+
+
+DEFAULT_CONTEXT_LIMITS = {
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 128000,
+    "gpt-4.1": 1047576,
+    "gpt-4.1-mini": 1047576,
+    "gpt-4.1-nano": 1047576,
+}
+
+
+class HarnessCancelled(RuntimeError):
+    """Raised when an inbound cancel command stops the harness run."""
 
 
 class CoreHarness:
@@ -20,12 +40,20 @@ class CoreHarness:
         tools: Optional[List[Tool]] = None,
         control_plane: Optional[ControlPlane] = None,
         max_turns: int = 8,
+        context_limits: Optional[Dict[str, int]] = None,
+        context_warn_threshold: Optional[int] = None,
+        context_compact_threshold: Optional[int] = None,
+        compactor: Optional[Compactor] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
         self.system_prompt = system_prompt
         self.control_plane = control_plane or NullControlPlane()
         self.max_turns = max_turns
+        self.context_limits = {**DEFAULT_CONTEXT_LIMITS, **(context_limits or {})}
+        self.context_warn_threshold = context_warn_threshold
+        self.context_compact_threshold = context_compact_threshold
+        self.compactor = compactor
         self.tools: Dict[str, Tool] = {}
 
         for tool in tools or []:
@@ -54,74 +82,357 @@ class CoreHarness:
         )
 
         all_tool_calls: List[ToolCall] = []
-        for turn in range(self.max_turns):
-            assistant_text = ""
-            pending_calls: Dict[int, PendingToolCall] = {}
+        usage = UsageTotals()
+        context_limit = self._context_limit()
+        context_left: Optional[int] = None
+        budget_tokens = 0
+        current_turn = 0
+        try:
+            for turn in range(self.max_turns):
+                current_turn = turn
+                messages = await self._apply_inbound_commands(messages, turn=turn)
 
-            async for event in self.registry.stream(
-                self.model_id,
-                messages,
-                self.tool_schemas(),
-            ):
-                if event.type == "text_delta" and event.delta:
-                    assistant_text += event.delta
-                    await self.control_plane.emit(
-                        "text_delta",
-                        {"turn": turn, "delta": event.delta},
+                assistant_text = ""
+                pending_calls: Dict[int, PendingToolCall] = {}
+                saw_usage = False
+                budget_tokens = usage.total_tokens
+                compact_tokens_used = budget_tokens
+                compact_context_left = context_left
+                if compact_context_left is None and context_limit is not None:
+                    compact_tokens_used = estimate_prompt_tokens(messages)
+                    compact_context_left = max(context_limit - compact_tokens_used, 0)
+
+                messages = await self._maybe_compact(
+                    messages,
+                    turn=turn,
+                    context_limit=context_limit,
+                    tokens_used=compact_tokens_used,
+                    context_left=compact_context_left,
+                )
+
+                await self.control_plane.emit(
+                    "turn_started",
+                    {"turn": turn, "message_count": len(messages)},
+                )
+
+                async for event in self.registry.stream(
+                    self.model_id,
+                    messages,
+                    self.tool_schemas(),
+                ):
+                    if event.type == "text_delta" and event.delta:
+                        assistant_text += event.delta
+                        await self.control_plane.emit(
+                            "text_delta",
+                            {"turn": turn, "delta": event.delta},
+                        )
+                    elif event.type == "toolcall_start":
+                        pending_calls[event.content_index] = PendingToolCall(
+                            id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}",
+                            name=event.tool_name,
+                        )
+                        await self.control_plane.emit(
+                            "tool_call_started",
+                            {
+                                "turn": turn,
+                                "tool_call_id": pending_calls[event.content_index].id,
+                                "tool_name": event.tool_name,
+                            },
+                        )
+                    elif event.type == "toolcall_delta" and event.delta:
+                        pending = pending_calls.setdefault(
+                            event.content_index,
+                            PendingToolCall(id=f"toolcall-{turn}-{event.content_index}"),
+                        )
+                        pending.arguments_json += event.delta
+                        await self.control_plane.emit(
+                            "tool_call_delta",
+                            {
+                                "turn": turn,
+                                "tool_call_id": pending.id,
+                                "delta": event.delta,
+                            },
+                        )
+                    elif event.type == "usage":
+                        saw_usage = True
+                        usage.prompt_tokens += event.prompt_tokens or 0
+                        usage.completion_tokens += event.completion_tokens or 0
+                        usage.total_tokens += event.total_tokens or 0
+                        budget_tokens = event.prompt_tokens or usage.total_tokens
+                        await self.control_plane.emit(
+                            "usage",
+                            {
+                                "turn": turn,
+                                "prompt_tokens": event.prompt_tokens or 0,
+                                "completion_tokens": event.completion_tokens or 0,
+                                "total_tokens": event.total_tokens or 0,
+                                "cumulative_tokens": usage.total_tokens,
+                                "estimated": False,
+                            },
+                        )
+
+                if not saw_usage:
+                    prompt_tokens = estimate_prompt_tokens(messages)
+                    tool_arguments_json = "".join(
+                        pending.arguments_json for pending in pending_calls.values()
                     )
-                elif event.type == "toolcall_start":
-                    pending_calls[event.content_index] = PendingToolCall(
-                        id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}",
-                        name=event.tool_name,
+                    completion_tokens = estimate_completion_tokens(
+                        assistant_text,
+                        tool_arguments_json=tool_arguments_json,
                     )
+                    total_tokens = prompt_tokens + completion_tokens
+                    usage.prompt_tokens += prompt_tokens
+                    usage.completion_tokens += completion_tokens
+                    usage.total_tokens += total_tokens
+                    budget_tokens = prompt_tokens
                     await self.control_plane.emit(
-                        "tool_call_started",
+                        "usage",
                         {
                             "turn": turn,
-                            "tool_call_id": pending_calls[event.content_index].id,
-                            "tool_name": event.tool_name,
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": total_tokens,
+                            "cumulative_tokens": usage.total_tokens,
+                            "estimated": True,
                         },
                     )
-                elif event.type == "toolcall_delta" and event.delta:
-                    pending = pending_calls.setdefault(
-                        event.content_index,
-                        PendingToolCall(id=f"toolcall-{turn}-{event.content_index}"),
-                    )
-                    pending.arguments_json += event.delta
 
-            if not pending_calls:
-                messages.append(Message(role="assistant", content=assistant_text))
                 await self.control_plane.emit(
-                    "run_completed",
-                    {"turn": turn, "output_text": assistant_text},
+                    "turn_completed",
+                    {"turn": turn, "had_tool_calls": bool(pending_calls)},
                 )
-                return HarnessResult(
-                    output_text=assistant_text,
-                    messages=messages,
-                    tool_calls=all_tool_calls,
+                message_sizes = message_size_breakdown(messages)
+                context_left = (
+                    max(context_limit - budget_tokens, 0)
+                    if context_limit is not None
+                    else None
+                )
+                await self.control_plane.emit(
+                    "context",
+                    {
+                        "turn": turn,
+                        "context_limit": context_limit,
+                        "tokens_used": budget_tokens,
+                        "context_left": context_left,
+                        "utilization": (
+                            budget_tokens / context_limit if context_limit else None
+                        ),
+                        "message_sizes": message_sizes,
+                    },
+                )
+                await self._maybe_emit_context_warning(
+                    turn=turn,
+                    context_limit=context_limit,
+                    tokens_used=budget_tokens,
+                    context_left=context_left,
                 )
 
-            tool_calls = self._build_tool_calls(pending_calls)
-            all_tool_calls.extend(tool_calls)
-            messages.append(
-                Message(
-                    role="assistant",
-                    content=assistant_text,
-                    tool_calls=[self._to_message_tool_call(tool_call) for tool_call in tool_calls],
-                )
-            )
+                if not pending_calls:
+                    messages.append(Message(role="assistant", content=assistant_text))
+                    await self.control_plane.emit(
+                        "run_completed",
+                        {
+                            "turn": turn,
+                            "output_text": assistant_text,
+                            "usage": usage.model_dump(),
+                            "context": {
+                                "context_limit": context_limit,
+                                "tokens_used": budget_tokens,
+                                "context_left": context_left,
+                                "utilization": (
+                                    budget_tokens / context_limit if context_limit else None
+                                ),
+                                "message_sizes": message_sizes,
+                            },
+                        },
+                    )
+                    return HarnessResult(
+                        output_text=assistant_text,
+                        messages=messages,
+                        tool_calls=all_tool_calls,
+                        usage=usage,
+                        context_limit=context_limit,
+                        context_left=context_left,
+                    )
 
-            for tool_call in tool_calls:
-                tool_output = await self._execute_tool(tool_call)
+                tool_calls = self._build_tool_calls(pending_calls)
+                all_tool_calls.extend(tool_calls)
                 messages.append(
                     Message(
-                        role="tool",
-                        content=self._stringify_tool_output(tool_output),
-                        tool_call_id=tool_call.id,
+                        role="assistant",
+                        content=assistant_text,
+                        tool_calls=[
+                            self._to_message_tool_call(tool_call) for tool_call in tool_calls
+                        ],
                     )
                 )
 
+                for tool_call in tool_calls:
+                    tool_output = await self._execute_tool(tool_call)
+                    messages.append(
+                        Message(
+                            role="tool",
+                            content=self._stringify_tool_output(tool_output),
+                            tool_call_id=tool_call.id,
+                        )
+                    )
+        except HarnessCancelled:
+            raise
+        except Exception as exc:
+            await self.control_plane.emit(
+                "run_failed",
+                {
+                    "turn": current_turn,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                },
+            )
+            raise
+
+        await self.control_plane.emit(
+            "run_failed",
+            {
+                "turn": self.max_turns - 1,
+                "error_type": "RuntimeError",
+                "message": f"Harness exceeded max_turns={self.max_turns}",
+            },
+        )
         raise RuntimeError(f"Harness exceeded max_turns={self.max_turns}")
+
+    def _context_limit(self) -> Optional[int]:
+        if self.model_id in self.context_limits:
+            return self.context_limits[self.model_id]
+
+        model_name = self.model_id.split(":", 1)[-1]
+        if model_name in self.context_limits:
+            return self.context_limits[model_name]
+
+        for known_model, limit in sorted(
+            self.context_limits.items(), key=lambda item: len(item[0]), reverse=True
+        ):
+            if model_name.startswith(f"{known_model}-"):
+                return limit
+
+        return None
+
+    async def _apply_inbound_commands(
+        self,
+        messages: List[Message],
+        *,
+        turn: int,
+    ) -> List[Message]:
+        wait_if_paused = getattr(self.control_plane, "wait_if_paused", None)
+        if wait_if_paused is not None and getattr(self.control_plane, "paused", False):
+            await self.control_plane.emit("paused", {"turn": turn})
+            await wait_if_paused()
+            await self.control_plane.emit("resumed", {"turn": turn})
+
+        drain = getattr(self.control_plane, "drain_commands", None)
+        if drain is None:
+            return messages
+
+        for command in await drain():
+            if command.type == ControlCommandType.CANCEL:
+                reason = str(command.payload.get("reason", "cancelled"))
+                await self.control_plane.emit(
+                    "run_cancelled",
+                    {"turn": turn, "reason": reason},
+                )
+                raise HarnessCancelled(reason)
+            if command.type == ControlCommandType.INJECT_MESSAGE:
+                injected = command.to_message()
+                messages.append(injected)
+                await self.control_plane.emit(
+                    "message_injected",
+                    {
+                        "turn": turn,
+                        "role": injected.role,
+                        "content": injected.content,
+                    },
+                )
+        return messages
+
+    def _should_warn(self, context_left: Optional[int]) -> bool:
+        return (
+            self.context_warn_threshold is not None
+            and context_left is not None
+            and context_left <= self.context_warn_threshold
+        )
+
+    def _should_compact(self, context_left: Optional[int]) -> bool:
+        return (
+            self.compactor is not None
+            and self.context_compact_threshold is not None
+            and context_left is not None
+            and context_left <= self.context_compact_threshold
+        )
+
+    async def _maybe_emit_context_warning(
+        self,
+        *,
+        turn: int,
+        context_limit: Optional[int],
+        tokens_used: int,
+        context_left: Optional[int],
+    ) -> None:
+        if not self._should_warn(context_left):
+            return
+
+        await self.control_plane.emit(
+            "context_warning",
+            {
+                "turn": turn,
+                "context_limit": context_limit,
+                "tokens_used": tokens_used,
+                "context_left": context_left,
+                "threshold": self.context_warn_threshold,
+            },
+        )
+
+    async def _maybe_compact(
+        self,
+        messages: List[Message],
+        *,
+        turn: int,
+        context_limit: Optional[int],
+        tokens_used: int,
+        context_left: Optional[int],
+    ) -> List[Message]:
+        if not self._should_compact(context_left):
+            return messages
+
+        assert self.compactor is not None
+        before_count = len(messages)
+        before_tokens = estimate_prompt_tokens(messages)
+        await self.control_plane.emit(
+            "compaction_started",
+            {
+                "turn": turn,
+                "message_count": before_count,
+                "tokens_used": tokens_used,
+                "context_left": context_left,
+                "threshold": self.context_compact_threshold,
+            },
+        )
+        compacted = await self.compactor.compact(
+            messages,
+            turn=turn,
+            context_limit=context_limit,
+            tokens_used=tokens_used,
+            context_left=context_left,
+        )
+        after_tokens = estimate_prompt_tokens(compacted)
+        await self.control_plane.emit(
+            "compaction_completed",
+            {
+                "turn": turn,
+                "message_count_before": before_count,
+                "message_count_after": len(compacted),
+                "estimated_tokens_before": before_tokens,
+                "estimated_tokens_after": after_tokens,
+            },
+        )
+        return compacted
 
     def _build_tool_calls(
         self,
