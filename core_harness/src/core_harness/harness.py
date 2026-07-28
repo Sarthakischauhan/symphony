@@ -4,9 +4,15 @@ from typing import Any, Dict, List, Optional
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 
+from core_harness.compaction import Compactor
 from core_harness.control_plane import ControlPlane, NullControlPlane
 from core_harness.models.harness import HarnessResult, UsageTotals
 from core_harness.models.tools import PendingToolCall, ToolCall
+from core_harness.tokens import (
+    estimate_completion_tokens,
+    estimate_prompt_tokens,
+    message_size_breakdown,
+)
 from core_harness.tools import Tool
 
 
@@ -30,6 +36,9 @@ class CoreHarness:
         control_plane: Optional[ControlPlane] = None,
         max_turns: int = 8,
         context_limits: Optional[Dict[str, int]] = None,
+        context_warn_threshold: Optional[int] = None,
+        context_compact_threshold: Optional[int] = None,
+        compactor: Optional[Compactor] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -37,6 +46,9 @@ class CoreHarness:
         self.control_plane = control_plane or NullControlPlane()
         self.max_turns = max_turns
         self.context_limits = {**DEFAULT_CONTEXT_LIMITS, **(context_limits or {})}
+        self.context_warn_threshold = context_warn_threshold
+        self.context_compact_threshold = context_compact_threshold
+        self.compactor = compactor
         self.tools: Dict[str, Tool] = {}
 
         for tool in tools or []:
@@ -68,13 +80,28 @@ class CoreHarness:
         usage = UsageTotals()
         context_limit = self._context_limit()
         context_left: Optional[int] = None
+        budget_tokens = 0
         current_turn = 0
         try:
             for turn in range(self.max_turns):
                 current_turn = turn
                 assistant_text = ""
                 pending_calls: Dict[int, PendingToolCall] = {}
+                saw_usage = False
                 budget_tokens = usage.total_tokens
+                compact_tokens_used = budget_tokens
+                compact_context_left = context_left
+                if compact_context_left is None and context_limit is not None:
+                    compact_tokens_used = estimate_prompt_tokens(messages)
+                    compact_context_left = max(context_limit - compact_tokens_used, 0)
+
+                messages = await self._maybe_compact(
+                    messages,
+                    turn=turn,
+                    context_limit=context_limit,
+                    tokens_used=compact_tokens_used,
+                    context_left=compact_context_left,
+                )
 
                 await self.control_plane.emit(
                     "turn_started",
@@ -120,6 +147,7 @@ class CoreHarness:
                             },
                         )
                     elif event.type == "usage":
+                        saw_usage = True
                         usage.prompt_tokens += event.prompt_tokens or 0
                         usage.completion_tokens += event.completion_tokens or 0
                         usage.total_tokens += event.total_tokens or 0
@@ -132,13 +160,41 @@ class CoreHarness:
                                 "completion_tokens": event.completion_tokens or 0,
                                 "total_tokens": event.total_tokens or 0,
                                 "cumulative_tokens": usage.total_tokens,
+                                "estimated": False,
                             },
                         )
+
+                if not saw_usage:
+                    prompt_tokens = estimate_prompt_tokens(messages)
+                    tool_arguments_json = "".join(
+                        pending.arguments_json for pending in pending_calls.values()
+                    )
+                    completion_tokens = estimate_completion_tokens(
+                        assistant_text,
+                        tool_arguments_json=tool_arguments_json,
+                    )
+                    total_tokens = prompt_tokens + completion_tokens
+                    usage.prompt_tokens += prompt_tokens
+                    usage.completion_tokens += completion_tokens
+                    usage.total_tokens += total_tokens
+                    budget_tokens = prompt_tokens
+                    await self.control_plane.emit(
+                        "usage",
+                        {
+                            "turn": turn,
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": total_tokens,
+                            "cumulative_tokens": usage.total_tokens,
+                            "estimated": True,
+                        },
+                    )
 
                 await self.control_plane.emit(
                     "turn_completed",
                     {"turn": turn, "had_tool_calls": bool(pending_calls)},
                 )
+                message_sizes = message_size_breakdown(messages)
                 context_left = (
                     max(context_limit - budget_tokens, 0)
                     if context_limit is not None
@@ -154,7 +210,14 @@ class CoreHarness:
                         "utilization": (
                             budget_tokens / context_limit if context_limit else None
                         ),
+                        "message_sizes": message_sizes,
                     },
+                )
+                await self._maybe_emit_context_warning(
+                    turn=turn,
+                    context_limit=context_limit,
+                    tokens_used=budget_tokens,
+                    context_left=context_left,
                 )
 
                 if not pending_calls:
@@ -172,6 +235,7 @@ class CoreHarness:
                                 "utilization": (
                                     budget_tokens / context_limit if context_limit else None
                                 ),
+                                "message_sizes": message_sizes,
                             },
                         },
                     )
@@ -241,6 +305,88 @@ class CoreHarness:
                 return limit
 
         return None
+
+    def _should_warn(self, context_left: Optional[int]) -> bool:
+        return (
+            self.context_warn_threshold is not None
+            and context_left is not None
+            and context_left <= self.context_warn_threshold
+        )
+
+    def _should_compact(self, context_left: Optional[int]) -> bool:
+        return (
+            self.compactor is not None
+            and self.context_compact_threshold is not None
+            and context_left is not None
+            and context_left <= self.context_compact_threshold
+        )
+
+    async def _maybe_emit_context_warning(
+        self,
+        *,
+        turn: int,
+        context_limit: Optional[int],
+        tokens_used: int,
+        context_left: Optional[int],
+    ) -> None:
+        if not self._should_warn(context_left):
+            return
+
+        await self.control_plane.emit(
+            "context_warning",
+            {
+                "turn": turn,
+                "context_limit": context_limit,
+                "tokens_used": tokens_used,
+                "context_left": context_left,
+                "threshold": self.context_warn_threshold,
+            },
+        )
+
+    async def _maybe_compact(
+        self,
+        messages: List[Message],
+        *,
+        turn: int,
+        context_limit: Optional[int],
+        tokens_used: int,
+        context_left: Optional[int],
+    ) -> List[Message]:
+        if not self._should_compact(context_left):
+            return messages
+
+        assert self.compactor is not None
+        before_count = len(messages)
+        before_tokens = estimate_prompt_tokens(messages)
+        await self.control_plane.emit(
+            "compaction_started",
+            {
+                "turn": turn,
+                "message_count": before_count,
+                "tokens_used": tokens_used,
+                "context_left": context_left,
+                "threshold": self.context_compact_threshold,
+            },
+        )
+        compacted = await self.compactor.compact(
+            messages,
+            turn=turn,
+            context_limit=context_limit,
+            tokens_used=tokens_used,
+            context_left=context_left,
+        )
+        after_tokens = estimate_prompt_tokens(compacted)
+        await self.control_plane.emit(
+            "compaction_completed",
+            {
+                "turn": turn,
+                "message_count_before": before_count,
+                "message_count_after": len(compacted),
+                "estimated_tokens_before": before_tokens,
+                "estimated_tokens_after": after_tokens,
+            },
+        )
+        return compacted
 
     def _build_tool_calls(
         self,

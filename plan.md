@@ -220,10 +220,10 @@ class ControlPlaneEvent(BaseModel):
 
 ### Phase C — Context management
 
-1. Threshold hooks (`context_left` low → warn event)
-2. Compaction / summarization strategy (pluggable)
-3. Token estimation fallback when provider usage missing (local tokenizer or heuristic)
-4. Per-message size accounting for planning/debug
+1. Threshold hooks (`context_left` low → warn event) — done (`context_warning`, `context_warn_threshold`)
+2. Compaction / summarization strategy (pluggable) — done (`Compactor`, `KeepSystemRecentCompactor`, `compaction_*` events)
+3. Token estimation fallback when provider usage missing (local tokenizer or heuristic) — done (char/4 estimate, `usage.estimated`)
+4. Per-message size accounting for planning/debug — done (`context.message_sizes`)
 
 ### Phase D — Control plane as product surface
 

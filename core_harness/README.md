@@ -43,13 +43,40 @@ print(result.output_text)
 - streams model output through `core_ai.ModelRegistry`
 - collects tool calls and executes registered tools
 - appends tool responses back into the conversation
-- emits control-plane events such as `run_started`, `text_delta`, and tool execution events
+- emits control-plane events such as `run_started`, `text_delta`, tool execution, `usage`, and `context`
+- estimates usage when the provider omits it, warns when `context_left` is low, and can compact history via a pluggable `Compactor`
+
+### Context management
+
+```python
+from core_harness import CoreHarness, KeepSystemRecentCompactor, Tool
+
+harness = CoreHarness(
+    registry=registry,
+    model_id="openai:gpt-4.1-mini",
+    system_prompt="You are a concise assistant.",
+    tools=[Tool(get_weather)],
+    control_plane=PrintControlPlane(),
+    context_warn_threshold=8_000,
+    context_compact_threshold=4_000,
+    compactor=KeepSystemRecentCompactor(keep_recent=6),
+)
+```
+
+Extra control-plane events from context management:
+
+- `context_warning` — `context_left` at or below `context_warn_threshold`
+- `compaction_started` / `compaction_completed` — history reduced before a turn
+- `usage.estimated` — `true` when provider usage was missing and a heuristic was used
+- `context.message_sizes` — per-message token estimates for planning/debug
 
 ### Layout
 
 - `harness.py` contains `CoreHarness`
 - `tools.py` contains callable tool wrapping
 - `control_plane.py` contains the control-plane protocol and default implementation
+- `compaction.py` contains the pluggable compaction protocol
+- `tokens.py` contains heuristic token estimation helpers
 - `models/harness.py` contains harness result models
 - `models/tools.py` contains tool-call models
 - `models/control_plane.py` contains control-plane event models
