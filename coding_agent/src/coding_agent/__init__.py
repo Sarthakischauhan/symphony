@@ -1,9 +1,23 @@
 from coding_agent.agent import CodingAgent
 from coding_agent.prompts import SYSTEM_PROMPT
-from coding_agent.tools import WorkspaceTools
+from coding_agent.tools import (
+    BashTool,
+    GrepTool,
+    ReadFileTool,
+    TOOL_CLASSES,
+    WorkspaceTool,
+    WriteFileTool,
+    build_tools,
+)
 
 __all__ = [
+    "BashTool",
     "CodingAgent",
+    "GrepTool",
+    "ReadFileTool",
     "SYSTEM_PROMPT",
-    "WorkspaceTools",
+    "TOOL_CLASSES",
+    "WorkspaceTool",
+    "WriteFileTool",
+    "build_tools",
 ]

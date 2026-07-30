@@ -41,7 +41,7 @@ def test_coding_agent_writes_and_runs_bubble_sort(tmp_path: Path) -> None:
             "Implement bubble sort for the array [14, 2, 19, 13, 3, 24]. "
             "Make the script runnable from the command line, run it with bash, "
             "and ensure it prints the sorted result [2, 3, 13, 14, 19, 24]. "
-            "Use the write, read, and bash tools as needed."
+            "Use the write_file, read_file, bash, and grep tools as needed."
         )
     )
     print(result)
