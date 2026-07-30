@@ -1,15 +1,33 @@
 # core-ai
 
-Small Python package for streaming model responses through a shared provider
-interface.
+Small shared package for model providers and streaming response types. It is under active construction, so the README stays intentionally brief.
 
-Source code lives in `src/core_ai`.
+## What it provides
 
-## Layout
+- `ModelRegistry` for routing `provider:model` requests
+- `OpenAIProvider` for streaming Chat Completions responses
+- `Message` and `StreamEvent` as shared data types
 
-- `registry.py` registers providers and routes `provider:model` requests.
-- `types.py` defines shared message and stream event models.
-- `providers/` contains provider implementations.
+## Example
+
+`core-ai` is used by the coding agent stack:
+
+```python
+from core_ai import ModelRegistry, OpenAIProvider
+from coding_agent import CodingAgent
+
+registry = ModelRegistry()
+registry.register("openai", OpenAIProvider(api_key=...))
+
+agent = CodingAgent(
+    registry=registry,
+    model_id="openai:gpt-4o-mini",
+    workspace=".workspace",
+)
+
+result = await agent.run("Create hello.txt with hi, then read it back.")
+print(result.output_text)
+```
 
 ## Development
 
