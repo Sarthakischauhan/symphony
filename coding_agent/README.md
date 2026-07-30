@@ -1,11 +1,12 @@
 ## coding_agent
 
-Minimal coding agent product on top of `core_harness`.
+Coding agent product on top of `core_harness`.
 
 ### Surface
 
 - `CodingAgent` — wires workspace tools into `CoreHarness`
-- tools: `read`, `write`, `bash` (scoped to a workspace directory)
+- tools (one module each): `read_file`, `write_file`, `bash`, `grep`
+- `build_tools(workspace)` — register all tools for a workspace root
 
 ```python
 from core_ai import ModelRegistry, OpenAIProvider
@@ -24,8 +25,23 @@ result = await agent.run("Create hello.txt with hi, then read it back.")
 print(result.output_text)
 ```
 
+### Tool pattern
+
+Each tool lives in its own file under `coding_agent/tools/`:
+
+1. Subclass `WorkspaceTool`
+2. Set `name` and `description`
+3. Implement `run(...)` with typed parameters
+4. Register the class in `TOOL_CLASSES` inside `tools/__init__.py`
+
+Shared path safety and `as_harness_tool()` live in `tools/base.py`.
+
 ### Layout
 
 - `agent.py` — `CodingAgent`
-- `tools.py` — workspace-scoped read / write / bash
+- `tools/base.py` — `WorkspaceTool`
+- `tools/read_file.py` — `ReadFileTool`
+- `tools/write_file.py` — `WriteFileTool`
+- `tools/bash.py` — `BashTool`
+- `tools/grep.py` — `GrepTool`
 - `prompts.py` — default system prompt
