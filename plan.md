@@ -42,10 +42,10 @@ Shared `WorkspaceTool` base handles workspace binding, path escape rejection, an
 
 Unit tests cover tools without a live API key; the live bubble-sort integration test remains optional.
 
-### Not started yet
+### Not started yet / next
 
-- Interactive TUI (Textual)
-- CLI entrypoint packaging
+- TUI streaming polish + cancel/pause (scaffold in PR #4)
+- CLI packaging beyond the TUI entrypoint
 - Edit / apply-patch style tools
 - Permission / approval gates for destructive tools
 - Session resume + richer CP-driven UI
