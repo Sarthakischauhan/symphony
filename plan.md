@@ -72,15 +72,16 @@ Unit tests cover tools without a live API key; the live bubble-sort integration 
 - [x] Unit tests for tools (path safety, grep, bash, schemas)
 - [x] README documents the add-a-tool pattern
 
-### Phase 2 — Minimal Textual TUI (next PR)
+### Phase 2 — Minimal Textual TUI (parallel PR #4)
 
 Scaffold a basic terminal UI so humans can chat with the agent:
 
-- [ ] Add `textual` dependency (coding_agent optional/extra or direct)
-- [ ] Minimal app: transcript log + input box + run agent turn
-- [ ] Subscribe to control-plane events (`text_delta`, tool start/complete)
-- [ ] Entry point: `python -m coding_agent.tui` (or console script)
-- [ ] Keep UI logic out of tool modules
+- [x] Add `textual` dependency
+- [x] Minimal app: transcript log + input box + run agent turn
+- [x] Subscribe to control-plane events (tool start/complete; streaming later)
+- [x] Entry points: `python -m coding_agent.tui` / `coding-agent-tui`
+- [ ] Stream `text_delta` into the log without duplicating final output
+- [ ] Cancel / pause bindings via inbound CP commands
 
 ### Phase 3 — Agent hardening
 
@@ -111,31 +112,19 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 
 ---
 
-## 5. Concrete Checklist (Phase 2 — TUI)
+## 5. Concrete Checklist (post-merge)
 
-### Package
+### Align tools + TUI
 
-- [ ] Depend on `textual`
-- [ ] Package layout: `coding_agent/tui/app.py` (+ `__main__.py`)
-- [ ] Optional: `[project.scripts] coding-agent-tui = ...`
+- [ ] Merge tools PR and TUI PR (#4); resolve `plan.md` if needed
+- [ ] Point TUI docs at `read_file` / `write_file` / `grep` names
+- [ ] Stream `text_delta` in TUI without duplicating `output_text`
 
-### UI
+### Next agent work
 
-- [ ] Header with model / workspace
-- [ ] Scrollable log for assistant text + tool events
-- [ ] Input submit → `CodingAgent.run` (or streaming later)
-- [ ] Quit binding (`q` / ctrl+c)
-
-### Wiring
-
-- [ ] Control plane sink that posts to the Textual app (thread/async safe)
-- [ ] Env-based OpenAI config (`OPENAI_API_KEY`, model, workspace path)
-- [ ] Graceful message when API key missing
-
-### Docs
-
-- [ ] README section: how to launch the TUI
-- [ ] Update this plan when Phase 2 lands
+- [ ] Design `edit_file` / patch tool
+- [ ] Tool result size caps
+- [ ] Optional permission gate for bash / overwrite
 
 ---
 
@@ -155,4 +144,4 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 3. Update **Current State** and checkboxes when work merges.
 4. Add new backlog rows under Phase 5 instead of rewriting history.
 
-**Primary near-term objective:** Phase 2 — minimal Textual TUI scaffold.
+**Primary near-term objectives:** merge this tools PR + TUI PR (#4), then streaming polish and Phase 3 `edit_file`.
