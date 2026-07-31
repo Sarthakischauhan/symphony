@@ -45,21 +45,37 @@ print(result.output_text)
 
 If you only want the CLI/TUI and not the Python API, `uv run --package coding-agent coding-agent-tui` is the fastest path.
 
+### Conversation / memory
+
+`CoreHarness` keeps the full message list **inside a single** `run()` (system → user → tool turns → final assistant).
+
+`CodingAgent` does **not** auto-accumulate history across separate `run()` calls. That is intentional for now: the harness owns in-run state; multi-run sessions are the caller's job.
+
+```python
+result = await agent.run("Create hello.txt")
+# Continue with prior turns (drop the harness-injected system message):
+result = await agent.run(
+    "Now read it back",
+    conversation=result.messages[1:],
+)
+```
+
 ### Tool pattern
 
 Each tool lives in its own file under `coding_agent/tools/`:
 
 1. Subclass `WorkspaceTool`
-2. Set `name` and `description`
-3. Implement `run(...)` with typed parameters
-4. Register the class in `TOOL_CLASSES` inside `tools/__init__.py`
+2. Define a pydantic `ToolArgsModel` with `Field(..., description=...)`
+3. Set `name`, `description`, and `args_model`
+4. Implement `run(...)` with typed parameters
+5. Register the class in `TOOL_CLASSES` inside `tools/__init__.py`
 
-Shared path safety and `as_harness_tool()` live in `tools/base.py`.
+Shared path safety, JSON Schema export, and argument validation live in `tools/base.py`.
 
 ### Layout
 
 - `agent.py` — `CodingAgent`
-- `tools/base.py` — `WorkspaceTool`
+- `tools/base.py` — `WorkspaceTool` + `ToolArgsModel`
 - `tools/read_file.py` — `ReadFileTool`
 - `tools/write_file.py` — `WriteFileTool`
 - `tools/bash.py` — `BashTool`

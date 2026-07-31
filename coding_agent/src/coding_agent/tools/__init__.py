@@ -2,8 +2,9 @@
 
 Pattern for adding a tool:
 1. Create ``coding_agent/tools/<name>.py`` with a ``WorkspaceTool`` subclass
-2. Set ``name`` / ``description`` and implement ``run(...)``
-3. Register the class in ``TOOL_CLASSES`` below
+2. Define a pydantic ``ToolArgsModel`` with Field descriptions
+3. Set ``name`` / ``description`` / ``args_model`` and implement ``run(...)``
+4. Register the class in ``TOOL_CLASSES`` below
 """
 
 from __future__ import annotations
@@ -13,11 +14,11 @@ from typing import List, Type
 
 from core_harness import Tool
 
-from coding_agent.tools.base import WorkspaceTool
-from coding_agent.tools.bash import BashTool
-from coding_agent.tools.grep import GrepTool
-from coding_agent.tools.read_file import ReadFileTool
-from coding_agent.tools.write_file import WriteFileTool
+from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+from coding_agent.tools.bash import BashArgs, BashTool
+from coding_agent.tools.grep import GrepArgs, GrepTool
+from coding_agent.tools.read_file import ReadFileArgs, ReadFileTool
+from coding_agent.tools.write_file import WriteFileArgs, WriteFileTool
 
 TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
     ReadFileTool,
@@ -27,11 +28,16 @@ TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
 )
 
 __all__ = [
+    "BashArgs",
     "BashTool",
+    "GrepArgs",
     "GrepTool",
+    "ReadFileArgs",
     "ReadFileTool",
     "TOOL_CLASSES",
+    "ToolArgsModel",
     "WorkspaceTool",
+    "WriteFileArgs",
     "WriteFileTool",
     "build_tools",
 ]

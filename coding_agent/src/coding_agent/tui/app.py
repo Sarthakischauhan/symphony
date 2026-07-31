@@ -15,6 +15,8 @@ from textual import work
 
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
+from core_ai.types import Message
+from core_harness import HarnessResult
 
 
 def _build_agent(
@@ -94,6 +96,7 @@ class CodingAgentApp(App[None]):
         self.model_id = model_id
         self.control_plane = TextualControlPlane()
         self._agent: Optional[CodingAgent] = None
+        self._conversation_history: list[Message] = []
         self._busy = False
 
     def compose(self) -> ComposeResult:
@@ -177,10 +180,9 @@ class CodingAgentApp(App[None]):
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
-        assert self._agent is not None
         log = self.query_one("#log", RichLog)
         try:
-            result = await self._agent.run(user_input)
+            result = await self._run_agent_turn(user_input)
             if result.output_text:
                 log.write(f"[bold]assistant>[/bold] {result.output_text}")
         except Exception as exc:  # noqa: BLE001 — surface run failures in the log
@@ -190,6 +192,16 @@ class CodingAgentApp(App[None]):
             prompt = self.query_one("#prompt", Input)
             prompt.disabled = False
             prompt.focus()
+
+    async def _run_agent_turn(self, user_input: str) -> HarnessResult:
+        assert self._agent is not None
+        result = await self._agent.run(
+            user_input,
+            conversation=list(self._conversation_history),
+        )
+        # Drop the system prompt; CodingAgent/CoreHarness prepends it on each run.
+        self._conversation_history = result.messages[1:]
+        return result
 
 
 def run_tui(

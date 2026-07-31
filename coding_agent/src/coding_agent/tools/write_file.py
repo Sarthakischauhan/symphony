@@ -2,20 +2,50 @@
 
 from __future__ import annotations
 
-from coding_agent.tools.base import WorkspaceTool
+from pydantic import Field
+
+from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+
+
+class WriteFileArgs(ToolArgsModel):
+    path: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Workspace-relative path to write "
+            "(e.g. 'src/app.py'). Parent directories are created as needed."
+        ),
+    )
+    content: str = Field(
+        ...,
+        description="Full UTF-8 text content to write. Overwrites the file if it exists.",
+    )
 
 
 class WriteFileTool(WorkspaceTool):
     name = "write_file"
     description = (
-        "Write a UTF-8 text file relative to the workspace. "
-        "Creates parent directories as needed. Overwrites existing files. "
-        "Returns a short confirmation string."
+        "Create or overwrite a UTF-8 text file in the workspace. "
+        "Creates missing parent directories. "
+        "Returns a short confirmation with path and byte size. "
+        "Paths are relative to the workspace root and cannot escape it."
     )
+    args_model = WriteFileArgs
 
     def run(self, path: str, content: str) -> str:
-        """Write a UTF-8 text file relative to the workspace."""
-        target = self.resolve_path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        return f"wrote {path} ({len(content)} bytes)"
+        if not isinstance(content, str):
+            return f"error: content must be a string, got {type(content).__name__}"
+
+        try:
+            target = self.resolve_path(path)
+        except (TypeError, ValueError) as exc:
+            return f"error: {exc}"
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            encoded = content.encode("utf-8")
+            target.write_bytes(encoded)
+        except OSError as exc:
+            return f"error: failed to write {path}: {exc}"
+
+        return f"wrote {path} ({len(encoded)} bytes)"
