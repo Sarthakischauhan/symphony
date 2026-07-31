@@ -1,4 +1,4 @@
-"""Minimal Textual chat shell for CodingAgent."""
+"""Textual chat shell for CodingAgent — driven by core_harness CP events."""
 
 from __future__ import annotations
 
@@ -7,14 +7,16 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, Input, RichLog, Static
-from textual import work
 
 from coding_agent.agent import CodingAgent
-from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
+from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
+from coding_agent.tui.events import EventPresenter
+from coding_agent.tui.state import UiRunState
 from core_ai.types import Message
 from core_harness import HarnessResult
 
@@ -51,7 +53,7 @@ def _build_agent(
 
 
 class CodingAgentApp(App[None]):
-    """Basic transcript + input TUI. Streaming polish comes in later phases."""
+    """Transcript + live stream + metrics, fed by the harness control plane."""
 
     CSS = """
     Screen {
@@ -71,6 +73,15 @@ class CodingAgentApp(App[None]):
         padding: 0 1;
     }
 
+    #live {
+        height: auto;
+        min-height: 1;
+        max-height: 8;
+        padding: 0 1;
+        color: $text;
+        background: $surface;
+    }
+
     #prompt {
         dock: bottom;
         margin: 0 0 1 0;
@@ -83,7 +94,7 @@ class CodingAgentApp(App[None]):
     ]
 
     TITLE = "Symphony Coding Agent"
-    SUB_TITLE = "minimal TUI"
+    SUB_TITLE = "harness events"
 
     def __init__(
         self,
@@ -98,12 +109,15 @@ class CodingAgentApp(App[None]):
         self._agent: Optional[CodingAgent] = None
         self._conversation_history: list[Message] = []
         self._busy = False
+        self._ui_state = UiRunState()
+        self._presenter: Optional[EventPresenter] = None
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(id="status")
         with Vertical():
             yield RichLog(id="log", markup=True, highlight=True, wrap=True)
+            yield Static(id="live")
             yield Input(
                 placeholder="Message the coding agent… (Enter to send)",
                 id="prompt",
@@ -114,6 +128,16 @@ class CodingAgentApp(App[None]):
         self.control_plane.bind(self)
         status = self.query_one("#status", Static)
         log = self.query_one("#log", RichLog)
+        live = self.query_one("#live", Static)
+
+        self._presenter = EventPresenter(
+            state=self._ui_state,
+            write=log.write,
+            set_status=status.update,
+            set_live=live.update,
+            workspace=str(self.workspace),
+        )
+
         try:
             self._agent = _build_agent(
                 workspace=self.workspace,
@@ -126,39 +150,21 @@ class CodingAgentApp(App[None]):
             log.write("Fix env, then restart. UI scaffold still loads without a live run.")
             return
 
-        model = self._agent.harness.model_id
-        status.update(f"model={model}  workspace={self.workspace}")
+        self._ui_state.model_id = self._agent.harness.model_id
+        self._ui_state.phase = "idle"
+        self._ui_state.detail = "ready"
+        self._presenter.refresh_chrome()
         log.write("[bold]Ready.[/bold] Type a task and press Enter.")
+        log.write("[dim]UI mirrors core_harness control-plane events (stream, tools, usage, context).[/dim]")
         self.query_one("#prompt", Input).focus()
 
-    def on_control_plane_event(self, message: ControlPlaneEvent) -> None:
-        # Minimal scaffold: surface tool lifecycle; final assistant text comes from run().
-        log = self.query_one("#log", RichLog)
-        et = message.event_type
-        payload = message.payload
-
-        if et == "tool_execution_started":
-            name = payload.get("tool_name", "tool")
-            log.write(f"[cyan]→ {name}[/cyan] {payload.get('arguments', {})}")
+    def on_harness_event(self, message: HarnessEvent) -> None:
+        if self._presenter is None:
             return
+        self._presenter.handle(message.event_type, message.payload)
 
-        if et == "tool_execution_completed":
-            name = payload.get("tool_name", "tool")
-            result = str(payload.get("result", ""))
-            preview = result if len(result) <= 240 else result[:240] + "…"
-            log.write(f"[green]✓ {name}[/green] {preview}")
-            return
-
-        if et == "run_started":
-            log.write("[dim]— run started —[/dim]")
-            return
-
-        if et == "run_completed":
-            log.write("[dim]— run completed —[/dim]")
-            return
-
-        if et == "run_failed":
-            log.write(f"[red]run failed: {payload.get('message', payload)}[/red]")
+    # Textual resolves on_<MessageClass> in snake_case; keep alias for renamed message.
+    on_control_plane_event = on_harness_event
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = (event.value or "").strip()
@@ -182,12 +188,16 @@ class CodingAgentApp(App[None]):
     async def run_agent(self, user_input: str) -> None:
         log = self.query_one("#log", RichLog)
         try:
-            result = await self._run_agent_turn(user_input)
-            if result.output_text:
-                log.write(f"[bold]assistant>[/bold] {result.output_text}")
+            await self._run_agent_turn(user_input)
+            # Final assistant text is streamed via text_delta / flushed on turn/run end.
         except Exception as exc:  # noqa: BLE001 — surface run failures in the log
+            if self._presenter is not None:
+                self._presenter.flush_stream_to_log()
             log.write(f"[red]error: {exc}[/red]")
         finally:
+            if self._presenter is not None:
+                self._ui_state.phase = "idle"
+                self._presenter.refresh_chrome()
             self._busy = False
             prompt = self.query_one("#prompt", Input)
             prompt.disabled = False
