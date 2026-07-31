@@ -1,17 +1,13 @@
-"""Shared workspace binding and path safety for coding-agent tools.
-
-Every tool module follows the same pattern:
-1. Subclass ``WorkspaceTool``
-2. Set ``name`` and ``description``
-3. Implement ``run(...)`` with typed parameters
-4. Export the class; ``build_tools`` wires them into ``core_harness.Tool``
-"""
+"""Shared workspace binding, schema generation, and input validation."""
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Dict, Type
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from core_harness import Tool
 
@@ -21,22 +17,80 @@ class WorkspaceTool(ABC):
 
     name: str
     description: str
+    args_model: ClassVar[Type[BaseModel]]
 
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
 
     def resolve_path(self, path: str) -> Path:
-        """Resolve a workspace-relative path; reject escapes."""
+        """Resolve a workspace-relative path; reject escapes and bad types."""
+        if not isinstance(path, str):
+            raise TypeError(f"path must be a string, got {type(path).__name__}")
+        if not path.strip():
+            raise ValueError("path must be a non-empty string")
+
         target = (self.workspace / path).resolve()
         if not target.is_relative_to(self.workspace):
             raise ValueError(f"Path escapes workspace: {path}")
         return target
+
+    def parameters_schema(self) -> Dict[str, Any]:
+        """JSON Schema for tool arguments (OpenAI-compatible parameters object)."""
+        schema = self.args_model.model_json_schema()
+        schema.pop("title", None)
+        schema.setdefault("type", "object")
+        schema.setdefault("additionalProperties", False)
+        return schema
+
+    def validate_args(self, **kwargs: Any) -> BaseModel:
+        """Validate and coerce tool kwargs with the tool's pydantic args model."""
+        try:
+            return self.args_model.model_validate(kwargs)
+        except ValidationError as exc:
+            raise ValueError(f"invalid {self.name} arguments: {exc}") from exc
 
     @abstractmethod
     def run(self, *args: Any, **kwargs: Any) -> str:
         """Execute the tool and return a string result for the model."""
 
     def as_harness_tool(self) -> Tool:
-        """Wrap ``run`` as a ``core_harness.Tool`` with this tool's schema metadata."""
-        return Tool(self.run, name=self.name, description=self.description)
+        """Wrap ``run`` as a ``core_harness.Tool`` with explicit JSON schema."""
+        tool = self
+
+        def invoke(**kwargs: Any) -> str:
+            validated = tool.validate_args(**kwargs)
+            return tool.run(**validated.model_dump())
+
+        params = []
+        for field_name, field in self.args_model.model_fields.items():
+            default = (
+                inspect.Parameter.empty
+                if field.is_required()
+                else field.default
+            )
+            annotation = field.annotation if field.annotation is not None else Any
+            params.append(
+                inspect.Parameter(
+                    field_name,
+                    kind=inspect.Parameter.KEYWORD_ONLY,
+                    default=default,
+                    annotation=annotation,
+                )
+            )
+        invoke.__signature__ = inspect.Signature(params)
+        invoke.__name__ = self.name
+        invoke.__doc__ = self.description
+
+        return Tool(
+            invoke,
+            name=self.name,
+            description=self.description,
+            parameters=self.parameters_schema(),
+        )
+
+
+class ToolArgsModel(BaseModel):
+    """Strict base for tool argument models."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)

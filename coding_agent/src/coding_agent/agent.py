@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from core_ai.registry import ModelRegistry
+from core_ai.types import Message
 from core_harness import ControlPlane, CoreHarness, HarnessResult, NullControlPlane, Tool
 
 from coding_agent.prompts import SYSTEM_PROMPT
@@ -13,7 +14,14 @@ from coding_agent.tools import build_tools
 
 
 class CodingAgent:
-    """Product wrapper: workspace tools + CoreHarness loop."""
+    """Product wrapper: workspace tools + CoreHarness loop.
+
+    Conversation model:
+    - Within one ``run()``, ``CoreHarness`` owns the full message list
+      (system + user + assistant/tool turns).
+    - Across ``run()`` calls this agent does **not** auto-accumulate history.
+      Pass prior turns via ``conversation`` (no system message; harness prepends it).
+    """
 
     def __init__(
         self,
@@ -39,5 +47,17 @@ class CodingAgent:
             max_turns=max_turns,
         )
 
-    async def run(self, user_input: str) -> HarnessResult:
-        return await self.harness.run(user_input)
+    async def run(
+        self,
+        user_input: str,
+        *,
+        conversation: Optional[List[Message]] = None,
+    ) -> HarnessResult:
+        """Run one agent turn loop.
+
+        ``conversation`` is optional prior history excluding the system prompt.
+        Returns ``HarnessResult.messages`` including system + this run's turns;
+        callers that want multi-run memory should persist and pass those back
+        (typically ``result.messages[1:]``) on the next call.
+        """
+        return await self.harness.run(user_input, conversation=conversation)

@@ -76,9 +76,49 @@ def test_grep_invalid_regex(tmp_path: Path) -> None:
     assert grep.run(pattern="[unterminated").startswith("error: invalid regex")
 
 
-def test_harness_tool_schema_excludes_self(tmp_path: Path) -> None:
-    tool = ReadFileTool(tmp_path).as_harness_tool()
-    schema = tool.get_schema()
-    assert schema["name"] == "read_file"
-    assert "path" in schema["parameters"]["properties"]
-    assert "path" in schema["parameters"]["required"]
+def test_harness_tool_schemas_include_field_descriptions(tmp_path: Path) -> None:
+    tools = {tool.name: tool for tool in build_tools(tmp_path)}
+
+    read_schema = tools["read_file"].get_schema()
+    assert read_schema["name"] == "read_file"
+    assert "UTF-8" in read_schema["description"]
+    assert read_schema["parameters"]["type"] == "object"
+    assert read_schema["parameters"]["additionalProperties"] is False
+    assert read_schema["parameters"]["required"] == ["path"]
+    assert "Workspace-relative path" in read_schema["parameters"]["properties"]["path"]["description"]
+
+    write_schema = tools["write_file"].get_schema()
+    assert set(write_schema["parameters"]["required"]) == {"path", "content"}
+    assert "UTF-8 text content" in write_schema["parameters"]["properties"]["content"]["description"]
+
+    bash_schema = tools["bash"].get_schema()
+    assert bash_schema["parameters"]["required"] == ["command"]
+    assert "Shell command" in bash_schema["parameters"]["properties"]["command"]["description"]
+
+    grep_schema = tools["grep"].get_schema()
+    grep_props = grep_schema["parameters"]["properties"]
+    assert grep_schema["parameters"]["required"] == ["pattern"]
+    assert "Regular expression" in grep_props["pattern"]["description"]
+    assert grep_props["max_matches"]["minimum"] == 1
+    assert grep_props["max_matches"]["maximum"] == 500
+
+
+def test_tool_argument_validation_rejects_bad_types(tmp_path: Path) -> None:
+    read = ReadFileTool(tmp_path).as_harness_tool()
+    write = WriteFileTool(tmp_path).as_harness_tool()
+    bash = BashTool(tmp_path).as_harness_tool()
+    grep = GrepTool(tmp_path).as_harness_tool()
+
+    async def _call(tool, **kwargs):
+        return await tool.execute(control_plane=None, args=kwargs)
+
+    import asyncio
+
+    with pytest.raises(ValueError, match="invalid read_file arguments"):
+        asyncio.run(_call(read, path=123))
+    with pytest.raises(ValueError, match="invalid write_file arguments"):
+        asyncio.run(_call(write, path="a.txt"))  # missing content
+    with pytest.raises(ValueError, match="invalid bash arguments"):
+        asyncio.run(_call(bash, command=""))
+    with pytest.raises(ValueError, match="invalid grep arguments"):
+        asyncio.run(_call(grep, pattern="x", max_matches=0))

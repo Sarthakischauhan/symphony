@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from coding_agent.tools.base import WorkspaceTool
+from pydantic import Field
+
+from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
 DEFAULT_MAX_MATCHES = 100
 BINARY_SNIFF_BYTES = 8192
@@ -26,14 +28,47 @@ SKIP_DIR_NAMES = {
 }
 
 
+class GrepArgs(ToolArgsModel):
+    pattern: str = Field(
+        ...,
+        min_length=1,
+        description="Regular expression to search for in file contents.",
+    )
+    path: str = Field(
+        default=".",
+        description=(
+            "Workspace-relative file or directory to search. "
+            "Defaults to the workspace root ('.')."
+        ),
+    )
+    glob: str = Field(
+        default="",
+        description=(
+            "Optional filename glob to filter files "
+            "(e.g. '*.py', 'src/**/*.ts'). Empty means all files."
+        ),
+    )
+    case_insensitive: bool = Field(
+        default=False,
+        description="When true, match pattern without regard to case.",
+    )
+    max_matches: int = Field(
+        default=DEFAULT_MAX_MATCHES,
+        ge=1,
+        le=500,
+        description="Maximum number of matching lines to return (1-500).",
+    )
+
+
 class GrepTool(WorkspaceTool):
     name = "grep"
     description = (
-        "Search for a regex pattern in workspace files. "
-        "Optional path scopes the search (file or directory). "
-        "Optional glob filters filenames (e.g. '*.py'). "
-        "Returns matching lines as path:line:content (capped)."
+        "Search workspace files for a regular expression and return matching lines "
+        "as path:line:content. Optional path scopes the search to a file or directory. "
+        "Optional glob filters filenames (e.g. '*.py'). Results are capped by max_matches. "
+        "Skips common dependency and VCS directories."
     )
+    args_model = GrepArgs
 
     def run(
         self,
@@ -43,7 +78,20 @@ class GrepTool(WorkspaceTool):
         case_insensitive: bool = False,
         max_matches: int = DEFAULT_MAX_MATCHES,
     ) -> str:
-        """Search workspace files for a regex pattern."""
+        if not isinstance(pattern, str) or not pattern:
+            return "error: pattern must be a non-empty string"
+        if not isinstance(path, str):
+            return f"error: path must be a string, got {type(path).__name__}"
+        if not isinstance(glob, str):
+            return f"error: glob must be a string, got {type(glob).__name__}"
+        if not isinstance(case_insensitive, bool):
+            return (
+                "error: case_insensitive must be a boolean, "
+                f"got {type(case_insensitive).__name__}"
+            )
+        if not isinstance(max_matches, int):
+            return f"error: max_matches must be an int, got {type(max_matches).__name__}"
+
         try:
             flags = re.IGNORECASE if case_insensitive else 0
             regex = re.compile(pattern, flags)
@@ -52,7 +100,7 @@ class GrepTool(WorkspaceTool):
 
         try:
             root = self.resolve_path(path)
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             return f"error: {exc}"
 
         if not root.exists():
@@ -69,7 +117,10 @@ class GrepTool(WorkspaceTool):
                     rel = file_path.relative_to(self.workspace).as_posix()
                     matches.append(f"{rel}:{line_no}:{line.rstrip()}")
                     if len(matches) >= limit:
-                        header = f"Showing {len(matches)} matches (capped) in {files_searched} files"
+                        header = (
+                            f"Showing {len(matches)} matches (capped) "
+                            f"in {files_searched} files"
+                        )
                         return header + "\n" + "\n".join(matches)
 
         if not matches:
