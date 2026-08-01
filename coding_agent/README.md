@@ -82,5 +82,9 @@ Shared path safety, JSON Schema export, and argument validation live in `tools/b
 - `tools/grep.py` — `GrepTool`
 - `prompts.py` — default system prompt
 - `tui/app.py` — Textual app
-- `tui/control_plane.py` — CP → UI message bridge
+- `tui/control_plane.py` — thin harness `ControlPlane` → Textual sink
+- `tui/events.py` — present every harness event in the UI
+- `tui/state.py` — live phase / tokens / context_left
 - `tui/__main__.py` — CLI entry
+
+The TUI does **not** invent a second control plane. `TextualControlPlane` implements the core_harness `ControlPlane` protocol so the same emit stream drives the UI (thinking/turns, streamed `text_delta`, tools, usage, context).
