@@ -1,20 +1,63 @@
 # Symphony
 
-Monorepo for a small agent stack under active construction.
+An open-source agent harness. `core_ai` and `core_harness` are the harness; `coding_agent` is the first product built on it — more are coming (a browser-use agent is next).
 
-## What’s here
+Built with a simple philosophy: keep the harness product-agnostic, keep the provider layer swappable, and drive every UI from a single control-plane event stream instead of scraping output.
 
-- [`core_ai`](./core_ai/README.md) - shared model/provider abstractions and streaming types
-- [`core_harness`](./core_harness/README.md) - the minimal agent loop and control-plane layer
-- [`coding_agent`](./coding_agent/README.md) - workspace-aware coding agent built on top of the harness
+## Architecture
 
-## Structure
+Symphony is the harness. Agents are separate consumers that plug into it.
 
-The stack is intentionally layered:
+```mermaid
+flowchart TD
+    subgraph SYM["SYMPHONY · the harness"]
+        direction TB
+        U["user message"] --> M["model (stream)"]
+        M --> TC["tool calls"]
+        TC --> RT["run tools"]
+        RT --> M
+        TC --> FR["final reply"]
+        M -. "emits events" .-> CP["control plane"]
+        CP --> CTX["context mgmt"]
+        CP --> PER["persistence"]
+    end
 
-- `core_ai` handles provider registration and streamed model responses
-- `core_harness` turns those streams into an agent loop with tools and control-plane events
-- `coding_agent` adds workspace tools and a small TUI on top of the harness
+    AI["core_ai · providers"] --> M
+
+    subgraph COD["coding_agent"]
+        WS["workspace tools"]
+        TU["Textual TUI"]
+        SQ["SQLite sessions"]
+    end
+
+    subgraph BROW["browser agent · next"]
+        BT["browser tools"]
+        BU["browser UX"]
+    end
+
+    COD -- "plugs into" --> SYM
+    BROW -. "plugs into" .-> SYM
+```
+
+---
+
+| Layer | Package | Role |
+|---|---|---|
+| Harness | [`core_harness`](./core_harness/README.md) | The agent loop: turns, tools, control-plane events, compaction |
+| Harness | [`core_ai`](./core_ai/README.md) | Provider registry, streaming `Message`/`StreamEvent` types |
+| Agent | [`coding_agent`](./coding_agent/README.md) | One consumer of the harness: workspace tools, SQLite sessions, Textual TUI |
+
+The harness (Symphony) is standalone and product-agnostic. Agents are separate consumers that plug into the harness's tool and control-plane interfaces — `coding_agent` today, a browser-use agent next. `core_harness` builds on `core_ai`; agents do not extend the harness.
+
+## Features
+
+- **Streaming provider layer** — register providers by name, route `provider:model` requests through a shared `ModelRegistry`.
+- **Turn-based harness** — multi-turn tool calls, tool schema generation, and a typed control-plane event stream (thinking, `text_delta`, tool calls, usage, context).
+- **Control plane** — every UI subscribes to the same emit stream; supports fan-out, event logs, and inbound pause/cancel commands.
+- **Context management** — warn thresholds, token estimation, and pluggable compaction.
+- **Persistence** — a `Persistence` protocol with checkpoints, plus a SQLite store for conversation resume across runs.
+- **Coding agent** — workspace sandbox tools (`read_file`, `write_file`, `bash`, `grep`) and a Textual TUI with markdown rendering, session list, and resume.
+- **Browser-use agent (upcoming)** — same harness, browser tools and UX on top.
 
 ## Quick Start
 
@@ -23,15 +66,23 @@ export OPENAI_API_KEY=...
 uv run --package coding-agent coding-agent-tui
 ```
 
-The TUI uses `.workspace` by default. To point it elsewhere:
+Launch against a different workspace:
 
 ```sh
 uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
 ```
 
+Resume a previous session interactively:
+
+```sh
+uv run --package coding-agent coding-agent-tui --resume
+```
+
+The default workspace is `.workspace`. `OPENAI_BASE_URL`, `OPENAI_MODEL`, and `CODING_AGENT_WORKSPACE` are honored when set.
+
 ## Example
 
-The main end-to-end use case is the coding agent:
+The current reference product on the harness is the coding agent:
 
 ```python
 from core_ai import ModelRegistry, OpenAIProvider
@@ -50,12 +101,55 @@ result = await agent.run("Create hello.txt with hi, then read it back.")
 print(result.output_text)
 ```
 
+At the harness level, the same loop runs without any coding-agent assumptions:
+
+```python
+from core_ai import ModelRegistry, OpenAIProvider
+from core_harness import CoreHarness, Tool
+
+
+def read_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+registry = ModelRegistry()
+registry.register("openai", OpenAIProvider(api_key=...))
+
+harness = CoreHarness(
+    registry=registry,
+    model_id="openai:gpt-4o-mini",
+    system_prompt="You are a concise coding assistant.",
+    tools=[Tool(read_file)],
+)
+
+result = await harness.run("Inspect README.md and summarize it.")
+print(result.output_text)
+```
+
+## Repository Layout
+
+```
+core_ai/            harness: shared model/provider abstractions
+core_harness/       harness: agent loop, control plane, persistence, state
+coding_agent/       product: workspace tools, SQLite sessions, Textual TUI
+plan.md             living roadmap and phase checklist
+```
+
+Each package carries its own `README.md`, `pyproject.toml`, and tests.
+
 ## Development
 
-- Run package tests with `uv run pytest` from the package directory.
-- Run the coding agent TUI from the repo root with `uv run --package coding-agent coding-agent-tui`.
-- Package-specific details live in each package README.
+Requires Python ≥ 3.11 and [`uv`](https://docs.astral.sh/uv/).
+
+```sh
+uv sync                    # install the workspace
+uv run pytest              # run all package tests from the root
+uv run --package coding-agent coding-agent-tui   # run the TUI
+```
+
+Run a single package's tests from that package's directory with `uv run pytest`.
 
 ## Status
 
-This repo is still evolving. APIs and layouts may change as the agent stack matures.
+Early and evolving — APIs may shift as the stack matures. `coding_agent` is the shipped product on the harness; a browser-use agent is next. See [`plan.md`](./plan.md) for the roadmap and current phase checklist.
