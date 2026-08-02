@@ -76,6 +76,63 @@ def test_grep_invalid_regex(tmp_path: Path) -> None:
     assert grep.run(pattern="[unterminated").startswith("error: invalid regex")
 
 
+def test_read_file_offset_and_limit(tmp_path: Path) -> None:
+    content = "\n".join(f"line{i}" for i in range(1, 11))
+    (tmp_path / "many.txt").write_text(content, encoding="utf-8")
+    read = ReadFileTool(tmp_path)
+
+    assert read.run("many.txt", offset=3, limit=2) == "line3\nline4\n"
+    assert read.run("many.txt", offset=9) == "line9\nline10"
+    assert read.run("many.txt", limit=1) == "line1\n"
+
+
+def test_read_file_truncates_large_output(tmp_path: Path) -> None:
+    big = "x" * 40_000
+    (tmp_path / "big.txt").write_text(big, encoding="utf-8")
+    read = ReadFileTool(tmp_path)
+
+    result = read.run("big.txt")
+    assert "<output truncated at" in result
+    assert "offset=" in result
+    assert len(result) < 40_000
+
+
+def test_grep_honors_gitignore(tmp_path: Path) -> None:
+    (tmp_path / "keep.py").write_text("alpha = 1\n", encoding="utf-8")
+    (tmp_path / "skip.py").write_text("alpha = 2\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("skip.py\n", encoding="utf-8")
+
+    grep = GrepTool(tmp_path)
+    result = grep.run(pattern="alpha")
+
+    assert "keep.py:1:alpha = 1" in result
+    assert "skip.py" not in result
+
+    included = grep.run(pattern="alpha", include_ignored=True)
+    assert "skip.py:1:alpha = 2" in included
+
+
+def test_grep_truncates_long_lines(tmp_path: Path) -> None:
+    long_line = "x" * 500
+    (tmp_path / "long.py").write_text(long_line + "\n", encoding="utf-8")
+    grep = GrepTool(tmp_path)
+
+    result = grep.run(pattern="xxxx", max_line_chars=20)
+    assert "x" * 20 + "…" in result
+
+
+def test_grep_skips_hidden_untracked_dirs(tmp_path: Path) -> None:
+    (tmp_path / ".hidden").mkdir()
+    (tmp_path / ".hidden" / "f.py").write_text("alpha\n", encoding="utf-8")
+    (tmp_path / "visible.py").write_text("alpha\n", encoding="utf-8")
+
+    grep = GrepTool(tmp_path)
+    result = grep.run(pattern="alpha")
+
+    assert "visible.py" in result
+    assert ".hidden" not in result
+
+
 def test_harness_tool_schemas_include_field_descriptions(tmp_path: Path) -> None:
     tools = {tool.name: tool for tool in build_tools(tmp_path)}
 
