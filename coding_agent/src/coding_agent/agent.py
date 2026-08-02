@@ -103,7 +103,7 @@ class CodingAgent:
         context_root = (
             Path(ast_context_path).resolve()
             if ast_context_path
-            else Path(__file__).parent
+            else Path.cwd()
         )
         if not context_root.exists():
             return system_prompt

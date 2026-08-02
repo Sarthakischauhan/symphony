@@ -1,12 +1,13 @@
-
-"""Mutable harness state and context-window management."""
+"""Mutable harness state, message transitions, and context management."""
 
 from __future__ import annotations
 
+import json
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core_ai.types import Message
 
+from core_harness.models.tools import ToolCall
 from core_harness.state.compaction import Compactor
 from core_harness.tokens import estimate_prompt_tokens
 
@@ -24,7 +25,7 @@ EmitEvent = Callable[[str, Dict[str, Any]], Awaitable[None]]
 
 
 class HarnessState:
-    """State used by a harness while managing its context window."""
+    """Owns harness message transitions and context-window management."""
 
     def __init__(
         self,
@@ -41,6 +42,40 @@ class HarnessState:
         self.context_warn_threshold = context_warn_threshold
         self.context_compact_threshold = context_compact_threshold
         self.compactor = compactor
+
+    def add_user_message(self, messages: List[Message], content: str) -> None:
+        messages.append(Message(role="user", content=content))
+
+    def add_assistant_message(
+        self,
+        messages: List[Message],
+        content: str,
+        tool_calls: Optional[List[ToolCall]] = None,
+    ) -> None:
+        payload = None
+        if tool_calls:
+            payload = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(call.arguments),
+                    },
+                }
+                for call in tool_calls
+            ]
+        messages.append(Message(role="assistant", content=content, tool_calls=payload))
+
+    def add_tool_message(
+        self,
+        messages: List[Message],
+        tool_call: ToolCall,
+        content: str,
+    ) -> None:
+        messages.append(
+            Message(role="tool", content=content, tool_call_id=tool_call.id)
+        )
 
     def context_limit(self, model_id: str) -> Optional[int]:
         if model_id in self.context_limits:
