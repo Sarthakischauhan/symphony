@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
+from rich.markdown import Markdown
+
 from coding_agent.tui.state import UiRunState
 
-WriteFn = Callable[[str], None]
+WriteFn = Callable[[Any], None]
 StatusFn = Callable[[str], None]
 LiveFn = Callable[[str], None]
 
@@ -52,7 +54,12 @@ class EventPresenter:
 
     def flush_stream_to_log(self) -> None:
         if self.state.stream_started and self.state.stream_text:
-            self._write(f"[bold]assistant>[/bold] {self.state.stream_text}")
+            self._write(
+                Markdown(
+                    f"**assistant>**\n\n{self.state.stream_text}",
+                    code_theme="monokai",
+                )
+            )
             self.state.stream_text = ""
             self.state.stream_started = False
 

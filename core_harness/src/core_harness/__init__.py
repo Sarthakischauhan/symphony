@@ -1,4 +1,4 @@
-from core_harness.compaction import Compactor, KeepSystemRecentCompactor
+from core_harness.state import Compactor, KeepSystemRecentCompactor
 from core_harness.control_plane import (
     ControlPlane,
     EventLog,

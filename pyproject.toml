@@ -2,7 +2,7 @@
 name = "agent-platform"
 version = "0.1.0"
 description = "Monorepo root for AI agent development"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [tool.uv]
 workspace = { members = ["coding_agent", "core_harness", "core_ai"] }

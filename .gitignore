@@ -4,3 +4,4 @@ __pycache__/
 secrets.json
 .env.*
 .DS_Store
+.symphony
