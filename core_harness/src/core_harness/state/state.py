@@ -9,7 +9,7 @@ from core_ai.types import Message
 
 from core_harness.models.tools import ToolCall
 from core_harness.state.compaction import Compactor
-from core_harness.tokens import estimate_prompt_tokens
+from core_harness.utils.tokens import estimate_prompt_tokens
 
 
 DEFAULT_CONTEXT_LIMITS = {

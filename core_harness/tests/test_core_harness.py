@@ -21,7 +21,7 @@ from core_harness import (
     PersistingControlPlane,
     Tool,
 )
-from core_harness.tokens import estimate_prompt_tokens, message_size_breakdown
+from core_harness.utils.tokens import estimate_prompt_tokens, message_size_breakdown
 
 
 def get_weather(city: str, control_plane: NullControlPlane) -> str:

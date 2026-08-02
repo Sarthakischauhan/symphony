@@ -35,12 +35,11 @@ def estimate_message_tokens(message: Message) -> int:
             tokens += estimate_text_tokens(str(message.tool_calls))
     if message.tool_call_id:
         tokens += estimate_text_tokens(message.tool_call_id)
-    # Role / framing overhead — keeps empty messages from reporting 0.
     return max(tokens, 1)
 
 
 def message_size_breakdown(messages: List[Message]) -> List[Dict[str, Any]]:
-    """Per-message token estimates for planning/debug on the control plane."""
+    """Return per-message token estimates for control-plane diagnostics."""
     sizes: List[Dict[str, Any]] = []
     for index, message in enumerate(messages):
         entry: Dict[str, Any] = {

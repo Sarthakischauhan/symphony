@@ -11,7 +11,7 @@ from core_harness.control_plane import ControlPlane
 from core_harness.models.harness import UsageTotals
 from core_harness.models.tools import PendingToolCall, ToolCall
 from core_harness.state import HarnessState
-from core_harness.tokens import (
+from core_harness.utils.tokens import (
     estimate_completion_tokens,
     estimate_prompt_tokens,
     message_size_breakdown,
