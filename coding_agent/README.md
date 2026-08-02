@@ -20,6 +20,12 @@ The default workspace is `.workspace`. To use a different workspace:
 uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
 ```
 
+To resume a saved conversation, list sessions and choose one interactively:
+
+```bash
+uv run --package coding-agent coding-agent-tui --resume
+```
+
 ### Surface
 
 - `CodingAgent` — wires workspace tools into `CoreHarness`

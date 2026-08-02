@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Union
@@ -14,6 +15,14 @@ from core_harness import Checkpoint
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+@dataclass(frozen=True)
+class SessionSummary:
+    """Small displayable summary of a persisted session."""
+
+    session_id: str
+    updated_at: str
 
 
 class SqlitePersistence:
@@ -79,6 +88,21 @@ class SqlitePersistence:
             return []
         raw = json.loads(row["messages_json"])
         return [Message.model_validate(item) for item in raw]
+
+    async def list_sessions(self) -> List[SessionSummary]:
+        """List persisted sessions, newest first."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT session_id, updated_at
+                FROM conversations
+                ORDER BY updated_at DESC
+                """
+            ).fetchall()
+        return [
+            SessionSummary(session_id=row["session_id"], updated_at=row["updated_at"])
+            for row in rows
+        ]
 
     async def save_checkpoint(self, *, checkpoint: Checkpoint) -> None:
         with self._connect() as connection:

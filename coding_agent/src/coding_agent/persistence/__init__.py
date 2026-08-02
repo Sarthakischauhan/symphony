@@ -1,5 +1,5 @@
 """Coding-agent persistence backends."""
 
-from coding_agent.persistence.sqlite import SqlitePersistence
+from coding_agent.persistence.sqlite import SessionSummary, SqlitePersistence
 
-__all__ = ["SqlitePersistence"]
+__all__ = ["SessionSummary", "SqlitePersistence"]

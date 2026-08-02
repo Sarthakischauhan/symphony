@@ -49,6 +49,8 @@ def test_sqlite_persistence_roundtrip(tmp_path: Path) -> None:
         await store.save_conversation(session_id="s1", messages=messages)
         loaded = await store.load_conversation(session_id="s1")
         assert loaded == messages
+        sessions = await store.list_sessions()
+        assert [session.session_id for session in sessions] == ["s1"]
 
         checkpoint = Checkpoint(
             session_id="s1",
