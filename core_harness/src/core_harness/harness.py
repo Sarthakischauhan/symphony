@@ -1,4 +1,5 @@
 import json
+import uuid
 from typing import Any, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
@@ -9,6 +10,7 @@ from core_harness.control_plane import ControlPlane, NullControlPlane
 from core_harness.models.control_plane import ControlCommandType
 from core_harness.models.harness import HarnessResult, UsageTotals
 from core_harness.models.tools import PendingToolCall, ToolCall
+from core_harness.persistence import Checkpoint, NullPersistence, Persistence
 from core_harness.tokens import (
     estimate_completion_tokens,
     estimate_prompt_tokens,
@@ -39,6 +41,8 @@ class CoreHarness:
         system_prompt: str,
         tools: Optional[List[Tool]] = None,
         control_plane: Optional[ControlPlane] = None,
+        persistence: Optional[Persistence] = None,
+        session_id: Optional[str] = None,
         max_turns: int = 8,
         context_limits: Optional[Dict[str, int]] = None,
         context_warn_threshold: Optional[int] = None,
@@ -49,6 +53,8 @@ class CoreHarness:
         self.model_id = model_id
         self.system_prompt = system_prompt
         self.control_plane = control_plane or NullControlPlane()
+        self.persistence = persistence or NullPersistence()
+        self.session_id = session_id
         self.max_turns = max_turns
         self.context_limits = {**DEFAULT_CONTEXT_LIMITS, **(context_limits or {})}
         self.context_warn_threshold = context_warn_threshold
@@ -70,16 +76,30 @@ class CoreHarness:
         user_input: str,
         *,
         conversation: Optional[List[Message]] = None,
+        session_id: Optional[str] = None,
     ) -> HarnessResult:
+        active_session = session_id or self.session_id or str(uuid.uuid4())
+
+        prior = conversation
+        if prior is None:
+            loaded = await self.persistence.load_conversation(session_id=active_session)
+            # Drop stored system messages; harness always prepends the live system prompt.
+            prior = [message for message in loaded if message.role != "system"] or None
+
         messages = [Message(role="system", content=self.system_prompt)]
-        if conversation:
-            messages.extend(conversation)
+        if prior:
+            messages.extend(prior)
         messages.append(Message(role="user", content=user_input))
 
         await self.control_plane.emit(
             "run_started",
-            {"model_id": self.model_id, "tool_names": list(self.tools)},
+            {
+                "model_id": self.model_id,
+                "tool_names": list(self.tools),
+                "session_id": active_session,
+            },
         )
+        await self._persist_conversation(active_session, messages)
 
         all_tool_calls: List[ToolCall] = []
         usage = UsageTotals()
@@ -229,6 +249,16 @@ class CoreHarness:
 
                 if not pending_calls:
                     messages.append(Message(role="assistant", content=assistant_text))
+                    await self._persist_state(
+                        session_id=active_session,
+                        turn=turn,
+                        messages=messages,
+                        usage=usage,
+                        context_limit=context_limit,
+                        context_left=context_left,
+                        status="completed",
+                        metadata={"output_text": assistant_text},
+                    )
                     await self.control_plane.emit(
                         "run_completed",
                         {
@@ -244,6 +274,7 @@ class CoreHarness:
                                 ),
                                 "message_sizes": message_sizes,
                             },
+                            "session_id": active_session,
                         },
                     )
                     return HarnessResult(
@@ -276,7 +307,27 @@ class CoreHarness:
                             tool_call_id=tool_call.id,
                         )
                     )
-        except HarnessCancelled:
+
+                await self._persist_state(
+                    session_id=active_session,
+                    turn=turn,
+                    messages=messages,
+                    usage=usage,
+                    context_limit=context_limit,
+                    context_left=context_left,
+                    status="running",
+                )
+        except HarnessCancelled as exc:
+            await self._persist_state(
+                session_id=active_session,
+                turn=current_turn,
+                messages=messages,
+                usage=usage,
+                context_limit=context_limit,
+                context_left=context_left,
+                status="cancelled",
+                metadata={"reason": str(exc)},
+            )
             raise
         except Exception as exc:
             await self.control_plane.emit(
@@ -286,6 +337,16 @@ class CoreHarness:
                     "error_type": type(exc).__name__,
                     "message": str(exc),
                 },
+            )
+            await self._persist_state(
+                session_id=active_session,
+                turn=current_turn,
+                messages=messages,
+                usage=usage,
+                context_limit=context_limit,
+                context_left=context_left,
+                status="failed",
+                metadata={"error_type": type(exc).__name__, "message": str(exc)},
             )
             raise
 
@@ -297,7 +358,53 @@ class CoreHarness:
                 "message": f"Harness exceeded max_turns={self.max_turns}",
             },
         )
+        await self._persist_state(
+            session_id=active_session,
+            turn=self.max_turns - 1,
+            messages=messages,
+            usage=usage,
+            context_limit=context_limit,
+            context_left=context_left,
+            status="failed",
+            metadata={"message": f"Harness exceeded max_turns={self.max_turns}"},
+        )
         raise RuntimeError(f"Harness exceeded max_turns={self.max_turns}")
+
+    async def _persist_conversation(
+        self,
+        session_id: str,
+        messages: List[Message],
+    ) -> None:
+        await self.persistence.save_conversation(
+            session_id=session_id,
+            messages=list(messages),
+        )
+
+    async def _persist_state(
+        self,
+        *,
+        session_id: str,
+        turn: int,
+        messages: List[Message],
+        usage: UsageTotals,
+        context_limit: Optional[int],
+        context_left: Optional[int],
+        status: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        await self._persist_conversation(session_id, messages)
+        await self.persistence.save_checkpoint(
+            checkpoint=Checkpoint(
+                session_id=session_id,
+                turn=turn,
+                messages=list(messages),
+                usage=usage.model_copy(deep=True),
+                context_limit=context_limit,
+                context_left=context_left,
+                status=status,  # type: ignore[arg-type]
+                metadata=metadata or {},
+            )
+        )
 
     def _context_limit(self) -> Optional[int]:
         if self.model_id in self.context_limits:

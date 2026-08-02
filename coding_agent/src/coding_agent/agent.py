@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import List, Optional, Union
 
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
-from core_harness import ControlPlane, CoreHarness, HarnessResult, NullControlPlane, Tool
+from core_harness import (
+    ControlPlane,
+    CoreHarness,
+    HarnessResult,
+    NullControlPlane,
+    Persistence,
+    Tool,
+)
 
 from coding_agent.ast import build_ast_context
+from coding_agent.persistence import SqlitePersistence
 from coding_agent.prompts import SYSTEM_PROMPT
 from coding_agent.tools import build_tools
 
@@ -20,8 +29,8 @@ class CodingAgent:
     Conversation model:
     - Within one ``run()``, ``CoreHarness`` owns the full message list
       (system + user + assistant/tool turns).
-    - Across ``run()`` calls this agent does **not** auto-accumulate history.
-      Pass prior turns via ``conversation`` (no system message; harness prepends it).
+    - Across ``run()`` calls, pass ``conversation`` and/or rely on ``persistence``
+      + ``session_id`` so the harness can reload prior messages.
     """
 
     def __init__(
@@ -31,6 +40,8 @@ class CodingAgent:
         model_id: str,
         workspace: Union[str, Path],
         control_plane: Optional[ControlPlane] = None,
+        persistence: Optional[Persistence] = None,
+        session_id: Optional[str] = None,
         system_prompt: str = SYSTEM_PROMPT,
         ast_context_path: Optional[Union[str, Path]] = None,
         include_ast_context: bool = True,
@@ -40,6 +51,10 @@ class CodingAgent:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.control_plane = control_plane or NullControlPlane()
+        self.session_id = session_id or str(uuid.uuid4())
+        self.persistence = persistence or SqlitePersistence(
+            self.workspace / ".symphony" / "sessions.sqlite3"
+        )
         self.tools = tools if tools is not None else build_tools(self.workspace)
         self.system_prompt = self._build_system_prompt(
             system_prompt,
@@ -52,6 +67,8 @@ class CodingAgent:
             system_prompt=self.system_prompt,
             tools=self.tools,
             control_plane=self.control_plane,
+            persistence=self.persistence,
+            session_id=self.session_id,
             max_turns=max_turns,
         )
 
@@ -60,15 +77,18 @@ class CodingAgent:
         user_input: str,
         *,
         conversation: Optional[List[Message]] = None,
+        session_id: Optional[str] = None,
     ) -> HarnessResult:
         """Run one agent turn loop.
 
-        ``conversation`` is optional prior history excluding the system prompt.
-        Returns ``HarnessResult.messages`` including system + this run's turns;
-        callers that want multi-run memory should persist and pass those back
-        (typically ``result.messages[1:]``) on the next call.
+        If ``conversation`` is omitted, the harness loads prior messages from
+        persistence for ``session_id`` (defaulting to this agent's session).
         """
-        return await self.harness.run(user_input, conversation=conversation)
+        return await self.harness.run(
+            user_input,
+            conversation=conversation,
+            session_id=session_id or self.session_id,
+        )
 
     def _build_system_prompt(
         self,

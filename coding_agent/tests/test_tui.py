@@ -47,23 +47,17 @@ def test_textual_control_plane_posts_message() -> None:
     assert posted[0].payload["model_id"] == "openai:test"
 
 
-def test_tui_passes_message_history_between_agent_turns(tmp_path: Path) -> None:
+def test_tui_run_agent_turn_delegates_to_agent(tmp_path: Path) -> None:
     class FakeAgent:
         def __init__(self) -> None:
-            self.calls: list[dict[str, object]] = []
+            self.calls: list[str] = []
 
-        async def run(
-            self,
-            user_input: str,
-            *,
-            conversation: list[Message],
-        ) -> HarnessResult:
-            self.calls.append({"user_input": user_input, "conversation": conversation})
+        async def run(self, user_input: str, **kwargs: object) -> HarnessResult:
+            self.calls.append(user_input)
             return HarnessResult(
                 output_text=f"answer to {user_input}",
                 messages=[
                     Message(role="system", content="system prompt"),
-                    *conversation,
                     Message(role="user", content=user_input),
                     Message(role="assistant", content=f"answer to {user_input}"),
                 ],
@@ -73,24 +67,6 @@ def test_tui_passes_message_history_between_agent_turns(tmp_path: Path) -> None:
     fake_agent = FakeAgent()
     app._agent = fake_agent  # type: ignore[assignment]
 
-    async def _run() -> None:
-        first = await app._run_agent_turn("first")
-        second = await app._run_agent_turn("second")
-
-        assert first.output_text == "answer to first"
-        assert second.output_text == "answer to second"
-
-    asyncio.run(_run())
-
-    assert fake_agent.calls[0]["conversation"] == []
-    second_conversation = fake_agent.calls[1]["conversation"]
-    assert second_conversation == [
-        Message(role="user", content="first"),
-        Message(role="assistant", content="answer to first"),
-    ]
-    assert app._conversation_history == [
-        Message(role="user", content="first"),
-        Message(role="assistant", content="answer to first"),
-        Message(role="user", content="second"),
-        Message(role="assistant", content="answer to second"),
-    ]
+    result = asyncio.run(app._run_agent_turn("first"))
+    assert result.output_text == "answer to first"
+    assert fake_agent.calls == ["first"]

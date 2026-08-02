@@ -17,7 +17,6 @@ from coding_agent.agent import CodingAgent
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
 from coding_agent.tui.state import UiRunState
-from core_ai.types import Message
 from core_harness import HarnessResult
 
 
@@ -107,7 +106,6 @@ class CodingAgentApp(App[None]):
         self.model_id = model_id
         self.control_plane = TextualControlPlane()
         self._agent: Optional[CodingAgent] = None
-        self._conversation_history: list[Message] = []
         self._busy = False
         self._ui_state = UiRunState()
         self._presenter: Optional[EventPresenter] = None
@@ -205,13 +203,8 @@ class CodingAgentApp(App[None]):
 
     async def _run_agent_turn(self, user_input: str) -> HarnessResult:
         assert self._agent is not None
-        result = await self._agent.run(
-            user_input,
-            conversation=list(self._conversation_history),
-        )
-        # Drop the system prompt; CodingAgent/CoreHarness prepends it on each run.
-        self._conversation_history = result.messages[1:]
-        return result
+        # Conversation continuity comes from harness persistence + session_id.
+        return await self._agent.run(user_input)
 
 
 def run_tui(

@@ -1,4 +1,5 @@
 from coding_agent.agent import CodingAgent
+from coding_agent.persistence import SqlitePersistence
 from coding_agent.prompts import SYSTEM_PROMPT
 from coding_agent.tools import (
     BashArgs,
@@ -24,6 +25,7 @@ __all__ = [
     "ReadFileArgs",
     "ReadFileTool",
     "SYSTEM_PROMPT",
+    "SqlitePersistence",
     "TOOL_CLASSES",
     "ToolArgsModel",
     "WorkspaceTool",

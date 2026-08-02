@@ -20,9 +20,11 @@ from core_harness.models import (
     ToolCall,
 )
 from core_harness.models.harness import UsageTotals
+from core_harness.persistence import Checkpoint, NullPersistence, Persistence
 from core_harness.tools import Tool
 
 __all__ = [
+    "Checkpoint",
     "Compactor",
     "ControlCommand",
     "ControlCommandType",
@@ -39,7 +41,9 @@ __all__ = [
     "InteractiveControlPlane",
     "KeepSystemRecentCompactor",
     "NullControlPlane",
+    "NullPersistence",
     "PendingToolCall",
+    "Persistence",
     "PersistingControlPlane",
     "Tool",
     "ToolCall",

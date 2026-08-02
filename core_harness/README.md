@@ -7,7 +7,11 @@ Minimal agent loop for running a model with tools and a control plane. This pack
 - `CoreHarness` for turn-based agent execution
 - `Tool` for wrapping Python callables as model tools
 - control-plane primitives for lifecycle events and commands
+- `Persistence` protocol for conversation + checkpoint saves (`NullPersistence` default)
 - simple compaction and token-estimation helpers
+
+Pass any `Persistence` implementation into `CoreHarness` (or `CodingAgent`); the harness
+saves conversation state and turn checkpoints as the run progresses.
 
 ## Example
 
