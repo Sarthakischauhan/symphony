@@ -137,7 +137,72 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 
 ---
 
-## 7. How to Use This Doc
+## 7. Core Harness Refactor: Decongest `harness.py`
+
+### Goal
+
+Keep `CoreHarness` as the public façade and run-loop coordinator, while moving
+domain logic into small, testable modules. Preserve the current public API and
+observable behavior, especially control-plane event ordering, usage/context
+accounting, persistence checkpoints, cancellation, and multi-tool sequencing.
+
+### Responsibilities to separate
+
+`CoreHarness.run()` currently owns session loading, lifecycle orchestration,
+stream parsing, usage estimation, context management, inbound commands, tool
+registration/execution, message serialization, and all terminal-state
+persistence. These are the seams for the refactor.
+
+### Target boundaries
+
+| Target | Responsibility |
+|---|---|
+| `core_harness/state/state.py` | `HarnessState`: context policy and valid message transitions |
+| `core_harness/turn.py` | `TurnRunner`: streamed provider events, usage/context events, tool-call decoding, and tool execution for one turn |
+| `core_harness/run.py` | `HarnessRun`: session setup, turn iteration, commands, persistence, and terminal outcomes |
+| `core_harness/harness.py` | Public façade and configuration wiring |
+
+Do not introduce a `ToolManager`; `Tool` remains responsible for schema
+generation and invocation, while `HarnessRun` owns the ordered name lookup for
+the duration of a run.
+
+### Migration phases
+
+1. **Characterize behavior.** Add focused unit tests for tool argument
+   decoding/serialization, stream aggregation, usage fallback, conversation
+   initialization, and terminal persistence. Keep the existing end-to-end
+   tests as compatibility tests.
+2. **Move message transitions into state.** Use `HarnessState` for
+   assistant/tool/user/injected message changes, while keeping provider calls
+   and event emission in the run lifecycle.
+3. **Move turn processing into `TurnRunner`.** Keep the event-driven model
+   turn and its control-plane emissions together, including tool execution.
+4. **Keep `HarnessRun` focused.** It should coordinate turns, persistence,
+   commands, and terminal outcomes without interpreting provider events.
+5. **Keep `CoreHarness` thin.** It should configure dependencies, register
+   `Tool` instances, create `HarnessRun`, and expose the existing public API.
+6. **Verify.** Run the existing suite and preserve event order, persistence
+   metadata, cancellation behavior, and the public constructor/run signature.
+
+### Acceptance criteria
+
+- `CoreHarness` remains importable from `core_harness` with its current
+  constructor and `run()` signature.
+- Existing tests pass without changing event names/order or result values.
+- Conversation transitions and the complete run lifecycle have clear owners
+  without introducing pass-through helper modules.
+- `harness.py` contains orchestration and wiring rather than every concern's
+  implementation details.
+
+### Non-goals
+
+- No parallel tool execution, retries, middleware, or new provider behavior.
+- No changes to the public `Tool` API, persistence protocol, or event catalog.
+- No broad package rename unless needed to avoid import cycles.
+
+---
+
+## 8. How to Use This Doc
 
 1. Pick the next open phase checklist item.
 2. Prefer a focused PR (tools ≠ TUI ≠ harness metrics).

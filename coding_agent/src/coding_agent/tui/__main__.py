@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import os
+from pathlib import Path
 
+from coding_agent.persistence import SqlitePersistence
 from coding_agent.tui.app import run_tui
 
 
@@ -19,8 +23,33 @@ def main() -> None:
         default=None,
         help="Model id (default: OPENAI_MODEL or openai:gpt-4o-mini)",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="List saved sessions and interactively resume one",
+    )
     args = parser.parse_args()
-    run_tui(workspace=args.workspace, model_id=args.model)
+    workspace = Path(
+        args.workspace
+        if args.workspace != ".workspace"
+        else os.environ.get("CODING_AGENT_WORKSPACE", ".workspace")
+    ).resolve()
+    session_id = None
+    if args.resume:
+        sessions = asyncio.run(
+            SqlitePersistence(workspace / ".symphony" / "sessions.sqlite3").list_sessions()
+        )
+        if not sessions:
+            parser.error(f"no saved sessions found in {workspace / '.symphony' / 'sessions.sqlite3'}")
+        print("Saved sessions:")
+        for index, session in enumerate(sessions, start=1):
+            print(f"  {index}. {session.session_id} ({session.updated_at})")
+        try:
+            selection = int(input("Resume session number: "))
+            session_id = sessions[selection - 1].session_id
+        except (ValueError, IndexError):
+            parser.error("invalid session selection")
+    run_tui(workspace=workspace, model_id=args.model, session_id=session_id)
 
 
 if __name__ == "__main__":

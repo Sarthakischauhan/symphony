@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +18,6 @@ from coding_agent.agent import CodingAgent
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
 from coding_agent.tui.state import UiRunState
-from core_ai.types import Message
 from core_harness import HarnessResult
 
 
@@ -26,6 +26,7 @@ def _build_agent(
     workspace: Path,
     control_plane: TextualControlPlane,
     model_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> CodingAgent:
     from core_ai import ModelRegistry
     from core_ai.providers.openai import OpenAIProvider
@@ -49,6 +50,7 @@ def _build_agent(
         model_id=model_name,
         workspace=workspace,
         control_plane=control_plane,
+        session_id=session_id,
     )
 
 
@@ -101,13 +103,14 @@ class CodingAgentApp(App[None]):
         *,
         workspace: str | Path = ".workspace",
         model_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         super().__init__()
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
+        self.session_id = session_id
         self.control_plane = TextualControlPlane()
         self._agent: Optional[CodingAgent] = None
-        self._conversation_history: list[Message] = []
         self._busy = False
         self._ui_state = UiRunState()
         self._presenter: Optional[EventPresenter] = None
@@ -143,6 +146,7 @@ class CodingAgentApp(App[None]):
                 workspace=self.workspace,
                 control_plane=self.control_plane,
                 model_id=self.model_id,
+                session_id=self.session_id,
             )
         except Exception as exc:  # noqa: BLE001 — show setup errors in-UI
             status.update(f"offline · {exc}")
@@ -156,7 +160,34 @@ class CodingAgentApp(App[None]):
         self._presenter.refresh_chrome()
         log.write("[bold]Ready.[/bold] Type a task and press Enter.")
         log.write("[dim]UI mirrors core_harness control-plane events (stream, tools, usage, context).[/dim]")
+        if self.session_id:
+            self.load_session_history()
         self.query_one("#prompt", Input).focus()
+
+    @work(exclusive=False)
+    async def load_session_history(self) -> None:
+        """Render the selected persisted conversation in the transcript."""
+        if self._agent is None or self._presenter is None:
+            return
+
+        messages = await self._agent.persistence.load_conversation(
+            session_id=self._agent.session_id
+        )
+        log = self.query_one("#log", RichLog)
+        log.write(f"[dim]Resumed session {self._agent.session_id}[/dim]")
+        for message in messages:
+            if message.role == "system":
+                continue
+            content = message.content
+            if not isinstance(content, str):
+                content = json.dumps(content, ensure_ascii=False)
+            label = {
+                "user": "you",
+                "assistant": "agent",
+                "tool": "tool",
+            }.get(message.role, message.role)
+            style = "bold blue" if message.role == "user" else "bold green"
+            log.write(f"[{style}]{label}>[/{style}] {content}")
 
     def on_harness_event(self, message: HarnessEvent) -> None:
         if self._presenter is None:
@@ -205,24 +236,24 @@ class CodingAgentApp(App[None]):
 
     async def _run_agent_turn(self, user_input: str) -> HarnessResult:
         assert self._agent is not None
-        result = await self._agent.run(
-            user_input,
-            conversation=list(self._conversation_history),
-        )
-        # Drop the system prompt; CodingAgent/CoreHarness prepends it on each run.
-        self._conversation_history = result.messages[1:]
-        return result
+        # Conversation continuity comes from harness persistence + session_id.
+        return await self._agent.run(user_input)
 
 
 def run_tui(
     *,
     workspace: str | Path = ".workspace",
     model_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> None:
     """Load env and launch the Textual app (blocking)."""
     load_dotenv(override=True)
     workspace_path = Path(
         workspace if workspace != ".workspace" else os.getenv("CODING_AGENT_WORKSPACE", ".workspace")
     )
-    app = CodingAgentApp(workspace=workspace_path, model_id=model_id)
+    app = CodingAgentApp(
+        workspace=workspace_path,
+        model_id=model_id,
+        session_id=session_id,
+    )
     app.run()

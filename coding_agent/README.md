@@ -20,6 +20,12 @@ The default workspace is `.workspace`. To use a different workspace:
 uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
 ```
 
+To resume a saved conversation, list sessions and choose one interactively:
+
+```bash
+uv run --package coding-agent coding-agent-tui --resume
+```
+
 ### Surface
 
 - `CodingAgent` — wires workspace tools into `CoreHarness`
@@ -49,16 +55,26 @@ If you only want the CLI/TUI and not the Python API, `uv run --package coding-ag
 
 `CoreHarness` keeps the full message list **inside a single** `run()` (system → user → tool turns → final assistant).
 
-`CodingAgent` does **not** auto-accumulate history across separate `run()` calls. That is intentional for now: the harness owns in-run state; multi-run sessions are the caller's job.
+Across runs, `CodingAgent` defaults to `SqlitePersistence` under
+`<workspace>/.symphony/sessions.sqlite3` and a stable `session_id`. When you omit
+`conversation=`, the harness reloads prior messages from that store.
 
 ```python
-result = await agent.run("Create hello.txt")
-# Continue with prior turns (drop the harness-injected system message):
-result = await agent.run(
-    "Now read it back",
-    conversation=result.messages[1:],
+from coding_agent import CodingAgent, SqlitePersistence
+
+agent = CodingAgent(
+    registry=registry,
+    model_id="openai:gpt-4o-mini",
+    workspace="./.workspace",
+    persistence=SqlitePersistence("./.workspace/.symphony/sessions.sqlite3"),
+    session_id="my-session",
 )
+
+result = await agent.run("Create hello.txt")
+result = await agent.run("Now read it back")  # resumes via SQLite
 ```
+
+You can still pass an explicit `conversation=` list to override the loaded history.
 
 ### Tool pattern
 
@@ -86,5 +102,6 @@ Shared path safety, JSON Schema export, and argument validation live in `tools/b
 - `tui/events.py` — present every harness event in the UI
 - `tui/state.py` — live phase / tokens / context_left
 - `tui/__main__.py` — CLI entry
+- `persistence/sqlite.py` — SQLite conversation + checkpoint store
 
 The TUI does **not** invent a second control plane. `TextualControlPlane` implements the core_harness `ControlPlane` protocol so the same emit stream drives the UI (thinking/turns, streamed `text_delta`, tools, usage, context).
