@@ -14,24 +14,32 @@ from typing import List, Type
 
 from core_harness import Tool
 
+from coding_agent.tools.ast_query import AstQueryArgs, AstQueryTool
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from coding_agent.tools.bash import BashArgs, BashTool
 from coding_agent.tools.grep import GrepArgs, GrepTool
+from coding_agent.tools.patch import PatchArgs, PatchTool
 from coding_agent.tools.read_file import ReadFileArgs, ReadFileTool
 from coding_agent.tools.write_file import WriteFileArgs, WriteFileTool
 
 TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
     ReadFileTool,
     WriteFileTool,
+    PatchTool,
     BashTool,
     GrepTool,
+    AstQueryTool,
 )
 
 __all__ = [
+    "AstQueryArgs",
+    "AstQueryTool",
     "BashArgs",
     "BashTool",
     "GrepArgs",
     "GrepTool",
+    "PatchArgs",
+    "PatchTool",
     "ReadFileArgs",
     "ReadFileTool",
     "TOOL_CLASSES",

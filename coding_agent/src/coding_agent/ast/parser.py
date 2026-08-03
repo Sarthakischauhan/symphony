@@ -1,92 +1,18 @@
-"""Small Python AST summarizer used to seed coding-agent context."""
+"""Python AST summarizer used to seed coding-agent context."""
 
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-
-@dataclass(frozen=True)
-class FunctionSummary:
-    """A top-level function or class method."""
-
-    name: str
-    signature: str
-    lineno: int
-    docstring: str | None = None
-    is_async: bool = False
-
-
-@dataclass(frozen=True)
-class ClassSummary:
-    """A Python class and its direct methods."""
-
-    name: str
-    lineno: int
-    bases: tuple[str, ...] = ()
-    docstring: str | None = None
-    methods: tuple[FunctionSummary, ...] = ()
-
-
-@dataclass(frozen=True)
-class ModuleSummary:
-    """A parsed Python module."""
-
-    path: str
-    docstring: str | None = None
-    imports: tuple[str, ...] = ()
-    classes: tuple[ClassSummary, ...] = ()
-    functions: tuple[FunctionSummary, ...] = ()
-    errors: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class CodebaseSummary:
-    """A collection of parsed modules rooted at a source directory."""
-
-    root: str
-    modules: tuple[ModuleSummary, ...] = field(default_factory=tuple)
-
-    def to_markdown(self) -> str:
-        """Render a compact context block suitable for a system prompt."""
-        lines = [
-            "Codebase AST context:",
-            f"- Root: {self.root}",
-            f"- Python modules: {len(self.modules)}",
-        ]
-
-        for module in self.modules:
-            lines.append("")
-            lines.append(f"## {module.path}")
-            if module.docstring:
-                lines.append(f"- Module: {module.docstring}")
-            if module.imports:
-                lines.append(f"- Imports: {', '.join(module.imports)}")
-            for cls in module.classes:
-                base_text = f"({', '.join(cls.bases)})" if cls.bases else ""
-                lines.append(f"- class {cls.name}{base_text} [line {cls.lineno}]")
-                if cls.docstring:
-                    lines.append(f"  - {cls.docstring}")
-                for method in cls.methods:
-                    method_prefix = "async def" if method.is_async else "def"
-                    lines.append(
-                        f"  - {method_prefix} {method.name}{method.signature} [line {method.lineno}]"
-                    )
-                    if method.docstring:
-                        lines.append(f"    - {method.docstring}")
-            for func in module.functions:
-                function_prefix = "async def" if func.is_async else "def"
-                lines.append(
-                    f"- {function_prefix} {func.name}{func.signature} [line {func.lineno}]"
-                )
-                if func.docstring:
-                    lines.append(f"  - {func.docstring}")
-            for error in module.errors:
-                lines.append(f"- Parse error: {error}")
-
-        return "\n".join(lines)
+from coding_agent.ast.models import (
+    ClassSummary,
+    CodebaseSummary,
+    FunctionSummary,
+    ModuleSummary,
+)
+from coding_agent.utils.ignore_file import DEFAULT_SKIP_DIRS
 
 
 def build_ast_context(
@@ -94,13 +20,25 @@ def build_ast_context(
     *,
     max_docstring_chars: int = 160,
     max_imports_per_module: int = 20,
+    include_semantic: bool = True,
 ) -> str:
     """Parse Python files below ``root`` and render a concise Markdown summary."""
-    return summarize_codebase(
+    summary = summarize_codebase(
         root,
         max_docstring_chars=max_docstring_chars,
         max_imports_per_module=max_imports_per_module,
-    ).to_markdown()
+    )
+    body = summary.to_markdown()
+    if not include_semantic:
+        return body
+
+    from coding_agent.ast.semantic import build_semantic_index
+
+    semantic = build_semantic_index(summary)
+    semantic_md = semantic.to_markdown()
+    if not semantic_md:
+        return body
+    return f"{body}\n\n{semantic_md}\n"
 
 
 def summarize_codebase(
@@ -129,16 +67,11 @@ def _iter_python_files(root: Path) -> Iterable[Path]:
             yield root
         return
 
-    ignored_dirs = {
-        "__pycache__",
-        ".git",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".venv",
-        "venv",
-    }
     for path in sorted(root.rglob("*.py")):
-        if any(part in ignored_dirs for part in path.parts):
+        parts = path.relative_to(root).parts
+        if any(part in DEFAULT_SKIP_DIRS or part == ".symphony" for part in parts):
+            continue
+        if any(part.startswith(".") for part in parts[:-1]):
             continue
         yield path
 
@@ -166,15 +99,27 @@ def _summarize_module(
         return ModuleSummary(path=relative_path, errors=(message,))
 
     imports = _module_imports(tree)[:max_imports_per_module]
+    constants = _module_constants(tree)
     classes = []
     functions = []
 
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
-            classes.append(_class_summary(node, max_docstring_chars=max_docstring_chars))
+            classes.append(
+                _class_summary(
+                    node,
+                    module_path=relative_path,
+                    max_docstring_chars=max_docstring_chars,
+                )
+            )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             functions.append(
-                _function_summary(node, max_docstring_chars=max_docstring_chars)
+                _function_summary(
+                    node,
+                    module_path=relative_path,
+                    owner=None,
+                    max_docstring_chars=max_docstring_chars,
+                )
             )
 
     return ModuleSummary(
@@ -183,36 +128,92 @@ def _summarize_module(
         imports=tuple(imports),
         classes=tuple(classes),
         functions=tuple(functions),
+        constants=tuple(constants),
     )
 
 
-def _class_summary(node: ast.ClassDef, *, max_docstring_chars: int) -> ClassSummary:
+def _class_summary(
+    node: ast.ClassDef,
+    *,
+    module_path: str,
+    max_docstring_chars: int,
+) -> ClassSummary:
+    qualified = f"{module_path}:{node.name}"
     methods = tuple(
-        _function_summary(child, max_docstring_chars=max_docstring_chars)
+        _function_summary(
+            child,
+            module_path=module_path,
+            owner=node.name,
+            max_docstring_chars=max_docstring_chars,
+        )
         for child in node.body
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
     )
     return ClassSummary(
         name=node.name,
         lineno=node.lineno,
+        end_lineno=getattr(node, "end_lineno", None),
         bases=tuple(_safe_unparse(base) for base in node.bases),
         docstring=_clean_docstring(ast.get_docstring(node), max_docstring_chars),
+        decorators=tuple(_safe_unparse(d) for d in node.decorator_list),
         methods=methods,
+        qualified_name=qualified,
     )
 
 
 def _function_summary(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     *,
+    module_path: str,
+    owner: str | None,
     max_docstring_chars: int,
 ) -> FunctionSummary:
+    if owner:
+        qualified = f"{module_path}:{owner}.{node.name}"
+    else:
+        qualified = f"{module_path}:{node.name}"
     return FunctionSummary(
         name=node.name,
         signature=_signature(node),
         lineno=node.lineno,
+        end_lineno=getattr(node, "end_lineno", None),
         docstring=_clean_docstring(ast.get_docstring(node), max_docstring_chars),
         is_async=isinstance(node, ast.AsyncFunctionDef),
+        decorators=tuple(_safe_unparse(d) for d in node.decorator_list),
+        calls=_collect_calls(node),
+        qualified_name=qualified,
     )
+
+
+def _collect_calls(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    *,
+    max_calls: int = 24,
+) -> tuple[str, ...]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        label = _call_label(child.func)
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        names.append(label)
+        if len(names) >= max_calls:
+            break
+    return tuple(names)
+
+
+def _call_label(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _call_label(node.value)
+        if base:
+            return f"{base}.{node.attr}"
+        return node.attr
+    return None
 
 
 def _module_imports(tree: ast.Module) -> list[str]:
@@ -225,6 +226,22 @@ def _module_imports(tree: ast.Module) -> list[str]:
             names = ", ".join(alias.name for alias in node.names)
             imports.append(f"{module} import {names}")
     return imports
+
+
+def _module_constants(tree: ast.Module, *, max_constants: int = 20) -> list[str]:
+    constants: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        name = node.targets[0].id
+        if not name.isupper():
+            continue
+        constants.append(f"{name}={_safe_unparse(node.value)}")
+        if len(constants) >= max_constants:
+            break
+    return constants
 
 
 def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:

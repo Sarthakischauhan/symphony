@@ -20,8 +20,10 @@ def test_build_tools_registers_expected_names(tmp_path: Path) -> None:
     assert [tool.name for tool in tools] == [
         "read_file",
         "write_file",
+        "patch",
         "bash",
         "grep",
+        "ast_query",
     ]
 
 

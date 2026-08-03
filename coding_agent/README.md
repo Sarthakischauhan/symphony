@@ -29,8 +29,10 @@ uv run --package coding-agent coding-agent-tui --resume
 ### Surface
 
 - `CodingAgent` — wires workspace tools into `CoreHarness`
-- tools (one module each): `read_file`, `write_file`, `bash`, `grep`
+- tools (one module each): `read_file`, `write_file`, `patch`, `bash`, `grep`, `ast_query`
 - `build_tools(workspace)` — register all tools for a workspace root
+- semantic AST index (symbols, inheritance, call graph) seeded into the system prompt
+- self-learning loop after each `run()` under `<workspace>/.symphony/learning/`
 
 ```python
 from core_ai import ModelRegistry, OpenAIProvider
@@ -76,6 +78,16 @@ result = await agent.run("Now read it back")  # resumes via SQLite
 
 You can still pass an explicit `conversation=` list to override the loaded history.
 
+### Self-learning (`.symphony/learning`)
+
+After every `CodingAgent.run()`, a learning loop records what worked vs failed
+into:
+
+- `<workspace>/.symphony/learning/lessons.jsonl` — append-only lesson log
+- `<workspace>/.symphony/learning/playbook.md` — compact playbook injected on later runs
+
+Disable with `enable_learning=False`.
+
 ### Tool pattern
 
 Each tool lives in its own file under `coding_agent/tools/`:
@@ -91,11 +103,15 @@ Shared path safety, JSON Schema export, and argument validation live in `tools/b
 ### Layout
 
 - `agent.py` — `CodingAgent`
+- `ast/` — parser + semantic index (symbols / calls / inheritance)
+- `learning/` — post-task self-learning store + loop
 - `tools/base.py` — `WorkspaceTool` + `ToolArgsModel`
 - `tools/read_file.py` — `ReadFileTool`
 - `tools/write_file.py` — `WriteFileTool`
+- `tools/patch.py` — `PatchTool` (surgical edit)
 - `tools/bash.py` — `BashTool`
 - `tools/grep.py` — `GrepTool`
+- `tools/ast_query.py` — `AstQueryTool`
 - `prompts.py` — default system prompt
 - `tui/app.py` — Textual app
 - `tui/control_plane.py` — thin harness `ControlPlane` → Textual sink

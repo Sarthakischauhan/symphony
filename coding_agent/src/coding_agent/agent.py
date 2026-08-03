@@ -18,6 +18,7 @@ from core_harness import (
 )
 
 from coding_agent.ast import build_ast_context
+from coding_agent.learning import LearningLoop, LearningStore
 from coding_agent.persistence import SqlitePersistence
 from coding_agent.prompts import SYSTEM_PROMPT
 from coding_agent.tools import build_tools
@@ -31,6 +32,8 @@ class CodingAgent:
       (system + user + assistant/tool turns).
     - Across ``run()`` calls, pass ``conversation`` and/or rely on ``persistence``
       + ``session_id`` so the harness can reload prior messages.
+    - After each ``run()``, an optional self-learning loop records what worked /
+      failed under ``<workspace>/.symphony/learning/``.
     """
 
     def __init__(
@@ -45,6 +48,7 @@ class CodingAgent:
         system_prompt: str = SYSTEM_PROMPT,
         ast_context_path: Optional[Union[str, Path]] = None,
         include_ast_context: bool = True,
+        enable_learning: bool = True,
         max_turns: int = 124,
         tools: Optional[List[Tool]] = None,
     ) -> None:
@@ -55,6 +59,9 @@ class CodingAgent:
         self.persistence = persistence or SqlitePersistence(
             self.workspace / ".symphony" / "sessions.sqlite3"
         )
+        self.enable_learning = enable_learning
+        self.learning_store = LearningStore(self.workspace)
+        self.learning_loop = LearningLoop(self.learning_store) if enable_learning else None
         self.tools = tools if tools is not None else build_tools(self.workspace)
         self.system_prompt = self._build_system_prompt(
             system_prompt,
@@ -79,16 +86,15 @@ class CodingAgent:
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
     ) -> HarnessResult:
-        """Run one agent turn loop.
-
-        If ``conversation`` is omitted, the harness loads prior messages from
-        persistence for ``session_id`` (defaulting to this agent's session).
-        """
-        return await self.harness.run(
+        """Run one agent turn loop, then record self-learning lessons."""
+        result = await self.harness.run(
             user_input,
             conversation=conversation,
             session_id=session_id or self.session_id,
         )
+        if self.learning_loop is not None:
+            self.learning_loop.after_task(user_input, result)
+        return result
 
     def _build_system_prompt(
         self,
@@ -97,16 +103,22 @@ class CodingAgent:
         ast_context_path: Optional[Union[str, Path]],
         include_ast_context: bool,
     ) -> str:
-        if not include_ast_context:
-            return system_prompt
+        parts = [system_prompt.rstrip()]
 
-        context_root = (
-            Path(ast_context_path).resolve()
-            if ast_context_path
-            else Path.cwd()
-        )
-        if not context_root.exists():
-            return system_prompt
+        if self.enable_learning:
+            playbook = self.learning_store.playbook_context()
+            if playbook:
+                parts.append(playbook)
 
-        context = build_ast_context(context_root)
-        return f"{system_prompt.rstrip()}\n\n{context}\n"
+        if include_ast_context:
+            context_root = (
+                Path(ast_context_path).resolve()
+                if ast_context_path
+                else Path.cwd()
+            )
+            if context_root.exists():
+                context = build_ast_context(context_root)
+                if context.strip():
+                    parts.append(context.strip())
+
+        return "\n\n".join(parts) + "\n"
