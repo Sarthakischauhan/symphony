@@ -101,7 +101,7 @@ class CodingAgentApp(App[None]):
     def __init__(
         self,
         *,
-        workspace: str | Path = ".workspace",
+        workspace: str | Path = ".",
         model_id: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> None:
@@ -242,17 +242,14 @@ class CodingAgentApp(App[None]):
 
 def run_tui(
     *,
-    workspace: str | Path = ".workspace",
+    workspace: str | Path = ".",
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> None:
     """Load env and launch the Textual app (blocking)."""
     load_dotenv(override=True)
-    workspace_path = Path(
-        workspace if workspace != ".workspace" else os.getenv("CODING_AGENT_WORKSPACE", ".workspace")
-    )
     app = CodingAgentApp(
-        workspace=workspace_path,
+        workspace=workspace,
         model_id=model_id,
         session_id=session_id,
     )

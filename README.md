@@ -78,7 +78,7 @@ Resume a previous session interactively:
 uv run --package coding-agent coding-agent-tui --resume
 ```
 
-The default workspace is `.workspace`. `OPENAI_BASE_URL`, `OPENAI_MODEL`, and `CODING_AGENT_WORKSPACE` are honored when set.
+The default workspace is the current directory. Use `--workspace` to override it.
 
 ## Example
 
@@ -94,7 +94,7 @@ registry.register("openai", OpenAIProvider(api_key=...))
 agent = CodingAgent(
     registry=registry,
     model_id="openai:gpt-4o-mini",
-    workspace=".workspace",
+    workspace=".",
 )
 
 result = await agent.run("Create hello.txt with hi, then read it back.")

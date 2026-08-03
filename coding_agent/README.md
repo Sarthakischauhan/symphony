@@ -5,7 +5,7 @@ Coding agent product on top of `core_harness`.
 ### Run it
 
 1. Set `OPENAI_API_KEY`.
-2. Optionally set `OPENAI_BASE_URL`, `OPENAI_MODEL`, or `CODING_AGENT_WORKSPACE`.
+2. Optionally set `OPENAI_BASE_URL` or `OPENAI_MODEL`.
 3. From the repo root, launch the TUI with:
 
 ```bash
@@ -14,7 +14,7 @@ uv run --package coding-agent coding-agent-tui
 uv run --package coding-agent python -m coding_agent.tui
 ```
 
-The default workspace is `.workspace`. To use a different workspace:
+The default workspace is the current directory. To use a different workspace, pass `--workspace`:
 
 ```bash
 uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
@@ -44,7 +44,7 @@ registry.register("openai", OpenAIProvider(api_key=...))
 agent = CodingAgent(
     registry=registry,
     model_id="openai:gpt-4o-mini",
-    workspace="./.workspace",
+    workspace=".",
 )
 
 result = await agent.run("Create hello.txt with hi, then read it back.")
@@ -67,8 +67,8 @@ from coding_agent import CodingAgent, SqlitePersistence
 agent = CodingAgent(
     registry=registry,
     model_id="openai:gpt-4o-mini",
-    workspace="./.workspace",
-    persistence=SqlitePersistence("./.workspace/.symphony/sessions.sqlite3"),
+    workspace=".",
+    persistence=SqlitePersistence("./.symphony/sessions.sqlite3"),
     session_id="my-session",
 )
 

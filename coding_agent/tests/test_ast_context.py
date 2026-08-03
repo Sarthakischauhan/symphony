@@ -97,6 +97,24 @@ def test_coding_agent_adds_ast_context_to_system_prompt(tmp_path: Path) -> None:
     assert f"- Root: {tmp_path.resolve()}" in agent.harness.system_prompt
 
 
+def test_coding_agent_defaults_ast_context_to_workspace(tmp_path: Path) -> None:
+    (tmp_path / "workspace_module.py").write_text(
+        "def workspace_function() -> None:\n    return None\n",
+        encoding="utf-8",
+    )
+
+    registry = ModelRegistry()
+    agent = CodingAgent(
+        registry=registry,
+        model_id="test:model",
+        workspace=tmp_path,
+        enable_learning=False,
+    )
+
+    assert f"- Root: {tmp_path.resolve()}" in agent.harness.system_prompt
+    assert "workspace_function" in agent.harness.system_prompt
+
+
 def test_coding_agent_can_disable_ast_context(tmp_path: Path) -> None:
     registry = ModelRegistry()
     agent = CodingAgent(

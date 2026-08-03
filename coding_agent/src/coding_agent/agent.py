@@ -114,7 +114,7 @@ class CodingAgent:
             context_root = (
                 Path(ast_context_path).resolve()
                 if ast_context_path
-                else Path.cwd()
+                else self.workspace
             )
             if context_root.exists():
                 context = build_ast_context(context_root)
