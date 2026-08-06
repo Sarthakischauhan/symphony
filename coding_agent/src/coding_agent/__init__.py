@@ -4,7 +4,8 @@ from coding_agent.learning import (
     LearningLoop,
     LearningStore,
     Lesson,
-    TaskJournalEntry,
+    ProposedLesson,
+    TrustedLesson,
 )
 from coding_agent.persistence import SessionSummary, SqlitePersistence
 from coding_agent.prompts import SYSTEM_PROMPT
@@ -40,6 +41,7 @@ __all__ = [
     "Lesson",
     "PatchArgs",
     "PatchTool",
+    "ProposedLesson",
     "ReadFileArgs",
     "ReadFileTool",
     "RepositoryContextProvider",
@@ -47,8 +49,8 @@ __all__ = [
     "SessionSummary",
     "SqlitePersistence",
     "TOOL_CLASSES",
-    "TaskJournalEntry",
     "ToolArgsModel",
+    "TrustedLesson",
     "WorkspaceTool",
     "WriteFileArgs",
     "WriteFileTool",
