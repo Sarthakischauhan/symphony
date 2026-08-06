@@ -1,6 +1,6 @@
 """Public harness configuration and entry point for executing agent runs."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
@@ -11,6 +11,8 @@ from core_harness.persistence import NullPersistence, Persistence
 from core_harness.run import HarnessRun
 from core_harness.state import Compactor, HarnessState
 from core_harness.tools import Tool
+
+DynamicContextFn = Callable[[], str]
 
 
 class CoreHarness:
@@ -31,6 +33,7 @@ class CoreHarness:
         context_warn_threshold: Optional[int] = None,
         context_compact_threshold: Optional[int] = None,
         compactor: Optional[Compactor] = None,
+        dynamic_context: Optional[DynamicContextFn] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -39,6 +42,7 @@ class CoreHarness:
         self.persistence = persistence or NullPersistence()
         self.session_id = session_id
         self.max_turns = max_turns
+        self.dynamic_context = dynamic_context
         self.state = HarnessState(
             context_limits=context_limits,
             context_warn_threshold=context_warn_threshold,
@@ -74,6 +78,7 @@ class CoreHarness:
             default_session_id=self.session_id,
             max_turns=self.max_turns,
             state=self.state,
+            dynamic_context=self.dynamic_context,
         )
         return await run.execute(
             user_input,

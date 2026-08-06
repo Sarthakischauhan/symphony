@@ -1,49 +1,106 @@
-"""Post-task self-learning loop: derive what worked / failed and persist it."""
+"""Post-task learning loop: journal telemetry; promote only after verification."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+import hashlib
+import uuid
+from typing import Dict, List, Optional, Tuple
 
 from core_ai.types import Message
 from core_harness import HarnessResult
 
-from coding_agent.learning.store import LearningStore, Lesson
+from coding_agent.learning.sanitize import sanitize_task, sanitize_text
+from coding_agent.learning.store import (
+    LearningStore,
+    Lesson,
+    TaskJournalEntry,
+    default_expiry,
+)
 
 
 class LearningLoop:
-    """Analyze a completed harness run and update ``.symphony/learning``."""
+    """Record unverified task journals; promote verified lessons explicitly."""
 
     def __init__(self, store: LearningStore) -> None:
         self.store = store
 
-    def after_task(self, task: str, result: HarnessResult) -> Lesson:
-        worked, failed, tools_used = self._analyze(result)
-        if failed and not worked:
-            outcome = "failed"
-        elif worked and not failed:
-            outcome = "worked"
-        else:
-            outcome = "mixed"
-
-        notes = self._notes(outcome, worked, failed, result)
-        lesson = Lesson(
-            task=task,
-            outcome=outcome,
-            worked=worked,
-            failed=failed,
+    def after_task(
+        self,
+        task: str,
+        result: HarnessResult,
+        *,
+        status: str = "completed",
+        workspace_revision: str = "",
+    ) -> TaskJournalEntry:
+        """Append raw telemetry only. Does not update the verified playbook."""
+        tools_used, events = self._analyze(result)
+        preview = sanitize_task(task)
+        content_hash = hashlib.sha256(
+            f"{preview}|{status}|{','.join(tools_used)}|{workspace_revision}".encode("utf-8")
+        ).hexdigest()[:16]
+        entry = TaskJournalEntry(
+            id=str(uuid.uuid4()),
+            task_preview=preview,
+            status=status,
             tools_used=tools_used,
-            notes=notes,
+            tool_events=events,
+            notes=f"status={status}; tools={len(tools_used)}; events={len(events)}",
+            workspace_revision=workspace_revision,
+            provenance="task_journal",
+            confidence=0.0,
+            verified=False,
+            verification=None,
+            expires_at=default_expiry(),
+            content_hash=content_hash,
         )
-        self.store.append(lesson)
+        self.store.append_journal(entry)
+        return entry
+
+    def promote(
+        self,
+        *,
+        summary: str,
+        outcome: str,
+        verification: str,
+        evidence: str = "",
+        workspace_revision: str = "",
+        confidence: float = 0.8,
+        tools_used: Optional[List[str]] = None,
+        journal_id: Optional[str] = None,
+    ) -> Lesson:
+        """Promote a verified lesson into the playbook."""
+        if verification not in {"tests_passed", "user_approved", "evaluator"}:
+            raise ValueError(
+                "verification must be one of: tests_passed, user_approved, evaluator"
+            )
+        if outcome not in {"worked", "failed", "mixed"}:
+            raise ValueError("outcome must be one of: worked, failed, mixed")
+
+        clean_summary = sanitize_text(summary, max_chars=240)
+        clean_evidence = sanitize_text(evidence or f"journal_id={journal_id or 'n/a'}", max_chars=240)
+        content_hash = hashlib.sha256(
+            f"{clean_summary}|{outcome}|{verification}|{workspace_revision}".encode("utf-8")
+        ).hexdigest()[:16]
+        lesson = Lesson(
+            id=str(uuid.uuid4()),
+            summary=clean_summary,
+            outcome=outcome,
+            evidence=clean_evidence,
+            verification=verification,
+            workspace_revision=workspace_revision,
+            confidence=max(0.0, min(1.0, confidence)),
+            provenance="verified_lesson",
+            expires_at=default_expiry(),
+            content_hash=content_hash,
+            tools_used=list(tools_used or []),
+        )
+        self.store.append_lesson(lesson)
         return lesson
 
-    def _analyze(
-        self, result: HarnessResult
-    ) -> Tuple[List[str], List[str], List[str]]:
+    def _analyze(self, result: HarnessResult) -> Tuple[List[str], List[str]]:
         tool_names_by_id = _tool_names_by_id(result.messages)
-        worked: list[str] = []
-        failed: list[str] = []
         tools_used: list[str] = []
+        events: list[str] = []
 
         for message in result.messages:
             if message.role != "tool":
@@ -52,31 +109,11 @@ class LearningLoop:
             name = tool_names_by_id.get(tool_id, "tool")
             if name not in tools_used:
                 tools_used.append(name)
-            content = _message_text(message)
-            tip = _lesson_from_tool(name, content)
-            if _looks_failed(content):
-                failed.append(tip)
-            else:
-                worked.append(tip)
+            content = sanitize_text(_message_text(message), max_chars=160)
+            kind = "error" if _looks_failed(content) else "ok"
+            events.append(f"{name}:{kind}:{content}")
 
-        if not tools_used and result.output_text.strip():
-            worked.append("Completed task without tools (direct answer)")
-
-        return _dedupe(worked), _dedupe(failed), tools_used
-
-    def _notes(
-        self,
-        outcome: str,
-        worked: List[str],
-        failed: List[str],
-        result: HarnessResult,
-    ) -> str:
-        parts = [f"outcome={outcome}"]
-        if result.usage and result.usage.total_tokens:
-            parts.append(f"tokens={result.usage.total_tokens}")
-        parts.append(f"worked={len(worked)}")
-        parts.append(f"failed={len(failed)}")
-        return "; ".join(parts)
+        return tools_used, events
 
 
 def _tool_names_by_id(messages: List[Message]) -> Dict[str, str]:
@@ -111,34 +148,4 @@ def _looks_failed(content: str) -> bool:
         return True
     if "traceback (most recent call last)" in lowered:
         return True
-    if "old_str not found" in lowered or "matched" in lowered and "times" in lowered:
-        return True
     return False
-
-
-def _lesson_from_tool(name: str, content: str) -> str:
-    preview = " ".join(content.strip().split())
-    if len(preview) > 160:
-        preview = preview[:157] + "..."
-    if _looks_failed(content):
-        return f"{name} failed: {preview}"
-    if name == "patch" and preview.startswith("patched "):
-        return f"patch succeeded ({preview})"
-    if name == "bash" and not preview.startswith("exit="):
-        return f"bash succeeded: {preview[:80]}"
-    if name == "write_file" and preview.startswith("wrote "):
-        return f"write_file succeeded ({preview})"
-    if name == "ast_query":
-        return f"ast_query useful: {preview[:80]}"
-    return f"{name}: {preview[:100]}"
-
-
-def _dedupe(items: List[str]) -> List[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        out.append(item)
-    return out

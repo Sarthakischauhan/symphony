@@ -1,4 +1,7 @@
-"""Semantic layer over AST summaries: symbols, inheritance, call graph."""
+"""Semantic layer over AST summaries: symbols, inheritance, call graph.
+
+Call relationships are best-effort name-based resolutions (not type-checked).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +9,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from coding_agent.ast.models import CodebaseSummary, FunctionSummary, ModuleSummary
+from coding_agent.ast.models import (
+    CodebaseSummary,
+    ConstantSummary,
+    FunctionSummary,
+    ModuleSummary,
+)
 
 
 @dataclass(frozen=True)
@@ -14,7 +22,7 @@ class Symbol:
     """A named definition in the codebase."""
 
     qualified_name: str
-    kind: str  # module | class | function | method | constant
+    kind: str  # class | function | method | constant | nested_function
     name: str
     path: str
     lineno: int
@@ -33,9 +41,9 @@ class SemanticIndex:
     callers: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     callees: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     imports: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    aliases: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def find_symbol(self, name: str, *, limit: int = 20) -> list[Symbol]:
-        """Find symbols by exact name or qualified-name substring."""
         needle = name.strip()
         if not needle:
             return []
@@ -57,8 +65,6 @@ class SemanticIndex:
         found: set[str] = set()
         for key in keys:
             found.update(self.callers.get(key, set()))
-            # Also match by short name edges
-            found.update(self.callers.get(name, set()))
         return sorted(found)
 
     def get_callees(self, name: str) -> list[str]:
@@ -66,8 +72,6 @@ class SemanticIndex:
         found: set[str] = set()
         for key in keys:
             found.update(self.callees.get(key, set()))
-        if name in self.callees:
-            found.update(self.callees[name])
         return sorted(found)
 
     def get_inheritance(self, name: str) -> dict[str, list[str]]:
@@ -84,7 +88,6 @@ class SemanticIndex:
         return {"bases": sorted(set(bases)), "subclasses": sorted(set(subclasses))}
 
     def module_outline(self, path: str) -> str | None:
-        """Return a short outline for one module path if known."""
         symbols = [s for s in self.symbols.values() if s.path == path]
         if not symbols:
             return None
@@ -94,18 +97,18 @@ class SemanticIndex:
             lines.append(f"- {symbol.kind} {symbol.name}{sig} [line {symbol.lineno}]")
         return "\n".join(lines)
 
-    def to_markdown(self, *, max_symbols: int = 40, max_edges: int = 30) -> str:
+    def to_markdown(self, *, max_symbols: int = 24, max_edges: int = 12) -> str:
         if not self.symbols:
             return ""
 
         lines = [
-            "Semantic index:",
+            "Semantic index (best-effort):",
             f"- Symbols: {len(self.symbols)}",
             f"- Inheritance edges: {len(self.inheritance)}",
             f"- Call-graph functions: {len(self.callees)}",
+            "- Name-based call edges may be ambiguous across duplicates/imports.",
         ]
 
-        # Highlight classes with bases (semantic relationships)
         inheritance_lines = []
         for qn, bases in sorted(self.inheritance.items()):
             if bases:
@@ -115,21 +118,19 @@ class SemanticIndex:
             lines.append("Inheritance:")
             lines.extend(inheritance_lines[:max_edges])
 
-        # Densest call relationships
         call_lines = []
         for caller, callees in sorted(self.callees.items(), key=lambda item: -len(item[1])):
             if not callees:
                 continue
-            shown = ", ".join(sorted(callees)[:8])
+            shown = ", ".join(sorted(callees)[:6])
             call_lines.append(f"- {caller} calls {shown}")
             if len(call_lines) >= max_edges:
                 break
         if call_lines:
             lines.append("")
-            lines.append("Call graph (sample):")
+            lines.append("Call graph sample (best-effort):")
             lines.extend(call_lines)
 
-        # Symbol directory (truncated)
         lines.append("")
         lines.append("Symbol directory:")
         for symbol in sorted(self.symbols.values(), key=lambda s: s.qualified_name)[:max_symbols]:
@@ -149,27 +150,28 @@ class SemanticIndex:
 
 
 def build_semantic_index(summary: CodebaseSummary) -> SemanticIndex:
-    """Build a semantic index from a codebase AST summary."""
+    """Build a semantic index from a codebase summary."""
     index = SemanticIndex(root=summary.root)
-
-    # First pass: register symbols
     short_to_qualified: dict[str, list[str]] = defaultdict(list)
+
     for module in summary.modules:
         index.imports[module.path] = module.imports
+        alias_map = {binding.local_name: binding.source for binding in module.import_bindings}
+        index.aliases[module.path] = alias_map
+
         for const in module.constants:
-            name = const.split("=", 1)[0]
-            qn = f"{module.path}:{name}"
+            qn = f"{module.path}:{const.name}"
             _add_symbol(
                 index,
                 Symbol(
                     qualified_name=qn,
                     kind="constant",
-                    name=name,
+                    name=const.name,
                     path=module.path,
-                    lineno=1,
+                    lineno=const.lineno,
                 ),
             )
-            short_to_qualified[name].append(qn)
+            short_to_qualified[const.name].append(qn)
 
         for cls in module.classes:
             _add_symbol(
@@ -191,17 +193,14 @@ def build_semantic_index(summary: CodebaseSummary) -> SemanticIndex:
         for func in module.functions:
             _register_function(index, func, short_to_qualified)
 
-    # Second pass: resolve call edges against known symbols when possible
     for module in summary.modules:
+        alias_map = index.aliases.get(module.path, {})
         for func in _iter_functions(module):
             caller = func.qualified_name or f"{module.path}:{func.name}"
             for raw in func.calls:
-                resolved = _resolve_call(raw, module, short_to_qualified)
+                resolved = _resolve_call(raw, module, short_to_qualified, alias_map)
                 index.callees[caller].add(resolved)
                 index.callers[resolved].add(caller)
-                # Also index by short name for fuzzy queries
-                short = raw.split(".")[-1]
-                index.callers[short].add(caller)
 
     return index
 
@@ -215,11 +214,14 @@ def query_semantic(
 ) -> str:
     """Run a semantic query and return a model-friendly string."""
     action = action.strip().lower()
-    if action in {"find", "find_symbol", "symbol"}:
+    if action in {"find", "find_symbol", "symbol", "definition", "definitions"}:
         matches = index.find_symbol(name)
         if not matches:
             return f"no symbols matching {name!r}"
-        lines = [f"{len(matches)} symbol(s) for {name!r}:"]
+        lines = [
+            f"{len(matches)} symbol(s) for {name!r}:",
+            "(Duplicate short names are listed separately by qualified path.)",
+        ]
         for symbol in matches:
             sig = symbol.signature or ""
             doc = f" — {symbol.docstring}" if symbol.docstring else ""
@@ -229,17 +231,23 @@ def query_semantic(
             )
         return "\n".join(lines)
 
-    if action in {"callers", "who_calls"}:
+    if action in {"callers", "who_calls", "references"}:
         callers = index.get_callers(name)
         if not callers:
-            return f"no callers found for {name!r}"
-        return f"callers of {name}:\n" + "\n".join(f"- {c}" for c in callers)
+            return f"no callers found for {name!r} (best-effort name-based index)"
+        return (
+            f"callers of {name} (best-effort):\n"
+            + "\n".join(f"- {c}" for c in callers)
+        )
 
     if action in {"callees", "calls"}:
         callees = index.get_callees(name)
         if not callees:
-            return f"no callees found for {name!r}"
-        return f"{name} calls:\n" + "\n".join(f"- {c}" for c in callees)
+            return f"no callees found for {name!r} (best-effort name-based index)"
+        return (
+            f"{name} calls (best-effort):\n"
+            + "\n".join(f"- {c}" for c in callees)
+        )
 
     if action in {"inheritance", "bases", "subclasses"}:
         data = index.get_inheritance(name)
@@ -254,12 +262,12 @@ def query_semantic(
         outline = index.module_outline(target)
         return outline or f"no module outline for {target!r}"
 
-    if action in {"summary", "index"}:
+    if action in {"summary", "index", "map"}:
         return index.to_markdown()
 
     return (
         "error: unknown action. Use one of: find, callers, callees, "
-        "inheritance, module, summary"
+        "inheritance, module, summary, references, definition"
     )
 
 
@@ -269,7 +277,13 @@ def _register_function(
     short_to_qualified: dict[str, list[str]],
 ) -> None:
     qn = func.qualified_name
-    kind = "method" if "." in qn.split(":", 1)[-1] else "function"
+    local = qn.split(":", 1)[-1]
+    if "." in local and local.count(".") >= 2:
+        kind = "nested_function"
+    elif "." in local:
+        kind = "method"
+    else:
+        kind = "function"
     _add_symbol(
         index,
         Symbol(
@@ -283,6 +297,8 @@ def _register_function(
         ),
     )
     short_to_qualified[func.name].append(qn)
+    for nested in func.nested:
+        _register_function(index, nested, short_to_qualified)
 
 
 def _add_symbol(index: SemanticIndex, symbol: Symbol) -> None:
@@ -291,23 +307,43 @@ def _add_symbol(index: SemanticIndex, symbol: Symbol) -> None:
 
 
 def _iter_functions(module: ModuleSummary) -> Iterable[FunctionSummary]:
-    yield from module.functions
+    def walk(funcs: Iterable[FunctionSummary]) -> Iterable[FunctionSummary]:
+        for func in funcs:
+            yield func
+            yield from walk(func.nested)
+
+    yield from walk(module.functions)
     for cls in module.classes:
-        yield from cls.methods
+        yield from walk(cls.methods)
 
 
 def _resolve_call(
     raw: str,
     module: ModuleSummary,
     short_to_qualified: dict[str, list[str]],
+    alias_map: dict[str, str],
 ) -> str:
     """Best-effort resolve a call label to a qualified symbol name."""
+    # Resolve import aliases: alias.attr -> source.attr
+    if "." in raw:
+        head, tail = raw.split(".", 1)
+        if head in alias_map:
+            raw = f"{alias_map[head]}.{tail}"
+    elif raw in alias_map:
+        raw = alias_map[raw]
+
     short = raw.split(".")[-1]
-    # Prefer same-module definitions
     local = [qn for qn in short_to_qualified.get(short, []) if qn.startswith(module.path + ":")]
     if len(local) == 1:
         return local[0]
+    # Prefer exact qualified suffix match when ambiguous
+    suffix_matches = [qn for qn in short_to_qualified.get(short, []) if qn.endswith(":" + raw) or qn.endswith("." + short)]
+    if len(suffix_matches) == 1:
+        return suffix_matches[0]
     candidates = short_to_qualified.get(short, [])
     if len(candidates) == 1:
         return candidates[0]
+    # Leave unresolved / ambiguous labels marked
+    if len(candidates) > 1:
+        return f"{raw}?"
     return raw
