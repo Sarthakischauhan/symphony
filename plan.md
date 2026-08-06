@@ -49,6 +49,14 @@ Shared `WorkspaceTool` base handles workspace binding, path escape rejection, py
 - Post-task learning loop writes `<workspace>/.symphony/learning/{lessons.jsonl,playbook.md}`
 - Playbook injected into later system prompts (disable with `enable_learning=False`)
 
+### Follow-up hardening (PR on `feature/agent-tools-followup`)
+
+- [x] Patch whitespace preserved via harness-validated `PatchArgs`
+- [x] `RepositoryContextProvider` with hash/mtime cache + token-budgeted repo map
+- [x] On-demand `ast_query`; invalidate after edits; pluggable indexer protocol
+- [x] Learning: task journal vs verified lessons; per-run dynamic context hook
+- [x] Sanitize/redact; atomic JSONL/playbook; cancel/failure-safe journaling
+
 ### Not started yet / next
 
 - TUI streaming polish + cancel/pause
