@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
+
 from pydantic import Field
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+
+if TYPE_CHECKING:
+    from coding_agent.context.provider import RepositoryContextProvider
 
 
 class WriteFileArgs(ToolArgsModel):
@@ -32,6 +38,13 @@ class WriteFileTool(WorkspaceTool):
     )
     args_model = WriteFileArgs
 
+    def __init__(self, workspace: str | Path) -> None:
+        super().__init__(workspace)
+        self._context_provider: Optional["RepositoryContextProvider"] = None
+
+    def bind_context_provider(self, provider: "RepositoryContextProvider") -> None:
+        self._context_provider = provider
+
     def run(self, path: str, content: str) -> str:
         if not isinstance(content, str):
             return f"error: content must be a string, got {type(content).__name__}"
@@ -47,5 +60,11 @@ class WriteFileTool(WorkspaceTool):
             target.write_bytes(encoded)
         except OSError as exc:
             return f"error: failed to write {path}: {exc}"
+
+        if self._context_provider is not None:
+            try:
+                self._context_provider.invalidate(path)
+            except Exception:
+                pass
 
         return f"wrote {path} ({len(encoded)} bytes)"

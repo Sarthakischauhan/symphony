@@ -6,8 +6,26 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class ConstantSummary:
+    """A module-level UPPER_CASE assignment."""
+
+    name: str
+    value: str
+    lineno: int
+
+
+@dataclass(frozen=True)
+class ImportBinding:
+    """An import name as seen in the module namespace (including aliases)."""
+
+    local_name: str
+    source: str
+    lineno: int
+
+
+@dataclass(frozen=True)
 class FunctionSummary:
-    """A top-level function or class method."""
+    """A function or method (including nested functions)."""
 
     name: str
     signature: str
@@ -18,6 +36,7 @@ class FunctionSummary:
     decorators: tuple[str, ...] = ()
     calls: tuple[str, ...] = ()
     qualified_name: str = ""
+    nested: tuple["FunctionSummary", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -36,15 +55,17 @@ class ClassSummary:
 
 @dataclass(frozen=True)
 class ModuleSummary:
-    """A parsed Python module."""
+    """A parsed source module (language-agnostic enough for future indexers)."""
 
     path: str
     docstring: str | None = None
     imports: tuple[str, ...] = ()
+    import_bindings: tuple[ImportBinding, ...] = ()
     classes: tuple[ClassSummary, ...] = ()
     functions: tuple[FunctionSummary, ...] = ()
-    constants: tuple[str, ...] = ()
+    constants: tuple[ConstantSummary, ...] = ()
     errors: tuple[str, ...] = ()
+    language: str = "python"
 
 
 @dataclass(frozen=True)
@@ -54,54 +75,34 @@ class CodebaseSummary:
     root: str
     modules: tuple[ModuleSummary, ...] = field(default_factory=tuple)
 
-    def to_markdown(self) -> str:
-        """Render a compact context block suitable for a system prompt."""
+    def to_markdown(self, *, max_chars: int | None = None) -> str:
+        """Render a compact context block; optional hard char budget."""
         lines = [
-            "Codebase AST context:",
+            "Repository map:",
             f"- Root: {self.root}",
-            f"- Python modules: {len(self.modules)}",
+            f"- Modules: {len(self.modules)}",
+            "- Call relationships are best-effort name-based (not type-checked).",
         ]
 
         for module in self.modules:
             lines.append("")
             lines.append(f"## {module.path}")
+            if module.errors:
+                for error in module.errors:
+                    lines.append(f"- Parse/read error: {error}")
+                continue
             if module.docstring:
                 lines.append(f"- Module: {module.docstring}")
-            if module.imports:
-                lines.append(f"- Imports: {', '.join(module.imports)}")
-            if module.constants:
-                lines.append(f"- Constants: {', '.join(module.constants)}")
-            for cls in module.classes:
-                base_text = f"({', '.join(cls.bases)})" if cls.bases else ""
-                deco = f" @{', @'.join(cls.decorators)}" if cls.decorators else ""
-                lines.append(f"- class {cls.name}{base_text}{deco} [line {cls.lineno}]")
-                if cls.docstring:
-                    lines.append(f"  - {cls.docstring}")
-                for method in cls.methods:
-                    method_prefix = "async def" if method.is_async else "def"
-                    mdeco = (
-                        f" @{', @'.join(method.decorators)}" if method.decorators else ""
-                    )
-                    lines.append(
-                        f"  - {method_prefix} {method.name}{method.signature}{mdeco} "
-                        f"[line {method.lineno}]"
-                    )
-                    if method.docstring:
-                        lines.append(f"    - {method.docstring}")
-                    if method.calls:
-                        lines.append(f"    - calls: {', '.join(method.calls[:12])}")
-            for func in module.functions:
-                function_prefix = "async def" if func.is_async else "def"
-                fdeco = f" @{', @'.join(func.decorators)}" if func.decorators else ""
-                lines.append(
-                    f"- {function_prefix} {func.name}{func.signature}{fdeco} "
-                    f"[line {func.lineno}]"
-                )
-                if func.docstring:
-                    lines.append(f"  - {func.docstring}")
-                if func.calls:
-                    lines.append(f"  - calls: {', '.join(func.calls[:12])}")
-            for error in module.errors:
-                lines.append(f"- Parse error: {error}")
+            names: list[str] = []
+            names.extend(f"class {cls.name}" for cls in module.classes)
+            names.extend(f"def {fn.name}" for fn in module.functions)
+            names.extend(c.name for c in module.constants[:8])
+            if names:
+                lines.append(f"- Symbols: {', '.join(names[:24])}")
+            if len(names) > 24:
+                lines.append(f"- … {len(names) - 24} more (use ast_query)")
 
-        return "\n".join(lines)
+        text = "\n".join(lines)
+        if max_chars is not None and len(text) > max_chars:
+            return text[: max_chars - 3].rstrip() + "..."
+        return text

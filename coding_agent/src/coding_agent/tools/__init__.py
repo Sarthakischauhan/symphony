@@ -10,7 +10,7 @@ Pattern for adding a tool:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Type
+from typing import TYPE_CHECKING, List, Optional, Type
 
 from core_harness import Tool
 
@@ -21,6 +21,9 @@ from coding_agent.tools.grep import GrepArgs, GrepTool
 from coding_agent.tools.patch import PatchArgs, PatchTool
 from coding_agent.tools.read_file import ReadFileArgs, ReadFileTool
 from coding_agent.tools.write_file import WriteFileArgs, WriteFileTool
+
+if TYPE_CHECKING:
+    from coding_agent.context.provider import RepositoryContextProvider
 
 TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
     ReadFileTool,
@@ -51,6 +54,16 @@ __all__ = [
 ]
 
 
-def build_tools(workspace: str | Path) -> List[Tool]:
+def build_tools(
+    workspace: str | Path,
+    *,
+    context_provider: Optional["RepositoryContextProvider"] = None,
+) -> List[Tool]:
     """Instantiate every registered workspace tool for ``workspace``."""
-    return [cls(workspace).as_harness_tool() for cls in TOOL_CLASSES]
+    tools: list[Tool] = []
+    for cls in TOOL_CLASSES:
+        instance = cls(workspace)
+        if context_provider is not None and hasattr(instance, "bind_context_provider"):
+            instance.bind_context_provider(context_provider)
+        tools.append(instance.as_harness_tool())
+    return tools

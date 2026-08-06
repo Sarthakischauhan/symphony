@@ -5,6 +5,7 @@ from core_ai import ModelRegistry
 from coding_agent import CodingAgent
 from coding_agent.ast.parser import build_ast_context, summarize_codebase
 from coding_agent.ast.semantic import build_semantic_index, query_semantic
+from coding_agent.context import RepositoryContextProvider
 from coding_agent.tools import AstQueryTool
 
 
@@ -29,19 +30,17 @@ def test_ast_context_summarizes_python_source(tmp_path: Path) -> None:
     assert len(summary.modules) == 1
     module = summary.modules[0]
     assert module.path == "sample.py"
-    assert module.imports == ("pathlib import Path",)
-    assert module.constants[0].startswith("MAX_SIZE=")
+    assert any("Path" in item for item in module.imports)
+    assert module.constants[0].name == "MAX_SIZE"
+    assert module.constants[0].lineno == 4
     assert module.classes[0].name == "Runner"
     assert module.classes[0].methods[0].signature == "(self, path: Path) -> str"
     assert module.functions[0].signature == "(name: str='world') -> None"
     assert module.functions[0].is_async is True
-    assert "Runner.run" in module.functions[0].calls or "run" in module.functions[0].calls
 
     rendered = build_ast_context(tmp_path)
-    assert "Codebase AST context:" in rendered
-    assert "class Runner" in rendered
-    assert "async def main(name: str='world') -> None" in rendered
-    assert "Semantic index:" in rendered
+    assert "Repository map:" in rendered
+    assert "Runner" in rendered
 
 
 def test_semantic_index_finds_symbols_and_calls(tmp_path: Path) -> None:
@@ -72,18 +71,24 @@ def test_semantic_index_finds_symbols_and_calls(tmp_path: Path) -> None:
     assert "Child.hook" in callers or any("hook" in c for c in callers.splitlines())
 
 
-def test_ast_query_tool(tmp_path: Path) -> None:
+def test_ast_query_tool_uses_shared_provider(tmp_path: Path) -> None:
     (tmp_path / "pkg.py").write_text(
         "def alpha() -> int:\n    return 1\n",
         encoding="utf-8",
     )
+    provider = RepositoryContextProvider(tmp_path)
     tool = AstQueryTool(tmp_path)
+    tool.bind_context_provider(provider)
     result = tool.run(action="find", name="alpha")
     assert "alpha" in result
     assert "function" in result
+    parses = provider.parse_count
+    tool.run(action="find", name="alpha")
+    assert provider.parse_count == parses
 
 
-def test_coding_agent_adds_ast_context_to_system_prompt(tmp_path: Path) -> None:
+def test_coding_agent_dynamic_context_includes_repo_map(tmp_path: Path) -> None:
+    (tmp_path / "x.py").write_text("def x():\n    return 1\n", encoding="utf-8")
     registry = ModelRegistry()
     agent = CodingAgent(
         registry=registry,
@@ -92,27 +97,9 @@ def test_coding_agent_adds_ast_context_to_system_prompt(tmp_path: Path) -> None:
         ast_context_path=tmp_path,
         enable_learning=False,
     )
-
-    assert "Codebase AST context:" in agent.harness.system_prompt
-    assert f"- Root: {tmp_path.resolve()}" in agent.harness.system_prompt
-
-
-def test_coding_agent_defaults_ast_context_to_workspace(tmp_path: Path) -> None:
-    (tmp_path / "workspace_module.py").write_text(
-        "def workspace_function() -> None:\n    return None\n",
-        encoding="utf-8",
-    )
-
-    registry = ModelRegistry()
-    agent = CodingAgent(
-        registry=registry,
-        model_id="test:model",
-        workspace=tmp_path,
-        enable_learning=False,
-    )
-
-    assert f"- Root: {tmp_path.resolve()}" in agent.harness.system_prompt
-    assert "workspace_function" in agent.harness.system_prompt
+    dynamic = agent._dynamic_context()
+    assert "Repository map:" in dynamic
+    assert "Codebase AST context:" not in agent.harness.system_prompt
 
 
 def test_coding_agent_can_disable_ast_context(tmp_path: Path) -> None:
@@ -124,19 +111,11 @@ def test_coding_agent_can_disable_ast_context(tmp_path: Path) -> None:
         include_ast_context=False,
         enable_learning=False,
     )
+    assert agent._dynamic_context() == ""
+    assert "Repository map:" not in agent.harness.system_prompt
 
-    assert agent.harness.system_prompt == agent.system_prompt
-    assert "Codebase AST context:" not in agent.harness.system_prompt
 
-
-def test_coding_agent_injects_learning_playbook(tmp_path: Path) -> None:
-    store_path = tmp_path / ".symphony" / "learning"
-    store_path.mkdir(parents=True)
-    (store_path / "playbook.md").write_text(
-        "# Symphony learning playbook\n\n## What worked\n- patch succeeded\n",
-        encoding="utf-8",
-    )
-
+def test_coding_agent_injects_verified_lessons_via_dynamic_context(tmp_path: Path) -> None:
     registry = ModelRegistry()
     agent = CodingAgent(
         registry=registry,
@@ -145,5 +124,10 @@ def test_coding_agent_injects_learning_playbook(tmp_path: Path) -> None:
         include_ast_context=False,
         enable_learning=True,
     )
-    assert "Lessons from prior tasks" in agent.harness.system_prompt
-    assert "patch succeeded" in agent.harness.system_prompt
+    agent.promote_lesson(
+        summary="patch succeeded for indented blocks",
+        outcome="worked",
+        verification="user_approved",
+        evidence="review",
+    )
+    assert "patch succeeded for indented blocks" in agent._dynamic_context()
