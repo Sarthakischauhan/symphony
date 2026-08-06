@@ -54,8 +54,9 @@ Shared `WorkspaceTool` base handles workspace binding, path escape rejection, py
 - [x] Patch whitespace preserved via harness-validated `PatchArgs`
 - [x] `RepositoryContextProvider` with hash/mtime cache + token-budgeted repo map
 - [x] On-demand `ast_query`; invalidate after edits; pluggable indexer protocol
-- [x] Learning: task journal vs verified lessons; per-run dynamic context hook
-- [x] Sanitize/redact; atomic JSONL/playbook; cancel/failure-safe journaling
+- [x] Learning: optional LLM reviewer (`should_persist`); proposed vs trusted stores
+- [x] Reviewer must read full lesson before propose_update; no in-place trusted rewrites
+- [x] Sanitize/redact; atomic JSONL/playbook; learning failures don't fail the agent run
 
 ### Not started yet / next
 

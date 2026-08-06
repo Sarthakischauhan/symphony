@@ -1,60 +1,78 @@
-"""Post-task learning loop: journal telemetry; promote only after verification."""
+"""Post-task LLM learning reviewer orchestration."""
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
+from core_ai.registry import ModelRegistry
 from core_ai.types import Message
-from core_harness import HarnessResult
+from core_harness import CoreHarness, HarnessResult, NullControlPlane
+from core_harness.persistence import NullPersistence
 
+from coding_agent.learning.prompts import REVIEWER_SYSTEM_PROMPT
 from coding_agent.learning.sanitize import sanitize_task, sanitize_text
 from coding_agent.learning.store import (
     LearningStore,
-    Lesson,
-    TaskJournalEntry,
+    ProposedLesson,
+    TrustedLesson,
     default_expiry,
 )
+from coding_agent.learning.tools import build_reviewer_tools
+
+logger = logging.getLogger(__name__)
 
 
 class LearningLoop:
-    """Record unverified task journals; promote verified lessons explicitly."""
+    """Optional LLM post-task reviewer; proposals stay separate from trusted lessons."""
 
-    def __init__(self, store: LearningStore) -> None:
+    def __init__(
+        self,
+        store: LearningStore,
+        *,
+        registry: ModelRegistry,
+        model_id: str,
+        workspace: str,
+        max_turns: int = 6,
+    ) -> None:
         self.store = store
+        self.registry = registry
+        self.model_id = model_id
+        self.workspace = workspace
+        self.max_turns = max_turns
 
-    def after_task(
+    async def after_task(
         self,
         task: str,
         result: HarnessResult,
         *,
+        should_persist: bool = False,
         status: str = "completed",
         workspace_revision: str = "",
-    ) -> TaskJournalEntry:
-        """Append raw telemetry only. Does not update the verified playbook."""
-        tools_used, events = self._analyze(result)
-        preview = sanitize_task(task)
-        content_hash = hashlib.sha256(
-            f"{preview}|{status}|{','.join(tools_used)}|{workspace_revision}".encode("utf-8")
-        ).hexdigest()[:16]
-        entry = TaskJournalEntry(
-            id=str(uuid.uuid4()),
-            task_preview=preview,
-            status=status,
-            tools_used=tools_used,
-            tool_events=events,
-            notes=f"status={status}; tools={len(tools_used)}; events={len(events)}",
+    ) -> Optional[HarnessResult]:
+        """Run the LLM reviewer only when should_persist is true."""
+        if not should_persist:
+            return None
+
+        tools, _read_ids = build_reviewer_tools(
+            workspace=self.workspace,
+            store=self.store,
+            source_task=task,
             workspace_revision=workspace_revision,
-            provenance="task_journal",
-            confidence=0.0,
-            verified=False,
-            verification=None,
-            expires_at=default_expiry(),
-            content_hash=content_hash,
         )
-        self.store.append_journal(entry)
-        return entry
+        harness = CoreHarness(
+            registry=self.registry,
+            model_id=self.model_id,
+            system_prompt=REVIEWER_SYSTEM_PROMPT,
+            tools=tools,
+            control_plane=NullControlPlane(),
+            persistence=NullPersistence(),
+            max_turns=self.max_turns,
+        )
+        prompt = _reviewer_user_prompt(task=task, result=result, status=status)
+        return await harness.run(prompt)
 
     def promote(
         self,
@@ -65,23 +83,25 @@ class LearningLoop:
         evidence: str = "",
         workspace_revision: str = "",
         confidence: float = 0.8,
-        tools_used: Optional[List[str]] = None,
-        journal_id: Optional[str] = None,
-    ) -> Lesson:
-        """Promote a verified lesson into the playbook."""
+        proposed_id: Optional[str] = None,
+    ) -> TrustedLesson:
+        """Promote into the trusted playbook only with explicit verification."""
         if verification not in {"tests_passed", "user_approved", "evaluator"}:
             raise ValueError(
                 "verification must be one of: tests_passed, user_approved, evaluator"
             )
-        if outcome not in {"worked", "failed", "mixed"}:
-            raise ValueError("outcome must be one of: worked, failed, mixed")
+        if outcome not in {"worked", "failed", "mixed", "note"}:
+            raise ValueError("outcome must be one of: worked, failed, mixed, note")
 
         clean_summary = sanitize_text(summary, max_chars=240)
-        clean_evidence = sanitize_text(evidence or f"journal_id={journal_id or 'n/a'}", max_chars=240)
+        clean_evidence = sanitize_text(
+            evidence or f"proposed_id={proposed_id or 'n/a'}",
+            max_chars=240,
+        )
         content_hash = hashlib.sha256(
             f"{clean_summary}|{outcome}|{verification}|{workspace_revision}".encode("utf-8")
         ).hexdigest()[:16]
-        lesson = Lesson(
+        lesson = TrustedLesson(
             id=str(uuid.uuid4()),
             summary=clean_summary,
             outcome=outcome,
@@ -89,63 +109,65 @@ class LearningLoop:
             verification=verification,
             workspace_revision=workspace_revision,
             confidence=max(0.0, min(1.0, confidence)),
-            provenance="verified_lesson",
+            provenance="trusted_lesson",
             expires_at=default_expiry(),
             content_hash=content_hash,
-            tools_used=list(tools_used or []),
+            proposed_id=proposed_id,
         )
-        self.store.append_lesson(lesson)
+        self.store.append_trusted(lesson)
         return lesson
 
-    def _analyze(self, result: HarnessResult) -> Tuple[List[str], List[str]]:
-        tool_names_by_id = _tool_names_by_id(result.messages)
-        tools_used: list[str] = []
-        events: list[str] = []
+    def promote_proposed(
+        self,
+        proposed_id: str,
+        *,
+        verification: str,
+        evidence: str = "",
+    ) -> TrustedLesson:
+        """Trust a previously proposed lesson after verification."""
+        proposed = self.store.get_lesson(kind="proposed", lesson_id=proposed_id)
+        if proposed is None or not isinstance(proposed, ProposedLesson):
+            raise ValueError(f"proposed lesson not found: {proposed_id}")
+        return self.promote(
+            summary=proposed.summary,
+            outcome=proposed.outcome,
+            verification=verification,
+            evidence=evidence or proposed.rationale,
+            workspace_revision=proposed.workspace_revision,
+            confidence=proposed.confidence,
+            proposed_id=proposed.id,
+        )
 
-        for message in result.messages:
-            if message.role != "tool":
-                continue
-            tool_id = message.tool_call_id or ""
-            name = tool_names_by_id.get(tool_id, "tool")
-            if name not in tools_used:
-                tools_used.append(name)
-            content = sanitize_text(_message_text(message), max_chars=160)
-            kind = "error" if _looks_failed(content) else "ok"
-            events.append(f"{name}:{kind}:{content}")
 
-        return tools_used, events
+def _reviewer_user_prompt(*, task: str, result: HarnessResult, status: str) -> str:
+    transcript = _compact_transcript(result)
+    return (
+        f"Task status: {status}\n"
+        f"Task: {sanitize_task(task)}\n\n"
+        f"Assistant output:\n{sanitize_text(result.output_text or '', max_chars=800)}\n\n"
+        f"Transcript (sanitized, truncated):\n{transcript}\n\n"
+        "If useful, propose lessons with the provided tools. "
+        "Read any existing lesson fully before proposing an update."
+    )
 
 
-def _tool_names_by_id(messages: List[Message]) -> Dict[str, str]:
-    names: Dict[str, str] = {}
-    for message in messages:
-        if message.role != "assistant" or not message.tool_calls:
+def _compact_transcript(result: HarnessResult, *, max_chars: int = 3000) -> str:
+    lines: list[str] = []
+    for message in result.messages:
+        if message.role == "system":
             continue
-        for call in message.tool_calls:
-            if not isinstance(call, dict):
-                continue
-            call_id = str(call.get("id") or "")
-            fn = call.get("function") if isinstance(call.get("function"), dict) else {}
-            name = str(call.get("name") or fn.get("name") or "tool")
-            if call_id:
-                names[call_id] = name
-    return names
-
-
-def _message_text(message: Message) -> str:
-    content = message.content
-    if isinstance(content, str):
-        return content
-    return str(content)
-
-
-def _looks_failed(content: str) -> bool:
-    text = content.strip()
-    lowered = text.lower()
-    if text.startswith("error:"):
-        return True
-    if text.startswith("exit=") and not text.startswith("exit=0"):
-        return True
-    if "traceback (most recent call last)" in lowered:
-        return True
-    return False
+        role = message.role
+        content = message.content
+        text = content if isinstance(content, str) else str(content)
+        if message.role == "assistant" and message.tool_calls:
+            names = []
+            for call in message.tool_calls:
+                if isinstance(call, dict):
+                    fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+                    names.append(str(call.get("name") or fn.get("name") or "tool"))
+            text = (text or "") + f" [tools: {', '.join(names)}]"
+        lines.append(f"{role}: {sanitize_text(text, max_chars=240)}")
+    blob = "\n".join(lines)
+    if len(blob) > max_chars:
+        return blob[: max_chars - 3].rstrip() + "..."
+    return blob

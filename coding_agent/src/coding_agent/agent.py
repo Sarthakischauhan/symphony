@@ -32,14 +32,12 @@ class CodingAgent:
     """Product wrapper: workspace tools + CoreHarness loop.
 
     Conversation model:
-    - Within one ``run()``, ``CoreHarness`` owns the full message list
-      (system + user + assistant/tool turns).
-    - Across ``run()`` calls, pass ``conversation`` and/or rely on ``persistence``
-      + ``session_id`` so the harness can reload prior messages.
-    - Per-run dynamic context (repo map + verified lessons) is injected via a
+    - Within one ``run()``, ``CoreHarness`` owns the full message list.
+    - Across ``run()`` calls, persistence + ``session_id`` reload prior messages.
+    - Per-run dynamic context (repo map + trusted lessons) is injected via a
       harness hook and is not permanently grown into persisted history.
-    - After each ``run()``, unverified task telemetry is journaled under
-      ``.symphony/learning/``; only explicitly verified lessons enter the playbook.
+    - Optional post-task LLM learning reviewer runs only when
+      ``should_persist=True``; proposals stay separate from trusted lessons.
     """
 
     def __init__(
@@ -59,6 +57,7 @@ class CodingAgent:
         tools: Optional[List[Tool]] = None,
         context_provider: Optional[RepositoryContextProvider] = None,
         max_repo_map_chars: int = 2500,
+        learning_max_turns: int = 6,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -70,8 +69,20 @@ class CodingAgent:
         self.enable_learning = enable_learning
         self.include_ast_context = include_ast_context
         self.base_system_prompt = system_prompt
+        self.registry = registry
+        self.model_id = model_id
         self.learning_store = LearningStore(self.workspace)
-        self.learning_loop = LearningLoop(self.learning_store) if enable_learning else None
+        self.learning_loop = (
+            LearningLoop(
+                self.learning_store,
+                registry=registry,
+                model_id=model_id,
+                workspace=str(self.workspace),
+                max_turns=learning_max_turns,
+            )
+            if enable_learning
+            else None
+        )
 
         context_root = (
             Path(ast_context_path).resolve() if ast_context_path else self.workspace
@@ -85,7 +96,6 @@ class CodingAgent:
             if tools is not None
             else build_tools(self.workspace, context_provider=self.context_provider)
         )
-        # Static prompt only — dynamic context is attached per run.
         self.system_prompt = system_prompt.rstrip() + "\n"
         self.harness = CoreHarness(
             registry=registry,
@@ -123,8 +133,14 @@ class CodingAgent:
         *,
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
+        should_persist: bool = False,
     ) -> HarnessResult:
-        """Run one agent turn loop, then journal unverified task telemetry."""
+        """Run one agent turn loop.
+
+        Learning is optional: pass ``should_persist=True`` to run a separate
+        LLM reviewer that may append *proposed* lessons. Trusted lessons are
+        only created via ``promote_lesson`` / verification.
+        """
         status = "completed"
         result: Optional[HarnessResult] = None
         try:
@@ -141,23 +157,38 @@ class CodingAgent:
             status = "failed"
             raise
         finally:
-            self._safe_after_task(user_input, result, status=status)
+            await self._safe_after_task(
+                user_input,
+                result,
+                status=status,
+                should_persist=should_persist,
+            )
 
     def promote_lesson(self, **kwargs):
-        """Promote a verified lesson into the playbook (explicit evidence required)."""
+        """Promote a trusted lesson (requires verification evidence)."""
         if self.learning_loop is None:
             raise RuntimeError("learning is disabled on this agent")
         kwargs.setdefault("workspace_revision", self.context_provider.workspace_revision())
         return self.learning_loop.promote(**kwargs)
 
-    def _safe_after_task(
+    def promote_proposed(self, proposed_id: str, *, verification: str, evidence: str = ""):
+        if self.learning_loop is None:
+            raise RuntimeError("learning is disabled on this agent")
+        return self.learning_loop.promote_proposed(
+            proposed_id,
+            verification=verification,
+            evidence=evidence,
+        )
+
+    async def _safe_after_task(
         self,
         user_input: str,
         result: Optional[HarnessResult],
         *,
         status: str,
+        should_persist: bool,
     ) -> None:
-        if self.learning_loop is None:
+        if self.learning_loop is None or not should_persist:
             return
         try:
             revision = ""
@@ -166,7 +197,6 @@ class CodingAgent:
             except Exception:
                 revision = ""
             if result is None:
-                # Synthesize a minimal result for journaling cancellations/failures.
                 from core_harness.models.harness import UsageTotals
 
                 result = HarnessResult(
@@ -177,11 +207,12 @@ class CodingAgent:
                     ],
                     usage=UsageTotals(),
                 )
-            self.learning_loop.after_task(
+            await self.learning_loop.after_task(
                 user_input,
                 result,
+                should_persist=True,
                 status=status,
                 workspace_revision=revision,
             )
         except Exception:
-            logger.exception("learning persistence failed; ignoring to preserve agent run")
+            logger.exception("learning reviewer failed; ignoring to preserve agent run")

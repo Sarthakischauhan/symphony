@@ -32,7 +32,7 @@ uv run --package coding-agent coding-agent-tui --resume
 - tools (one module each): `read_file`, `write_file`, `patch`, `bash`, `grep`, `ast_query`
 - `build_tools(workspace)` — register all tools for a workspace root
 - semantic AST index (symbols, inheritance, call graph) seeded into the system prompt
-- self-learning loop after each `run()` under `<workspace>/.symphony/learning/`
+- optional post-task LLM learning reviewer (`should_persist=True`) under `<workspace>/.symphony/learning/`
 
 ```python
 from core_ai import ModelRegistry, OpenAIProvider
@@ -80,13 +80,21 @@ You can still pass an explicit `conversation=` list to override the loaded histo
 
 ### Self-learning (`.symphony/learning`)
 
-After every `CodingAgent.run()`, a learning loop records what worked vs failed
-into:
+Learning is **opt-in per run**. Default `should_persist=False` does not produce lessons.
 
-- `<workspace>/.symphony/learning/lessons.jsonl` — append-only lesson log
-- `<workspace>/.symphony/learning/playbook.md` — compact playbook injected on later runs
+```python
+await agent.run("Fix the bug", should_persist=True)
+```
 
-Disable with `enable_learning=False`.
+When enabled, a **separate LLM reviewer** may append *proposed* lessons only:
+
+- `proposed_lessons.jsonl` — LLM proposals (not injected into prompts)
+- `trusted_lessons.jsonl` + `playbook.md` — only after verification
+  (`tests_passed` / `user_approved` / `evaluator`) via `promote_lesson` /
+  `promote_proposed`
+
+The reviewer must `read_lesson` the full current contents before `propose_update`.
+It cannot rewrite trusted lessons in place. Disable entirely with `enable_learning=False`.
 
 ### Tool pattern
 
