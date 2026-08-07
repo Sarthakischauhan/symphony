@@ -27,28 +27,43 @@ Earlier phases for the general-purpose harness are landed:
 - Control-plane product surface (typed events, fan-out, persistence, inbound pause/cancel/inject)
 - Multi-turn OpenAI tool-call forwarding
 
-### Done (coding agent tools — this phase)
+### Done (coding agent tools)
 
-`coding_agent` tools are no longer a single monolith. Each tool is its own module under a clear pattern:
+`coding_agent` tools use one module each under a shared `WorkspaceTool` base:
 
 | Tool | Module | Purpose |
 |---|---|---|
 | `read_file` | `tools/read_file.py` | Read UTF-8 text |
 | `write_file` | `tools/write_file.py` | Create / overwrite text |
+| `patch` | `tools/patch.py` | Surgical exact-text edit |
 | `bash` | `tools/bash.py` | Shell in workspace |
 | `grep` | `tools/grep.py` | Regex search (path / glob) |
+| `ast_query` | `tools/ast_query.py` | Semantic AST queries |
 
-Shared `WorkspaceTool` base handles workspace binding, path escape rejection, and `as_harness_tool()`. New tools: subclass → set `name`/`description` → implement `run` → register in `TOOL_CLASSES`.
+Shared `WorkspaceTool` base handles workspace binding, path escape rejection, pydantic schemas, and `as_harness_tool()`.
 
-Unit tests cover tools without a live API key; the live bubble-sort integration test remains optional.
+### Done (AST semantic layer + self-learning — this PR)
+
+- AST parser emits decorators, constants, call sites, qualified names
+- Semantic index: symbols, inheritance, callers/callees; rendered into prompt + `ast_query`
+- Post-task learning loop writes `<workspace>/.symphony/learning/{lessons.jsonl,playbook.md}`
+- Playbook injected into later system prompts (disable with `enable_learning=False`)
+
+### Follow-up hardening (PR on `feature/agent-tools-followup`)
+
+- [x] Patch whitespace preserved via harness-validated `PatchArgs`
+- [x] `RepositoryContextProvider` with hash/mtime cache + token-budgeted repo map
+- [x] On-demand `ast_query`; invalidate after edits; pluggable indexer protocol
+- [x] Learning: optional LLM reviewer (`should_persist`); proposed vs trusted stores
+- [x] Reviewer must read full lesson before propose_update; no in-place trusted rewrites
+- [x] Sanitize/redact; atomic JSONL/playbook; learning failures don't fail the agent run
 
 ### Not started yet / next
 
-- TUI streaming polish + cancel/pause (scaffold in PR #4)
-- CLI packaging beyond the TUI entrypoint
-- Edit / apply-patch style tools
+- TUI streaming polish + cancel/pause
 - Permission / approval gates for destructive tools
-- Session resume + richer CP-driven UI
+- Richer lesson synthesis (model-authored summaries)
+- Multi-language AST beyond Python
 
 ---
 
@@ -83,13 +98,14 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 - [ ] Stream `text_delta` into the log without duplicating final output
 - [ ] Cancel / pause bindings via inbound CP commands
 
-### Phase 3 — Agent hardening
+### Phase 3 — Agent hardening ✅ (this PR)
 
-- [ ] `edit_file` / patch tool (surgical edits vs full rewrite)
-- [ ] Tool result truncation + size caps for model context
+- [x] `patch` / edit-file tool (surgical exact-text edits)
+- [x] Expand AST layer: semantic symbols, inheritance, call graph, `ast_query`
+- [x] Self-learning loop after each task under `.symphony/learning`
 - [ ] Permission policy (e.g. confirm before `bash` / overwrite)
 - [ ] Configurable tool allowlist / denylist
-- [ ] Richer errors returned as structured strings (already started)
+- [ ] Model-authored lesson summaries (beyond heuristic tips)
 
 ### Phase 4 — Product UX
 
@@ -122,8 +138,10 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 
 ### Next agent work
 
-- [ ] Design `edit_file` / patch tool
-- [ ] Tool result size caps
+- [x] Land `patch` / edit-file tool
+- [x] Semantic AST + `ast_query`
+- [x] `.symphony` self-learning loop
+- [ ] Tool result size caps (beyond read/grep)
 - [ ] Optional permission gate for bash / overwrite
 
 ---
@@ -209,4 +227,4 @@ the duration of a run.
 3. Update **Current State** and checkboxes when work merges.
 4. Add new backlog rows under Phase 5 instead of rewriting history.
 
-**Primary near-term objectives:** merge this tools PR + TUI PR (#4), then streaming polish and Phase 3 `edit_file`.
+**Primary near-term objectives:** permission gates, TUI streaming polish, richer learning summaries.

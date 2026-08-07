@@ -56,7 +56,7 @@ The harness (Symphony) is standalone and product-agnostic. Agents are separate c
 - **Control plane** — every UI subscribes to the same emit stream; supports fan-out, event logs, and inbound pause/cancel commands.
 - **Context management** — warn thresholds, token estimation, and pluggable compaction.
 - **Persistence** — a `Persistence` protocol with checkpoints, plus a SQLite store for conversation resume across runs.
-- **Coding agent** — workspace sandbox tools (`read_file`, `write_file`, `bash`, `grep`) and a Textual TUI with markdown rendering, session list, and resume.
+- **Coding agent** — updated documentation regarding learning mechanisms and persistence management, including five workspace tools (`read_file`, `write_file`, `patch`, `search`, `bash`), a Textual TUI, and persisted sessions.
 - **Browser-use agent (upcoming)** — same harness, browser tools and UX on top.
 
 ## Quick Start
@@ -78,7 +78,7 @@ Resume a previous session interactively:
 uv run --package coding-agent coding-agent-tui --resume
 ```
 
-The default workspace is `.workspace`. `OPENAI_BASE_URL`, `OPENAI_MODEL`, and `CODING_AGENT_WORKSPACE` are honored when set.
+The default workspace is the current directory. Use `--workspace` to override it.
 
 ## Example
 
@@ -94,7 +94,7 @@ registry.register("openai", OpenAIProvider(api_key=...))
 agent = CodingAgent(
     registry=registry,
     model_id="openai:gpt-4o-mini",
-    workspace=".workspace",
+    workspace=".",
 )
 
 result = await agent.run("Create hello.txt with hi, then read it back.")
@@ -152,4 +152,4 @@ Run a single package's tests from that package's directory with `uv run pytest`.
 
 ## Status
 
-Early and evolving — APIs may shift as the stack matures. `coding_agent` is the shipped product on the harness; a browser-use agent is next. See [`plan.md`](./plan.md) for the roadmap and current phase checklist.
+Currently in active development with significant updates being implemented across packages, the APIs will continue to evolve. `coding_agent` is the shipped product on the harness; a browser-use agent is next. See [`plan.md`](./plan.md) for the roadmap and current phase checklist.

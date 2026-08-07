@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 from pathlib import Path
 
 from coding_agent.persistence import SqlitePersistence
@@ -15,8 +14,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Symphony coding agent TUI")
     parser.add_argument(
         "--workspace",
-        default=".workspace",
-        help="Workspace directory for file/shell tools (default: .workspace or CODING_AGENT_WORKSPACE)",
+        default=None,
+        help="Workspace directory for file/shell tools (default: current directory)",
     )
     parser.add_argument(
         "--model",
@@ -29,11 +28,7 @@ def main() -> None:
         help="List saved sessions and interactively resume one",
     )
     args = parser.parse_args()
-    workspace = Path(
-        args.workspace
-        if args.workspace != ".workspace"
-        else os.environ.get("CODING_AGENT_WORKSPACE", ".workspace")
-    ).resolve()
+    workspace = Path(args.workspace or ".").resolve()
     session_id = None
     if args.resume:
         sessions = asyncio.run(

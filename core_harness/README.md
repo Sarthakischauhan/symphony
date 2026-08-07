@@ -1,6 +1,6 @@
 # core-harness
 
-Minimal agent loop for running a model with tools and a control plane. This package is still under construction, so the README is intentionally short.
+Minimal agent loop for running a model with tools and a control plane. This package is under active development with key capabilities, including: \n- `CoreHarness` for executing model tools and managing command/event workflows.\n- Various control plane implementations for handling events and logging.\n- `Persistence` protocols for managing conversation state and checkpointing., so the README is intentionally short.
 
 ## What it provides
 

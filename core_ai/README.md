@@ -1,6 +1,6 @@
 # core-ai
 
-Small shared package for model providers and streaming response types. It is under active construction, so the README stays intentionally brief.
+Small shared package for model providers and streaming response types. It is under active development, with a focus on providing a `ModelRegistry`, `OpenAIProvider`, and shared types like `Message` and `StreamEvent`., so the README stays intentionally brief.
 
 ## What it provides
 
