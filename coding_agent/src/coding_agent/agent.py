@@ -8,7 +8,16 @@ from typing import List, Optional, Union
 
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
-from core_harness import ControlPlane, CoreHarness, HarnessResult, NullControlPlane, Persistence, Tool
+from core_harness import (
+    ControlPlane,
+    CoreHarness,
+    HarnessResult,
+    KeepSystemRecentCompactor,
+    NullControlPlane,
+    Persistence,
+    Tool,
+)
+from core_harness.utils.tokens import estimate_prompt_tokens
 
 from coding_agent.learning import LearningLoop, LearningStore
 from coding_agent.persistence import SqlitePersistence
@@ -36,6 +45,7 @@ class CodingAgent:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.control_plane = control_plane or NullControlPlane()
+        self.registry = registry
         self.session_id = session_id or str(uuid.uuid4())
         self.persistence = persistence or SqlitePersistence(
             self.workspace / ".symphony" / "sessions.sqlite3"
@@ -86,3 +96,45 @@ class CodingAgent:
         """Optionally drain pending reflections before application shutdown."""
         if self.learning_loop is not None:
             await self.learning_loop.wait()
+
+    async def compact_conversation(self, *, keep_recent: int = 8) -> tuple[int, int]:
+        """Manually compact the persisted conversation for the active session."""
+        messages = await self.persistence.load_conversation(session_id=self.session_id)
+        before = len(messages)
+        if not messages:
+            return (0, 0)
+
+        before_tokens = estimate_prompt_tokens(messages)
+        await self.control_plane.emit(
+            "compaction_started",
+            {
+                "turn": 0,
+                "message_count": before,
+                "tokens_used": before_tokens,
+                "context_left": None,
+                "manual": True,
+            },
+        )
+        compacted = await KeepSystemRecentCompactor(keep_recent=keep_recent).compact(
+            messages,
+            turn=0,
+            context_limit=self.harness.state.context_limit(self.harness.model_id),
+            tokens_used=before_tokens,
+            context_left=None,
+        )
+        await self.persistence.save_conversation(
+            session_id=self.session_id,
+            messages=compacted,
+        )
+        await self.control_plane.emit(
+            "compaction_completed",
+            {
+                "turn": 0,
+                "message_count_before": before,
+                "message_count_after": len(compacted),
+                "estimated_tokens_before": before_tokens,
+                "estimated_tokens_after": estimate_prompt_tokens(compacted),
+                "manual": True,
+            },
+        )
+        return (before, len(compacted))

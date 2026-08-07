@@ -11,7 +11,7 @@ from core_harness.models.control_plane import ControlCommandType
 from core_harness.models.harness import HarnessResult, UsageTotals
 from core_harness.models.tools import ToolCall
 from core_harness.persistence import Checkpoint, Persistence
-from core_harness.state import HarnessState
+from core_harness.state import HarnessState, normalize_tool_protocol
 from core_harness.tools import Tool
 from core_harness.turn import TurnRunner
 
@@ -212,7 +212,11 @@ class HarnessRun:
             prior = [message for message in loaded if message.role != "system"]
 
         messages = [Message(role="system", content=self.system_prompt)]
-        messages.extend(prior or [])
+        messages.extend(
+            message
+            for message in normalize_tool_protocol(prior or [])
+            if message.role != "system"
+        )
         self.state.add_user_message(messages, user_input)
         return messages
 

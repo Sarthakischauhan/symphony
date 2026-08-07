@@ -1,12 +1,51 @@
 import asyncio
+import json
 import os
 
 import pytest
+import httpx
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+
+def test_gpt_5_4_uses_responses_reasoning_stream() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/responses"
+        payload = json.loads(request.content)
+        assert payload["reasoning"] == {"effort": "medium", "summary": "auto"}
+        body = "\n\n".join(
+            f"data: {event}"
+            for event in (
+                '{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"Checking files"}',
+                '{"type":"response.output_text.delta","content_index":0,"delta":"Done"}',
+                '{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":7,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":17}}}',
+                "[DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> list[StreamEvent]:
+        provider = OpenAIProvider(
+            api_key="test",
+            transport=httpx.MockTransport(handler),
+        )
+        return [
+            event
+            async for event in provider.stream(
+                "gpt-5.4-mini", [Message(role="user", content="Inspect it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert [(event.type, event.delta) for event in events[:2]] == [
+        ("reasoning_delta", "Checking files"),
+        ("text_delta", "Done"),
+    ]
+    assert events[2].reasoning_tokens == 4
+    assert events[-1].type == "done"
 
 
 def call_openai_provider(

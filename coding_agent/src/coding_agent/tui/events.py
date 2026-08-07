@@ -1,86 +1,112 @@
-"""Map core_harness control-plane events into TUI log/status/live updates."""
+"""Map harness events into durable conversation components."""
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
-
-from rich.markdown import Markdown
+import json
+from typing import Any, Callable, Dict, Mapping, Optional, Protocol
 
 from coding_agent.tui.state import UiRunState
 
-WriteFn = Callable[[Any], None]
 StatusFn = Callable[[str], None]
-LiveFn = Callable[[str], None]
 
 
-def _preview(value: Any, limit: int = 240) -> str:
+class TranscriptView(Protocol):
+    """Small rendering boundary, deliberately free of Textual types."""
+
+    def set_assistant(self, text: str, *, new: bool = False) -> None: ...
+
+    def set_thinking(self, text: str) -> None: ...
+
+    def set_reasoning(self, text: str, *, new: bool = False) -> None: ...
+
+    def finish_process(self, title: str, *, collapse: bool = True) -> None: ...
+
+    def add_tool(self, call_id: str, name: str) -> None: ...
+
+    def update_tool(
+        self,
+        call_id: str,
+        *,
+        arguments: Optional[Mapping[str, Any]] = None,
+        raw_arguments: str = "",
+        status: str = "preparing",
+        result: Any = None,
+    ) -> None: ...
+
+    def add_notice(self, text: str, tone: str = "info") -> None: ...
+
+
+def _preview(value: Any, limit: int = 180) -> str:
     text = str(value)
-    if len(text) <= limit:
-        return text
-    return text[:limit] + "…"
+    return text if len(text) <= limit else f"{text[:limit]}…"
 
 
 class EventPresenter:
-    """Pure presentation logic for harness events (no Textual imports)."""
+    """Stateful event reducer that updates a transcript view."""
 
     def __init__(
         self,
         *,
         state: UiRunState,
-        write: WriteFn,
+        view: TranscriptView,
         set_status: StatusFn,
-        set_live: LiveFn,
         workspace: str = "",
     ) -> None:
         self.state = state
-        self._write = write
+        self.view = view
         self._set_status = set_status
-        self._set_live = set_live
         self.workspace = workspace
+        self._assistant_open = False
+        self._tool_names: dict[str, str] = {}
+        self._tool_arguments: dict[str, str] = {}
+        self._reasoning_summaries: set[tuple[int, int]] = set()
 
     def refresh_chrome(self) -> None:
         self._set_status(self.state.status_line(workspace=self.workspace))
-        self._set_live(self.state.live_line())
 
     def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         payload = payload or {}
         handler = getattr(self, f"_on_{event_type}", None)
         if handler is None:
-            self._write(f"[dim]event:{event_type}[/dim] {_preview(payload, 160)}")
-            self.refresh_chrome()
-            return
-        handler(payload)
+            self.view.add_notice(f"{event_type} · {_preview(payload)}")
+        else:
+            handler(payload)
         self.refresh_chrome()
 
     def flush_stream_to_log(self) -> None:
-        if self.state.stream_started and self.state.stream_text:
-            self._write(
-                Markdown(
-                    f"**assistant>**\n\n{self.state.stream_text}",
-                    code_theme="monokai",
-                )
-            )
-            self.state.stream_text = ""
-            self.state.stream_started = False
+        """Compatibility name: streamed content already updates in place."""
+        self._assistant_open = False
 
-    # --- run lifecycle -------------------------------------------------
+    def _usage_text(self, prefix: str = "Thinking") -> str:
+        m = self.state.metrics
+        if not (m.prompt_tokens or m.completion_tokens):
+            turn = f" · turn {self.state.turn + 1}" if self.state.turn is not None else ""
+            return f"{prefix}{turn}"
+        estimate = "~" if m.estimated else ""
+        text = (
+            f"{prefix} · {estimate}{m.prompt_tokens:,} in / "
+            f"{estimate}{m.completion_tokens:,} out"
+        )
+        if m.reasoning_tokens:
+            text += f" · {m.reasoning_tokens:,} reasoning"
+        return text
 
+    # Run lifecycle
     def _on_run_started(self, payload: Dict[str, Any]) -> None:
-        model_id = str(payload.get("model_id") or self.state.model_id)
-        self.state.reset_for_run(model_id=model_id)
-        tools = payload.get("tool_names") or []
-        self._write(f"[dim]— run started · tools={list(tools)} —[/dim]")
+        self.state.reset_for_run(model_id=str(payload.get("model_id") or self.state.model_id))
+        self._assistant_open = False
+        self._tool_names.clear()
+        self._tool_arguments.clear()
+        self._reasoning_summaries.clear()
+        self.view.set_thinking("Thinking…")
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
-        self.flush_stream_to_log()
         usage = payload.get("usage") or {}
         context = payload.get("context") or {}
         if usage:
             self.state.update_usage(
                 {
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0),
+                    **usage,
                     "cumulative_tokens": usage.get("total_tokens", 0),
                     "estimated": False,
                 }
@@ -88,138 +114,151 @@ class EventPresenter:
         if context:
             self.state.update_context(context)
         self.state.phase = "idle"
-        self.state.detail = "done"
-        self._write("[dim]— run completed —[/dim]")
+        self.state.detail = "ready"
+        completed = self._usage_text("Completed")
+        self.view.set_thinking(completed)
+        self.view.finish_process(completed)
+        self._assistant_open = False
 
     def _on_run_failed(self, payload: Dict[str, Any]) -> None:
-        self.flush_stream_to_log()
         self.state.phase = "idle"
         self.state.detail = "failed"
-        self._write(
-            f"[red]run failed ({payload.get('error_type', 'error')}): "
-            f"{payload.get('message', payload)}[/red]"
-        )
+        self.view.set_thinking("Stopped with an error")
+        self.view.add_notice(str(payload.get("message") or payload), "error")
+        self.view.finish_process("Stopped with an error", collapse=False)
 
     def _on_run_cancelled(self, payload: Dict[str, Any]) -> None:
-        self.flush_stream_to_log()
         self.state.phase = "idle"
         self.state.detail = "cancelled"
-        self._write(f"[yellow]run cancelled: {payload.get('reason', 'cancelled')}[/yellow]")
+        self.view.set_thinking("Cancelled")
+        reason = payload.get("reason")
+        if reason:
+            self.view.add_notice(str(reason), "warning")
+        self.view.finish_process("Cancelled")
 
-    # --- turns / streaming ("thinking") --------------------------------
-
+    # Turns and streaming
     def _on_turn_started(self, payload: Dict[str, Any]) -> None:
-        self.flush_stream_to_log()
         turn = int(payload.get("turn") or 0)
         self.state.begin_turn(turn)
-        count = payload.get("message_count")
-        suffix = f" · messages={count}" if count is not None else ""
-        self._write(f"[dim]thinking · turn {turn}{suffix}[/dim]")
+        self._assistant_open = False
+        self.view.set_thinking(self._usage_text())
 
     def _on_turn_completed(self, payload: Dict[str, Any]) -> None:
-        had_tools = bool(payload.get("had_tool_calls"))
-        if not had_tools:
-            self.flush_stream_to_log()
-        self.state.detail = "turn done"
-        if self.state.phase == "streaming":
-            self.state.phase = "thinking"
+        self.state.detail = "running tools" if payload.get("had_tool_calls") else "finishing"
+        if not payload.get("had_tool_calls"):
+            self._assistant_open = False
 
     def _on_text_delta(self, payload: Dict[str, Any]) -> None:
-        delta = payload.get("delta") or ""
-        if not delta:
-            return
-        self.state.append_text(str(delta))
-
-    # --- tools ---------------------------------------------------------
-
-    def _on_tool_call_started(self, payload: Dict[str, Any]) -> None:
-        self.flush_stream_to_log()
-        name = payload.get("tool_name") or "tool"
-        self.state.phase = "tool"
-        self.state.tool_args_preview = str(name)
-        self.state.detail = f"tool {name}"
-        self._write(f"[cyan]tool_call {name}[/cyan] id={payload.get('tool_call_id', '')}")
-
-    def _on_tool_call_delta(self, payload: Dict[str, Any]) -> None:
         delta = str(payload.get("delta") or "")
         if not delta:
             return
+        is_new = not self._assistant_open
+        if is_new:
+            self.state.stream_text = ""
+        self.state.append_text(delta)
+        self.view.set_assistant(self.state.stream_text, new=is_new)
+        self._assistant_open = True
+
+    def _on_reasoning_delta(self, payload: Dict[str, Any]) -> None:
+        delta = str(payload.get("delta") or "")
+        if not delta:
+            return
+        key = (
+            int(payload.get("turn") or 0),
+            int(payload.get("summary_index") or 0),
+        )
+        is_new = key not in self._reasoning_summaries
+        self._reasoning_summaries.add(key)
+        text = str(payload.get("text") or delta)
+        self.state.reasoning_text = text
+        self.state.phase = "thinking"
+        self.state.detail = "reasoning"
+        self.view.set_reasoning(text, new=is_new)
+
+    # Tools
+    def _on_tool_call_started(self, payload: Dict[str, Any]) -> None:
+        self._assistant_open = False
+        call_id = str(payload.get("tool_call_id") or "tool")
+        name = str(payload.get("tool_name") or "tool")
+        self._tool_names[call_id] = name
+        self._tool_arguments[call_id] = ""
         self.state.phase = "tool"
-        preview = (self.state.tool_args_preview + delta)[-80:]
-        self.state.tool_args_preview = preview
-        self.state.detail = "tool args"
+        self.state.detail = f"preparing {name}"
+        self.view.add_tool(call_id, name)
+
+    def _on_tool_call_delta(self, payload: Dict[str, Any]) -> None:
+        call_id = str(payload.get("tool_call_id") or "tool")
+        raw = self._tool_arguments.get(call_id, "") + str(payload.get("delta") or "")
+        self._tool_arguments[call_id] = raw
+        self.state.phase = "tool"
+        self.state.tool_args_preview = raw[-80:]
+        arguments: Optional[dict[str, Any]] = None
+        try:
+            decoded = json.loads(raw)
+            if isinstance(decoded, dict):
+                arguments = decoded
+        except json.JSONDecodeError:
+            pass
+        self.view.update_tool(call_id, arguments=arguments, raw_arguments=raw)
 
     def _on_tool_execution_started(self, payload: Dict[str, Any]) -> None:
-        name = payload.get("tool_name") or "tool"
+        call_id = str(payload.get("tool_call_id") or "tool")
+        name = str(payload.get("tool_name") or self._tool_names.get(call_id, "tool"))
+        if call_id not in self._tool_names:
+            self._tool_names[call_id] = name
+            self.view.add_tool(call_id, name)
         self.state.phase = "tool"
-        self.state.detail = f"exec {name}"
-        self._write(f"[cyan]→ {name}[/cyan] {_preview(payload.get('arguments', {}))}")
+        self.state.detail = f"running {name}"
+        self.view.update_tool(call_id, arguments=payload.get("arguments") or {}, status="running")
 
     def _on_tool_execution_completed(self, payload: Dict[str, Any]) -> None:
-        name = payload.get("tool_name") or "tool"
+        call_id = str(payload.get("tool_call_id") or "tool")
         self.state.phase = "thinking"
-        self.state.detail = f"done {name}"
-        self._write(f"[green]✓ {name}[/green] {_preview(payload.get('result', ''))}")
+        self.state.detail = f"finished {payload.get('tool_name') or 'tool'}"
+        self.view.update_tool(call_id, status="done", result=payload.get("result", ""))
 
-    # --- metrics -------------------------------------------------------
-
+    # Metrics and context
     def _on_usage(self, payload: Dict[str, Any]) -> None:
         self.state.update_usage(payload)
-        est = " ~" if payload.get("estimated") else ""
-        self._write(
-            f"[dim]usage{est} turn={payload.get('turn')} "
-            f"prompt={payload.get('prompt_tokens', 0)} "
-            f"completion={payload.get('completion_tokens', 0)} "
-            f"total={payload.get('total_tokens', 0)} "
-            f"cumulative={payload.get('cumulative_tokens', 0)}[/dim]"
-        )
+        if self.state.metrics.reasoning_tokens and not self._reasoning_summaries:
+            self.view.set_reasoning(
+                "Reasoning was used, but the API did not include a reasoning summary.",
+                new=True,
+            )
+        self.view.set_thinking(self._usage_text())
 
     def _on_context(self, payload: Dict[str, Any]) -> None:
         self.state.update_context(payload)
-        left = payload.get("context_left")
-        limit = payload.get("context_limit")
-        used = payload.get("tokens_used")
-        util = payload.get("utilization")
-        util_s = f" util={util:.1%}" if isinstance(util, (int, float)) else ""
-        self._write(
-            f"[dim]context turn={payload.get('turn')} "
-            f"used={used} left={left}/{limit}{util_s}[/dim]"
-        )
 
     def _on_context_warning(self, payload: Dict[str, Any]) -> None:
-        self._write(
-            f"[yellow]context warning: left={payload.get('context_left')} "
-            f"threshold={payload.get('threshold')}[/yellow]"
+        left = payload.get("context_left")
+        message = (
+            f"Context is running low · {left:,} tokens left"
+            if isinstance(left, int)
+            else "Context is running low"
         )
+        self.view.add_notice(message, "warning")
 
     def _on_compaction_started(self, payload: Dict[str, Any]) -> None:
-        self.state.detail = "compacting"
-        self._write(
-            f"[magenta]compaction started · messages={payload.get('message_count')} "
-            f"left={payload.get('context_left')}[/magenta]"
-        )
+        self.state.detail = "compacting context"
+        self.view.add_notice("Compacting conversation context…")
 
     def _on_compaction_completed(self, payload: Dict[str, Any]) -> None:
-        self._write(
-            f"[magenta]compaction done · "
-            f"{payload.get('message_count_before')}→{payload.get('message_count_after')} msgs · "
-            f"~{payload.get('estimated_tokens_before')}→"
-            f"{payload.get('estimated_tokens_after')} tokens[/magenta]"
-        )
-
-    # --- inbound control -----------------------------------------------
+        before = payload.get("message_count_before", "?")
+        after = payload.get("message_count_after", "?")
+        self.view.add_notice(f"Compacted context · {before} → {after} messages", "success")
 
     def _on_paused(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "paused"
-        self.state.detail = f"turn {payload.get('turn')}"
-        self._write("[yellow]paused[/yellow]")
+        self.state.detail = "paused"
+        self.view.set_thinking("Paused")
 
     def _on_resumed(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "thinking"
-        self.state.detail = f"turn {payload.get('turn')}"
-        self._write("[dim]resumed[/dim]")
+        self.state.detail = "resumed"
+        self.view.set_thinking("Resuming…")
 
     def _on_message_injected(self, payload: Dict[str, Any]) -> None:
         role = payload.get("role", "user")
-        content = _preview(payload.get("content", ""), 200)
-        self._write(f"[blue]injected {role}>[/blue] {content}")
+        content = _preview(payload.get("content", ""))
+        self.view.add_notice(f"Injected {role} message · {content}")

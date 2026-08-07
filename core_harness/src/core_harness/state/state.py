@@ -13,6 +13,7 @@ from core_harness.utils.tokens import estimate_prompt_tokens
 
 
 DEFAULT_CONTEXT_LIMITS = {
+    "gpt-5.4-mini": 400000,
     "gpt-4o": 128000,
     "gpt-4o-mini": 128000,
     "gpt-4.1": 1047576,

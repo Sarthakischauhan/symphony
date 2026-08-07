@@ -12,6 +12,7 @@ Phase = Literal["idle", "thinking", "streaming", "tool", "paused"]
 class RunMetrics:
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    reasoning_tokens: int = 0
     total_tokens: int = 0
     cumulative_tokens: int = 0
     estimated: bool = False
@@ -29,6 +30,7 @@ class UiRunState:
     model_id: str = ""
     turn: Optional[int] = None
     stream_text: str = ""
+    reasoning_text: str = ""
     stream_started: bool = False
     tool_args_preview: str = ""
     metrics: RunMetrics = field(default_factory=RunMetrics)
@@ -39,6 +41,7 @@ class UiRunState:
         self.model_id = model_id or self.model_id
         self.turn = None
         self.stream_text = ""
+        self.reasoning_text = ""
         self.stream_started = False
         self.tool_args_preview = ""
         self.metrics = RunMetrics()
@@ -48,6 +51,7 @@ class UiRunState:
         self.turn = turn
         self.phase = "thinking"
         self.stream_text = ""
+        self.reasoning_text = ""
         self.stream_started = False
         self.tool_args_preview = ""
         self.detail = f"turn {turn}"
@@ -58,10 +62,16 @@ class UiRunState:
         self.stream_text += delta
         self.detail = "streaming"
 
+    def append_reasoning(self, delta: str) -> None:
+        self.phase = "thinking"
+        self.reasoning_text += delta
+        self.detail = "reasoning"
+
     def update_usage(self, payload: Dict[str, Any]) -> None:
         m = self.metrics
         m.prompt_tokens = int(payload.get("prompt_tokens") or 0)
         m.completion_tokens = int(payload.get("completion_tokens") or 0)
+        m.reasoning_tokens = int(payload.get("reasoning_tokens") or 0)
         m.total_tokens = int(payload.get("total_tokens") or 0)
         m.cumulative_tokens = int(payload.get("cumulative_tokens") or m.total_tokens)
         m.estimated = bool(payload.get("estimated", False))
