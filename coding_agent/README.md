@@ -1,131 +1,52 @@
 ## coding_agent
 
-Coding agent product on top of `core_harness`.
+Minimal coding product built on `core_harness`.
+
+### Tool surface
+
+The agent intentionally exposes five workspace tools:
+
+- `read_file` reads bounded UTF-8 content.
+- `write_file` creates or replaces a complete file without stripping whitespace.
+- `patch` performs unique-match exact-text edits.
+- `search` finds file names or literal/regex content with path and glob filters.
+- `bash` runs workspace-scoped shell commands.
+
+Repository context is discovered incrementally with `search` and `read_file`; the
+agent does not parse or preload a semantic repository index.
 
 ### Run it
 
-1. Set `OPENAI_API_KEY`.
-2. Optionally set `OPENAI_BASE_URL` or `OPENAI_MODEL`.
-3. From the repo root, launch the TUI with:
-
 ```bash
 uv run --package coding-agent coding-agent-tui
-# or
-uv run --package coding-agent python -m coding_agent.tui
+uv run --package coding-agent coding-agent-tui --workspace /path/to/project
 ```
-
-The default workspace is the current directory. To use a different workspace, pass `--workspace`:
-
-```bash
-uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
-```
-
-To resume a saved conversation, list sessions and choose one interactively:
-
-```bash
-uv run --package coding-agent coding-agent-tui --resume
-```
-
-### Surface
-
-- `CodingAgent` — wires workspace tools into `CoreHarness`
-- tools (one module each): `read_file`, `write_file`, `patch`, `bash`, `grep`, `ast_query`
-- `build_tools(workspace)` — register all tools for a workspace root
-- semantic AST index (symbols, inheritance, call graph) seeded into the system prompt
-- optional post-task LLM learning reviewer (`should_persist=True`) under `<workspace>/.symphony/learning/`
 
 ```python
-from core_ai import ModelRegistry, OpenAIProvider
-from coding_agent import CodingAgent
-
-registry = ModelRegistry()
-registry.register("openai", OpenAIProvider(api_key=...))
-
 agent = CodingAgent(
     registry=registry,
     model_id="openai:gpt-4o-mini",
     workspace=".",
 )
-
-result = await agent.run("Create hello.txt with hi, then read it back.")
-print(result.output_text)
+result = await agent.run("Fix the failing test")
 ```
 
-If you only want the CLI/TUI and not the Python API, `uv run --package coding-agent coding-agent-tui` is the fastest path.
+### Learning
 
-### Conversation / memory
+After a successful run returns, an optional background reflection makes one
+structured model call. Useful lessons are appended to:
 
-`CoreHarness` keeps the full message list **inside a single** `run()` (system → user → tool turns → final assistant).
-
-Across runs, `CodingAgent` defaults to `SqlitePersistence` under
-`<workspace>/.symphony/sessions.sqlite3` and a stable `session_id`. When you omit
-`conversation=`, the harness reloads prior messages from that store.
-
-```python
-from coding_agent import CodingAgent, SqlitePersistence
-
-agent = CodingAgent(
-    registry=registry,
-    model_id="openai:gpt-4o-mini",
-    workspace=".",
-    persistence=SqlitePersistence("./.symphony/sessions.sqlite3"),
-    session_id="my-session",
-)
-
-result = await agent.run("Create hello.txt")
-result = await agent.run("Now read it back")  # resumes via SQLite
+```text
+<workspace>/.symphony/learning/lessons.jsonl
 ```
 
-You can still pass an explicit `conversation=` list to override the loaded history.
+Reflection never delays or changes the completed run. Future runs receive only a
+small task-relevant selection of lessons. Routine runs can return
+`should_save=false`, and reflection failures are logged without affecting the agent.
 
-### Self-learning (`.symphony/learning`)
+Disable learning with `enable_learning=False`. Call
+`await agent.wait_for_learning()` only when an application needs to drain pending
+reflection tasks before shutdown.
 
-Learning is **opt-in per run**. Default `should_persist=False` does not produce lessons.
-
-```python
-await agent.run("Fix the bug", should_persist=True)
-```
-
-When enabled, a **separate LLM reviewer** may append *proposed* lessons only:
-
-- `proposed_lessons.jsonl` — LLM proposals (not injected into prompts)
-- `trusted_lessons.jsonl` + `playbook.md` — only after verification
-  (`tests_passed` / `user_approved` / `evaluator`) via `promote_lesson` /
-  `promote_proposed`
-
-The reviewer must `read_lesson` the full current contents before `propose_update`.
-It cannot rewrite trusted lessons in place. Disable entirely with `enable_learning=False`.
-
-### Tool pattern
-
-Each tool lives in its own file under `coding_agent/tools/`:
-
-1. Subclass `WorkspaceTool`
-2. Define a pydantic `ToolArgsModel` with `Field(..., description=...)`
-3. Set `name`, `description`, and `args_model`
-4. Implement `run(...)` with typed parameters
-5. Register the class in `TOOL_CLASSES` inside `tools/__init__.py`
-
-Shared path safety, JSON Schema export, and argument validation live in `tools/base.py`.
-
-### Layout
-
-- `agent.py` — `CodingAgent`
-- `ast/` — parser + semantic index (symbols / calls / inheritance)
-- `learning/` — post-task self-learning store + loop
-- `tools/base.py` — `WorkspaceTool` + `ToolArgsModel`
-- `tools/read_file.py` — `ReadFileTool`
-- `tools/write_file.py` — `WriteFileTool`
-- `tools/patch.py` — `PatchTool` (surgical edit)
-- `tools/bash.py` — `BashTool`
-- `tools/grep.py` — `GrepTool`
-- `tools/ast_query.py` — `AstQueryTool`
-- `prompts.py` — default system prompt
-- `tui/app.py` — Textual app
-- `tui/control_plane.py` — thin harness `ControlPlane` → Textual sink
-- `tui/events.py` — present every harness event in the UI
-- `tui/state.py` — live phase / tokens / context_left
-- `tui/__main__.py` — CLI entry
-- `persistence/sqlite.py` — SQLite conversation + checkpoint store
-
-The TUI does **not** invent a second control plane. `TextualControlPlane` implements the core_harness `ControlPlane` protocol so the same emit stream drives the UI (thinking/turns, streamed `text_delta`, tools, usage, context).
+Conversation persistence is managed under <workspace>/.symphony/sessions.sqlite3, allowing resuming of sessions using `session_id` or the TUI `--resume` command. and can be
+resumed by `session_id` or the TUI `--resume` flow.

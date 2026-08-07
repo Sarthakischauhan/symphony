@@ -1,7 +1,7 @@
 """Session lifecycle, persistence, and terminal outcomes for one harness run."""
 
 import uuid
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
@@ -14,8 +14,6 @@ from core_harness.persistence import Checkpoint, Persistence
 from core_harness.state import HarnessState
 from core_harness.tools import Tool
 from core_harness.turn import TurnRunner
-
-DynamicContextFn = Callable[[], str]
 
 
 class HarnessCancelled(RuntimeError):
@@ -38,7 +36,6 @@ class HarnessRun:
         default_session_id: Optional[str],
         max_turns: int,
         state: HarnessState,
-        dynamic_context: Optional[DynamicContextFn] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -50,7 +47,6 @@ class HarnessRun:
         self.default_session_id = default_session_id
         self.max_turns = max_turns
         self.state = state
-        self.dynamic_context = dynamic_context
 
     async def execute(
         self,
@@ -215,44 +211,19 @@ class HarnessRun:
             loaded = await self.persistence.load_conversation(session_id=session_id)
             prior = [message for message in loaded if message.role != "system"]
 
-        # Dynamic context is recomputed each run and never becomes the durable
-        # base system prompt. Persisted conversations drop role=system on load.
-        messages = [Message(role="system", content=self._compose_system_prompt())]
+        messages = [Message(role="system", content=self.system_prompt)]
         messages.extend(prior or [])
         self.state.add_user_message(messages, user_input)
         return messages
-
-    def _compose_system_prompt(self) -> str:
-        base = self.system_prompt.rstrip()
-        if self.dynamic_context is None:
-            return base + "\n"
-        try:
-            extra = (self.dynamic_context() or "").strip()
-        except Exception:
-            # Dynamic context must not break an otherwise healthy run.
-            return base + "\n"
-        if not extra:
-            return base + "\n"
-        return f"{base}\n\n{extra}\n"
 
     async def _persist_conversation(
         self,
         session_id: str,
         messages: List[Message],
     ) -> None:
-        # Persist the static system prompt only so dynamic context cannot grow
-        # or poison the durable transcript across runs.
-        durable = []
-        for message in messages:
-            if message.role == "system":
-                durable.append(
-                    Message(role="system", content=self.system_prompt.rstrip() + "\n")
-                )
-            else:
-                durable.append(message)
         await self.persistence.save_conversation(
             session_id=session_id,
-            messages=durable,
+            messages=list(messages),
         )
 
     async def _persist_state(

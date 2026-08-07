@@ -56,7 +56,7 @@ The harness (Symphony) is standalone and product-agnostic. Agents are separate c
 - **Control plane** — every UI subscribes to the same emit stream; supports fan-out, event logs, and inbound pause/cancel commands.
 - **Context management** — warn thresholds, token estimation, and pluggable compaction.
 - **Persistence** — a `Persistence` protocol with checkpoints, plus a SQLite store for conversation resume across runs.
-- **Coding agent** — workspace sandbox tools (`read_file`, `write_file`, `bash`, `grep`) and a Textual TUI with markdown rendering, session list, and resume.
+- **Coding agent** — updated documentation regarding learning mechanisms and persistence management, including five workspace tools (`read_file`, `write_file`, `patch`, `search`, `bash`), a Textual TUI, and persisted sessions.
 - **Browser-use agent (upcoming)** — same harness, browser tools and UX on top.
 
 ## Quick Start
@@ -152,4 +152,4 @@ Run a single package's tests from that package's directory with `uv run pytest`.
 
 ## Status
 
-Early and evolving — APIs may shift as the stack matures. `coding_agent` is the shipped product on the harness; a browser-use agent is next. See [`plan.md`](./plan.md) for the roadmap and current phase checklist.
+Currently in active development with significant updates being implemented across packages, the APIs will continue to evolve. `coding_agent` is the shipped product on the harness; a browser-use agent is next. See [`plan.md`](./plan.md) for the roadmap and current phase checklist.

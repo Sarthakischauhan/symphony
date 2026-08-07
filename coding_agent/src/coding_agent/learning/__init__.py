@@ -1,20 +1,14 @@
-"""Self-learning helpers: optional LLM reviewer, proposed vs trusted lessons."""
+"""Lightweight post-run learning helpers."""
 
-from coding_agent.learning.loop import LearningLoop
+from coding_agent.learning.loop import LearningLoop, LearningReview
 from coding_agent.learning.sanitize import redact_secrets, sanitize_task, sanitize_text
-from coding_agent.learning.store import (
-    LearningStore,
-    Lesson,
-    ProposedLesson,
-    TrustedLesson,
-)
+from coding_agent.learning.store import LearningStore, Lesson
 
 __all__ = [
     "LearningLoop",
+    "LearningReview",
     "LearningStore",
     "Lesson",
-    "ProposedLesson",
-    "TrustedLesson",
     "redact_secrets",
     "sanitize_task",
     "sanitize_text",
