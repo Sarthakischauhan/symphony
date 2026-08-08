@@ -27,18 +27,19 @@ from coding_agent.tui.commands import (
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
 from coding_agent.tui.state import UiRunState
+from coding_agent.tui.diff_modal import DiffModal
 from coding_agent.tui.widgets import (
     AssistantMessage,
     Composer,
     Notice,
     ReasoningWidget,
     RunProcess,
+    SlashMenu,
     ThinkingStatus,
-    ToolCallWidget,
     TopBar,
+    ToolCallWidget,
     UserMessage,
     Welcome,
-    SlashMenu,
     make_tool_widget,
 )
 from core_harness import HarnessResult
@@ -577,6 +578,9 @@ class CodingAgentApp(App[None]):
             elif before == after:
                 self.add_notice(f"Context is already compact · {after} messages")
             return
+        if command == "diff":
+            self._open_diff_modal()
+            return
 
         self.add_notice(f"Unknown command: /{command}. Type /help to see commands.", "warning")
 
@@ -628,6 +632,9 @@ class CodingAgentApp(App[None]):
             f"session   {self._agent.session_id}\n"
             f"context   {context}"
         )
+
+    def _open_diff_modal(self) -> None:
+        self.push_screen(DiffModal(self.workspace))
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:

@@ -14,7 +14,7 @@ from core_ai.types import Message
 from core_harness import HarnessResult
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.app import CodingAgentApp
-from coding_agent.tui.commands import command_matches, find_model, model_matches
+from coding_agent.tui.commands import SLASH_COMMANDS, command_matches, find_model, model_matches
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME
 from coding_agent.tui.widgets import (
@@ -207,6 +207,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
 
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/m")] == ["model"]
+    assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert find_model("gpt-5.4-mini").id == "openai:gpt-5.4-mini"  # type: ignore[union-attr]
     assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
     assert find_model("missing") is None
@@ -301,6 +302,11 @@ def test_slash_menu_and_commands(
 
             await app._run_slash_command("/compact")
             assert fake.compacted
+
+            opened: list[object] = []
+            app.push_screen = lambda screen: opened.append(screen)  # type: ignore[method-assign]
+            await app._run_slash_command("/diff")
+            assert opened and opened[0].__class__.__name__ == "DiffModal"
 
             await app._run_slash_command("/new")
             assert fake.session_id != "old-session"

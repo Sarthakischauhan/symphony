@@ -39,6 +39,7 @@ SLASH_COMMANDS = (
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),
+    SlashCommand("diff", "Open the current workspace diff in a modal"),
     SlashCommand("clear", "Clear the visible transcript"),
     SlashCommand("help", "Show available slash commands"),
     SlashCommand("quit", "Exit Symphony"),

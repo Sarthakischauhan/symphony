@@ -39,10 +39,10 @@ reset the visible transcript and `Ctrl+D`, `/quit`, or `/exit` to leave.
 Type `/` to discover commands. `/model` shows the built-in model catalog,
 `/model <id>` switches the harness and learning model, `/new` starts a new persisted
 session, `/compact` keeps the system prompt and recent valid tool-call blocks,
-`/status` displays the current runtime context, `/help` shows commands, and `/clear`
-clears the visible transcript. Model choices currently come from
-`coding_agent.tui.commands.MODEL_CATALOG`; this boundary can be replaced with
-provider-backed registry discovery later.
+`/diff` opens the current workspace diff in a modal, `/status` displays the current
+runtime context, `/help` shows commands, and `/clear` clears the visible transcript.
+Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
+boundary can be replaced with provider-backed registry discovery later.
 
 ```python
 agent = CodingAgent(
