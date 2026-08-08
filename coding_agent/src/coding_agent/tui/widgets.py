@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from difflib import unified_diff
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,19 +13,8 @@ from textual.widgets import Collapsible, Input, Static
 
 from coding_agent.tui.commands import ModelOption, SlashCommand
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME
-
-
-def _compact_json(value: Mapping[str, Any]) -> str:
-    if not value:
-        return ""
-    return json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
-
-
-def _clip(value: Any, limit: int = 420) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return f"{text[:limit].rstrip()}…"
+from coding_agent.utils.diff import diff_stats, make_unified_diff
+from coding_agent.utils.text import clip_text, compact_json
 
 
 class TopBar(Static):
@@ -213,19 +200,19 @@ class ToolCallWidget(Static):
             return str(
                 self.arguments.get("query")
                 or self.arguments.get("pattern")
-                or _compact_json(self.arguments)
+                or compact_json(self.arguments)
             )
         if self.tool_name in {"write_file", "patch"}:
-            return str(self.arguments.get("path") or _compact_json(self.arguments))
-        return _compact_json(self.arguments) or self.raw_arguments
+            return str(self.arguments.get("path") or compact_json(self.arguments))
+        return compact_json(self.arguments) or self.raw_arguments
 
     def _result_summary(self) -> str:
         if not self.result:
             return ""
         lines = self.result.splitlines()
         if self.tool_name == "bash":
-            return _clip("\n".join(lines[-4:]), 360)
-        return _clip(self.result, 260)
+            return clip_text("\n".join(lines[-4:]), 360)
+        return clip_text(self.result, 260)
 
     def refresh_content(self) -> None:
         label, icon = self._title()
@@ -242,7 +229,7 @@ class ToolCallWidget(Static):
             "failed": "#d66b73",
         }.get(self.status, "#888888")
         header = Text(f"{marker}  {label}", style=f"bold {color}")
-        summary = _clip(self._summary(), 300)
+        summary = clip_text(self._summary(), 300)
         if summary:
             header.append(f"({summary})", style="not bold #a4a4a4")
         rows: list[Any] = [header]
@@ -295,21 +282,10 @@ class PatchDiffWidget(ToolCallWidget):
         if not old and not new:
             return []
         path = str(self.arguments.get("path") or "file")
-        lines = list(
-            unified_diff(
-                old.splitlines(),
-                new.splitlines(),
-                fromfile=f"a/{path}",
-                tofile=f"b/{path}",
-                lineterm="",
-            )
-        )
-        return lines[2:] if len(lines) >= 2 else lines
+        return make_unified_diff(old, new, path)
 
     def _stats(self, diff: list[str]) -> tuple[int, int]:
-        additions = sum(line.startswith("+") and not line.startswith("+++") for line in diff)
-        deletions = sum(line.startswith("-") and not line.startswith("---") for line in diff)
-        return (int(additions), int(deletions))
+        return diff_stats(diff)
 
     def refresh_content(self) -> None:
         marker = {
@@ -351,7 +327,7 @@ class PatchDiffWidget(ToolCallWidget):
 
         if self.result:
             result_color = "#d66b73" if self.status == "failed" else "#626262"
-            rows.append(Text(f"   └  {_clip(self.result, 260)}", style=result_color))
+            rows.append(Text(f"   └  {clip_text(self.result, 260)}", style=result_color))
         self.update(Group(*rows))
 
 

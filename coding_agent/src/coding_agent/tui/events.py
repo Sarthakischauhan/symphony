@@ -6,6 +6,7 @@ import json
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol
 
 from coding_agent.tui.state import UiRunState
+from coding_agent.utils.text import preview_text
 
 StatusFn = Callable[[str], None]
 
@@ -36,11 +37,6 @@ class TranscriptView(Protocol):
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
 
-def _preview(value: Any, limit: int = 180) -> str:
-    text = str(value)
-    return text if len(text) <= limit else f"{text[:limit]}…"
-
-
 class EventPresenter:
     """Stateful event reducer that updates a transcript view."""
 
@@ -68,7 +64,7 @@ class EventPresenter:
         payload = payload or {}
         handler = getattr(self, f"_on_{event_type}", None)
         if handler is None:
-            self.view.add_notice(f"{event_type} · {_preview(payload)}")
+            self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
         self.refresh_chrome()
@@ -260,5 +256,5 @@ class EventPresenter:
 
     def _on_message_injected(self, payload: Dict[str, Any]) -> None:
         role = payload.get("role", "user")
-        content = _preview(payload.get("content", ""))
+        content = preview_text(payload.get("content", ""))
         self.view.add_notice(f"Injected {role} message · {content}")

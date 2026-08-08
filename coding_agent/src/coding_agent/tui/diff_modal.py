@@ -12,51 +12,7 @@ from textual.widgets import Label, Static
 
 from coding_agent.tui.styles.diff import DIFF_MODAL_CSS
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME
-
-
-def _read_diff(workspace: Path) -> str:
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(workspace), "diff", "--unified=0", "--", "."],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to run git diff: {exc}"
-
-    output = (result.stdout or "").strip()
-    if output:
-        return output
-    if result.returncode != 0:
-        err = (result.stderr or "").strip()
-        return err or "git diff failed"
-    return "No local changes found."
-
-
-def _split_diff(diff_text: str) -> list[tuple[str, str]]:
-    """Split a Git diff into a path and body for each changed file."""
-
-    files: list[tuple[str, str]] = []
-    path = ""
-    lines: list[str] = []
-    for line in diff_text.splitlines():
-        if line.startswith("diff --git "):
-            if path:
-                files.append((path, "\n".join(lines)))
-            paths = line.removeprefix("diff --git ")
-            path = paths.split(" b/", 1)[-1].removeprefix("b/")
-            lines = []
-        elif line.startswith(("index ", "--- ", "+++ ", "new file", "deleted file")):
-            continue
-        elif path:
-            lines.append(line)
-
-    if path:
-        files.append((path, "\n".join(lines)))
-    return files
+from coding_agent.utils.diff import read_workspace_diff, split_diff
 
 
 class DiffModal(ModalScreen[None]):
@@ -69,8 +25,8 @@ class DiffModal(ModalScreen[None]):
         self.workspace = workspace
 
     def compose(self):  # type: ignore[no-untyped-def]
-        diff_text = _read_diff(self.workspace)
-        files = _split_diff(diff_text)
+        diff_text = read_workspace_diff(self.workspace)
+        files = split_diff(diff_text)
         with Container(id="diff-pane"):
             yield Static("PR / workspace diff", id="diff-title")
             with VerticalScroll(id="diff-body"):
