@@ -10,6 +10,7 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
+from coding_agent.tui.styles.diff import DIFF_MODAL_CSS
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME
 
 
@@ -61,57 +62,7 @@ def _split_diff(diff_text: str) -> list[tuple[str, str]]:
 class DiffModal(ModalScreen[None]):
     """Fullscreen modal for inspecting the current git diff."""
 
-    CSS = """
-    DiffModal {
-        align: center middle;
-        background: rgba(0, 0, 0, 0.7);
-    }
-
-    #diff-pane {
-        width: 95%;
-        height: 90%;
-        padding: 1 2;
-        background: #1b1b1b;
-        border-left: solid #454545;
-    }
-
-    #diff-title {
-        height: 1;
-        color: #d0d0d0;
-        padding-bottom: 1;
-    }
-
-    #diff-body {
-        width: 100%;
-        height: 1fr;
-        scrollbar-size: 1 1;
-        scrollbar-color: #484848;
-        scrollbar-color-hover: #606060;
-        scrollbar-background: #1b1b1b;
-    }
-
-    .diff-file-name {
-        width: 100%;
-        height: 2;
-        padding: 1 0 0 0;
-        color: #d0d0d0;
-        text-style: bold;
-        background: #202020;
-    }
-
-    .diff-file-body {
-        width: 100%;
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    #diff-hint {
-        height: 1;
-        color: #767676;
-        text-align: right;
-        padding-top: 1;
-    }
-    """
+    CSS = DIFF_MODAL_CSS
 
     def __init__(self, workspace: Path) -> None:
         super().__init__()
