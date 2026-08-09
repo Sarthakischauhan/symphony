@@ -155,8 +155,8 @@ class Notice(Static):
         super().__init__(Text(f"  {text}", style=color), classes=f"notice {tone}")
 
 
-class ToolCallWidget(Static):
-    """A tool lifecycle row which updates in place as arguments/results arrive."""
+class ToolCallWidget(Collapsible):
+    """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
     LABELS = {
         "bash": ("Bash", "$"),
@@ -166,13 +166,21 @@ class ToolCallWidget(Static):
     }
 
     def __init__(self, call_id: str, tool_name: str) -> None:
-        super().__init__(classes="tool-call")
+        self._body = Static()
         self.call_id = call_id
         self.tool_name = tool_name
         self.arguments: dict[str, Any] = {}
         self.raw_arguments = ""
         self.result = ""
         self.status = "preparing"
+        super().__init__(
+            self._body,
+            title="",
+            collapsed=False,
+            collapsed_symbol="▸",
+            expanded_symbol="▾",
+            classes="tool-call",
+        )
         self.refresh_content()
 
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
@@ -183,14 +191,16 @@ class ToolCallWidget(Static):
     def set_running(self, arguments: Mapping[str, Any] | None) -> None:
         self.status = "running"
         self.arguments = dict(arguments or {})
+        self.collapsed = False
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
         self.status = "failed" if str(result).startswith(("error:", "exit=")) else "done"
         self.result = str(result or "")
+        self.collapsed = self.status == "done"
         self.refresh_content()
 
-    def _title(self) -> tuple[str, str]:
+    def _tool_title(self) -> tuple[str, str]:
         return self.LABELS.get(self.tool_name, (self.tool_name.replace("_", " ").title(), "›"))
 
     def _summary(self) -> str:
@@ -214,35 +224,42 @@ class ToolCallWidget(Static):
             return clip_text("\n".join(lines[-4:]), 360)
         return clip_text(self.result, 260)
 
+    def _body_rows(self) -> list[Any]:
+        rows: list[Any] = []
+        summary = clip_text(self._summary(), 300)
+        if summary:
+            rows.append(Text(f"   {summary}", style="#a4a4a4"))
+        result = self._result_summary()
+        if result:
+            _label, icon = self._tool_title()
+            result_color = "#d66b73" if self.status == "failed" else "#666666"
+            rows.append(Text(f"   {icon}  {result}", style=result_color))
+        return rows
+
     def refresh_content(self) -> None:
-        label, icon = self._title()
+        label, _icon = self._tool_title()
         marker = {
             "preparing": "○",
             "running": "●",
             "done": "✓",
             "failed": "×",
         }.get(self.status, "○")
-        color = {
-            "preparing": "#d7a84b",
-            "running": "#d7a84b",
-            "done": "#72a57a",
-            "failed": "#d66b73",
-        }.get(self.status, "#888888")
-        header = Text(f"{marker}  {label}", style=f"bold {color}")
-        summary = clip_text(self._summary(), 300)
+        summary = clip_text(self._summary(), 140)
+        title = f"{marker}  {label}"
         if summary:
-            header.append(f"({summary})", style="not bold #a4a4a4")
-        rows: list[Any] = [header]
-        result = self._result_summary()
-        if result:
-            rows.append(Text(f"   {icon}  {result}", style="#666666"))
-        self.update(Group(*rows))
+            title = f"{title} ({summary})"
+        self.title = title
+        self.remove_class(
+            "status-preparing", "status-running", "status-done", "status-failed"
+        )
+        self.add_class(f"status-{self.status}")
+        self._body.update(Group(*self._body_rows()))
 
 
 class ReadFileWidget(ToolCallWidget):
     """Compact, path-oriented presentation for the read_file tool."""
 
-    def _title(self) -> tuple[str, str]:
+    def _tool_title(self) -> tuple[str, str]:
         return ("Read", "└")
 
     def _summary(self) -> str:
@@ -294,22 +311,21 @@ class PatchDiffWidget(ToolCallWidget):
             "done": "✓",
             "failed": "×",
         }.get(self.status, "○")
-        color = {
-            "preparing": "#d7a84b",
-            "running": "#d7a84b",
-            "done": "#72a57a",
-            "failed": "#d66b73",
-        }.get(self.status, "#888888")
         path = str(self.arguments.get("path") or "")
         diff = self._diff()
         additions, deletions = self._stats(diff)
 
-        header = Text(f"{marker}  Update", style=f"bold {color}")
+        title = f"{marker}  Update"
         if path:
-            header.append(f"({path})", style="not bold #a4a4a4")
+            title = f"{title} ({path})"
         if diff:
-            header.append(f"  +{additions} -{deletions}", style="not bold #666666")
-        rows: list[Any] = [header]
+            title = f"{title}  +{additions} -{deletions}"
+        self.title = title
+        self.remove_class(
+            "status-preparing", "status-running", "status-done", "status-failed"
+        )
+        self.add_class(f"status-{self.status}")
+        rows: list[Any] = []
 
         visible = diff[: self.MAX_DIFF_LINES]
         for line in visible:
@@ -328,7 +344,7 @@ class PatchDiffWidget(ToolCallWidget):
         if self.result:
             result_color = "#d66b73" if self.status == "failed" else "#626262"
             rows.append(Text(f"   └  {clip_text(self.result, 260)}", style=result_color))
-        self.update(Group(*rows))
+        self._body.update(Group(*rows))
 
 
 def make_tool_widget(call_id: str, tool_name: str) -> ToolCallWidget:

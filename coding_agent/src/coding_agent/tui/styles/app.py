@@ -104,9 +104,38 @@ Screen {
     height: auto;
     min-height: 2;
     margin: 0 0 0 1;
-    padding: 0 1;
+    padding: 0 0 0 1;
     border-left: solid #383838;
     background: $background;
+}
+
+.tool-call > CollapsibleTitle {
+    width: auto;
+    padding: 0 1;
+    color: #666666;
+    background: $background;
+}
+
+.tool-call > CollapsibleTitle:hover {
+    color: #a0a0a0;
+    background: #202020;
+}
+
+.tool-call.status-preparing > CollapsibleTitle,
+.tool-call.status-running > CollapsibleTitle {
+    color: #d7a84b;
+}
+
+.tool-call.status-done > CollapsibleTitle {
+    color: #72a57a;
+}
+
+.tool-call.status-failed > CollapsibleTitle {
+    color: #d66b73;
+}
+
+.tool-call > Contents {
+    padding: 0 0 0 1;
 }
 
 .diff-tool {
