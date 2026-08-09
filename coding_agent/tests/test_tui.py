@@ -16,7 +16,7 @@ from coding_agent.agent import CodingAgent
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.commands import SLASH_COMMANDS, command_matches, find_model, model_matches
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
-from coding_agent.tui.theme import SYMPHONY_CODE_THEME
+from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     PatchDiffWidget,
     ReadFileWidget,
@@ -47,6 +47,17 @@ def test_markdown_code_theme_matches_tui_surface() -> None:
     background = SYMPHONY_CODE_THEME.get_background_style().bgcolor
     assert background is not None
     assert background.get_truecolor().hex == "#202020"
+
+
+def test_themed_markdown_avoids_rich_monokai_default() -> None:
+    from rich.markdown import Markdown
+
+    bare = Markdown("```py\nprint(1)\n```")
+    assert bare.code_theme == "monokai"
+
+    themed = themed_markdown("```py\nprint(1)\n```")
+    assert themed.code_theme is SYMPHONY_CODE_THEME
+    assert themed.inline_code_theme is SYMPHONY_CODE_THEME
 
 
 def test_textual_control_plane_posts_message() -> None:

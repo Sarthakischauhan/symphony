@@ -6,13 +6,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from rich.console import Group
-from rich.markdown import Markdown
 from rich.text import Text
 from textual.containers import Container
 from textual.widgets import Collapsible, Input, Static
 
 from coding_agent.tui.commands import ModelOption, SlashCommand
-from coding_agent.tui.theme import SYMPHONY_CODE_THEME
+from coding_agent.tui.theme import themed_markdown
 from coding_agent.utils.diff import diff_stats, make_unified_diff
 from coding_agent.utils.text import clip_text, compact_json
 
@@ -61,11 +60,7 @@ class AssistantMessage(Static):
         self.update(
             Group(
                 Text("◆  SYMPHONY", style="bold #d0d0d0"),
-                Markdown(
-                    content or " ",
-                    code_theme=SYMPHONY_CODE_THEME,  # type: ignore[arg-type]
-                    inline_code_theme=SYMPHONY_CODE_THEME,  # type: ignore[arg-type]
-                ),
+                themed_markdown(content or " "),
             )
         )
 
@@ -132,12 +127,7 @@ class ReasoningWidget(Static):
         self.update(
             Group(
                 Text("✻  REASONING SUMMARY", style="bold #777777"),
-                Markdown(
-                    content or " ",
-                    style="#777777",
-                    code_theme=SYMPHONY_CODE_THEME,  # type: ignore[arg-type]
-                    inline_code_theme=SYMPHONY_CODE_THEME,  # type: ignore[arg-type]
-                ),
+                themed_markdown(content or " ", style="#777777"),
             )
         )
 
