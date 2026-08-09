@@ -101,3 +101,26 @@ def test_relevant_lessons_are_bounded(tmp_path: Path) -> None:
     context = store.context_for("edit a Python function")
     assert "Use patch" in context
     assert len(context) <= 1400
+
+
+def test_learning_store_renders_markdown(tmp_path: Path) -> None:
+    store = LearningStore(tmp_path)
+    assert "No lessons stored yet" in store.to_markdown()
+
+    from coding_agent.learning import Lesson
+
+    store.append(
+        Lesson(
+            summary="Prefer patch for indented edits",
+            worked=["exact whitespace match"],
+            failed=["stripped old_str"],
+            applicable_when=["editing existing files"],
+            confidence=0.8,
+            source_task="fix indentation bug",
+        )
+    )
+    markdown = store.to_markdown()
+    assert markdown.startswith("# Agent learnings")
+    assert "Prefer patch for indented edits" in markdown
+    assert "**What worked:**" in markdown
+    assert "exact whitespace match" in markdown

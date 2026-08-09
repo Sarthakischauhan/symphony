@@ -208,6 +208,8 @@ def test_tui_maps_stream_usage_and_read_file_events(
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/m")] == ["model"]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
+    assert "learning" in [command.name for command in SLASH_COMMANDS]
+    assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.4-mini").id == "openai:gpt-5.4-mini"  # type: ignore[union-attr]
     assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
     assert find_model("missing") is None
@@ -307,6 +309,10 @@ def test_slash_menu_and_commands(
             app.push_screen = lambda screen: opened.append(screen)  # type: ignore[method-assign]
             await app._run_slash_command("/diff")
             assert opened and opened[0].__class__.__name__ == "DiffModal"
+
+            opened.clear()
+            await app._run_slash_command("/learning")
+            assert opened and opened[0].__class__.__name__ == "LearningModal"
 
             await app._run_slash_command("/new")
             assert fake.session_id != "old-session"
