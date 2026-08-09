@@ -22,6 +22,7 @@ from core_harness import (
     Tool,
 )
 from core_harness.utils.tokens import estimate_prompt_tokens, message_size_breakdown
+from core_harness.state import normalize_tool_protocol
 
 
 def get_weather(city: str, control_plane: NullControlPlane) -> str:
@@ -320,6 +321,78 @@ def test_message_size_breakdown_accounts_per_message() -> None:
     assert [entry["role"] for entry in sizes] == ["system", "user"]
     assert all(entry["tokens"] >= 1 for entry in sizes)
     assert estimate_prompt_tokens(messages) == sum(entry["tokens"] for entry in sizes)
+
+
+def test_tool_protocol_normalization_drops_orphans_and_incomplete_groups() -> None:
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="tool", content="orphan", tool_call_id="missing"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": "call-a",
+                    "type": "function",
+                    "function": {"name": "a", "arguments": "{}"},
+                },
+                {
+                    "id": "call-b",
+                    "type": "function",
+                    "function": {"name": "b", "arguments": "{}"},
+                },
+            ],
+        ),
+        Message(role="tool", content="a", tool_call_id="call-a"),
+        Message(role="user", content="latest"),
+    ]
+
+    normalized = normalize_tool_protocol(messages)
+    assert [(message.role, message.content) for message in normalized] == [
+        ("system", "system"),
+        ("user", "latest"),
+    ]
+
+
+def test_compactor_keeps_complete_tool_group_even_above_message_budget() -> None:
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="old"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": "call-a",
+                    "type": "function",
+                    "function": {"name": "a", "arguments": "{}"},
+                },
+                {
+                    "id": "call-b",
+                    "type": "function",
+                    "function": {"name": "b", "arguments": "{}"},
+                },
+            ],
+        ),
+        Message(role="tool", content="a", tool_call_id="call-a"),
+        Message(role="tool", content="b", tool_call_id="call-b"),
+    ]
+
+    compacted = asyncio.run(
+        KeepSystemRecentCompactor(keep_recent=2).compact(
+            messages,
+            turn=0,
+            context_limit=100,
+            tokens_used=50,
+            context_left=50,
+        )
+    )
+    assert [message.role for message in compacted] == [
+        "system",
+        "assistant",
+        "tool",
+        "tool",
+    ]
 
 
 def test_control_plane_fanout_and_event_log() -> None:

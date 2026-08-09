@@ -1,6 +1,14 @@
 ## coding_agent
 
-Minimal coding product built on `core_harness`.
+A workspace coding agent built on `core_harness`.
+
+### What it provides
+
+- Five workspace tools: `read_file`, `write_file`, `patch`, `search`, and `bash`
+- Incremental repository discovery through `search` + `read_file`, without a preloaded repo index
+- Persisted conversations in SQLite, resumable by `session_id` or TUI `--resume`
+- Optional learning/reflection after successful runs
+- A conversation-first Textual TUI with streaming output, tool events, reasoning summaries, usage stats, and context/compaction notices
 
 ### Tool surface
 
@@ -21,6 +29,20 @@ agent does not parse or preload a semantic repository index.
 uv run --package coding-agent coding-agent-tui
 uv run --package coding-agent coding-agent-tui --workspace /path/to/project
 ```
+
+The TUI renders harness events as a conversation: streamed Markdown responses,
+live tool rows, reasoning summaries, muted per-turn token usage, context warnings,
+compaction notices, persisted session history, and code blocks using the same
+muted Symphony palette as the surrounding interface. Use `Ctrl+L` or `/clear` to
+reset the visible transcript and `Ctrl+D`, `/quit`, or `/exit` to leave.
+
+Type `/` to discover commands. `/model` shows the built-in model catalog,
+`/model <id>` switches the harness and learning model, `/new` starts a new persisted
+session, `/compact` keeps the system prompt and recent valid tool-call blocks,
+`/diff` opens the current workspace diff in a modal, `/status` displays the current
+runtime context, `/help` shows commands, and `/clear` clears the visible transcript.
+Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
+boundary can be replaced with provider-backed registry discovery later.
 
 ```python
 agent = CodingAgent(
@@ -48,5 +70,6 @@ Disable learning with `enable_learning=False`. Call
 `await agent.wait_for_learning()` only when an application needs to drain pending
 reflection tasks before shutdown.
 
-Conversation persistence is managed under <workspace>/.symphony/sessions.sqlite3, allowing resuming of sessions using `session_id` or the TUI `--resume` command. and can be
-resumed by `session_id` or the TUI `--resume` flow.
+Conversation persistence is managed under
+`<workspace>/.symphony/sessions.sqlite3`, allowing resuming of sessions using
+`session_id` or the TUI `--resume` command.

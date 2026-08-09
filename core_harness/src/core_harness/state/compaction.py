@@ -7,6 +7,59 @@ from typing import List, Optional, Protocol
 from core_ai.types import Message
 
 
+def normalize_tool_protocol(messages: List[Message]) -> List[Message]:
+    """Drop incomplete assistant/tool groups which provider APIs reject."""
+    normalized: List[Message] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        if message.role == "tool":
+            index += 1
+            continue
+        if message.role != "assistant" or not message.tool_calls:
+            normalized.append(message)
+            index += 1
+            continue
+
+        expected = {
+            str(call.get("id"))
+            for call in message.tool_calls
+            if call.get("id") is not None
+        }
+        group = [message]
+        results: set[str] = set()
+        cursor = index + 1
+        while cursor < len(messages) and messages[cursor].role == "tool":
+            tool_message = messages[cursor]
+            if tool_message.tool_call_id in expected:
+                group.append(tool_message)
+                results.add(str(tool_message.tool_call_id))
+            cursor += 1
+        if expected and results == expected:
+            normalized.extend(group)
+        index = cursor
+    return normalized
+
+
+def _atomic_blocks(messages: List[Message]) -> List[List[Message]]:
+    """Group an assistant tool declaration with all of its tool results."""
+    blocks: List[List[Message]] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        if message.role == "assistant" and message.tool_calls:
+            block = [message]
+            index += 1
+            while index < len(messages) and messages[index].role == "tool":
+                block.append(messages[index])
+                index += 1
+            blocks.append(block)
+        else:
+            blocks.append([message])
+            index += 1
+    return blocks
+
+
 class Compactor(Protocol):
     async def compact(
         self,
@@ -38,12 +91,19 @@ class KeepSystemRecentCompactor:
         context_left: Optional[int],
     ) -> List[Message]:
         del turn, context_limit, tokens_used, context_left
-        if len(messages) <= self.keep_recent + 1:
-            return list(messages)
+        valid = normalize_tool_protocol(messages)
+        system = valid[0] if valid and valid[0].role == "system" else None
+        rest = valid[1:] if system is not None else valid
 
-        if messages and messages[0].role == "system":
-            system = messages[0]
-            rest = messages[1:]
-            return [system, *rest[-self.keep_recent :]]
+        selected: List[List[Message]] = []
+        selected_count = 0
+        for block in reversed(_atomic_blocks(rest)):
+            if selected and selected_count + len(block) > self.keep_recent:
+                break
+            selected.insert(0, block)
+            selected_count += len(block)
+            if selected_count >= self.keep_recent:
+                break
 
-        return list(messages[-self.keep_recent :])
+        recent = [message for block in selected for message in block]
+        return ([system] if system is not None else []) + recent

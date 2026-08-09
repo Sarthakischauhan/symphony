@@ -83,6 +83,7 @@ class TurnRunner:
         )
 
         assistant_text = ""
+        reasoning_texts: Dict[int, str] = {}
         pending_calls: Dict[int, PendingToolCall] = {}
         saw_usage = False
         async for event in self.registry.stream(
@@ -95,6 +96,20 @@ class TurnRunner:
                 await self.control_plane.emit(
                     "text_delta",
                     {"turn": turn, "delta": event.delta},
+                )
+            elif event.type == "reasoning_delta" and event.delta:
+                summary_index = event.content_index
+                reasoning_texts[summary_index] = (
+                    reasoning_texts.get(summary_index, "") + event.delta
+                )
+                await self.control_plane.emit(
+                    "reasoning_delta",
+                    {
+                        "turn": turn,
+                        "summary_index": summary_index,
+                        "delta": event.delta,
+                        "text": reasoning_texts[summary_index],
+                    },
                 )
             elif event.type == "toolcall_start":
                 pending_calls[event.content_index] = PendingToolCall(
@@ -127,6 +142,7 @@ class TurnRunner:
                 saw_usage = True
                 usage.prompt_tokens += event.prompt_tokens or 0
                 usage.completion_tokens += event.completion_tokens or 0
+                usage.reasoning_tokens += event.reasoning_tokens or 0
                 usage.total_tokens += event.total_tokens or 0
                 budget_tokens = event.prompt_tokens or usage.total_tokens
                 await self.control_plane.emit(
@@ -135,6 +151,7 @@ class TurnRunner:
                         "turn": turn,
                         "prompt_tokens": event.prompt_tokens or 0,
                         "completion_tokens": event.completion_tokens or 0,
+                        "reasoning_tokens": event.reasoning_tokens or 0,
                         "total_tokens": event.total_tokens or 0,
                         "cumulative_tokens": usage.total_tokens,
                         "estimated": False,
