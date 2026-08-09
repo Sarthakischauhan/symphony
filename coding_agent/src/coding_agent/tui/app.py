@@ -29,6 +29,7 @@ from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
 from coding_agent.tui.diff_modal import DiffModal
+from coding_agent.tui.learning_modal import LearningModal
 from coding_agent.tui.styles.app import APP_CSS
 from coding_agent.tui.widgets import (
     AssistantMessage,
@@ -301,6 +302,9 @@ class CodingAgentApp(App[None]):
         if command == "status":
             self._show_command_status()
             return
+        if command == "learning":
+            self._open_learning_modal()
+            return
         if self._busy:
             self.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
             return
@@ -386,6 +390,9 @@ class CodingAgentApp(App[None]):
 
     def _open_diff_modal(self) -> None:
         self.push_screen(DiffModal(self.workspace))
+
+    def _open_learning_modal(self) -> None:
+        self.push_screen(LearningModal(self.workspace))
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:

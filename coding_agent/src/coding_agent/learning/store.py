@@ -66,6 +66,44 @@ class LearningStore:
                 continue
         return lessons
 
+    def to_markdown(self) -> str:
+        """Render stored lessons as Markdown for TUI display."""
+        lessons = self.load()
+        if not lessons:
+            return (
+                "# Agent learnings\n\n"
+                "_No lessons stored yet for this workspace._\n"
+            )
+
+        lines = [
+            "# Agent learnings",
+            "",
+            f"_{len(lessons)} lesson(s) from `.symphony/learning/lessons.jsonl`_",
+            "",
+        ]
+        for index, lesson in enumerate(reversed(lessons), start=1):
+            lines.append(f"## {index}. {lesson.summary}")
+            lines.append("")
+            if lesson.source_task:
+                lines.append(f"- **Source task:** {lesson.source_task}")
+            lines.append(f"- **Confidence:** {lesson.confidence:.2f}")
+            if lesson.created_at:
+                lines.append(f"- **Created:** {lesson.created_at}")
+            if lesson.applicable_when:
+                lines.append("- **When applicable:**")
+                for item in lesson.applicable_when:
+                    lines.append(f"  - {item}")
+            if lesson.worked:
+                lines.append("- **What worked:**")
+                for item in lesson.worked:
+                    lines.append(f"  - {item}")
+            if lesson.failed:
+                lines.append("- **What failed:**")
+                for item in lesson.failed:
+                    lines.append(f"  - {item}")
+            lines.append("")
+        return "\n".join(lines).rstrip() + "\n"
+
     def context_for(self, task: str, *, limit: int = 6, max_chars: int = 1400) -> str:
         words = {word.casefold() for word in sanitize_task(task).split() if len(word) > 3}
         ranked: list[tuple[int, Lesson]] = []

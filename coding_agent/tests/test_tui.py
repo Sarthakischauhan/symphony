@@ -176,6 +176,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
             thinking = app.query_one(ThinkingStatus)
             reasoning = list(app.query(ReasoningWidget))
             assert read.status == "done"
+            assert read.collapsed
             assert read.arguments["path"] == "src/app.py"
             assert "120 in / 30 out" in str(thinking.render())
             assert "18 reasoning" in str(thinking.render())
@@ -184,6 +185,12 @@ def test_tui_maps_stream_usage_and_read_file_events(
                 "Choosing an implementation.",
             ]
             assert app._assistant is not None
+
+            read.scroll_visible()
+            await pilot.pause()
+            await pilot.click(read.query_one("CollapsibleTitle"))
+            await pilot.pause()
+            assert not read.collapsed
 
             app._presenter.handle(
                 "run_completed",
@@ -208,6 +215,8 @@ def test_tui_maps_stream_usage_and_read_file_events(
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/m")] == ["model"]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
+    assert "learning" in [command.name for command in SLASH_COMMANDS]
+    assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.4-mini").id == "openai:gpt-5.4-mini"  # type: ignore[union-attr]
     assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
     assert find_model("missing") is None
@@ -308,6 +317,10 @@ def test_slash_menu_and_commands(
             await app._run_slash_command("/diff")
             assert opened and opened[0].__class__.__name__ == "DiffModal"
 
+            opened.clear()
+            await app._run_slash_command("/learning")
+            assert opened and opened[0].__class__.__name__ == "LearningModal"
+
             await app._run_slash_command("/new")
             assert fake.session_id != "old-session"
             assert fake.harness.session_id == fake.session_id
@@ -395,9 +408,16 @@ def test_patch_events_render_a_specialized_diff_widget(
             widget = app.query_one(PatchDiffWidget)
             diff = widget._diff()
             assert widget.status == "done"
+            assert widget.collapsed
             assert widget.arguments["path"] == "src/greeting.py"
             assert widget._stats(diff) == (2, 2)
             assert '-    return "hello"' in diff
             assert '+    return f"hello {name}"' in diff
+
+            widget.scroll_visible()
+            await pilot.pause()
+            await pilot.click(widget.query_one("CollapsibleTitle"))
+            await pilot.pause()
+            assert not widget.collapsed
 
     asyncio.run(_run())
