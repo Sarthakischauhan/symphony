@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from dotenv import load_dotenv
-from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -26,7 +24,10 @@ from coding_agent.tui.commands import (
 )
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
+from coding_agent.tui.agent_factory import build_agent
+from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
+from coding_agent.tui.status import render_status
 from coding_agent.tui.diff_modal import DiffModal
 from coding_agent.tui.styles.app import APP_CSS
 from coding_agent.tui.widgets import (
@@ -44,34 +45,6 @@ from coding_agent.tui.widgets import (
     make_tool_widget,
 )
 from core_harness import HarnessResult
-
-
-def _build_agent(
-    *,
-    workspace: Path,
-    control_plane: TextualControlPlane,
-    model_id: Optional[str] = None,
-    session_id: Optional[str] = None,
-) -> CodingAgent:
-    from core_ai import ModelRegistry
-    from core_ai.providers.openai import OpenAIProvider
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    model_name = model_id or os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
-    if ":" not in model_name:
-        model_name = f"openai:{model_name}"
-    registry = ModelRegistry()
-    registry.register("openai", OpenAIProvider(api_key=api_key, base_url=base_url))
-    return CodingAgent(
-        registry=registry,
-        model_id=model_name,
-        workspace=workspace,
-        control_plane=control_plane,
-        session_id=session_id,
-    )
 
 
 class CodingAgentApp(App[None]):
@@ -128,7 +101,7 @@ class CodingAgentApp(App[None]):
         topbar.set_context(self.workspace, self.model_id or os.getenv("OPENAI_MODEL", ""))
 
         try:
-            self._agent = _build_agent(
+            self._agent = build_agent(
                 workspace=self.workspace,
                 control_plane=self.control_plane,
                 model_id=self.model_id,
@@ -231,60 +204,17 @@ class CodingAgentApp(App[None]):
             self._process.complete(title, collapse=collapse)
 
     def _set_status(self, _value: str) -> None:
-        m = self._ui_state.metrics
-        phase = (
-            "working"
-            if self._ui_state.phase not in {"idle", "paused"}
-            else self._ui_state.phase
-        )
-        color = "#d7a84b" if phase == "working" else "#72a57a" if phase == "idle" else "#888888"
-        line = Text("● ", style=color)
-        line.append(phase, style="#858585")
-        if m.cumulative_tokens or m.total_tokens:
-            line.append(f"   {m.cumulative_tokens or m.total_tokens:,} tokens", style="#5e5e5e")
-        if m.context_limit and m.context_left is not None:
-            used = 1 - (m.context_left / m.context_limit)
-            line.append(f"   context {used:.0%}", style="#5e5e5e")
-        line.append(f"   {self.workspace}", style="#4f4f4f")
-        self.query_one("#status", Static).update(line)
+        self.query_one("#status", Static).update(render_status(self._ui_state, self.workspace))
 
     @work(exclusive=False)
     async def load_session_history(self) -> None:
         if self._agent is None:
             return
-        messages = await self._agent.persistence.load_conversation(
-            session_id=self._agent.session_id
-        )
-        self.add_notice(f"Resumed session · {self._agent.session_id}")
-        pending_tools: dict[str, ToolCallWidget] = {}
-        for message in messages:
-            content = (
-                message.content
-                if isinstance(message.content, str)
-                else json.dumps(message.content, ensure_ascii=False)
-            )
-            if message.role == "user":
-                self._mount_transcript(UserMessage(content))
-            elif message.role == "assistant":
-                if content:
-                    self._mount_transcript(AssistantMessage(content))
-                for call in message.tool_calls or []:
-                    call_id = str(call.get("id") or "history-tool")
-                    function = call.get("function") or {}
-                    name = str(function.get("name") or call.get("name") or "tool")
-                    widget = make_tool_widget(call_id, name)
-                    raw = function.get("arguments") or call.get("arguments") or ""
-                    try:
-                        args = json.loads(raw) if isinstance(raw, str) else raw
-                    except json.JSONDecodeError:
-                        args = {}
-                    widget.set_running(args if isinstance(args, dict) else {})
-                    pending_tools[call_id] = widget
-                    self._mount_transcript(widget)
-            elif message.role == "tool":
-                widget = pending_tools.get(str(message.tool_call_id))
-                if widget:
-                    widget.set_result(content)
+        await load_session_history(self._agent, self)
+
+    def mount_transcript(self, widget: Static) -> None:
+        """Public adapter used by the persisted-history loader."""
+        self._mount_transcript(widget)
 
     def on_harness_event(self, message: HarnessEvent) -> None:
         if self._presenter is not None:
