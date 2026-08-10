@@ -11,17 +11,16 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 
-def test_gpt_5_4_uses_responses_reasoning_stream() -> None:
+def test_reasoning_model_uses_completion_stream() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/responses"
+        assert request.url.path == "/v1/chat/completions"
         payload = json.loads(request.content)
-        assert payload["reasoning"] == {"effort": "medium", "summary": "auto"}
+        assert payload["reasoning_effort"] == "medium"
         body = "\n\n".join(
             f"data: {event}"
             for event in (
-                '{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"Checking files"}',
-                '{"type":"response.output_text.delta","content_index":0,"delta":"Done"}',
-                '{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":7,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":17}}}',
+                '{"choices":[{"index":0,"delta":{"content":"Done"}}]}',
+                '{"usage":{"prompt_tokens":10,"completion_tokens":7,"completion_tokens_details":{"reasoning_tokens":4},"total_tokens":17}}',
                 "[DONE]",
             )
         )
@@ -40,11 +39,34 @@ def test_gpt_5_4_uses_responses_reasoning_stream() -> None:
         ]
 
     events = asyncio.run(collect())
-    assert [(event.type, event.delta) for event in events[:2]] == [
-        ("reasoning_delta", "Checking files"),
-        ("text_delta", "Done"),
-    ]
-    assert events[2].reasoning_tokens == 4
+    assert [(event.type, event.delta) for event in events[:1]] == [("text_delta", "Done")]
+    assert events[1].reasoning_tokens == 4
+    assert events[-1].type == "done"
+
+
+def test_regular_model_uses_responses_stream() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/responses"
+        body = "\n\n".join(
+            f"data: {event}"
+            for event in (
+                '{"type":"response.output_text.delta","content_index":0,"delta":"Done"}',
+                "[DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> list[StreamEvent]:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "gpt-4o-mini", [Message(role="user", content="Do it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert events[0].delta == "Done"
     assert events[-1].type == "done"
 
 
@@ -52,6 +74,8 @@ def call_openai_provider(
     prompt: str = "what is 3+5. just answer in number",
     model_name: str | None = None,
 ) -> str:
+    if os.getenv("RUN_LIVE_OPENAI_TESTS") != "1":
+        pytest.skip("Set RUN_LIVE_OPENAI_TESTS=1 to run the OpenAI provider smoke test.")
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         pytest.skip("Set OPENAI_API_KEY to run the OpenAI provider smoke test.")
