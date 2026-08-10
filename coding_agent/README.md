@@ -96,11 +96,15 @@ clears the visible transcript.
 Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
 boundary can be replaced with provider-backed registry discovery later.
 
-Regenerate the README screenshot (no API key required):
+Regenerate a demo screenshot (no API key required; needs `cairosvg`):
 
 ```bash
+uv pip install cairosvg
 uv run --package coding-agent python coding_agent/scripts/capture_readme_screenshot.py
 ```
+
+The committed `assets/tui-screenshot.png` is a real terminal capture so box-drawing
+borders stay sharp on GitHub.
 
 ## Library usage
 
