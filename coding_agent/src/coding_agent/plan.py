@@ -9,6 +9,7 @@ from pathlib import Path
 class PlanStore:
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
+        self.plans_dir = self.workspace / ".symphony" / "plans"
         self._latest_path = self.workspace / ".symphony" / "latest-plan"
         self._stream_task: str | None = None
         self._stream_text = ""
@@ -28,13 +29,56 @@ class PlanStore:
         except OSError:
             filename = ""
         if filename and Path(filename).name == filename:
-            return self.workspace / filename
-        return self.workspace / ".symphony" / "plan.md"
+            selected_path = self.plans_dir / filename
+            if selected_path.exists():
+                return selected_path
+        legacy_path = self.workspace / ".symphony" / "plan.md"
+        if legacy_path.exists():
+            return legacy_path
+        plans = self.list_paths()
+        if plans:
+            return plans[0]
+        return self.plans_dir / "plan.md"
+
+    def list_paths(self) -> tuple[Path, ...]:
+        """Return stored plans newest first."""
+        try:
+            paths = list(self.plans_dir.glob("*.md"))
+        except OSError:
+            return ()
+        return tuple(
+            sorted(paths, key=lambda path: path.stat().st_mtime, reverse=True)
+        )
+
+    def select(self, value: str) -> Path | None:
+        """Select a stored plan by filename or stem."""
+        needle = value.strip().lower()
+        matches = [
+            path
+            for path in self.list_paths()
+            if needle in {path.name.lower(), path.stem.lower()}
+        ]
+        if len(matches) != 1:
+            return None
+        self._latest_path.parent.mkdir(parents=True, exist_ok=True)
+        self._latest_path.write_text(matches[0].name, encoding="utf-8")
+        return matches[0]
+
+    @staticmethod
+    def task_for(path: Path) -> str:
+        """Read the task label from a plan, falling back to its filename."""
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines()[:8]:
+                if line.startswith("**Task:**"):
+                    return line.removeprefix("**Task:**").strip()
+        except OSError:
+            pass
+        return path.stem.removesuffix("_plan").replace("_", " ").title()
 
     def begin(self, task: str) -> Path:
         """Create a task-named plan and make it the current plan."""
-        path = self.workspace / self.filename_for(task)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path = self.plans_dir / self.filename_for(task)
+        self.plans_dir.mkdir(parents=True, exist_ok=True)
         self._latest_path.parent.mkdir(parents=True, exist_ok=True)
         self._latest_path.write_text(path.name, encoding="utf-8")
         self._stream_task = task.strip()

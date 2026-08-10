@@ -31,6 +31,13 @@ class ModeOption:
     description: str
 
 
+@dataclass(frozen=True)
+class PlanOption:
+    id: str
+    label: str
+    description: str
+
+
 # This is intentionally isolated from the dispatcher. Replace this tuple with a
 # registry/provider discovery result when ModelRegistry grows a model-list API.
 MODEL_CATALOG = (
@@ -49,7 +56,7 @@ MODE_CATALOG = (
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
     SlashCommand("mode", "View or switch between build and plan", "[mode]"),
-    SlashCommand("plan", "Open the latest workspace plan"),
+    SlashCommand("plan", "Choose and open a workspace plan", "[plan]"),
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),

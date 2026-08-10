@@ -20,6 +20,7 @@ from coding_agent.tui.commands import (
     MODE_CATALOG,
     MODEL_CATALOG,
     SLASH_COMMANDS,
+    PlanOption,
     command_matches,
     find_mode,
     find_model,
@@ -280,6 +281,11 @@ class CodingAgentApp(App[None]):
             menu.set_models(model_matches(event.value.removeprefix("/model ")), current)
         elif event.value.startswith("/mode "):
             menu.set_modes(mode_matches(event.value.removeprefix("/mode ")), self.mode)
+        elif event.value.startswith("/plan "):
+            menu.set_plans(
+                self._plan_options(event.value.removeprefix("/plan ")),
+                self._plan_store.path.name,
+            )
         else:
             menu.set_commands(command_matches(event.value))
 
@@ -332,7 +338,20 @@ class CodingAgentApp(App[None]):
             self._open_learning_modal()
             return
         if command == "plan":
-            self._open_plan_modal()
+            if argument:
+                self._open_plan_modal(argument)
+                return
+            plans = self._plan_options()
+            if not plans:
+                self.add_notice("No saved plans yet. Switch to Plan mode to create one.")
+                return
+            prompt = self.query_one("#prompt", Input)
+            prompt.value = "/plan "
+            prompt.cursor_position = len(prompt.value)
+            self.query_one("#slash-menu", SlashMenu).set_plans(
+                plans,
+                self._plan_store.path.name,
+            )
             return
         if command == "mode":
             if self._busy:
@@ -468,7 +487,29 @@ class CodingAgentApp(App[None]):
     def _open_learning_modal(self) -> None:
         self.push_screen(LearningModal(self.workspace))
 
-    def _open_plan_modal(self) -> None:
+    def _plan_options(self, query: str = "") -> tuple[PlanOption, ...]:
+        needle = query.strip().lower()
+        options: list[PlanOption] = []
+        for path in self._plan_store.list_paths():
+            task = self._plan_store.task_for(path)
+            if needle and needle not in path.name.lower() and needle not in task.lower():
+                continue
+            options.append(
+                PlanOption(
+                    id=path.name,
+                    label=task,
+                    description=str(path.relative_to(self.workspace)),
+                )
+            )
+        return tuple(options)
+
+    def _open_plan_modal(self, plan_name: str | None = None) -> None:
+        if plan_name is not None and self._plan_store.select(plan_name) is None:
+            self.add_notice(f"Unknown plan: {plan_name}. Run /plan to choose one.", "warning")
+            return
+        if not self._plan_store.path.exists():
+            self.add_notice("No saved plans yet. Switch to Plan mode to create one.")
+            return
         self.push_screen(PlanModal(self.workspace), self._on_plan_action)
 
     def _on_plan_action(self, action: str | None) -> None:
@@ -479,7 +520,8 @@ class CodingAgentApp(App[None]):
             self._agent.set_mode("build")
         self._update_composer_hint()
         prompt = self.query_one("#prompt", Input)
-        prompt.value = f"Build the approved plan in {self._plan_store.path.name}."
+        plan_path = self._plan_store.path.relative_to(self.workspace)
+        prompt.value = f"Build the approved plan in {plan_path}."
         prompt.action_submit()
 
     @work(exclusive=True)

@@ -39,9 +39,10 @@ reset the visible transcript and `Ctrl+D`, `/quit`, or `/exit` to leave.
 Type `/` to discover commands. `/model` shows the built-in model catalog,
 `/model <id>` switches the harness and learning model, and `/mode` switches between
 build and read-only plan modes. Tab toggles the mode without opening the menu.
-Plan mode uses a light-yellow composer and writes streamed plans to readable,
-task-named files such as `to_build_a_server_plan.md`. When planning finishes,
-the plan opens in a modal with a **Build now** action; `/plan` reopens the latest one.
+Plan mode uses a yellow composer border and writes streamed plans to readable,
+task-named files such as `.symphony/plans/to_build_a_server_plan.md`. When planning
+finishes, the plan opens in a modal with a **Build now** action; `/plan` opens a
+searchable picker for all saved workspace plans.
 `/new` starts a new persisted session, `/compact` keeps the system prompt and recent
 valid tool-call blocks, `/diff` opens the current workspace diff in a modal,
 `/status` displays the current runtime context, `/help` shows commands, and `/clear`

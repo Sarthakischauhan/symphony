@@ -85,7 +85,8 @@ def test_plan_stream_writes_to_file_without_rendering_in_chat(
             )
 
             assert app._assistant is None
-            assert (tmp_path / "to_build_a_server_plan.md").read_text().endswith(
+            plan_path = tmp_path / ".symphony" / "plans" / "to_build_a_server_plan.md"
+            assert plan_path.read_text().endswith(
                 "## Steps\n1. Add API.\n"
             )
 
@@ -413,7 +414,20 @@ def test_slash_menu_and_commands(
             assert opened and opened[0].__class__.__name__ == "LearningModal"
 
             opened.clear()
+            app._plan_store.save("Add API", "1. Build it.")
+            app._plan_store.save("Fix login", "1. Inspect auth.")
+            prompt.value = "/plan add"  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.selected_value == "/plan add_api_plan.md"
             await app._run_slash_command("/plan")
+            assert not opened
+            assert prompt.value == "/plan "  # type: ignore[attr-defined]
+            assert menu.display
+            assert menu.selected_value == "/plan fix_login_plan.md"
+            await pilot.press("down")
+            assert menu.selected_value == "/plan add_api_plan.md"
+            await pilot.press("enter")
+            await pilot.pause()
             assert opened and opened[0].__class__.__name__ == "PlanModal"
 
             await app._run_slash_command("/new")

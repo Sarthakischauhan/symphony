@@ -10,7 +10,7 @@ from rich.text import Text
 from textual.containers import Container
 from textual.widgets import Collapsible, Input, Static
 
-from coding_agent.tui.commands import ModeOption, ModelOption, SlashCommand
+from coding_agent.tui.commands import ModeOption, ModelOption, PlanOption, SlashCommand
 from coding_agent.tui.theme import themed_markdown
 from coding_agent.utils.diff import diff_stats, make_unified_diff
 from coding_agent.utils.text import clip_text, compact_json
@@ -362,8 +362,10 @@ class SlashMenu(Static):
         self._commands: tuple[SlashCommand, ...] = ()
         self._models: tuple[ModelOption, ...] = ()
         self._modes: tuple[ModeOption, ...] = ()
+        self._plans: tuple[PlanOption, ...] = ()
         self._current_model = ""
         self._current_mode = ""
+        self._current_plan = ""
 
     @property
     def selected_value(self) -> str:
@@ -371,12 +373,19 @@ class SlashMenu(Static):
             return f"/model {self._models[self.selected_index].id}"
         if self._modes:
             return f"/mode {self._modes[self.selected_index].id}"
+        if self._plans:
+            return f"/plan {self._plans[self.selected_index].id}"
         if self._commands:
             return f"/{self._commands[self.selected_index].name}"
         return ""
 
     def move_selection(self, offset: int) -> None:
-        count = len(self._models) or len(self._modes) or len(self._commands)
+        count = (
+            len(self._models)
+            or len(self._modes)
+            or len(self._plans)
+            or len(self._commands)
+        )
         if not count:
             return
         self.selected_index = (self.selected_index + offset) % count
@@ -387,11 +396,13 @@ class SlashMenu(Static):
             self._commands = ()
             self._models = ()
             self._modes = ()
+            self._plans = ()
             self.display = False
             return
         self._commands = commands
         self._models = ()
         self._modes = ()
+        self._plans = ()
         self.selected_index = 0
         self._render_options()
 
@@ -400,11 +411,13 @@ class SlashMenu(Static):
             self._commands = ()
             self._models = ()
             self._modes = ()
+            self._plans = ()
             self.display = False
             return
         self._commands = ()
         self._models = models
         self._modes = ()
+        self._plans = ()
         self._current_model = current
         self.selected_index = 0
         self._render_options()
@@ -414,12 +427,26 @@ class SlashMenu(Static):
             self._commands = ()
             self._models = ()
             self._modes = ()
+            self._plans = ()
             self.display = False
             return
         self._commands = ()
         self._models = ()
         self._modes = modes
+        self._plans = ()
         self._current_mode = current
+        self.selected_index = 0
+        self._render_options()
+
+    def set_plans(self, plans: tuple[PlanOption, ...], current: str = "") -> None:
+        if not plans:
+            self.set_commands(())
+            return
+        self._commands = ()
+        self._models = ()
+        self._modes = ()
+        self._plans = plans
+        self._current_plan = current
         self.selected_index = 0
         self._render_options()
 
@@ -448,6 +475,18 @@ class SlashMenu(Static):
                 )
                 row = Text(f" {pointer} {active} {mode.label:<27}", style=style)
                 row.append(mode.description, style="#858585")
+                rows.append(row)
+        elif self._plans:
+            for index, plan in enumerate(self._plans):
+                active = "●" if plan.id == self._current_plan else "○"
+                pointer = "›" if index == self.selected_index else " "
+                style = (
+                    "bold #f2f2f2 on #383838"
+                    if index == self.selected_index
+                    else "bold #c5c5c5"
+                )
+                row = Text(f" {pointer} {active} {plan.label:<27}", style=style)
+                row.append(plan.description, style="#858585")
                 rows.append(row)
         else:
             for index, command in enumerate(self._commands):
