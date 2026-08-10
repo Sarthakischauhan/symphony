@@ -3,7 +3,7 @@
 Workspace coding agent for [Symphony](../README.md) — five tools, persisted sessions, and a conversation-first Textual TUI built on `core_harness`.
 
 <p align="center">
-  <img src="./assets/tui-screenshot.svg" alt="Symphony coding agent TUI" width="900" />
+  <img src="./assets/tui-screenshot.png" alt="Symphony coding agent TUI" width="900" />
 </p>
 
 <p align="center">

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Capture an SVG screenshot of the coding agent TUI for the README."""
+"""Capture a PNG screenshot of the coding agent TUI for the README."""
 
 from __future__ import annotations
 
 import asyncio
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,7 +15,7 @@ from coding_agent.tui.state import RunMetrics
 from coding_agent.tui.widgets import UserMessage
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "assets" / "tui-screenshot.svg"
+OUT = ROOT / "assets" / "tui-screenshot.png"
 WORKSPACE = Path("/workspace/demo-app")
 MODEL = "openai:gpt-4.1"
 
@@ -38,15 +39,37 @@ PATCH_ARGS = {
 
 
 def _fake_build_agent(**_kwargs):
-    agent = SimpleNamespace(
+    return SimpleNamespace(
         harness=SimpleNamespace(model_id=MODEL),
         set_mode=lambda _mode: None,
     )
-    return agent
+
+
+def _svg_to_png(svg_text: str, dest: Path, *, width: int = 1800) -> None:
+    """Rasterize Textual SVG with a system mono font that has box-drawing glyphs."""
+    try:
+        import cairosvg
+    except ImportError as exc:  # pragma: no cover
+        raise SystemExit(
+            "cairosvg is required to write PNG screenshots. "
+            "Install with: uv pip install cairosvg"
+        ) from exc
+
+    # Remote Fira Code often lacks the TUI line glyphs in headless renders.
+    svg_text = re.sub(r"@font-face\s*\{.*?\}", "", svg_text, flags=re.S)
+    svg_text = svg_text.replace(
+        "font-family: Fira Code, monospace",
+        'font-family: "DejaVu Sans Mono", monospace',
+    )
+    svg_text = svg_text.replace(
+        'font-family: "Fira Code"',
+        'font-family: "DejaVu Sans Mono"',
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cairosvg.svg2png(bytestring=svg_text.encode("utf-8"), write_to=str(dest), output_width=width)
 
 
 async def _populate(app: CodingAgentApp) -> None:
-    # Drop any leftover welcome/offline chrome before mounting the demo turn.
     for notice in list(app.query(".notice")):
         notice.remove()
 
@@ -124,9 +147,7 @@ async def _populate(app: CodingAgentApp) -> None:
     app._set_status("")
     app.query_one("#prompt").value = ""
     app.query_one("#composer-hint").update("BUILD · Tab mode · Enter to send")
-    # Keep the prompt + tools in frame for the README shot.
-    transcript = app.query_one("#transcript")
-    transcript.scroll_home(animate=False)
+    app.query_one("#transcript").scroll_home(animate=False)
 
 
 async def main() -> None:
@@ -139,8 +160,9 @@ async def main() -> None:
             await pilot.pause()
             await _populate(app)
             await pilot.pause(0.1)
-            path = app.save_screenshot(filename=OUT.name, path=str(OUT.parent))
-            print(path)
+            svg_text = app.export_screenshot()
+            _svg_to_png(svg_text, OUT)
+            print(OUT)
 
 
 if __name__ == "__main__":
