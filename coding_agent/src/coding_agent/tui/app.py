@@ -14,12 +14,17 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Input, Static
 
-from coding_agent.agent import CodingAgent
+from coding_agent.agent import AgentMode, CodingAgent
+from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import (
+    MODE_CATALOG,
     MODEL_CATALOG,
     SLASH_COMMANDS,
+    PlanOption,
     command_matches,
+    find_mode,
     find_model,
+    mode_matches,
     model_matches,
 )
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
@@ -28,8 +33,7 @@ from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
-from coding_agent.tui.diff_modal import DiffModal
-from coding_agent.tui.learning_modal import LearningModal
+from coding_agent.tui.modal import DiffModal, LearningModal, PlanModal
 from coding_agent.tui.styles.app import APP_CSS
 from coding_agent.tui.widgets import (
     AssistantMessage,
@@ -71,6 +75,7 @@ class CodingAgentApp(App[None]):
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
+        self.mode: AgentMode = "build"
         self.control_plane = TextualControlPlane()
         self._agent: Optional[CodingAgent] = None
         self._busy = False
@@ -81,6 +86,8 @@ class CodingAgentApp(App[None]):
         self._reasoning: Optional[ReasoningWidget] = None
         self._process: Optional[RunProcess] = None
         self._tools: dict[str, ToolCallWidget] = {}
+        self._plan_store = PlanStore(self.workspace)
+        self._plan_run_active = False
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
@@ -100,6 +107,7 @@ class CodingAgentApp(App[None]):
         )
         topbar = self.query_one("#topbar", TopBar)
         topbar.set_context(self.workspace, self.model_id or os.getenv("OPENAI_MODEL", ""))
+        self._update_composer_hint()
 
         try:
             self._agent = build_agent(
@@ -108,6 +116,7 @@ class CodingAgentApp(App[None]):
                 model_id=self.model_id,
                 session_id=self.session_id,
             )
+            self._agent.set_mode(self.mode)
         except Exception as exc:  # noqa: BLE001
             self._set_status("")
             self.add_notice(f"Offline · {exc}. Add it to .env and restart.", "error")
@@ -218,8 +227,17 @@ class CodingAgentApp(App[None]):
         self._mount_transcript(widget)
 
     def on_harness_event(self, message: HarnessEvent) -> None:
+        if self._plan_run_active and message.event_type == "text_delta":
+            self._plan_store.append(str(message.payload.get("delta") or ""))
+            return
         if self._presenter is not None:
             self._presenter.handle(message.event_type, message.payload)
+        if self._plan_run_active and message.event_type in {
+            "run_completed",
+            "run_failed",
+            "run_cancelled",
+        }:
+            self._plan_run_active = False
 
     on_control_plane_event = on_harness_event
 
@@ -246,6 +264,9 @@ class CodingAgentApp(App[None]):
         self._tools = {}
         self._mount_transcript(UserMessage(text))
         self.set_thinking("Thinking…")
+        if self.mode == "plan":
+            self._plan_store.begin(text)
+            self._plan_run_active = True
         self._busy = True
         event.input.disabled = True
         self.query_one("#composer-hint", Static).update("Working…")
@@ -258,6 +279,13 @@ class CodingAgentApp(App[None]):
         if event.value.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
             menu.set_models(model_matches(event.value.removeprefix("/model ")), current)
+        elif event.value.startswith("/mode "):
+            menu.set_modes(mode_matches(event.value.removeprefix("/mode ")), self.mode)
+        elif event.value.startswith("/plan "):
+            menu.set_plans(
+                self._plan_options(event.value.removeprefix("/plan ")),
+                self._plan_store.path.name,
+            )
         else:
             menu.set_commands(command_matches(event.value))
 
@@ -268,6 +296,10 @@ class CodingAgentApp(App[None]):
             return
         menu = self.query_one("#slash-menu", SlashMenu)
         if not menu.display:
+            if event.key == "tab" and not self._busy:
+                self._toggle_mode()
+                event.prevent_default()
+                event.stop()
             return
 
         if event.key in {"up", "down"}:
@@ -304,6 +336,37 @@ class CodingAgentApp(App[None]):
             return
         if command == "learning":
             self._open_learning_modal()
+            return
+        if command == "plan":
+            if argument:
+                self._open_plan_modal(argument)
+                return
+            plans = self._plan_options()
+            if not plans:
+                self.add_notice("No saved plans yet. Switch to Plan mode to create one.")
+                return
+            prompt = self.query_one("#prompt", Input)
+            prompt.value = "/plan "
+            prompt.cursor_position = len(prompt.value)
+            self.query_one("#slash-menu", SlashMenu).set_plans(
+                plans,
+                self._plan_store.path.name,
+            )
+            return
+        if command == "mode":
+            if self._busy:
+                self.add_notice("/mode is unavailable while a turn is running.", "warning")
+                return
+            if argument:
+                self._select_mode(argument)
+            else:
+                prompt = self.query_one("#prompt", Input)
+                prompt.value = "/mode "
+                prompt.cursor_position = len(prompt.value)
+                self.query_one("#slash-menu", SlashMenu).set_modes(
+                    MODE_CATALOG,
+                    self.mode,
+                )
             return
         if self._busy:
             self.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
@@ -360,6 +423,35 @@ class CodingAgentApp(App[None]):
         self._set_status("")
         self.add_notice(f"Model switched to {selected.label} · {selected.id}", "success")
 
+    def _select_mode(self, argument: str) -> None:
+        selected = find_mode(argument)
+        if selected is None:
+            self.add_notice(
+                f"Unknown mode: {argument}. Run /mode to see available modes.",
+                "warning",
+            )
+            return
+        self.mode = selected.id  # type: ignore[assignment]
+        if self._agent is not None:
+            self._agent.set_mode(self.mode)
+        self._update_composer_hint()
+        self.add_notice(f"Switched to {selected.label} mode", "success")
+
+    def _toggle_mode(self) -> None:
+        self.mode = "plan" if self.mode == "build" else "build"
+        if self._agent is not None:
+            self._agent.set_mode(self.mode)
+        self._update_composer_hint()
+
+    def _update_composer_hint(self) -> None:
+        label = self.mode.upper()
+        self.query_one("#composer", Composer).set_class(
+            self.mode == "plan", "plan-mode"
+        )
+        self.query_one("#composer-hint", Static).update(
+            f"{label} · Tab mode · Enter to send"
+        )
+
     def _start_new_session(self) -> None:
         assert self._agent is not None
         session_id = str(uuid.uuid4())
@@ -384,6 +476,7 @@ class CodingAgentApp(App[None]):
         self.add_notice(
             "Status\n"
             f"model     {self._agent.harness.model_id}\n"
+            f"mode      {self.mode}\n"
             f"session   {self._agent.session_id}\n"
             f"context   {context}"
         )
@@ -393,6 +486,43 @@ class CodingAgentApp(App[None]):
 
     def _open_learning_modal(self) -> None:
         self.push_screen(LearningModal(self.workspace))
+
+    def _plan_options(self, query: str = "") -> tuple[PlanOption, ...]:
+        needle = query.strip().lower()
+        options: list[PlanOption] = []
+        for path in self._plan_store.list_paths():
+            task = self._plan_store.task_for(path)
+            if needle and needle not in path.name.lower() and needle not in task.lower():
+                continue
+            options.append(
+                PlanOption(
+                    id=path.name,
+                    label=task,
+                    description=str(path.relative_to(self.workspace)),
+                )
+            )
+        return tuple(options)
+
+    def _open_plan_modal(self, plan_name: str | None = None) -> None:
+        if plan_name is not None and self._plan_store.select(plan_name) is None:
+            self.add_notice(f"Unknown plan: {plan_name}. Run /plan to choose one.", "warning")
+            return
+        if not self._plan_store.path.exists():
+            self.add_notice("No saved plans yet. Switch to Plan mode to create one.")
+            return
+        self.push_screen(PlanModal(self.workspace), self._on_plan_action)
+
+    def _on_plan_action(self, action: str | None) -> None:
+        if action != "build" or self._busy:
+            return
+        self.mode = "build"
+        if self._agent is not None:
+            self._agent.set_mode("build")
+        self._update_composer_hint()
+        prompt = self.query_one("#prompt", Input)
+        plan_path = self._plan_store.path.relative_to(self.workspace)
+        prompt.value = f"Build the approved plan in {plan_path}."
+        prompt.action_submit()
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
@@ -410,12 +540,16 @@ class CodingAgentApp(App[None]):
             self._busy = False
             prompt = self.query_one("#prompt", Input)
             prompt.disabled = False
-            self.query_one("#composer-hint", Static).update("Enter to send")
+            self._update_composer_hint()
             prompt.focus()
 
     async def _run_agent_turn(self, user_input: str) -> HarnessResult:
         assert self._agent is not None
-        return await self._agent.run(user_input)
+        mode = self.mode
+        result = await self._agent.run(user_input)
+        if mode == "plan":
+            self._open_plan_modal()
+        return result
 
     def action_clear_transcript(self) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)

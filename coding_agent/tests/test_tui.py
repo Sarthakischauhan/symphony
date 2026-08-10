@@ -14,9 +14,17 @@ from core_ai.types import Message
 from core_harness import HarnessResult
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.app import CodingAgentApp
-from coding_agent.tui.commands import SLASH_COMMANDS, command_matches, find_model, model_matches
+from coding_agent.tui.commands import (
+    SLASH_COMMANDS,
+    command_matches,
+    find_mode,
+    find_model,
+    mode_matches,
+    model_matches,
+)
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
-from coding_agent.tui.theme import SYMPHONY_CODE_THEME
+from coding_agent.tui.modal import PlanModal
+from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     PatchDiffWidget,
     ReadFileWidget,
@@ -47,6 +55,65 @@ def test_markdown_code_theme_matches_tui_surface() -> None:
     background = SYMPHONY_CODE_THEME.get_background_style().bgcolor
     assert background is not None
     assert background.get_truecolor().hex == "#202020"
+
+
+def test_themed_markdown_avoids_rich_monokai_default() -> None:
+    from rich.markdown import Markdown
+
+    bare = Markdown("```py\nprint(1)\n```")
+    assert bare.code_theme == "monokai"
+
+    themed = themed_markdown("```py\nprint(1)\n```")
+    assert themed.code_theme is SYMPHONY_CODE_THEME
+    assert themed.inline_code_theme is SYMPHONY_CODE_THEME
+
+
+def test_plan_stream_writes_to_file_without_rendering_in_chat(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._plan_store.begin("To build a server")
+            app._plan_run_active = True
+            app.on_harness_event(ControlPlaneEvent("text_delta", {"delta": "## Steps\n"}))
+            app.on_harness_event(
+                ControlPlaneEvent("text_delta", {"delta": "1. Add API.\n"})
+            )
+
+            assert app._assistant is None
+            plan_path = tmp_path / ".symphony" / "plans" / "to_build_a_server_plan.md"
+            assert plan_path.read_text().endswith(
+                "## Steps\n1. Add API.\n"
+            )
+
+            app.on_harness_event(ControlPlaneEvent("run_completed", {}))
+            assert not app._plan_run_active
+
+    asyncio.run(_run())
+
+
+def test_plan_modal_offers_build_now(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app._plan_store.save("Add API", "1. Build it.")
+    actions: list[str | None] = []
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            app.push_screen(PlanModal(tmp_path), actions.append)
+            await pilot.pause()
+            assert "add_api_plan.md" in str(app.screen.query_one("#plan-title").render())
+            await pilot.click("#plan-build")
+            await pilot.pause()
+            assert actions == ["build"]
+
+    asyncio.run(_run())
 
 
 def test_textual_control_plane_posts_message() -> None:
@@ -213,9 +280,10 @@ def test_tui_maps_stream_usage_and_read_file_events(
 
 
 def test_slash_command_discovery_and_model_resolution() -> None:
-    assert [command.name for command in command_matches("/m")] == ["model"]
+    assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
+    assert "plan" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.4-mini").id == "openai:gpt-5.4-mini"  # type: ignore[union-attr]
     assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
@@ -223,6 +291,8 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert [model.id for model in model_matches("4.1-m")] == [
         "openai:gpt-4.1-mini"
     ]
+    assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
+    assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
 
 
 def test_reasoning_usage_without_summary_shows_fallback(
@@ -271,7 +341,11 @@ def test_slash_menu_and_commands(
                 state=FakeState(),
             )
             self.learning_loop = None
+            self.mode = "build"
             self.compacted = False
+
+        def set_mode(self, mode: str) -> None:
+            self.mode = mode
 
         async def compact_conversation(self) -> tuple[int, int]:
             self.compacted = True
@@ -284,7 +358,15 @@ def test_slash_menu_and_commands(
             app._agent = fake  # type: ignore[assignment]
 
             prompt = app.query_one("#prompt")
-            prompt.value = "/m"  # type: ignore[attr-defined]
+            await pilot.press("tab")
+            assert app.mode == "plan"
+            assert fake.mode == "plan"
+            assert app.query_one("#composer").has_class("plan-mode")
+            await pilot.press("tab")
+            assert app.mode == "build"
+            assert not app.query_one("#composer").has_class("plan-mode")
+
+            prompt.value = "/mo"  # type: ignore[attr-defined]
             await pilot.pause()
             assert app.query_one(SlashMenu).display
             await pilot.press("tab")
@@ -309,17 +391,44 @@ def test_slash_menu_and_commands(
             assert fake.harness.model_id == "openai:gpt-5.4-mini"
             assert app._ui_state.model_id == "openai:gpt-5.4-mini"
 
+            prompt.value = "/mode "  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.display
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.mode == "plan"
+            assert fake.mode == "plan"
+            assert "PLAN" in str(app.query_one("#composer-hint").render())
+
             await app._run_slash_command("/compact")
             assert fake.compacted
 
             opened: list[object] = []
-            app.push_screen = lambda screen: opened.append(screen)  # type: ignore[method-assign]
+            app.push_screen = lambda screen, *args: opened.append(screen)  # type: ignore[method-assign]
             await app._run_slash_command("/diff")
             assert opened and opened[0].__class__.__name__ == "DiffModal"
 
             opened.clear()
             await app._run_slash_command("/learning")
             assert opened and opened[0].__class__.__name__ == "LearningModal"
+
+            opened.clear()
+            app._plan_store.save("Add API", "1. Build it.")
+            app._plan_store.save("Fix login", "1. Inspect auth.")
+            prompt.value = "/plan add"  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.selected_value == "/plan add_api_plan.md"
+            await app._run_slash_command("/plan")
+            assert not opened
+            assert prompt.value == "/plan "  # type: ignore[attr-defined]
+            assert menu.display
+            assert menu.selected_value == "/plan fix_login_plan.md"
+            await pilot.press("down")
+            assert menu.selected_value == "/plan add_api_plan.md"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert opened and opened[0].__class__.__name__ == "PlanModal"
 
             await app._run_slash_command("/new")
             assert fake.session_id != "old-session"

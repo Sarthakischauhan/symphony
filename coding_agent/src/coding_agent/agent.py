@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
@@ -21,8 +21,11 @@ from core_harness.utils.tokens import estimate_prompt_tokens
 
 from coding_agent.learning import LearningLoop, LearningStore
 from coding_agent.persistence import SqlitePersistence
-from coding_agent.prompts import SYSTEM_PROMPT
+from coding_agent.plan import PlanStore
+from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.tools import build_tools
+
+AgentMode = Literal["build", "plan"]
 
 
 class CodingAgent:
@@ -38,6 +41,7 @@ class CodingAgent:
         persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
         system_prompt: str = SYSTEM_PROMPT,
+        mode: AgentMode = "build",
         enable_learning: bool = True,
         max_turns: int = 124,
         tools: Optional[List[Tool]] = None,
@@ -51,6 +55,8 @@ class CodingAgent:
             self.workspace / ".symphony" / "sessions.sqlite3"
         )
         self.base_system_prompt = system_prompt.rstrip()
+        self.mode = mode
+        self.plan_store = PlanStore(self.workspace)
         self.learning_store = LearningStore(self.workspace)
         self.learning_loop = (
             LearningLoop(self.learning_store, registry=registry, model_id=model_id)
@@ -77,20 +83,40 @@ class CodingAgent:
         session_id: Optional[str] = None,
     ) -> HarnessResult:
         """Run the agent and schedule reflection only after successful completion."""
+        mode = self.mode
         lessons = self.learning_store.context_for(user_input) if self.learning_loop else ""
         self.harness.system_prompt = self.base_system_prompt
         if lessons:
             self.harness.system_prompt += f"\n\n{lessons}"
+        if mode == "plan":
+            self.harness.system_prompt += f"\n\n{PLAN_MODE_PROMPT}"
         self.harness.system_prompt += "\n"
 
-        result = await self.harness.run(
-            user_input,
-            conversation=conversation,
-            session_id=session_id or self.session_id,
-        )
-        if self.learning_loop is not None:
+        tools = self.harness.tools
+        if mode == "plan":
+            self.plan_store.begin(user_input)
+            self.harness.tools = {
+                name: tool
+                for name, tool in tools.items()
+                if name in {"read_file", "search"}
+            }
+        try:
+            result = await self.harness.run(
+                user_input,
+                conversation=conversation,
+                session_id=session_id or self.session_id,
+            )
+        finally:
+            self.harness.tools = tools
+
+        if mode == "plan":
+            self.plan_store.save(user_input, result.output_text)
+        elif self.learning_loop is not None:
             self.learning_loop.schedule(user_input, result)
         return result
+
+    def set_mode(self, mode: AgentMode) -> None:
+        self.mode = mode
 
     async def wait_for_learning(self) -> None:
         """Optionally drain pending reflections before application shutdown."""

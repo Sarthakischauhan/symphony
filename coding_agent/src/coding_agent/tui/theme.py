@@ -15,6 +15,7 @@ from pygments.token import (
     String,
     Text,
 )
+from rich.markdown import Markdown
 from rich.syntax import PygmentsSyntaxTheme
 
 
@@ -58,4 +59,11 @@ class SymphonyCodeStyle(Style):
 
 
 SYMPHONY_CODE_THEME = PygmentsSyntaxTheme(SymphonyCodeStyle)
+
+
+def themed_markdown(markup: str, **kwargs: object) -> Markdown:
+    """Build Rich Markdown using Symphony's syntax theme (not Rich's monokai default)."""
+    kwargs.setdefault("code_theme", SYMPHONY_CODE_THEME)
+    kwargs.setdefault("inline_code_theme", SYMPHONY_CODE_THEME)
+    return Markdown(markup, **kwargs)  # type: ignore[arg-type]
 
