@@ -14,12 +14,15 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Input, Static
 
-from coding_agent.agent import CodingAgent
+from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.tui.commands import (
+    MODE_CATALOG,
     MODEL_CATALOG,
     SLASH_COMMANDS,
     command_matches,
+    find_mode,
     find_model,
+    mode_matches,
     model_matches,
 )
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
@@ -28,8 +31,7 @@ from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
-from coding_agent.tui.diff_modal import DiffModal
-from coding_agent.tui.learning_modal import LearningModal
+from coding_agent.tui.modal import DiffModal, LearningModal, PlanModal
 from coding_agent.tui.styles.app import APP_CSS
 from coding_agent.tui.widgets import (
     AssistantMessage,
@@ -71,6 +73,7 @@ class CodingAgentApp(App[None]):
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
+        self.mode: AgentMode = "build"
         self.control_plane = TextualControlPlane()
         self._agent: Optional[CodingAgent] = None
         self._busy = False
@@ -100,6 +103,7 @@ class CodingAgentApp(App[None]):
         )
         topbar = self.query_one("#topbar", TopBar)
         topbar.set_context(self.workspace, self.model_id or os.getenv("OPENAI_MODEL", ""))
+        self._update_composer_hint()
 
         try:
             self._agent = build_agent(
@@ -108,6 +112,7 @@ class CodingAgentApp(App[None]):
                 model_id=self.model_id,
                 session_id=self.session_id,
             )
+            self._agent.set_mode(self.mode)
         except Exception as exc:  # noqa: BLE001
             self._set_status("")
             self.add_notice(f"Offline · {exc}. Add it to .env and restart.", "error")
@@ -258,6 +263,8 @@ class CodingAgentApp(App[None]):
         if event.value.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
             menu.set_models(model_matches(event.value.removeprefix("/model ")), current)
+        elif event.value.startswith("/mode "):
+            menu.set_modes(mode_matches(event.value.removeprefix("/mode ")), self.mode)
         else:
             menu.set_commands(command_matches(event.value))
 
@@ -268,6 +275,10 @@ class CodingAgentApp(App[None]):
             return
         menu = self.query_one("#slash-menu", SlashMenu)
         if not menu.display:
+            if event.key == "tab" and not self._busy:
+                self._toggle_mode()
+                event.prevent_default()
+                event.stop()
             return
 
         if event.key in {"up", "down"}:
@@ -304,6 +315,24 @@ class CodingAgentApp(App[None]):
             return
         if command == "learning":
             self._open_learning_modal()
+            return
+        if command == "plan":
+            self._open_plan_modal()
+            return
+        if command == "mode":
+            if self._busy:
+                self.add_notice("/mode is unavailable while a turn is running.", "warning")
+                return
+            if argument:
+                self._select_mode(argument)
+            else:
+                prompt = self.query_one("#prompt", Input)
+                prompt.value = "/mode "
+                prompt.cursor_position = len(prompt.value)
+                self.query_one("#slash-menu", SlashMenu).set_modes(
+                    MODE_CATALOG,
+                    self.mode,
+                )
             return
         if self._busy:
             self.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
@@ -360,6 +389,32 @@ class CodingAgentApp(App[None]):
         self._set_status("")
         self.add_notice(f"Model switched to {selected.label} · {selected.id}", "success")
 
+    def _select_mode(self, argument: str) -> None:
+        selected = find_mode(argument)
+        if selected is None:
+            self.add_notice(
+                f"Unknown mode: {argument}. Run /mode to see available modes.",
+                "warning",
+            )
+            return
+        self.mode = selected.id  # type: ignore[assignment]
+        if self._agent is not None:
+            self._agent.set_mode(self.mode)
+        self._update_composer_hint()
+        self.add_notice(f"Switched to {selected.label} mode", "success")
+
+    def _toggle_mode(self) -> None:
+        self.mode = "plan" if self.mode == "build" else "build"
+        if self._agent is not None:
+            self._agent.set_mode(self.mode)
+        self._update_composer_hint()
+
+    def _update_composer_hint(self) -> None:
+        label = self.mode.upper()
+        self.query_one("#composer-hint", Static).update(
+            f"{label} · Tab mode · Enter to send"
+        )
+
     def _start_new_session(self) -> None:
         assert self._agent is not None
         session_id = str(uuid.uuid4())
@@ -384,6 +439,7 @@ class CodingAgentApp(App[None]):
         self.add_notice(
             "Status\n"
             f"model     {self._agent.harness.model_id}\n"
+            f"mode      {self.mode}\n"
             f"session   {self._agent.session_id}\n"
             f"context   {context}"
         )
@@ -393,6 +449,9 @@ class CodingAgentApp(App[None]):
 
     def _open_learning_modal(self) -> None:
         self.push_screen(LearningModal(self.workspace))
+
+    def _open_plan_modal(self) -> None:
+        self.push_screen(PlanModal(self.workspace))
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
@@ -410,7 +469,7 @@ class CodingAgentApp(App[None]):
             self._busy = False
             prompt = self.query_one("#prompt", Input)
             prompt.disabled = False
-            self.query_one("#composer-hint", Static).update("Enter to send")
+            self._update_composer_hint()
             prompt.focus()
 
     async def _run_agent_turn(self, user_input: str) -> HarnessResult:

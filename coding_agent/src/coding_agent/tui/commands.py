@@ -24,6 +24,13 @@ class ModelOption:
     description: str
 
 
+@dataclass(frozen=True)
+class ModeOption:
+    id: str
+    label: str
+    description: str
+
+
 # This is intentionally isolated from the dispatcher. Replace this tuple with a
 # registry/provider discovery result when ModelRegistry grows a model-list API.
 MODEL_CATALOG = (
@@ -33,9 +40,16 @@ MODEL_CATALOG = (
     ModelOption("openai:gpt-4.1", "GPT-4.1", "Most capable in this catalog"),
 )
 
+MODE_CATALOG = (
+    ModeOption("build", "Build", "Read, edit, and run code"),
+    ModeOption("plan", "Plan", "Inspect and write a plan only"),
+)
+
 
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
+    SlashCommand("mode", "View or switch between build and plan", "[mode]"),
+    SlashCommand("plan", "Open the latest workspace plan"),
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),
@@ -84,4 +98,29 @@ def model_matches(
         if not needle
         or needle in model.id.lower()
         or needle in model.label.lower()
+    )
+
+
+def find_mode(
+    value: str, modes: Iterable[ModeOption] = MODE_CATALOG
+) -> Optional[ModeOption]:
+    needle = value.strip().lower()
+    matches = [
+        mode
+        for mode in modes
+        if needle in {mode.id.lower(), mode.label.lower()}
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def mode_matches(
+    value: str, modes: Iterable[ModeOption] = MODE_CATALOG
+) -> tuple[ModeOption, ...]:
+    needle = value.strip().lower()
+    return tuple(
+        mode
+        for mode in modes
+        if not needle
+        or needle in mode.id.lower()
+        or needle in mode.label.lower()
     )

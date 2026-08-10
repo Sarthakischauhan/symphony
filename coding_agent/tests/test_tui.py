@@ -14,7 +14,14 @@ from core_ai.types import Message
 from core_harness import HarnessResult
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.app import CodingAgentApp
-from coding_agent.tui.commands import SLASH_COMMANDS, command_matches, find_model, model_matches
+from coding_agent.tui.commands import (
+    SLASH_COMMANDS,
+    command_matches,
+    find_mode,
+    find_model,
+    mode_matches,
+    model_matches,
+)
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
@@ -224,9 +231,10 @@ def test_tui_maps_stream_usage_and_read_file_events(
 
 
 def test_slash_command_discovery_and_model_resolution() -> None:
-    assert [command.name for command in command_matches("/m")] == ["model"]
+    assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
+    assert "plan" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.4-mini").id == "openai:gpt-5.4-mini"  # type: ignore[union-attr]
     assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
@@ -234,6 +242,8 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert [model.id for model in model_matches("4.1-m")] == [
         "openai:gpt-4.1-mini"
     ]
+    assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
+    assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
 
 
 def test_reasoning_usage_without_summary_shows_fallback(
@@ -282,7 +292,11 @@ def test_slash_menu_and_commands(
                 state=FakeState(),
             )
             self.learning_loop = None
+            self.mode = "build"
             self.compacted = False
+
+        def set_mode(self, mode: str) -> None:
+            self.mode = mode
 
         async def compact_conversation(self) -> tuple[int, int]:
             self.compacted = True
@@ -295,7 +309,13 @@ def test_slash_menu_and_commands(
             app._agent = fake  # type: ignore[assignment]
 
             prompt = app.query_one("#prompt")
-            prompt.value = "/m"  # type: ignore[attr-defined]
+            await pilot.press("tab")
+            assert app.mode == "plan"
+            assert fake.mode == "plan"
+            await pilot.press("tab")
+            assert app.mode == "build"
+
+            prompt.value = "/mo"  # type: ignore[attr-defined]
             await pilot.pause()
             assert app.query_one(SlashMenu).display
             await pilot.press("tab")
@@ -320,6 +340,16 @@ def test_slash_menu_and_commands(
             assert fake.harness.model_id == "openai:gpt-5.4-mini"
             assert app._ui_state.model_id == "openai:gpt-5.4-mini"
 
+            prompt.value = "/mode "  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.display
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.mode == "plan"
+            assert fake.mode == "plan"
+            assert "PLAN" in str(app.query_one("#composer-hint").render())
+
             await app._run_slash_command("/compact")
             assert fake.compacted
 
@@ -331,6 +361,10 @@ def test_slash_menu_and_commands(
             opened.clear()
             await app._run_slash_command("/learning")
             assert opened and opened[0].__class__.__name__ == "LearningModal"
+
+            opened.clear()
+            await app._run_slash_command("/plan")
+            assert opened and opened[0].__class__.__name__ == "PlanModal"
 
             await app._run_slash_command("/new")
             assert fake.session_id != "old-session"

@@ -10,7 +10,7 @@ from rich.text import Text
 from textual.containers import Container
 from textual.widgets import Collapsible, Input, Static
 
-from coding_agent.tui.commands import ModelOption, SlashCommand
+from coding_agent.tui.commands import ModeOption, ModelOption, SlashCommand
 from coding_agent.tui.theme import themed_markdown
 from coding_agent.utils.diff import diff_stats, make_unified_diff
 from coding_agent.utils.text import clip_text, compact_json
@@ -350,7 +350,7 @@ class Composer(Container):
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield Input(placeholder="Ask Symphony to build, fix, or explain…", id="prompt")
-        yield Static("Enter to send", id="composer-hint")
+        yield Static("BUILD · Tab mode · Enter to send", id="composer-hint")
 
 
 class SlashMenu(Static):
@@ -361,18 +361,22 @@ class SlashMenu(Static):
         self.selected_index = 0
         self._commands: tuple[SlashCommand, ...] = ()
         self._models: tuple[ModelOption, ...] = ()
+        self._modes: tuple[ModeOption, ...] = ()
         self._current_model = ""
+        self._current_mode = ""
 
     @property
     def selected_value(self) -> str:
         if self._models:
             return f"/model {self._models[self.selected_index].id}"
+        if self._modes:
+            return f"/mode {self._modes[self.selected_index].id}"
         if self._commands:
             return f"/{self._commands[self.selected_index].name}"
         return ""
 
     def move_selection(self, offset: int) -> None:
-        count = len(self._models) or len(self._commands)
+        count = len(self._models) or len(self._modes) or len(self._commands)
         if not count:
             return
         self.selected_index = (self.selected_index + offset) % count
@@ -382,10 +386,12 @@ class SlashMenu(Static):
         if not commands:
             self._commands = ()
             self._models = ()
+            self._modes = ()
             self.display = False
             return
         self._commands = commands
         self._models = ()
+        self._modes = ()
         self.selected_index = 0
         self._render_options()
 
@@ -393,11 +399,27 @@ class SlashMenu(Static):
         if not models:
             self._commands = ()
             self._models = ()
+            self._modes = ()
             self.display = False
             return
         self._commands = ()
         self._models = models
+        self._modes = ()
         self._current_model = current
+        self.selected_index = 0
+        self._render_options()
+
+    def set_modes(self, modes: tuple[ModeOption, ...], current: str = "") -> None:
+        if not modes:
+            self._commands = ()
+            self._models = ()
+            self._modes = ()
+            self.display = False
+            return
+        self._commands = ()
+        self._models = ()
+        self._modes = modes
+        self._current_mode = current
         self.selected_index = 0
         self._render_options()
 
@@ -414,6 +436,18 @@ class SlashMenu(Static):
                 )
                 row = Text(f" {pointer} {active} {model.id:<27}", style=style)
                 row.append(model.description, style="#858585")
+                rows.append(row)
+        elif self._modes:
+            for index, mode in enumerate(self._modes):
+                active = "●" if mode.id == self._current_mode else "○"
+                pointer = "›" if index == self.selected_index else " "
+                style = (
+                    "bold #f2f2f2 on #383838"
+                    if index == self.selected_index
+                    else "bold #c5c5c5"
+                )
+                row = Text(f" {pointer} {active} {mode.label:<27}", style=style)
+                row.append(mode.description, style="#858585")
                 rows.append(row)
         else:
             for index, command in enumerate(self._commands):
