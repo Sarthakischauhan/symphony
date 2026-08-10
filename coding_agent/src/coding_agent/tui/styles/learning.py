@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-LEARNING_MODAL_CSS = """
+from coding_agent.tui.styles.modal import MODAL_BASE_CSS
+
+LEARNING_MODAL_CSS = MODAL_BASE_CSS + """
 LearningModal {
     align: center middle;
     background: rgba(0, 0, 0, 0.7);
