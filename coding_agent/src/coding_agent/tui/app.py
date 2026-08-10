@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import uuid
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -16,24 +15,15 @@ from textual.widgets import Input, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
-from coding_agent.tui.commands import (
-    MODE_CATALOG,
-    MODEL_CATALOG,
-    SLASH_COMMANDS,
-    PlanOption,
-    command_matches,
-    find_mode,
-    find_model,
-    mode_matches,
-    model_matches,
-)
+from coding_agent.tui.commands import command_matches, mode_matches, model_matches
+from coding_agent.tui.commands.command_manager import CommandManager
+from coding_agent.tui.commands.mode_switcher import toggle_mode
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
-from coding_agent.tui.modal import DiffModal, LearningModal, PlanModal
 from coding_agent.tui.styles.app import APP_CSS
 from coding_agent.tui.widgets import (
     AssistantMessage,
@@ -88,6 +78,7 @@ class CodingAgentApp(App[None]):
         self._tools: dict[str, ToolCallWidget] = {}
         self._plan_store = PlanStore(self.workspace)
         self._plan_run_active = False
+        self._command_manager = CommandManager(self)
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
@@ -283,7 +274,7 @@ class CodingAgentApp(App[None]):
             menu.set_modes(mode_matches(event.value.removeprefix("/mode ")), self.mode)
         elif event.value.startswith("/plan "):
             menu.set_plans(
-                self._plan_options(event.value.removeprefix("/plan ")),
+                self._command_manager.plan_options(event.value.removeprefix("/plan ")),
                 self._plan_store.path.name,
             )
         else:
@@ -297,7 +288,7 @@ class CodingAgentApp(App[None]):
         menu = self.query_one("#slash-menu", SlashMenu)
         if not menu.display:
             if event.key == "tab" and not self._busy:
-                self._toggle_mode()
+                toggle_mode(self)
                 event.prevent_default()
                 event.stop()
             return
@@ -317,131 +308,7 @@ class CodingAgentApp(App[None]):
             event.stop()
 
     async def _run_slash_command(self, value: str) -> None:
-        command, _, argument = value[1:].partition(" ")
-        command = command.lower().strip()
-        argument = argument.strip()
-
-        if command in {"quit", "exit"}:
-            self.exit()
-            return
-        if command == "clear":
-            self.action_clear_transcript()
-            return
-        if command == "help":
-            lines = [f"{item.usage:<24} {item.description}" for item in SLASH_COMMANDS]
-            self.add_notice("Slash commands\n" + "\n".join(lines))
-            return
-        if command == "status":
-            self._show_command_status()
-            return
-        if command == "learning":
-            self._open_learning_modal()
-            return
-        if command == "plan":
-            if argument:
-                self._open_plan_modal(argument)
-                return
-            plans = self._plan_options()
-            if not plans:
-                self.add_notice("No saved plans yet. Switch to Plan mode to create one.")
-                return
-            prompt = self.query_one("#prompt", Input)
-            prompt.value = "/plan "
-            prompt.cursor_position = len(prompt.value)
-            self.query_one("#slash-menu", SlashMenu).set_plans(
-                plans,
-                self._plan_store.path.name,
-            )
-            return
-        if command == "mode":
-            if self._busy:
-                self.add_notice("/mode is unavailable while a turn is running.", "warning")
-                return
-            if argument:
-                self._select_mode(argument)
-            else:
-                prompt = self.query_one("#prompt", Input)
-                prompt.value = "/mode "
-                prompt.cursor_position = len(prompt.value)
-                self.query_one("#slash-menu", SlashMenu).set_modes(
-                    MODE_CATALOG,
-                    self.mode,
-                )
-            return
-        if self._busy:
-            self.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
-            return
-        if self._agent is None:
-            self.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
-            return
-        if command == "new":
-            self._start_new_session()
-            return
-        if command == "model":
-            if argument:
-                self._select_model(argument)
-            else:
-                prompt = self.query_one("#prompt", Input)
-                prompt.value = "/model "
-                prompt.cursor_position = len(prompt.value)
-                self.query_one("#slash-menu", SlashMenu).set_models(
-                    MODEL_CATALOG,
-                    self._agent.harness.model_id,
-                )
-            return
-        if command == "compact":
-            before, after = await self._agent.compact_conversation()
-            if before == 0:
-                self.add_notice("There is no saved conversation to compact.")
-            elif before == after:
-                self.add_notice(f"Context is already compact · {after} messages")
-            return
-        if command == "diff":
-            self._open_diff_modal()
-            return
-
-        self.add_notice(f"Unknown command: /{command}. Type /help to see commands.", "warning")
-
-    def _select_model(self, argument: str) -> None:
-        assert self._agent is not None
-        selected = find_model(argument)
-        if selected is None:
-            self.add_notice(
-                f"Unknown model: {argument}. Run /model to see available models.",
-                "warning",
-            )
-            return
-        self._agent.harness.model_id = selected.id
-        if self._agent.learning_loop is not None:
-            self._agent.learning_loop.model_id = selected.id
-        self.model_id = selected.id
-        self._ui_state.model_id = selected.id
-        self._ui_state.metrics.context_limit = self._agent.harness.state.context_limit(
-            selected.id
-        )
-        self.query_one("#topbar", TopBar).set_context(self.workspace, selected.id)
-        self._set_status("")
-        self.add_notice(f"Model switched to {selected.label} · {selected.id}", "success")
-
-    def _select_mode(self, argument: str) -> None:
-        selected = find_mode(argument)
-        if selected is None:
-            self.add_notice(
-                f"Unknown mode: {argument}. Run /mode to see available modes.",
-                "warning",
-            )
-            return
-        self.mode = selected.id  # type: ignore[assignment]
-        if self._agent is not None:
-            self._agent.set_mode(self.mode)
-        self._update_composer_hint()
-        self.add_notice(f"Switched to {selected.label} mode", "success")
-
-    def _toggle_mode(self) -> None:
-        self.mode = "plan" if self.mode == "build" else "build"
-        if self._agent is not None:
-            self._agent.set_mode(self.mode)
-        self._update_composer_hint()
+        await self._command_manager.run(value)
 
     def _update_composer_hint(self) -> None:
         label = self.mode.upper()
@@ -451,78 +318,6 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer-hint", Static).update(
             f"{label} · Tab mode · Enter to send"
         )
-
-    def _start_new_session(self) -> None:
-        assert self._agent is not None
-        session_id = str(uuid.uuid4())
-        self.session_id = session_id
-        self._agent.session_id = session_id
-        self._agent.harness.session_id = session_id
-        self._ui_state.reset_for_run(model_id=self._agent.harness.model_id)
-        self._ui_state.phase = "idle"
-        self._ui_state.detail = "ready"
-        self.action_clear_transcript()
-        self.add_notice(f"New conversation · {session_id[:8]}", "success")
-        self._set_status("")
-
-    def _show_command_status(self) -> None:
-        if self._agent is None:
-            self.add_notice("Status · offline", "warning")
-            return
-        m = self._ui_state.metrics
-        context = "unknown"
-        if m.context_limit is not None and m.context_left is not None:
-            context = f"{m.context_left:,} / {m.context_limit:,} tokens left"
-        self.add_notice(
-            "Status\n"
-            f"model     {self._agent.harness.model_id}\n"
-            f"mode      {self.mode}\n"
-            f"session   {self._agent.session_id}\n"
-            f"context   {context}"
-        )
-
-    def _open_diff_modal(self) -> None:
-        self.push_screen(DiffModal(self.workspace))
-
-    def _open_learning_modal(self) -> None:
-        self.push_screen(LearningModal(self.workspace))
-
-    def _plan_options(self, query: str = "") -> tuple[PlanOption, ...]:
-        needle = query.strip().lower()
-        options: list[PlanOption] = []
-        for path in self._plan_store.list_paths():
-            task = self._plan_store.task_for(path)
-            if needle and needle not in path.name.lower() and needle not in task.lower():
-                continue
-            options.append(
-                PlanOption(
-                    id=path.name,
-                    label=task,
-                    description=str(path.relative_to(self.workspace)),
-                )
-            )
-        return tuple(options)
-
-    def _open_plan_modal(self, plan_name: str | None = None) -> None:
-        if plan_name is not None and self._plan_store.select(plan_name) is None:
-            self.add_notice(f"Unknown plan: {plan_name}. Run /plan to choose one.", "warning")
-            return
-        if not self._plan_store.path.exists():
-            self.add_notice("No saved plans yet. Switch to Plan mode to create one.")
-            return
-        self.push_screen(PlanModal(self.workspace), self._on_plan_action)
-
-    def _on_plan_action(self, action: str | None) -> None:
-        if action != "build" or self._busy:
-            return
-        self.mode = "build"
-        if self._agent is not None:
-            self._agent.set_mode("build")
-        self._update_composer_hint()
-        prompt = self.query_one("#prompt", Input)
-        plan_path = self._plan_store.path.relative_to(self.workspace)
-        prompt.value = f"Build the approved plan in {plan_path}."
-        prompt.action_submit()
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
@@ -548,7 +343,7 @@ class CodingAgentApp(App[None]):
         mode = self.mode
         result = await self._agent.run(user_input)
         if mode == "plan":
-            self._open_plan_modal()
+            self._command_manager.open_plan_modal()
         return result
 
     def action_clear_transcript(self) -> None:

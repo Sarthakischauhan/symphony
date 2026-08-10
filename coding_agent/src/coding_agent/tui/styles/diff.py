@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-DIFF_MODAL_CSS = """
+from coding_agent.tui.styles.modal import MODAL_BASE_CSS
+
+DIFF_MODAL_CSS = MODAL_BASE_CSS + """
 DiffModal {
     align: center middle;
     background: rgba(0, 0, 0, 0.7);

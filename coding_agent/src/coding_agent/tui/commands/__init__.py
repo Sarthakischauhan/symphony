@@ -1,4 +1,4 @@
-"""Slash-command definitions and the temporary built-in model catalog."""
+"""Slash-command definitions and lookup helpers."""
 
 from __future__ import annotations
 
@@ -38,8 +38,6 @@ class PlanOption:
     description: str
 
 
-# This is intentionally isolated from the dispatcher. Replace this tuple with a
-# registry/provider discovery result when ModelRegistry grows a model-list API.
 MODEL_CATALOG = (
     ModelOption("openai:gpt-5.4-mini", "GPT-5.4 mini", "Thinking model"),
     ModelOption("openai:gpt-4o-mini", "GPT-4o mini", "Fast and economical"),
@@ -51,7 +49,6 @@ MODE_CATALOG = (
     ModeOption("build", "Build", "Read, edit, and run code"),
     ModeOption("plan", "Plan", "Inspect and write a plan only"),
 )
-
 
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
@@ -69,7 +66,6 @@ SLASH_COMMANDS = (
 
 
 def command_matches(value: str) -> tuple[SlashCommand, ...]:
-    """Return command suggestions for the current composer value."""
     if not value.startswith("/") or " " in value:
         return ()
     prefix = value[1:].lower()
@@ -77,57 +73,27 @@ def command_matches(value: str) -> tuple[SlashCommand, ...]:
 
 
 def find_model(value: str, models: Iterable[ModelOption] = MODEL_CATALOG) -> Optional[ModelOption]:
-    """Resolve a full id, provider-less id, or unambiguous display label."""
     needle = value.strip().lower()
     if not needle:
         return None
     matches = [
-        model
-        for model in models
-        if needle
-        in {
-            model.id.lower(),
-            model.id.split(":", 1)[-1].lower(),
-            model.label.lower(),
-        }
+        model for model in models
+        if needle in {model.id.lower(), model.id.split(":", 1)[-1].lower(), model.label.lower()}
     ]
     return matches[0] if len(matches) == 1 else None
 
 
-def model_matches(
-    value: str, models: Iterable[ModelOption] = MODEL_CATALOG
-) -> tuple[ModelOption, ...]:
-    """Filter model choices by id, provider-less id, or label."""
+def model_matches(value: str, models: Iterable[ModelOption] = MODEL_CATALOG) -> tuple[ModelOption, ...]:
     needle = value.strip().lower()
-    return tuple(
-        model
-        for model in models
-        if not needle
-        or needle in model.id.lower()
-        or needle in model.label.lower()
-    )
+    return tuple(model for model in models if not needle or needle in model.id.lower() or needle in model.label.lower())
 
 
-def find_mode(
-    value: str, modes: Iterable[ModeOption] = MODE_CATALOG
-) -> Optional[ModeOption]:
+def find_mode(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> Optional[ModeOption]:
     needle = value.strip().lower()
-    matches = [
-        mode
-        for mode in modes
-        if needle in {mode.id.lower(), mode.label.lower()}
-    ]
+    matches = [mode for mode in modes if needle in {mode.id.lower(), mode.label.lower()}]
     return matches[0] if len(matches) == 1 else None
 
 
-def mode_matches(
-    value: str, modes: Iterable[ModeOption] = MODE_CATALOG
-) -> tuple[ModeOption, ...]:
+def mode_matches(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> tuple[ModeOption, ...]:
     needle = value.strip().lower()
-    return tuple(
-        mode
-        for mode in modes
-        if not needle
-        or needle in mode.id.lower()
-        or needle in mode.label.lower()
-    )
+    return tuple(mode for mode in modes if not needle or needle in mode.id.lower() or needle in mode.label.lower())
