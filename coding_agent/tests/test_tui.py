@@ -23,6 +23,7 @@ from coding_agent.tui.commands import (
     model_matches,
 )
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
+from coding_agent.tui.modal import PlanModal
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     PatchDiffWidget,
@@ -65,6 +66,53 @@ def test_themed_markdown_avoids_rich_monokai_default() -> None:
     themed = themed_markdown("```py\nprint(1)\n```")
     assert themed.code_theme is SYMPHONY_CODE_THEME
     assert themed.inline_code_theme is SYMPHONY_CODE_THEME
+
+
+def test_plan_stream_writes_to_file_without_rendering_in_chat(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._plan_store.begin("To build a server")
+            app._plan_run_active = True
+            app.on_harness_event(ControlPlaneEvent("text_delta", {"delta": "## Steps\n"}))
+            app.on_harness_event(
+                ControlPlaneEvent("text_delta", {"delta": "1. Add API.\n"})
+            )
+
+            assert app._assistant is None
+            assert (tmp_path / "to_build_a_server_plan.md").read_text().endswith(
+                "## Steps\n1. Add API.\n"
+            )
+
+            app.on_harness_event(ControlPlaneEvent("run_completed", {}))
+            assert not app._plan_run_active
+
+    asyncio.run(_run())
+
+
+def test_plan_modal_offers_build_now(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app._plan_store.save("Add API", "1. Build it.")
+    actions: list[str | None] = []
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            app.push_screen(PlanModal(tmp_path), actions.append)
+            await pilot.pause()
+            assert "add_api_plan.md" in str(app.screen.query_one("#plan-title").render())
+            await pilot.click("#plan-build")
+            await pilot.pause()
+            assert actions == ["build"]
+
+    asyncio.run(_run())
 
 
 def test_textual_control_plane_posts_message() -> None:
@@ -312,8 +360,10 @@ def test_slash_menu_and_commands(
             await pilot.press("tab")
             assert app.mode == "plan"
             assert fake.mode == "plan"
+            assert app.query_one("#composer").has_class("plan-mode")
             await pilot.press("tab")
             assert app.mode == "build"
+            assert not app.query_one("#composer").has_class("plan-mode")
 
             prompt.value = "/mo"  # type: ignore[attr-defined]
             await pilot.pause()
@@ -354,7 +404,7 @@ def test_slash_menu_and_commands(
             assert fake.compacted
 
             opened: list[object] = []
-            app.push_screen = lambda screen: opened.append(screen)  # type: ignore[method-assign]
+            app.push_screen = lambda screen, *args: opened.append(screen)  # type: ignore[method-assign]
             await app._run_slash_command("/diff")
             assert opened and opened[0].__class__.__name__ == "DiffModal"
 

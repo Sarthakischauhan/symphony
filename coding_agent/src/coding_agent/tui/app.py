@@ -15,6 +15,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Input, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
+from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import (
     MODE_CATALOG,
     MODEL_CATALOG,
@@ -84,6 +85,8 @@ class CodingAgentApp(App[None]):
         self._reasoning: Optional[ReasoningWidget] = None
         self._process: Optional[RunProcess] = None
         self._tools: dict[str, ToolCallWidget] = {}
+        self._plan_store = PlanStore(self.workspace)
+        self._plan_run_active = False
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
@@ -223,8 +226,17 @@ class CodingAgentApp(App[None]):
         self._mount_transcript(widget)
 
     def on_harness_event(self, message: HarnessEvent) -> None:
+        if self._plan_run_active and message.event_type == "text_delta":
+            self._plan_store.append(str(message.payload.get("delta") or ""))
+            return
         if self._presenter is not None:
             self._presenter.handle(message.event_type, message.payload)
+        if self._plan_run_active and message.event_type in {
+            "run_completed",
+            "run_failed",
+            "run_cancelled",
+        }:
+            self._plan_run_active = False
 
     on_control_plane_event = on_harness_event
 
@@ -251,6 +263,9 @@ class CodingAgentApp(App[None]):
         self._tools = {}
         self._mount_transcript(UserMessage(text))
         self.set_thinking("Thinking…")
+        if self.mode == "plan":
+            self._plan_store.begin(text)
+            self._plan_run_active = True
         self._busy = True
         event.input.disabled = True
         self.query_one("#composer-hint", Static).update("Working…")
@@ -411,6 +426,9 @@ class CodingAgentApp(App[None]):
 
     def _update_composer_hint(self) -> None:
         label = self.mode.upper()
+        self.query_one("#composer", Composer).set_class(
+            self.mode == "plan", "plan-mode"
+        )
         self.query_one("#composer-hint", Static).update(
             f"{label} · Tab mode · Enter to send"
         )
@@ -451,7 +469,18 @@ class CodingAgentApp(App[None]):
         self.push_screen(LearningModal(self.workspace))
 
     def _open_plan_modal(self) -> None:
-        self.push_screen(PlanModal(self.workspace))
+        self.push_screen(PlanModal(self.workspace), self._on_plan_action)
+
+    def _on_plan_action(self, action: str | None) -> None:
+        if action != "build" or self._busy:
+            return
+        self.mode = "build"
+        if self._agent is not None:
+            self._agent.set_mode("build")
+        self._update_composer_hint()
+        prompt = self.query_one("#prompt", Input)
+        prompt.value = f"Build the approved plan in {self._plan_store.path.name}."
+        prompt.action_submit()
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
@@ -474,7 +503,11 @@ class CodingAgentApp(App[None]):
 
     async def _run_agent_turn(self, user_input: str) -> HarnessResult:
         assert self._agent is not None
-        return await self._agent.run(user_input)
+        mode = self.mode
+        result = await self._agent.run(user_input)
+        if mode == "plan":
+            self._open_plan_modal()
+        return result
 
     def action_clear_transcript(self) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)

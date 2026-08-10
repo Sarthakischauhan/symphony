@@ -16,9 +16,19 @@ def test_plan_store_saves_latest_plan(tmp_path: Path) -> None:
     store = PlanStore(tmp_path)
     store.save("Add plan mode", "1. Inspect the TUI.\n2. Add tests.")
 
-    assert store.path == tmp_path / ".symphony" / "plan.md"
+    assert store.path == tmp_path / "add_plan_mode_plan.md"
     assert "**Task:** Add plan mode" in store.load()
     assert "2. Add tests." in store.to_markdown()
+
+
+def test_plan_store_writes_streamed_plan_to_task_named_file(tmp_path: Path) -> None:
+    store = PlanStore(tmp_path)
+    path = store.begin("To build a server!")
+    store.append("1. Inspect")
+    store.append(" the API.\n")
+
+    assert path == tmp_path / "to_build_a_server_plan.md"
+    assert store.load().endswith("1. Inspect the API.\n")
 
 
 def test_plan_mode_uses_read_only_tools_and_saves_result(tmp_path: Path) -> None:

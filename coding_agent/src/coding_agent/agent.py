@@ -94,6 +94,7 @@ class CodingAgent:
 
         tools = self.harness.tools
         if mode == "plan":
+            self.plan_store.begin(user_input)
             self.harness.tools = {
                 name: tool
                 for name, tool in tools.items()

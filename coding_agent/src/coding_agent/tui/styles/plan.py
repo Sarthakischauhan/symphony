@@ -38,9 +38,30 @@ PlanModal {
 }
 
 #plan-hint {
+    width: 1fr;
     height: 1;
     color: #767676;
+}
+
+#plan-actions {
+    width: 100%;
+    height: 1;
+    margin-top: 1;
+    padding: 0 1;
+    background: #202020;
+}
+
+#plan-build {
+    width: 12;
+    height: 1;
+    color: #8a8a8a;
     text-align: right;
-    padding-top: 1;
+    background: #202020;
+}
+
+#plan-build:hover,
+#plan-build:focus {
+    color: #f2d675;
+    text-style: underline;
 }
 """

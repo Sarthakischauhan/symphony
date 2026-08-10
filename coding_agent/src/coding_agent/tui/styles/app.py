@@ -179,6 +179,14 @@ Screen {
     border: solid #888888;
 }
 
+#composer.plan-mode {
+    border: solid #d8bd62;
+}
+
+#composer.plan-mode:focus-within {
+    border: solid #ffe89a;
+}
+
 #prompt {
     width: 100%;
     height: 3;
