@@ -27,6 +27,7 @@ Screen {
     height: 1fr;
     padding: 1 10 2 10;
     scrollbar-size: 1 1;
+    scrollbar-size-vertical: 1;
     scrollbar-color: #484848;
     scrollbar-color-hover: #606060;
     scrollbar-background: $background;
@@ -110,6 +111,7 @@ Screen {
     padding: 0 0 0 1;
     border-left: solid #383838;
     background: $background;
+    pointer: pointer;
 }
 
 .tool-call > CollapsibleTitle {
@@ -197,6 +199,11 @@ Screen {
     border: none;
     background: $panel;
     color: #eeeeee;
+    pointer: text;
+}
+
+#transcript ScrollBar {
+    pointer: pointer;
 }
 
 #prompt:focus {

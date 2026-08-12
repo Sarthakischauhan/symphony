@@ -24,6 +24,8 @@ from coding_agent.tui.commands import (
 )
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
 from coding_agent.tui.modal import PlanModal
+from coding_agent.tui.modal.components import PlanSectionCard
+from coding_agent.tui.modal.plan import _plan_sections
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     PatchDiffWidget,
@@ -108,12 +110,23 @@ def test_plan_modal_offers_build_now(
         async with app.run_test() as pilot:
             app.push_screen(PlanModal(tmp_path), actions.append)
             await pilot.pause()
-            assert "add_api_plan.md" in str(app.screen.query_one("#plan-title").render())
+            assert app.screen.query_one(PlanSectionCard) is not None
             await pilot.click("#plan-build")
             await pilot.pause()
             assert actions == ["build"]
 
     asyncio.run(_run())
+
+
+def test_plan_modal_normalizes_top_level_heading() -> None:
+    _task, sections = _plan_sections(
+        "# Plan\n\n**Task:** Keep tool output small\n\n"
+        "# Plan: Limit Large Tool Results\n\n1. Clip output.\n"
+    )
+
+    assert sections == [
+        ("Overview", "**Plan: Limit Large Tool Results**\n\n1. Clip output.")
+    ]
 
 
 def test_textual_control_plane_posts_message() -> None:

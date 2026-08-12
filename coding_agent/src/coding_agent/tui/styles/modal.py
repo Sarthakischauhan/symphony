@@ -8,14 +8,66 @@ MODAL_BASE_CSS = """
     dock: right;
     width: 3;
     height: 1;
-    color: #a0a0a0;
+    color: #858585;
     content-align: center middle;
-    background: #1b1b1b;
+    background: #202020;
 }
 
 #modal-close:hover,
 #modal-close:focus {
     color: #f2d675;
     background: #303030;
+}
+
+.modal-pane {
+    width: 82%;
+    max-width: 124;
+    height: 78%;
+    padding: 1 2;
+    background: #1b1b1b;
+    border-left: solid #60717a;
+}
+
+.modal-header {
+    width: 1fr;
+    height: 4;
+    padding: 0 1 1 1;
+    color: #a8a8a8;
+}
+
+.modal-body {
+    width: 100%;
+    height: 1fr;
+    padding: 0 1 1 0;
+    scrollbar-size: 1 1;
+    scrollbar-color: #484848;
+    scrollbar-color-hover: #606060;
+    scrollbar-background: #1b1b1b;
+}
+
+.content-card {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 1 1;
+    color: #bdbdbd;
+    background: #1d1d1d;
+}
+
+.empty-state {
+    width: 100%;
+    height: auto;
+    padding: 3 4;
+    margin-top: 1;
+    content-align: center middle;
+    text-align: center;
+    background: #1d1d1d;
+}
+
+.modal-footer {
+    width: 100%;
+    height: 2;
+    padding: 1 1 0 1;
+    color: #686868;
 }
 """
