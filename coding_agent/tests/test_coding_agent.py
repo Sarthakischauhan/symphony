@@ -9,9 +9,70 @@ from dotenv import load_dotenv
 
 from core_ai import ModelRegistry
 from core_ai.providers.openai import OpenAIProvider
+from core_ai.types import Message, StreamEvent
+from core_harness import NullControlPlane
 from coding_agent import CodingAgent
 
 load_dotenv(override=True)
+
+
+class CapturingRegistry:
+    def __init__(self) -> None:
+        self.calls: list[list[Message]] = []
+
+    async def stream(self, model_id: str, messages: list[Message], tools: list[dict]):
+        self.calls.append(list(messages))
+        yield StreamEvent(type="text_delta", delta="done")
+        yield StreamEvent(
+            type="usage",
+            prompt_tokens=10,
+            completion_tokens=1,
+            total_tokens=11,
+        )
+        yield StreamEvent(type="done")
+
+
+def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> None:
+    registry = CapturingRegistry()
+    control_plane = NullControlPlane()
+    agent = CodingAgent(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        control_plane=control_plane,
+        enable_learning=False,
+        tools=[],
+        context_limits={"fake:test-model": 100},
+        context_warn_threshold=30,
+        context_compact_threshold=20,
+        compaction_keep_recent=2,
+    )
+
+    async def _run() -> None:
+        history = [
+            Message(role="user", content=f"old message {index} " * 20)
+            for index in range(6)
+        ]
+        await agent.persistence.save_conversation(
+            session_id=agent.session_id,
+            messages=history,
+        )
+
+        result = await agent.run("new request")
+
+        assert [message.content for message in registry.calls[0][1:]] == [
+            history[-1].content,
+            "new request",
+        ]
+        assert len(result.messages) == 4
+        saved = await agent.persistence.load_conversation(session_id=agent.session_id)
+        assert saved == result.messages
+
+    asyncio.run(_run())
+
+    event_types = [event.event_type for event in control_plane.events]
+    assert event_types.index("compaction_started") < event_types.index("turn_started")
+    assert "compaction_completed" in event_types
 
 
 def _build_live_agent(tmp_path: Path) -> CodingAgent:

@@ -7,6 +7,7 @@ emits through ``CoreHarness``.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, Optional, Union
 
 from textual.message import Message
@@ -39,6 +40,7 @@ class TextualControlPlane:
 
     def __init__(self) -> None:
         self._app: Any = None
+        self._question_futures: dict[str, asyncio.Future[str]] = {}
 
     def bind(self, app: Any) -> None:
         self._app = app
@@ -51,3 +53,20 @@ class TextualControlPlane:
         if self._app is None:
             return
         self._app.post_message(HarnessEvent(event_type, payload or {}))
+
+    async def ask_user(self, request_id: str) -> str:
+        if self._app is None:
+            return ""
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self._question_futures[request_id] = future
+        try:
+            return await future
+        finally:
+            self._question_futures.pop(request_id, None)
+
+    async def answer_user(self, request_id: str, answer: str | None) -> None:
+        future = self._question_futures.get(request_id)
+        if future is None or future.done():
+            return
+        future.set_result(answer or "")

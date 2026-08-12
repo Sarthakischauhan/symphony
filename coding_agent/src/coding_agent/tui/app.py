@@ -22,6 +22,7 @@ from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
+from coding_agent.tui.modal import QuestionModal
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
 from coding_agent.tui.styles.app import APP_CSS
@@ -78,6 +79,7 @@ class CodingAgentApp(App[None]):
         self._tools: dict[str, ToolCallWidget] = {}
         self._plan_store = PlanStore(self.workspace)
         self._plan_run_active = False
+        self._pending_question_id: str | None = None
         self._command_manager = CommandManager(self)
 
     def compose(self) -> ComposeResult:
@@ -221,6 +223,9 @@ class CodingAgentApp(App[None]):
         if self._plan_run_active and message.event_type == "text_delta":
             self._plan_store.append(str(message.payload.get("delta") or ""))
             return
+        if message.event_type == "question_asked":
+            self._open_question_modal(message.payload)
+            return
         if self._presenter is not None:
             self._presenter.handle(message.event_type, message.payload)
         if self._plan_run_active and message.event_type in {
@@ -315,9 +320,10 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer", Composer).set_class(
             self.mode == "plan", "plan-mode"
         )
-        self.query_one("#composer-hint", Static).update(
-            f"{label} · Tab mode · Enter to send"
-        )
+        hint = f"{label} · Tab mode · Enter to send"
+        if self._pending_question_id is not None:
+            hint = "Waiting for your answer…"
+        self.query_one("#composer-hint", Static).update(hint)
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
@@ -355,6 +361,29 @@ class CodingAgentApp(App[None]):
         self._reasoning = None
         self._process = None
         self._tools.clear()
+
+    def _open_question_modal(self, payload: Mapping[str, Any]) -> None:
+        if self._agent is None:
+            return
+        request_id = str(payload.get("request_id") or "")
+        question = str(payload.get("question") or "")
+        choices = [str(choice) for choice in payload.get("choices") or []]
+        default = str(payload.get("default") or "")
+        self._pending_question_id = request_id or None
+        self._ui_state.phase = "paused"
+        self._ui_state.detail = "waiting for user"
+        self._update_composer_hint()
+
+        async def _on_answer(answer: str | None) -> None:
+            if self._pending_question_id is None or self._agent is None:
+                return
+            await self.control_plane.answer_user(self._pending_question_id, answer)
+            self._pending_question_id = None
+            self._ui_state.phase = "thinking"
+            self._ui_state.detail = "resuming"
+            self._update_composer_hint()
+
+        self.push_screen(QuestionModal(question, choices=choices, default=default), _on_answer)
 
 
 def run_tui(

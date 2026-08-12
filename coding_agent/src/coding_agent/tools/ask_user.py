@@ -1,0 +1,57 @@
+"""Ask the human a clarifying question and wait for an answer."""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from typing import Any
+
+from pydantic import Field
+
+from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+
+
+class AskUserArgs(ToolArgsModel):
+    question: str = Field(..., min_length=1, description="Clarifying question to show the user.")
+    choices: list[str] = Field(default_factory=list, description="Optional preset answers to present.")
+    default: str = Field(default="", description="Optional suggested answer.")
+
+
+class AskUserTool(WorkspaceTool):
+    name = "ask_user"
+    description = (
+        "Ask the user a clarifying question during an interactive run and return their answer. "
+        "Use when the task is ambiguous or blocked on a human decision. "
+        "Keep the question concise and specific."
+    )
+    args_model = AskUserArgs
+
+    async def run(
+        self,
+        question: str,
+        choices: list[str] | None = None,
+        default: str = "",
+        control_plane: Any = None,
+    ) -> str:
+        question = question.strip()
+        if not question:
+            return "error: question must be a non-empty string"
+
+        if control_plane is None or not hasattr(control_plane, "ask_user"):
+            return "error: interactive user questions require a control plane that supports ask_user"
+
+        request_id = uuid.uuid4().hex
+        await control_plane.emit(
+            "question_asked",
+            {
+                "request_id": request_id,
+                "question": question,
+                "choices": list(choices or ()),
+                "default": default,
+            },
+        )
+        answer = await control_plane.ask_user(request_id)
+        answer = str(answer or "").strip()
+        if not answer and default:
+            return default
+        return answer or ""

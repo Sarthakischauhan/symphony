@@ -111,10 +111,23 @@ class EventPresenter:
             self.state.update_context(context)
         self.state.phase = "idle"
         self.state.detail = "ready"
-        completed = self._usage_text("Completed")
+        completed = self._completed_text()
         self.view.set_thinking(completed)
         self.view.finish_process(completed)
         self._assistant_open = False
+
+    def _completed_text(self) -> str:
+        m = self.state.metrics
+        current = f"{m.tokens_used:,} context" if m.tokens_used else "context unknown"
+        cumulative = (
+            f"{m.cumulative_tokens:,} cumulative input"
+            if m.cumulative_tokens
+            else "input unknown"
+        )
+        output = f"{m.completion_tokens:,} out"
+        if m.reasoning_tokens:
+            output += f" · {m.reasoning_tokens:,} reasoning"
+        return f"Completed · {current} · {cumulative} · {output}"
 
     def _on_run_failed(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "idle"
@@ -258,3 +271,9 @@ class EventPresenter:
         role = payload.get("role", "user")
         content = preview_text(payload.get("content", ""))
         self.view.add_notice(f"Injected {role} message · {content}")
+
+    def _on_question_asked(self, payload: Dict[str, Any]) -> None:
+        self.state.phase = "paused"
+        self.state.detail = "waiting for user"
+        question = str(payload.get("question") or "")
+        self.view.add_notice(f"Question · {preview_text(question)}", "warning")

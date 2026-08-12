@@ -57,10 +57,19 @@ class WorkspaceTool(ABC):
     def as_harness_tool(self) -> Tool:
         """Wrap ``run`` as a ``core_harness.Tool`` with explicit JSON schema."""
         tool = self
+        run_signature = inspect.signature(self.run)
+        accepts_control_plane = "control_plane" in run_signature.parameters
 
-        def invoke(**kwargs: Any) -> str:
+        async def invoke(**kwargs: Any) -> str:
+            control_plane = kwargs.pop("control_plane", None) if accepts_control_plane else None
             validated = tool.validate_args(**kwargs)
-            return tool.run(**validated.model_dump())
+            result = tool.run(
+                **validated.model_dump(),
+                **({"control_plane": control_plane} if accepts_control_plane else {}),
+            )
+            if inspect.isawaitable(result):
+                result = await result
+            return str(result)
 
         params = []
         for field_name, field in self.args_model.model_fields.items():
@@ -76,6 +85,15 @@ class WorkspaceTool(ABC):
                     kind=inspect.Parameter.KEYWORD_ONLY,
                     default=default,
                     annotation=annotation,
+                )
+            )
+        if accepts_control_plane:
+            params.append(
+                inspect.Parameter(
+                    "control_plane",
+                    kind=inspect.Parameter.KEYWORD_ONLY,
+                    default=None,
+                    annotation=Any,
                 )
             )
         invoke.__signature__ = inspect.Signature(params)

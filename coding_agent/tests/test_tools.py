@@ -10,7 +10,7 @@ from coding_agent.tools import PatchTool, SearchTool, WriteFileArgs, WriteFileTo
 
 def test_tool_surface_is_small(tmp_path: Path) -> None:
     assert [tool.name for tool in build_tools(tmp_path)] == [
-        "read_file", "write_file", "patch", "bash", "search"
+        "read_file", "write_file", "patch", "bash", "search", "ask_user"
     ]
 
 

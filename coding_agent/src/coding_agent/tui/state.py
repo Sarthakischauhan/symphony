@@ -98,7 +98,7 @@ class UiRunState:
         if self.detail:
             parts.append(self.detail)
 
-        tokens = m.cumulative_tokens or m.total_tokens
+        tokens = m.tokens_used or m.total_tokens
         est = "~" if m.estimated and tokens else ""
         parts.append(f"tokens={est}{tokens}")
 

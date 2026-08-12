@@ -71,5 +71,6 @@ def test_plan_mode_uses_read_only_tools_and_saves_result(tmp_path: Path) -> None
         "patch",
         "bash",
         "search",
+        "ask_user",
     ]
     assert "Make the change" in agent.plan_store.load()

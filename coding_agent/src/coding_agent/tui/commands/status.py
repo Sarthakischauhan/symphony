@@ -18,5 +18,7 @@ def show_status(app: Any) -> None:
         f"model     {app._agent.harness.model_id}\n"
         f"mode      {app.mode}\n"
         f"session   {app._agent.session_id}\n"
-        f"context   {context}"
+        f"context   {context}\n"
+        f"current   {metrics.tokens_used:,} tokens\n"
+        f"cumulative input   {metrics.cumulative_tokens:,} tokens"
     )

@@ -16,9 +16,9 @@ def render_status(state: UiRunState, workspace: Path) -> Text:
     color = "#d7a84b" if phase == "working" else "#72a57a" if phase == "idle" else "#888888"
     line = Text("● ", style=color)
     line.append(phase, style="#858585")
-    if metrics.cumulative_tokens or metrics.total_tokens:
+    if metrics.tokens_used:
         line.append(
-            f"   {metrics.cumulative_tokens or metrics.total_tokens:,} tokens",
+            f"   {metrics.tokens_used:,} context tokens",
             style="#5e5e5e",
         )
     if metrics.context_limit and metrics.context_left is not None:
