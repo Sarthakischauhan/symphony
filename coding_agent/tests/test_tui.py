@@ -285,7 +285,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "learning" in [command.name for command in SLASH_COMMANDS]
     assert "plan" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
-    assert find_model("gpt-5.4-mini").id == "openai:gpt-5.4-mini"  # type: ignore[union-attr]
+    assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
     assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
     assert find_model("missing") is None
     assert [model.id for model in model_matches("4.1-m")] == [
@@ -388,8 +388,8 @@ def test_slash_menu_and_commands(
             assert menu.selected_index == 0
             await pilot.press("enter")
             await pilot.pause()
-            assert fake.harness.model_id == "openai:gpt-5.4-mini"
-            assert app._ui_state.model_id == "openai:gpt-5.4-mini"
+            assert fake.harness.model_id == "openai:gpt-5.6-luna"
+            assert app._ui_state.model_id == "openai:gpt-5.6-luna"
 
             prompt.value = "/mode "  # type: ignore[attr-defined]
             await pilot.pause()

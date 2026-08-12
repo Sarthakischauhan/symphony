@@ -39,7 +39,7 @@ class PlanOption:
 
 
 MODEL_CATALOG = (
-    ModelOption("openai:gpt-5.4-mini", "GPT-5.4 mini", "Thinking model"),
+    ModelOption("openai:gpt-5.6-luna", "GPT-5.6 Luna", "Thinking model"),
     ModelOption("openai:gpt-4o-mini", "GPT-4o mini", "Fast and economical"),
     ModelOption("openai:gpt-4.1-mini", "GPT-4.1 mini", "Fast coding model"),
     ModelOption("openai:gpt-4.1", "GPT-4.1", "Most capable in this catalog"),

@@ -11,16 +11,17 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 
-def test_reasoning_model_uses_completion_stream() -> None:
+def test_gpt_5_6_uses_responses_reasoning_stream() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/chat/completions"
+        assert request.url.path == "/v1/responses"
         payload = json.loads(request.content)
-        assert payload["reasoning_effort"] == "medium"
+        assert payload["reasoning"] == {"effort": "medium", "summary": "auto"}
         body = "\n\n".join(
             f"data: {event}"
             for event in (
-                '{"choices":[{"index":0,"delta":{"content":"Done"}}]}',
-                '{"usage":{"prompt_tokens":10,"completion_tokens":7,"completion_tokens_details":{"reasoning_tokens":4},"total_tokens":17}}',
+                '{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"Checking files"}',
+                '{"type":"response.output_text.delta","content_index":0,"delta":"Done"}',
+                '{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":7,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":17}}}',
                 "[DONE]",
             )
         )
@@ -34,13 +35,47 @@ def test_reasoning_model_uses_completion_stream() -> None:
         return [
             event
             async for event in provider.stream(
-                "gpt-5.4-mini", [Message(role="user", content="Inspect it")]
+                "gpt-5.6-luna", [Message(role="user", content="Inspect it")]
             )
         ]
 
     events = asyncio.run(collect())
-    assert [(event.type, event.delta) for event in events[:1]] == [("text_delta", "Done")]
-    assert events[1].reasoning_tokens == 4
+    assert [(event.type, event.delta) for event in events[:2]] == [
+        ("reasoning_delta", "Checking files"),
+        ("text_delta", "Done"),
+    ]
+    assert events[2].reasoning_tokens == 4
+    assert events[-1].type == "done"
+
+
+def test_legacy_reasoning_model_uses_completion_stream() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        payload = json.loads(request.content)
+        assert payload["reasoning_effort"] == "medium"
+        body = "\n\n".join(
+            f"data: {event}"
+            for event in (
+                '{"choices":[{"index":0,"delta":{"content":"Done"}}]}',
+                "[DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> list[StreamEvent]:
+        provider = OpenAIProvider(
+            api_key="test",
+            transport=httpx.MockTransport(handler),
+        )
+        return [
+            event
+            async for event in provider.stream(
+                "o3", [Message(role="user", content="Inspect it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert events[0].delta == "Done"
     assert events[-1].type == "done"
 
 

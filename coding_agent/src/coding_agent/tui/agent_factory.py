@@ -25,7 +25,7 @@ def build_agent(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set")
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    model_name = model_id or os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
+    model_name = model_id or os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
     if ":" not in model_name:
         model_name = f"openai:{model_name}"
 

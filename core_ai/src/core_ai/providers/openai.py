@@ -29,10 +29,14 @@ class OpenAIProvider(BaseProvider):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        provider = self._completion if self._is_reasoning_model(model_name) else self._responses
+        provider = (
+            self._completion
+            if self._uses_chat_completions(model_name)
+            else self._responses
+        )
         async for event in provider.stream(model_name, messages, tools):
             yield event
 
     @staticmethod
-    def _is_reasoning_model(model_name: str) -> bool:
-        return model_name.startswith(("gpt-5", "o1", "o3", "o4"))
+    def _uses_chat_completions(model_name: str) -> bool:
+        return model_name.startswith(("o1", "o3", "o4"))

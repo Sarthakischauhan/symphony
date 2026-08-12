@@ -20,7 +20,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="Model id (default: OPENAI_MODEL or openai:gpt-4o-mini)",
+        help="Model id (default: OPENAI_MODEL or openai:gpt-5.6-luna)",
     )
     parser.add_argument(
         "--resume",

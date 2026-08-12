@@ -31,6 +31,8 @@ class OpenAIResponsesProvider(BaseProvider):
             "stream": True,
             "input": self._responses_input(messages),
         }
+        if model_name.startswith("gpt-5"):
+            payload["reasoning"] = {"effort": "medium", "summary": "auto"}
         if tools:
             payload["tools"] = [{"type": "function", **tool} for tool in tools]
 
