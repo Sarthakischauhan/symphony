@@ -40,6 +40,33 @@ def call_tool_b() -> str:
     return "tool_b_ok"
 
 
+def large_tool_result() -> str:
+    return "START-" + ("x" * 200) + "-END"
+
+
+class LargeToolRegistry:
+    def __init__(self) -> None:
+        self.calls: list[list[Message]] = []
+
+    async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
+        del model_id, tools
+        self.calls.append(list(messages))
+        if len(self.calls) == 1:
+            yield StreamEvent(
+                type="toolcall_start",
+                content_index=0,
+                tool_call_id="call-large",
+                tool_name="large_tool_result",
+            )
+            yield StreamEvent(type="toolcall_delta", content_index=0, delta="{}")
+            yield StreamEvent(type="usage", prompt_tokens=1, completion_tokens=1, total_tokens=2)
+            yield StreamEvent(type="done", content_index=0)
+            return
+        yield StreamEvent(type="text_delta", content_index=0, delta="done")
+        yield StreamEvent(type="usage", prompt_tokens=1, completion_tokens=1, total_tokens=2)
+        yield StreamEvent(type="done", content_index=0)
+
+
 class FakeRegistry:
     def __init__(self, *, emit_usage: bool = True, prompt_tokens: int = 10) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -205,6 +232,37 @@ def call_fake_harness(
     )
     result = asyncio.run(harness.run("What is the weather in San Francisco?"))
     return registry, control_plane, result
+
+
+def test_large_tool_results_are_bounded_before_reentering_context() -> None:
+    registry = LargeToolRegistry()
+    control_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="system",
+        tools=[Tool(large_tool_result)],
+        control_plane=control_plane,
+        tool_result_max_chars=80,
+    )
+
+    result = asyncio.run(harness.run("run the tool"))
+
+    tool_messages = [message for message in result.messages if message.role == "tool"]
+    assert len(tool_messages) == 1
+    bounded = str(tool_messages[0].content)
+    assert len(bounded) == 80
+    assert bounded.startswith("START-")
+    assert bounded.endswith("-END")
+    assert "tool result truncated" in bounded
+    completed = [
+        event for event in control_plane.events
+        if event.event_type == "tool_execution_completed"
+    ]
+    assert completed[0].payload["result"] == bounded
+    assert completed[0].payload["truncated"] is True
+    assert completed[0].payload["original_chars"] == 210
+    assert "tool result truncated" in str(registry.calls[1][-1].content)
 
 
 def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:

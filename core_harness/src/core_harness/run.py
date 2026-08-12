@@ -36,6 +36,8 @@ class HarnessRun:
         default_session_id: Optional[str],
         max_turns: int,
         state: HarnessState,
+        tool_result_max_chars: Optional[int],
+        context_target_tokens: Optional[int],
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -47,6 +49,8 @@ class HarnessRun:
         self.default_session_id = default_session_id
         self.max_turns = max_turns
         self.state = state
+        self.tool_result_max_chars = tool_result_max_chars
+        self.context_target_tokens = context_target_tokens
 
     async def execute(
         self,
@@ -83,6 +87,8 @@ class HarnessRun:
             control_plane=self.control_plane,
             state=self.state,
             context_limit=context_limit,
+            tool_result_max_chars=self.tool_result_max_chars,
+            context_target_tokens=self.context_target_tokens,
         )
 
         try:

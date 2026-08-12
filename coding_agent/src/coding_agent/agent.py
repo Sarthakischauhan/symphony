@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
@@ -27,6 +27,11 @@ from coding_agent.tools import build_tools
 
 AgentMode = Literal["build", "plan"]
 
+DEFAULT_CONTEXT_WARN_THRESHOLD = 32_000
+DEFAULT_CONTEXT_COMPACT_THRESHOLD = 16_000
+DEFAULT_COMPACTION_KEEP_RECENT = 8
+DEFAULT_CONTEXT_TARGET_TOKENS = 80_000
+
 
 class CodingAgent:
     """Workspace tools, persisted conversation, and optional post-run learning."""
@@ -45,6 +50,12 @@ class CodingAgent:
         enable_learning: bool = True,
         max_turns: int = 124,
         tools: Optional[List[Tool]] = None,
+        context_limits: Optional[Dict[str, int]] = None,
+        context_warn_threshold: Optional[int] = DEFAULT_CONTEXT_WARN_THRESHOLD,
+        context_compact_threshold: Optional[int] = DEFAULT_CONTEXT_COMPACT_THRESHOLD,
+        compaction_keep_recent: int = DEFAULT_COMPACTION_KEEP_RECENT,
+        tool_result_max_chars: Optional[int] = 12_000,
+        context_target_tokens: Optional[int] = DEFAULT_CONTEXT_TARGET_TOKENS,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -73,6 +84,16 @@ class CodingAgent:
             persistence=self.persistence,
             session_id=self.session_id,
             max_turns=max_turns,
+            context_limits=context_limits,
+            context_warn_threshold=context_warn_threshold,
+            context_compact_threshold=context_compact_threshold,
+            compactor=(
+                KeepSystemRecentCompactor(keep_recent=compaction_keep_recent)
+                if context_compact_threshold is not None
+                else None
+            ),
+            tool_result_max_chars=tool_result_max_chars,
+            context_target_tokens=context_target_tokens,
         )
 
     async def run(

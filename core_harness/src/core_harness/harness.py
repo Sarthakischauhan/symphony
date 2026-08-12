@@ -31,6 +31,8 @@ class CoreHarness:
         context_warn_threshold: Optional[int] = None,
         context_compact_threshold: Optional[int] = None,
         compactor: Optional[Compactor] = None,
+        tool_result_max_chars: Optional[int] = 12_000,
+        context_target_tokens: Optional[int] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -39,11 +41,16 @@ class CoreHarness:
         self.persistence = persistence or NullPersistence()
         self.session_id = session_id
         self.max_turns = max_turns
+        if tool_result_max_chars is not None and tool_result_max_chars < 1:
+            raise ValueError("tool_result_max_chars must be positive or None")
+        self.tool_result_max_chars = tool_result_max_chars
+        self.context_target_tokens = context_target_tokens
         self.state = HarnessState(
             context_limits=context_limits,
             context_warn_threshold=context_warn_threshold,
             context_compact_threshold=context_compact_threshold,
             compactor=compactor,
+            context_target_tokens=self.context_target_tokens,
         )
         self.tools: Dict[str, Tool] = {}
         for tool in tools or []:
@@ -74,6 +81,8 @@ class CoreHarness:
             default_session_id=self.session_id,
             max_turns=self.max_turns,
             state=self.state,
+            tool_result_max_chars=self.tool_result_max_chars,
+            context_target_tokens=self.context_target_tokens,
         )
         return await run.execute(
             user_input,

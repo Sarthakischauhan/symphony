@@ -79,3 +79,10 @@ reflection tasks before shutdown.
 Conversation persistence is managed under
 `<workspace>/.symphony/sessions.sqlite3`, allowing resuming of sessions using
 `session_id` or the TUI `--resume` command.
+
+Automatic context compaction is enabled by default. When a model has 16,000 or
+fewer context tokens left, the harness keeps the system prompt and the eight most
+recent protocol-safe messages before the next model call. The warning threshold,
+compaction threshold, and number of recent messages can be customized with
+`context_warn_threshold`, `context_compact_threshold`, and
+`compaction_keep_recent`; pass `context_compact_threshold=None` to disable it.

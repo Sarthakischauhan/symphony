@@ -44,6 +44,8 @@ class TurnRunner:
         control_plane: ControlPlane,
         state: HarnessState,
         context_limit: Optional[int],
+        tool_result_max_chars: Optional[int],
+        context_target_tokens: Optional[int],
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -52,6 +54,8 @@ class TurnRunner:
         self.control_plane = control_plane
         self.state = state
         self.context_limit = context_limit
+        self.tool_result_max_chars = tool_result_max_chars
+        self.context_target_tokens = context_target_tokens
 
     async def run(
         self,
@@ -62,12 +66,18 @@ class TurnRunner:
         context_left: Optional[int],
     ) -> TurnResult:
         """Process one turn and mutate ``messages`` with its results."""
-        budget_tokens = usage.total_tokens
-        compact_tokens_used = budget_tokens
-        compact_context_left = context_left
-        if compact_context_left is None and self.context_limit is not None:
-            compact_tokens_used = estimate_prompt_tokens(messages)
-            compact_context_left = max(self.context_limit - compact_tokens_used, 0)
+        estimated_message_tokens = estimate_prompt_tokens(messages)
+        previous_request_tokens = (
+            self.context_limit - context_left
+            if self.context_limit is not None and context_left is not None
+            else 0
+        )
+        compact_tokens_used = max(estimated_message_tokens, previous_request_tokens)
+        compact_context_left = (
+            max(self.context_limit - compact_tokens_used, 0)
+            if self.context_limit is not None
+            else None
+        )
 
         messages[:] = await self.state.maybe_compact(
             messages,
@@ -77,6 +87,8 @@ class TurnRunner:
             context_left=compact_context_left,
             emit=self.control_plane.emit,
         )
+        estimated_message_tokens = estimate_prompt_tokens(messages)
+        budget_tokens = estimated_message_tokens
         await self.control_plane.emit(
             "turn_started",
             {"turn": turn, "message_count": len(messages)},
@@ -200,6 +212,7 @@ class TurnRunner:
                 "turn": turn,
                 "context_limit": self.context_limit,
                 "tokens_used": budget_tokens,
+                "estimated_message_tokens": estimated_message_tokens,
                 "context_left": context_left,
                 "utilization": (
                     budget_tokens / self.context_limit if self.context_limit else None
@@ -296,15 +309,32 @@ class TurnRunner:
             control_plane=self.control_plane,
             args=tool_call.arguments,
         )
+        result_text = self._stringify_tool_output(result)
+        bounded_result = self._limit_tool_output(result_text)
         await self.control_plane.emit(
             "tool_execution_completed",
             {
                 "tool_call_id": tool_call.id,
                 "tool_name": tool_call.name,
-                "result": self._stringify_tool_output(result),
+                "result": bounded_result,
+                "truncated": bounded_result != result_text,
+                "original_chars": len(result_text),
             },
         )
-        return result
+        return bounded_result
+
+    def _limit_tool_output(self, value: str) -> str:
+        limit = self.tool_result_max_chars
+        if limit is None or len(value) <= limit:
+            return value
+
+        marker = f"\n...[tool result truncated; {len(value) - limit} chars omitted]...\n"
+        if len(marker) >= limit:
+            return marker[:limit]
+        available = limit - len(marker)
+        head = (available + 1) // 2
+        tail = available // 2
+        return value[:head] + marker + value[-tail:]
 
     def _stringify_tool_output(self, value: Any) -> str:
         if isinstance(value, str):

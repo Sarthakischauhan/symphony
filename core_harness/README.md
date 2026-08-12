@@ -9,6 +9,7 @@ Minimal agent loop for running a model with tools and a control plane. This pack
 - control-plane primitives for lifecycle events and commands
 - `Persistence` protocol for conversation + checkpoint saves (`NullPersistence` default)
 - simple compaction and token-estimation helpers
+- bounded tool results to prevent large outputs from consuming the model context
 
 Pass any `Persistence` implementation into `CoreHarness` (or `CodingAgent`); the harness
 saves conversation state and turn checkpoints as the run progresses.
@@ -40,6 +41,13 @@ harness = CoreHarness(
 result = await harness.run("Inspect README.md and summarize it.")
 print(result.output_text)
 ```
+
+Tool results are limited to 12,000 characters by default before they are added
+to the next model request. Configure `tool_result_max_chars` on `CoreHarness`
+or `CodingAgent`, or pass `None` to disable the limit.
+
+`CodingAgent` also proactively compacts when its estimated conversation reaches
+80,000 tokens by default. Configure this with `context_target_tokens`.
 
 The coding agent builds on top of this layer to add workspace tools:
 

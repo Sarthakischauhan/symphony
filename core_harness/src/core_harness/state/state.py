@@ -13,6 +13,7 @@ from core_harness.utils.tokens import estimate_prompt_tokens
 
 
 DEFAULT_CONTEXT_LIMITS = {
+    "gpt-5.6-luna": 400000,
     "gpt-5.4-mini": 400000,
     "gpt-4o": 128000,
     "gpt-4o-mini": 128000,
@@ -35,6 +36,7 @@ class HarnessState:
         context_warn_threshold: Optional[int] = None,
         context_compact_threshold: Optional[int] = None,
         compactor: Optional[Compactor] = None,
+        context_target_tokens: Optional[int] = None,
     ) -> None:
         self.context_limits = {
             **DEFAULT_CONTEXT_LIMITS,
@@ -43,6 +45,9 @@ class HarnessState:
         self.context_warn_threshold = context_warn_threshold
         self.context_compact_threshold = context_compact_threshold
         self.compactor = compactor
+        if context_target_tokens is not None and context_target_tokens < 1:
+            raise ValueError("context_target_tokens must be positive or None")
+        self.context_target_tokens = context_target_tokens
 
     def add_user_message(self, messages: List[Message], content: str) -> None:
         messages.append(Message(role="user", content=content))
@@ -101,12 +106,25 @@ class HarnessState:
             and context_left <= self.context_warn_threshold
         )
 
-    def should_compact(self, context_left: Optional[int]) -> bool:
+    def should_compact(
+        self,
+        context_left: Optional[int],
+        estimated_tokens: Optional[int] = None,
+    ) -> bool:
         return (
             self.compactor is not None
-            and self.context_compact_threshold is not None
-            and context_left is not None
-            and context_left <= self.context_compact_threshold
+            and (
+                (
+                    self.context_target_tokens is not None
+                    and estimated_tokens is not None
+                    and estimated_tokens >= self.context_target_tokens
+                )
+                or (
+                    self.context_compact_threshold is not None
+                    and context_left is not None
+                    and context_left <= self.context_compact_threshold
+                )
+            )
         )
 
     async def maybe_compact(
@@ -120,7 +138,7 @@ class HarnessState:
         emit: EmitEvent,
     ) -> List[Message]:
         """Compact messages when the configured context threshold is reached."""
-        if not self.should_compact(context_left):
+        if not self.should_compact(context_left, estimate_prompt_tokens(messages)):
             return messages
 
         assert self.compactor is not None
