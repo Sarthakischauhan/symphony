@@ -163,6 +163,27 @@ Screen {
     border: solid #505050;
 }
 
+#question-prompt {
+    display: none;
+    width: 1fr;
+    height: auto;
+    margin: 0 10;
+    padding: 1 2;
+    background: #202020;
+    border: solid #d8bd62;
+}
+
+#question-text {
+    width: 1fr;
+    height: auto;
+    color: #d7d7d7;
+}
+
+#question-select {
+    width: 1fr;
+    margin-top: 1;
+}
+
 #slash-menu {
     display: none;
     width: 1fr;

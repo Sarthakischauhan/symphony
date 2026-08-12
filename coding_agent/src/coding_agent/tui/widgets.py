@@ -8,7 +8,31 @@ from typing import Any, Mapping
 from rich.console import Group
 from rich.text import Text
 from textual.containers import Container
-from textual.widgets import Collapsible, Input, Static
+from textual.widgets import Collapsible, Input, Select, Static
+
+
+class QuestionPrompt(Container):
+    """Inline select shown while the agent waits for an answer."""
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        yield Static(id="question-text")
+        yield Select([], id="question-select", prompt="Select an answer")
+
+    def set_question(self, question: str, choices: list[str], default: str = "") -> None:
+        self.query_one("#question-text", Static).update(f"?  {question}")
+        selector = self.query_one("#question-select", Select)
+        selector.set_options([(choice, choice) for choice in choices])
+        selector.value = default if default in choices else Select.BLANK
+        self.display = True
+
+    def clear_question(self) -> None:
+        self.query_one("#question-text", Static).update("")
+        selector = self.query_one("#question-select", Select)
+        selector.set_options([])
+        selector.value = Select.BLANK
+        self.display = False
+
+
 
 from coding_agent.tui.commands import ModeOption, ModelOption, PlanOption, SlashCommand
 from coding_agent.tui.theme import themed_markdown

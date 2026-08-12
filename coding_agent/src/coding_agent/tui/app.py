@@ -11,7 +11,7 @@ from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Static
+from textual.widgets import Input, Select, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
@@ -22,7 +22,6 @@ from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
-from coding_agent.tui.modal import QuestionModal
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
 from coding_agent.tui.styles.app import APP_CSS
@@ -38,6 +37,7 @@ from coding_agent.tui.widgets import (
     ToolCallWidget,
     UserMessage,
     Welcome,
+    QuestionPrompt,
     make_tool_widget,
 )
 from core_harness import HarnessResult
@@ -86,6 +86,7 @@ class CodingAgentApp(App[None]):
         yield TopBar(id="topbar")
         with VerticalScroll(id="transcript"):
             yield Welcome(self.workspace)
+        yield QuestionPrompt(id="question-prompt")
         yield SlashMenu(id="slash-menu")
         yield Composer(id="composer")
         yield Static(id="status")
@@ -224,7 +225,7 @@ class CodingAgentApp(App[None]):
             self._plan_store.append(str(message.payload.get("delta") or ""))
             return
         if message.event_type == "question_asked":
-            self._open_question_modal(message.payload)
+            self._show_question(message.payload)
             return
         if self._presenter is not None:
             self._presenter.handle(message.event_type, message.payload)
@@ -362,28 +363,34 @@ class CodingAgentApp(App[None]):
         self._process = None
         self._tools.clear()
 
-    def _open_question_modal(self, payload: Mapping[str, Any]) -> None:
-        if self._agent is None:
-            return
+    def _show_question(self, payload: Mapping[str, Any]) -> None:
         request_id = str(payload.get("request_id") or "")
         question = str(payload.get("question") or "")
         choices = [str(choice) for choice in payload.get("choices") or []]
         default = str(payload.get("default") or "")
-        self._pending_question_id = request_id or None
+        if not request_id or not question or not choices:
+            self.add_notice("The agent asked a question without selectable choices.", "error")
+            return
+        self._pending_question_id = request_id
         self._ui_state.phase = "paused"
         self._ui_state.detail = "waiting for user"
         self._update_composer_hint()
+        prompt = self.query_one("#question-prompt", QuestionPrompt)
+        prompt.set_question(question, choices, default)
+        self.query_one("#question-select", Select).focus()
 
-        async def _on_answer(answer: str | None) -> None:
-            if self._pending_question_id is None or self._agent is None:
-                return
-            await self.control_plane.answer_user(self._pending_question_id, answer)
-            self._pending_question_id = None
-            self._ui_state.phase = "thinking"
-            self._ui_state.detail = "resuming"
-            self._update_composer_hint()
-
-        self.push_screen(QuestionModal(question, choices=choices, default=default), _on_answer)
+    async def on_select_changed(self, event: Select.Changed[str]) -> None:
+        if event.select.id != "question-select" or event.value is Select.BLANK:
+            return
+        request_id = self._pending_question_id
+        if request_id is None:
+            return
+        self._pending_question_id = None
+        self.query_one("#question-prompt", QuestionPrompt).clear_question()
+        await self.control_plane.answer_user(request_id, str(event.value))
+        self._ui_state.phase = "thinking"
+        self._ui_state.detail = "resuming"
+        self._update_composer_hint()
 
 
 def run_tui(
