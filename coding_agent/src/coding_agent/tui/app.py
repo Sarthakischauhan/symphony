@@ -11,7 +11,7 @@ from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Select, Static
+from textual.widgets import Input, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
@@ -37,7 +37,6 @@ from coding_agent.tui.widgets import (
     ToolCallWidget,
     UserMessage,
     Welcome,
-    QuestionPrompt,
     make_tool_widget,
 )
 from core_harness import HarnessResult
@@ -80,13 +79,13 @@ class CodingAgentApp(App[None]):
         self._plan_store = PlanStore(self.workspace)
         self._plan_run_active = False
         self._pending_question_id: str | None = None
+        self._pending_question_default = ""
         self._command_manager = CommandManager(self)
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
         with VerticalScroll(id="transcript"):
             yield Welcome(self.workspace)
-        yield QuestionPrompt(id="question-prompt")
         yield SlashMenu(id="slash-menu")
         yield Composer(id="composer")
         yield Static(id="status")
@@ -241,6 +240,9 @@ class CodingAgentApp(App[None]):
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = (event.value or "").strip()
         event.input.value = ""
+        if self._pending_question_id is not None:
+            await self._answer_question(text or self._pending_question_default)
+            return
         if not text:
             return
         self.query_one("#slash-menu", SlashMenu).set_commands(())
@@ -271,6 +273,8 @@ class CodingAgentApp(App[None]):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "prompt":
+            return
+        if self._pending_question_id is not None:
             return
         menu = self.query_one("#slash-menu", SlashMenu)
         if event.value.startswith("/model "):
@@ -310,6 +314,10 @@ class CodingAgentApp(App[None]):
             if event.key == "enter":
                 menu.set_commands(())
                 self.call_later(prompt.action_submit)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "enter" and self._pending_question_id is not None:
+            self.call_later(prompt.action_submit)
             event.prevent_default()
             event.stop()
 
@@ -368,28 +376,34 @@ class CodingAgentApp(App[None]):
         question = str(payload.get("question") or "")
         choices = [str(choice) for choice in payload.get("choices") or []]
         default = str(payload.get("default") or "")
-        if not request_id or not question or not choices:
-            self.add_notice("The agent asked a question without selectable choices.", "error")
+        if not request_id or not question:
+            self.add_notice("The agent sent an invalid question request.", "error")
             return
         self._pending_question_id = request_id
+        self._pending_question_default = default
         self._ui_state.phase = "paused"
         self._ui_state.detail = "waiting for user"
         self._update_composer_hint()
-        prompt = self.query_one("#question-prompt", QuestionPrompt)
-        prompt.set_question(question, choices, default)
-        self.query_one("#question-select", Select).focus()
+        menu = self.query_one("#slash-menu", SlashMenu)
+        menu.set_question(question, choices, default=default)
+        prompt = self.query_one("#prompt", Input)
+        prompt.disabled = False
+        prompt.value = default
+        prompt.cursor_position = len(default)
+        prompt.focus()
 
-    async def on_select_changed(self, event: Select.Changed[str]) -> None:
-        if event.select.id != "question-select" or event.value is Select.BLANK:
-            return
+    async def _answer_question(self, answer: str) -> None:
         request_id = self._pending_question_id
         if request_id is None:
             return
         self._pending_question_id = None
-        self.query_one("#question-prompt", QuestionPrompt).clear_question()
-        await self.control_plane.answer_user(request_id, str(event.value))
+        self._pending_question_default = ""
+        self.query_one("#slash-menu", SlashMenu).set_commands(())
+        await self.control_plane.answer_user(request_id, answer)
         self._ui_state.phase = "thinking"
         self._ui_state.detail = "resuming"
+        prompt = self.query_one("#prompt", Input)
+        prompt.disabled = True
         self._update_composer_hint()
 
 

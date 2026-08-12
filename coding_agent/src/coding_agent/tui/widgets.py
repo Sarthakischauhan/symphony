@@ -8,39 +8,7 @@ from typing import Any, Mapping
 from rich.console import Group
 from rich.text import Text
 from textual.containers import Container
-from textual.widgets import Collapsible, Input, Select, Static
-
-
-class QuestionPrompt(Container):
-    """Inline select shown while the agent waits for an answer."""
-
-    def compose(self):  # type: ignore[no-untyped-def]
-        yield Static(id="question-text")
-        yield Select(
-            [],
-            id="question-select",
-            prompt="Select an answer",
-            allow_blank=True,
-        )
-
-    def set_question(self, question: str, choices: list[str], default: str = "") -> None:
-        self.query_one("#question-text", Static).update(f"?  {question}")
-        selector = self.query_one("#question-select", Select)
-        selector.set_options([(choice, choice) for choice in choices])
-        if default in choices:
-            selector.value = default
-        else:
-            selector.clear()
-        self.display = True
-
-    def clear_question(self) -> None:
-        self.query_one("#question-text", Static).update("")
-        selector = self.query_one("#question-select", Select)
-        selector.set_options([])
-        selector.clear()
-        self.display = False
-
-
+from textual.widgets import Collapsible, Input, Static
 
 from coding_agent.tui.commands import ModeOption, ModelOption, PlanOption, SlashCommand
 from coding_agent.tui.theme import themed_markdown
@@ -395,6 +363,8 @@ class SlashMenu(Static):
         self._models: tuple[ModelOption, ...] = ()
         self._modes: tuple[ModeOption, ...] = ()
         self._plans: tuple[PlanOption, ...] = ()
+        self._questions: tuple[str, ...] = ()
+        self._question_text = ""
         self._current_model = ""
         self._current_mode = ""
         self._current_plan = ""
@@ -407,6 +377,8 @@ class SlashMenu(Static):
             return f"/mode {self._modes[self.selected_index].id}"
         if self._plans:
             return f"/plan {self._plans[self.selected_index].id}"
+        if self._questions:
+            return self._questions[self.selected_index]
         if self._commands:
             return f"/{self._commands[self.selected_index].name}"
         return ""
@@ -416,6 +388,7 @@ class SlashMenu(Static):
             len(self._models)
             or len(self._modes)
             or len(self._plans)
+            or len(self._questions)
             or len(self._commands)
         )
         if not count:
@@ -429,12 +402,16 @@ class SlashMenu(Static):
             self._models = ()
             self._modes = ()
             self._plans = ()
+            self._questions = ()
+            self._question_text = ""
             self.display = False
             return
         self._commands = commands
         self._models = ()
         self._modes = ()
         self._plans = ()
+        self._questions = ()
+        self._question_text = ""
         self.selected_index = 0
         self._render_options()
 
@@ -444,12 +421,16 @@ class SlashMenu(Static):
             self._models = ()
             self._modes = ()
             self._plans = ()
+            self._questions = ()
+            self._question_text = ""
             self.display = False
             return
         self._commands = ()
         self._models = models
         self._modes = ()
         self._plans = ()
+        self._questions = ()
+        self._question_text = ""
         self._current_model = current
         self.selected_index = 0
         self._render_options()
@@ -460,12 +441,16 @@ class SlashMenu(Static):
             self._models = ()
             self._modes = ()
             self._plans = ()
+            self._questions = ()
+            self._question_text = ""
             self.display = False
             return
         self._commands = ()
         self._models = ()
         self._modes = modes
         self._plans = ()
+        self._questions = ()
+        self._question_text = ""
         self._current_mode = current
         self.selected_index = 0
         self._render_options()
@@ -478,11 +463,36 @@ class SlashMenu(Static):
         self._models = ()
         self._modes = ()
         self._plans = plans
+        self._questions = ()
+        self._question_text = ""
         self._current_plan = current
         self.selected_index = 0
         self._render_options()
 
+    def set_question(
+        self, question: str, choices: list[str], *, default: str = ""
+    ) -> None:
+        self._commands = ()
+        self._models = ()
+        self._modes = ()
+        self._plans = ()
+        self._questions = tuple(choices)
+        self._question_text = question
+        self.selected_index = choices.index(default) if default in choices else 0
+        self._render_options()
+
     def _render_options(self) -> None:
+        if self._question_text:
+            rows = [Text(f"?  {self._question_text}", style="bold #d7d7d7")]
+            for index, choice in enumerate(self._questions):
+                pointer = "›" if index == self.selected_index else " "
+                style = "bold #f2f2f2 on #383838" if index == self.selected_index else "#c5c5c5"
+                rows.append(Text(f" {pointer} {choice}", style=style))
+            instruction = "   ↑/↓ select  ·  Enter choose" if self._questions else "   Type an answer  ·  Enter submit"
+            rows.append(Text(instruction, style="#505050"))
+            self.update(Group(*rows))
+            self.display = True
+            return
         rows: list[Text] = []
         if self._models:
             for index, model in enumerate(self._models):

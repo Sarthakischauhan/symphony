@@ -52,18 +52,35 @@ class TextualControlPlane:
     ) -> None:
         if self._app is None:
             return
+        # Register the waiter before posting the message.  The Textual event
+        # may be handled immediately, while AskUserTool only calls
+        # ``ask_user`` after ``emit`` returns.
+        event_name = (
+            event_type.value
+            if isinstance(event_type, ControlPlaneEventType)
+            else event_type
+        )
+        if event_name == "question_asked":
+            request_id = str((payload or {}).get("request_id") or "")
+            if request_id:
+                self._get_question_future(request_id)
         self._app.post_message(HarnessEvent(event_type, payload or {}))
 
     async def ask_user(self, request_id: str) -> str:
         if self._app is None:
             return ""
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-        self._question_futures[request_id] = future
+        future = self._get_question_future(request_id)
         try:
             return await future
         finally:
             self._question_futures.pop(request_id, None)
+
+    def _get_question_future(self, request_id: str) -> asyncio.Future[str]:
+        future = self._question_futures.get(request_id)
+        if future is None:
+            future = asyncio.get_running_loop().create_future()
+            self._question_futures[request_id] = future
+        return future
 
     async def answer_user(self, request_id: str, answer: str | None) -> None:
         future = self._question_futures.get(request_id)
