@@ -16,20 +16,28 @@ class QuestionPrompt(Container):
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield Static(id="question-text")
-        yield Select([], id="question-select", prompt="Select an answer")
+        yield Select(
+            [],
+            id="question-select",
+            prompt="Select an answer",
+            allow_blank=True,
+        )
 
     def set_question(self, question: str, choices: list[str], default: str = "") -> None:
         self.query_one("#question-text", Static).update(f"?  {question}")
         selector = self.query_one("#question-select", Select)
         selector.set_options([(choice, choice) for choice in choices])
-        selector.value = default if default in choices else Select.BLANK
+        if default in choices:
+            selector.value = default
+        else:
+            selector.clear()
         self.display = True
 
     def clear_question(self) -> None:
         self.query_one("#question-text", Static).update("")
         selector = self.query_one("#question-select", Select)
         selector.set_options([])
-        selector.value = Select.BLANK
+        selector.clear()
         self.display = False
 
 
