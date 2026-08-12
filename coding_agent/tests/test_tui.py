@@ -295,7 +295,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
 
 
-def test_reasoning_usage_without_summary_shows_fallback(
+def test_reasoning_usage_without_summary_skips_reasoning_block(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -316,7 +316,7 @@ def test_reasoning_usage_without_summary_shows_fallback(
                 },
             )
             await pilot.pause()
-            assert "did not include" in app.query_one(ReasoningWidget).reasoning_text
+            assert not app.query(ReasoningWidget)
 
     asyncio.run(_run())
 

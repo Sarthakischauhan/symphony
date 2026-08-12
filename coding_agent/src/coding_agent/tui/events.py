@@ -229,11 +229,6 @@ class EventPresenter:
     # Metrics and context
     def _on_usage(self, payload: Dict[str, Any]) -> None:
         self.state.update_usage(payload)
-        if self.state.metrics.reasoning_tokens and not self._reasoning_summaries:
-            self.view.set_reasoning(
-                "Reasoning was used, but the API did not include a reasoning summary.",
-                new=True,
-            )
         self.view.set_thinking(self._usage_text())
 
     def _on_context(self, payload: Dict[str, Any]) -> None:

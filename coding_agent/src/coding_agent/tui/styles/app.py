@@ -6,7 +6,8 @@ APP_CSS = """
 $background: #181818;
 $panel: #202020;
 $panel-light: #292929;
-$line: #393939;
+$panel-edge: #303238;
+$panel-edge-focus: #68748a;
 $muted: #727272;
 
 Screen {
@@ -45,12 +46,12 @@ Screen {
     width: 100%;
     height: auto;
     margin: 1 0 0 0;
-    padding: 1 2;
+    padding: 0 1;
 }
 
 .user-message {
     background: $panel-light;
-    border-left: solid #777777;
+    border: round $panel-edge;
 }
 
 .assistant-message {
@@ -59,9 +60,10 @@ Screen {
 }
 
 .thinking-status {
-    width: 100%;
-    height: 2;
-    padding: 0 0 0 3;
+    width: auto;
+    max-width: 50;
+    height: 1;
+    padding: 0 1 0 2;
     color: $muted;
 }
 
@@ -79,6 +81,7 @@ Screen {
     padding: 0 1;
     color: #666666;
     background: $background;
+    pointer: pointer;
 }
 
 .run-process > CollapsibleTitle:hover {
@@ -114,6 +117,7 @@ Screen {
     padding: 0 1;
     color: #666666;
     background: $background;
+    pointer: pointer;
 }
 
 .tool-call > CollapsibleTitle:hover {
@@ -160,7 +164,7 @@ Screen {
     margin: 0 10 1 10;
     padding: 0;
     background: $panel;
-    border: solid #505050;
+    border: round $panel-edge;
 }
 
 #slash-menu {
@@ -171,20 +175,19 @@ Screen {
     margin: 0 10;
     padding: 1 1 0 1;
     background: #202020;
-    border: solid #3f3f3f;
-    border-bottom: none;
+    border: round $panel-edge;
 }
 
 #composer:focus-within {
-    border: solid #888888;
+    border: round $panel-edge-focus;
 }
 
 #composer.plan-mode {
-    border: solid #d8bd62;
+    border: round #9d8950;
 }
 
 #composer.plan-mode:focus-within {
-    border: solid #ffe89a;
+    border: round #d8bd62;
 }
 
 #prompt {

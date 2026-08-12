@@ -17,6 +17,7 @@ from pygments.token import (
 )
 from rich.markdown import Markdown
 from rich.syntax import PygmentsSyntaxTheme
+from rich.theme import Theme
 
 
 class SymphonyCodeStyle(Style):
@@ -60,10 +61,33 @@ class SymphonyCodeStyle(Style):
 
 SYMPHONY_CODE_THEME = PygmentsSyntaxTheme(SymphonyCodeStyle)
 
+SYMPHONY_RICH_THEME = Theme(
+    {
+        "markdown.paragraph": "#d0d0d0",
+        "markdown.text": "#d0d0d0",
+        "markdown.h1": "bold #e6e6e6",
+        "markdown.h2": "bold #b9c5d4",
+        "markdown.h3": "bold #9fb1c2",
+        "markdown.h4": "italic #a0a0a0",
+        "markdown.h5": "italic #909090",
+        "markdown.h6": "dim #888888",
+        "markdown.block_quote": "#7f916a",
+        "markdown.list": "#d0d0d0",
+        "markdown.item.bullet": "bold #8eafc2",
+        "markdown.item.number": "#8eafc2",
+        "markdown.code": "bold #87b5b1",
+        "markdown.link": "#8eafc2",
+        "markdown.link_url": "underline #718da3",
+        "markdown.table.border": "#4d626e",
+        "markdown.table.header": "bold #b9c5d4",
+        "markdown.kbd": "bold #d6b879",
+    },
+    inherit=True,
+)
+
 
 def themed_markdown(markup: str, **kwargs: object) -> Markdown:
     """Build Rich Markdown using Symphony's syntax theme (not Rich's monokai default)."""
     kwargs.setdefault("code_theme", SYMPHONY_CODE_THEME)
     kwargs.setdefault("inline_code_theme", SYMPHONY_CODE_THEME)
     return Markdown(markup, **kwargs)  # type: ignore[arg-type]
-

@@ -25,6 +25,7 @@ from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
 from coding_agent.tui.styles.app import APP_CSS
+from coding_agent.tui.theme import SYMPHONY_RICH_THEME
 from coding_agent.tui.widgets import (
     AssistantMessage,
     Composer,
@@ -46,6 +47,8 @@ class CodingAgentApp(App[None]):
     """Full-screen chat transcript backed by core_harness events."""
 
     CSS = APP_CSS
+    # Keep terminal mouse drag selection enabled for transcript content.
+    ALLOW_SELECT = True
 
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=False),
@@ -91,6 +94,7 @@ class CodingAgentApp(App[None]):
         yield Static(id="status")
 
     def on_mount(self) -> None:
+        self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)
         self.control_plane.bind(self)
         self._presenter = EventPresenter(
             state=self._ui_state,
@@ -117,6 +121,9 @@ class CodingAgentApp(App[None]):
             return
 
         self._ui_state.model_id = self._agent.harness.model_id
+        self._ui_state.metrics.context_limit = self._agent.harness.state.context_limit(
+            self._ui_state.model_id
+        )
         self._ui_state.phase = "idle"
         self._ui_state.detail = "ready"
         topbar.set_context(self.workspace, self._ui_state.model_id)
@@ -208,6 +215,15 @@ class CodingAgentApp(App[None]):
 
     def _set_status(self, _value: str) -> None:
         self.query_one("#status", Static).update(render_status(self._ui_state, self.workspace))
+
+    def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        """Restore context usage for a resumed session before its first run."""
+        metrics = self._ui_state.metrics
+        metrics.tokens_used = tokens_used
+        metrics.context_limit = context_limit
+        metrics.context_left = max(context_limit - tokens_used, 0)
+        metrics.utilization = tokens_used / context_limit if context_limit else None
+        self._set_status("")
 
     @work(exclusive=False)
     async def load_session_history(self) -> None:
