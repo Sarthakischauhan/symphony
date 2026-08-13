@@ -72,35 +72,63 @@ Screen {
     width: 100%;
     height: auto;
     margin: 0;
-    padding: 0 0 0 1;
-    border-top: none;
+    padding: 0 0 0 2;
     background: $background;
 }
 
-.run-process > CollapsibleTitle {
+.process-complete {
     width: auto;
-    padding: 0 1;
-    color: #666666;
+    height: 1;
+    margin: 1 0 0 1;
+    color: #5f6a62;
+}
+
+.reasoning-block {
+    width: 100%;
+    height: auto;
+    margin: 0 0 0 1;
+    padding: 0 0 0 1;
+    color: #777777;
+    border-left: solid #383838;
     background: $background;
     pointer: pointer;
 }
 
-.run-process > CollapsibleTitle:hover {
+.reasoning-block > CollapsibleTitle {
+    width: auto;
+    padding: 0 1;
+    color: #d7a84b;
+    background: $background;
+    pointer: pointer;
+}
+
+.reasoning-block.is-complete > CollapsibleTitle {
+    color: #777777;
+}
+
+.reasoning-block > CollapsibleTitle:hover {
     color: #a0a0a0;
     background: #202020;
 }
 
-.run-process > Contents {
+.reasoning-block > Contents {
     padding: 0 0 0 1;
 }
 
-.reasoning-summary {
+.reasoning-scroll {
     width: 100%;
     height: auto;
-    margin: 0 0 1 0;
-    padding: 0 2 0 3;
-    color: #777777;
-    border-left: solid #343434;
+    max-height: 12;
+    padding: 0 2;
+    scrollbar-size: 1 1;
+    scrollbar-color: #484848;
+    scrollbar-background: $background;
+}
+
+.reasoning-text {
+    width: 100%;
+    height: auto;
+    color: #858585;
 }
 
 .tool-call {

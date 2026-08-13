@@ -11,6 +11,7 @@ from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.widget import Widget
 from textual.widgets import Input, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
@@ -158,7 +159,7 @@ class CodingAgentApp(App[None]):
         else:
             self._thinking.set_text(text)
 
-    def _mount_process_item(self, widget: Static) -> None:
+    def _mount_process_item(self, widget: Widget) -> None:
         if self._process is None:
             self.set_thinking("Thinking…")
         assert self._process is not None
@@ -168,6 +169,8 @@ class CodingAgentApp(App[None]):
 
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         if new or self._reasoning is None:
+            if self._thinking is not None:
+                self._thinking.display = False
             self._reasoning = ReasoningWidget(text)
             self._mount_process_item(self._reasoning)
         else:
@@ -175,7 +178,15 @@ class CodingAgentApp(App[None]):
         transcript = self.query_one("#transcript", VerticalScroll)
         self.call_after_refresh(transcript.scroll_end, animate=False)
 
+    def finish_reasoning(self) -> None:
+        if self._reasoning is None:
+            return
+        self._reasoning.complete()
+        self._reasoning = None
+
     def add_tool(self, call_id: str, name: str) -> None:
+        if self._thinking is not None:
+            self._thinking.display = False
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)

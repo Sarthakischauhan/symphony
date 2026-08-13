@@ -7,7 +7,8 @@ from typing import Any, Mapping
 
 from rich.console import Group
 from rich.text import Text
-from textual.containers import Container
+from textual.containers import Container, VerticalScroll
+from textual.widget import Widget
 from textual.widgets import Collapsible, Input, Static
 
 from coding_agent.tui.commands import ModeOption, ModelOption, PlanOption, SlashCommand
@@ -76,29 +77,25 @@ class ThinkingStatus(Static):
         self.update(Text(f"✻  {value}", style="#666666"))
 
 
-class RunProcess(Collapsible):
-    """One turn's reasoning, tools, and usage behind a clickable header."""
+class RunProcess(Container):
+    """One run's flat timeline of live status, thoughts, and tools."""
 
     def __init__(self, thinking: ThinkingStatus) -> None:
-        self._pending_items: list[Static] = []
-        super().__init__(
-            thinking,
-            title="Working…",
-            collapsed=False,
-            collapsed_symbol="▸",
-            expanded_symbol="▾",
-            classes="run-process",
-        )
+        self._pending_items: list[Widget] = []
+        self._thinking = thinking
+        self._completed = False
+        super().__init__(classes="run-process")
 
-    def add_item(self, widget: Static) -> None:
-        if not self.is_mounted:
-            self._contents_list.append(widget)
-            return
-        contents = self.query(Collapsible.Contents)
-        if contents:
-            contents.first().mount(widget)
-        else:
+    def compose(self):  # type: ignore[no-untyped-def]
+        pending, self._pending_items = self._pending_items, []
+        yield self._thinking
+        yield from pending
+
+    def add_item(self, widget: Widget) -> None:
+        if not self.is_attached:
             self._pending_items.append(widget)
+            return
+        self.mount(widget)
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._flush_pending_items)
@@ -106,30 +103,52 @@ class RunProcess(Collapsible):
     def _flush_pending_items(self) -> None:
         if not self._pending_items:
             return
-        contents = self.query_one(Collapsible.Contents)
         pending, self._pending_items = self._pending_items, []
-        contents.mount(*pending)
+        self.mount(*pending)
 
     def complete(self, title: str, *, collapse: bool = True) -> None:
-        self.title = title
-        self.collapsed = collapse
+        del collapse
+        if self._completed:
+            return
+        self._completed = True
+        self._thinking.display = False
+        self.add_item(
+            Static(Text(f"✓  {title}", style="#5f6a62"), classes="process-complete")
+        )
 
 
-class ReasoningWidget(Static):
-    """A live, muted reasoning summary streamed by supported models."""
+class ReasoningWidget(Collapsible):
+    """A live tail-following thought that folds into the tool timeline."""
 
     def __init__(self, content: str = "") -> None:
-        super().__init__(classes="reasoning-summary")
+        self._body = Static(classes="reasoning-text")
+        self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
+        super().__init__(
+            self._scroll,
+            title="Thinking…",
+            collapsed=False,
+            collapsed_symbol="▸",
+            expanded_symbol="▾",
+            classes="reasoning-block is-live",
+        )
         self.set_content(content)
 
     def set_content(self, content: str) -> None:
         self.reasoning_text = content
-        self.update(
-            Group(
-                Text("✻  REASONING SUMMARY", style="bold #777777"),
-                themed_markdown(content or " ", style="#777777"),
-            )
-        )
+        self._body.update(themed_markdown(content or " ", style="#858585"))
+        if self.is_mounted:
+            self._scroll.scroll_end(animate=False, force=True)
+
+    def on_mount(self) -> None:
+        self._scroll.anchor()
+
+    def complete(self) -> None:
+        self._scroll.anchor(False)
+        self._scroll.scroll_home(animate=False, force=True)
+        self.title = "Thought"
+        self.collapsed = True
+        self.remove_class("is-live")
+        self.add_class("is-complete")
 
 
 class Notice(Static):

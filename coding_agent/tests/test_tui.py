@@ -261,9 +261,9 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert "120 in / 30 out" in str(thinking.render())
             assert "18 reasoning" in str(thinking.render())
             assert [widget.reasoning_text for widget in reasoning] == [
-                "Inspecting the requested file.",
-                "Choosing an implementation.",
+                "Inspecting the requested file.\n\nChoosing an implementation.",
             ]
+            assert reasoning[0].collapsed
             assert app._assistant is not None
 
             read.scroll_visible()
@@ -285,9 +285,65 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
             process = app.query_one(RunProcess)
-            assert process.collapsed
-            await pilot.click("CollapsibleTitle")
-            assert not process.collapsed
+            assert process.query_one(".process-complete") is not None
+            await pilot.click(reasoning[0].query_one("CollapsibleTitle"))
+            assert not reasoning[0].collapsed
+
+    asyncio.run(_run())
+
+
+def test_live_reasoning_follows_tail_then_folds_to_thought(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:test"})
+            app._presenter.handle(
+                "reasoning_delta",
+                {
+                    "turn": 0,
+                    "summary_index": 0,
+                    "delta": "**REASONING SUMMARY**\nStarting.",
+                    "text": "**REASONING SUMMARY**\nStarting.",
+                },
+            )
+            await pilot.pause()
+            text = "**REASONING SUMMARY**\nStarting.\n\n" + "\n\n".join(
+                f"Streaming thought {index}." for index in range(30)
+            )
+            app._presenter.handle(
+                "reasoning_delta",
+                {
+                    "turn": 0,
+                    "summary_index": 0,
+                    "delta": text,
+                    "text": text,
+                },
+            )
+            await pilot.pause()
+
+            thought = app.query_one(ReasoningWidget)
+            scroll = thought.query_one(".reasoning-scroll")
+            assert not thought.collapsed
+            assert "REASONING SUMMARY" not in thought.reasoning_text
+            assert scroll.is_anchored
+
+            app._presenter.handle(
+                "tool_call_started",
+                {"tool_call_id": "read-1", "tool_name": "read_file"},
+            )
+            await pilot.pause()
+
+            assert thought.title == "Thought"
+            assert thought.collapsed
+            assert not scroll.is_anchored
+            assert app._thinking is not None
+            assert not app._thinking.display
 
     asyncio.run(_run())
 
