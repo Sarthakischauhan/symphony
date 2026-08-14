@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any, Mapping
 
 from rich.console import Group
@@ -121,6 +122,8 @@ class ReasoningWidget(Collapsible):
     """A live tail-following thought that folds into the tool timeline."""
 
     def __init__(self, content: str = "") -> None:
+        self._summary_heading: str | None = None
+        self._content_without_heading = content
         self._body = Static(classes="reasoning-text")
         self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
         super().__init__(
@@ -135,9 +138,28 @@ class ReasoningWidget(Collapsible):
 
     def set_content(self, content: str) -> None:
         self.reasoning_text = content
+        self._summary_heading, self._content_without_heading = (
+            self._extract_summary_heading(content)
+        )
         self._body.update(themed_markdown(content or " ", style="#858585"))
         if self.is_mounted:
             self._scroll.scroll_end(animate=False, force=True)
+
+    @staticmethod
+    def _extract_summary_heading(content: str) -> tuple[str | None, str]:
+        """Return a standalone leading Markdown heading and the remaining body."""
+        match = re.match(
+            r"\A[ \t]*(?:"
+            r"#{1,6}[ \t]+(?P<atx>[^\n]+?)[ \t]*#*"
+            r"|\*\*(?P<bold>[^\n]+?)\*\*"
+            r"|__(?P<underscore>[^\n]+?)__"
+            r")[ \t]*(?:\n[ \t]*\n|\Z)",
+            content,
+        )
+        if match is None:
+            return None, content
+        heading = next(value for value in match.groupdict().values() if value)
+        return heading.strip(), content[match.end() :]
 
     def on_mount(self) -> None:
         self._scroll.anchor()
@@ -145,7 +167,13 @@ class ReasoningWidget(Collapsible):
     def complete(self) -> None:
         self._scroll.anchor(False)
         self._scroll.scroll_home(animate=False, force=True)
-        self.title = "Thought"
+        if self._summary_heading:
+            self.title = f"Thought - {self._summary_heading}"
+            self._body.update(
+                themed_markdown(self._content_without_heading or " ", style="#858585")
+            )
+        else:
+            self.title = "Thought"
         self.collapsed = True
         self.remove_class("is-live")
         self.add_class("is-complete")

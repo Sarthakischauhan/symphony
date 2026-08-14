@@ -26,6 +26,7 @@ from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlan
 from coding_agent.tui.modal import PlanModal
 from coding_agent.tui.modal.components import PlanSectionCard
 from coding_agent.tui.modal.plan import _plan_sections
+from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     PatchDiffWidget,
@@ -127,6 +128,58 @@ def test_plan_modal_normalizes_top_level_heading() -> None:
     assert sections == [
         ("Overview", "**Plan: Limit Large Tool Results**\n\n1. Clip output.")
     ]
+
+
+def test_resume_app_selects_with_arrow_keys() -> None:
+    sessions = [
+        SessionOption("one", "2026-08-12T16:00:00+00:00", "First task", 3),
+        SessionOption("two", "2026-08-11T16:00:00+00:00", "Second task", 7),
+    ]
+    app = ResumeApp(sessions)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            assert app.return_value == "two"
+
+    asyncio.run(_run())
+
+
+def test_resume_options_use_existing_persistence_api() -> None:
+    class Persistence:
+        async def list_sessions(self) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    session_id="saved-1",
+                    updated_at="2026-08-12T16:00:00+00:00",
+                )
+            ]
+
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            assert session_id == "saved-1"
+            return [
+                Message(role="system", content="system"),
+                Message(role="user", content="Fix the login flow"),
+                Message(role="assistant", content="Done"),
+            ]
+
+    options = asyncio.run(load_session_options(Persistence()))
+
+    assert options[0].first_message == "Fix the login flow"
+    assert options[0].message_count == 3
+
+
+def test_resume_app_escape_exits_without_selection() -> None:
+    app = ResumeApp([SessionOption("one", "2026-08-12T16:00:00+00:00", "Task", 1)])
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.return_value is None
+
+    asyncio.run(_run())
 
 
 def test_textual_control_plane_posts_message() -> None:
@@ -313,7 +366,7 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
                 },
             )
             await pilot.pause()
-            text = "**REASONING SUMMARY**\nStarting.\n\n" + "\n\n".join(
+            text = "**REASONING SUMMARY**\n**Explaining application context**\n\nStarting.\n\n" + "\n\n".join(
                 f"Streaming thought {index}." for index in range(30)
             )
             app._presenter.handle(
@@ -339,13 +392,30 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
             )
             await pilot.pause()
 
-            assert thought.title == "Thought"
+            assert thought.title == "Thought - Explaining application context"
             assert thought.collapsed
             assert not scroll.is_anchored
             assert app._thinking is not None
             assert not app._thinking.display
 
     asyncio.run(_run())
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_title"),
+    [
+        ("# Inspecting files\n\nReading the repository.", "Thought - Inspecting files"),
+        ("__Planning changes__\n\nReviewing the code.", "Thought - Planning changes"),
+        ("Explaining application context\n\nThis is ordinary prose.", "Thought"),
+        ("**Bold opening sentence.** More prose follows.", "Thought"),
+    ],
+)
+def test_reasoning_title_uses_only_a_standalone_markdown_heading(
+    content: str, expected_title: str
+) -> None:
+    thought = ReasoningWidget(content)
+    thought.complete()
+    assert thought.title == expected_title
 
 
 def test_slash_command_discovery_and_model_resolution() -> None:
