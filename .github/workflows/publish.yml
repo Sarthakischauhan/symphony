@@ -35,6 +35,7 @@ jobs:
             core_harness/dist/
             coding_agent/dist/
             core_ai/dist/
+            core_server/dist/
 
   pypi-publish:
     runs-on: ubuntu-latest
