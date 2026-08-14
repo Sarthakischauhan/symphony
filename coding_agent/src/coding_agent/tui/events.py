@@ -3,12 +3,25 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol
 
 from coding_agent.tui.state import UiRunState
 from coding_agent.utils.text import preview_text
 
 StatusFn = Callable[[str], None]
+
+
+def _clean_reasoning(text: str) -> str:
+    """Remove provider labels that duplicate the UI's Thought disclosure."""
+    return re.sub(
+        r"^\s*(?:#{1,6}\s*)?(?:\*{1,2}|_{1,2})?\s*"
+        r"reasoning summary\s*(?:\*{1,2}|_{1,2})?\s*\n+",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
 
 
 class TranscriptView(Protocol):
@@ -19,6 +32,8 @@ class TranscriptView(Protocol):
     def set_thinking(self, text: str) -> None: ...
 
     def set_reasoning(self, text: str, *, new: bool = False) -> None: ...
+
+    def finish_reasoning(self) -> None: ...
 
     def finish_process(self, title: str, *, collapse: bool = True) -> None: ...
 
@@ -55,7 +70,8 @@ class EventPresenter:
         self._assistant_open = False
         self._tool_names: dict[str, str] = {}
         self._tool_arguments: dict[str, str] = {}
-        self._reasoning_summaries: set[tuple[int, int]] = set()
+        self._reasoning_parts: dict[int, str] = {}
+        self._reasoning_active = False
 
     def refresh_chrome(self) -> None:
         self._set_status(self.state.status_line(workspace=self.workspace))
@@ -93,10 +109,12 @@ class EventPresenter:
         self._assistant_open = False
         self._tool_names.clear()
         self._tool_arguments.clear()
-        self._reasoning_summaries.clear()
+        self._reasoning_parts.clear()
+        self._reasoning_active = False
         self.view.set_thinking("Thinking…")
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
+        self._finish_reasoning()
         usage = payload.get("usage") or {}
         context = payload.get("context") or {}
         if usage:
@@ -130,6 +148,7 @@ class EventPresenter:
         return f"Completed · {current} · {cumulative} · {output}"
 
     def _on_run_failed(self, payload: Dict[str, Any]) -> None:
+        self._finish_reasoning()
         self.state.phase = "idle"
         self.state.detail = "failed"
         self.view.set_thinking("Stopped with an error")
@@ -137,6 +156,7 @@ class EventPresenter:
         self.view.finish_process("Stopped with an error", collapse=False)
 
     def _on_run_cancelled(self, payload: Dict[str, Any]) -> None:
+        self._finish_reasoning()
         self.state.phase = "idle"
         self.state.detail = "cancelled"
         self.view.set_thinking("Cancelled")
@@ -153,6 +173,7 @@ class EventPresenter:
         self.view.set_thinking(self._usage_text())
 
     def _on_turn_completed(self, payload: Dict[str, Any]) -> None:
+        self._finish_reasoning()
         self.state.detail = "running tools" if payload.get("had_tool_calls") else "finishing"
         if not payload.get("had_tool_calls"):
             self._assistant_open = False
@@ -161,6 +182,7 @@ class EventPresenter:
         delta = str(payload.get("delta") or "")
         if not delta:
             return
+        self._finish_reasoning()
         is_new = not self._assistant_open
         if is_new:
             self.state.stream_text = ""
@@ -172,20 +194,30 @@ class EventPresenter:
         delta = str(payload.get("delta") or "")
         if not delta:
             return
-        key = (
-            int(payload.get("turn") or 0),
-            int(payload.get("summary_index") or 0),
+        index = int(payload.get("summary_index") or 0)
+        is_new = not self._reasoning_active
+        self._reasoning_active = True
+        self._reasoning_parts[index] = _clean_reasoning(
+            str(payload.get("text") or delta)
         )
-        is_new = key not in self._reasoning_summaries
-        self._reasoning_summaries.add(key)
-        text = str(payload.get("text") or delta)
+        text = "\n\n".join(
+            self._reasoning_parts[key] for key in sorted(self._reasoning_parts)
+        )
         self.state.reasoning_text = text
         self.state.phase = "thinking"
         self.state.detail = "reasoning"
         self.view.set_reasoning(text, new=is_new)
 
+    def _finish_reasoning(self) -> None:
+        if not self._reasoning_active:
+            return
+        self.view.finish_reasoning()
+        self._reasoning_active = False
+        self._reasoning_parts.clear()
+
     # Tools
     def _on_tool_call_started(self, payload: Dict[str, Any]) -> None:
+        self._finish_reasoning()
         self._assistant_open = False
         call_id = str(payload.get("tool_call_id") or "tool")
         name = str(payload.get("tool_name") or "tool")
@@ -229,11 +261,6 @@ class EventPresenter:
     # Metrics and context
     def _on_usage(self, payload: Dict[str, Any]) -> None:
         self.state.update_usage(payload)
-        if self.state.metrics.reasoning_tokens and not self._reasoning_summaries:
-            self.view.set_reasoning(
-                "Reasoning was used, but the API did not include a reasoning summary.",
-                new=True,
-            )
         self.view.set_thinking(self._usage_text())
 
     def _on_context(self, payload: Dict[str, Any]) -> None:

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from coding_agent.persistence import SqlitePersistence
 from coding_agent.tui.app import run_tui
+from coding_agent.tui.resume import ResumeApp, load_session_options
 
 
 def main() -> None:
@@ -31,19 +32,13 @@ def main() -> None:
     workspace = Path(args.workspace or ".").resolve()
     session_id = None
     if args.resume:
-        sessions = asyncio.run(
-            SqlitePersistence(workspace / ".symphony" / "sessions.sqlite3").list_sessions()
-        )
+        persistence = SqlitePersistence(workspace / ".symphony" / "sessions.sqlite3")
+        sessions = asyncio.run(load_session_options(persistence))
         if not sessions:
-            parser.error(f"no saved sessions found in {workspace / '.symphony' / 'sessions.sqlite3'}")
-        print("Saved sessions:")
-        for index, session in enumerate(sessions, start=1):
-            print(f"  {index}. {session.session_id} ({session.updated_at})")
-        try:
-            selection = int(input("Resume session number: "))
-            session_id = sessions[selection - 1].session_id
-        except (ValueError, IndexError):
-            parser.error("invalid session selection")
+            parser.error("no saved sessions found")
+        session_id = ResumeApp(sessions).run()
+        if session_id is None:
+            return
     run_tui(workspace=workspace, model_id=args.model, session_id=session_id)
 
 
