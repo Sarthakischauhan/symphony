@@ -1,0 +1,33 @@
+[project]
+name = "core-server"
+version = "0.1.0"
+description = "FastAPI SSE server wrapping core_harness"
+readme = "README.md"
+authors = [
+    { name = "Sarthak Chauhan", email = "sarthakchauhann@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "core-ai",
+    "core-harness",
+    "dotenv>=0.9.9",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.scripts]
+core-server = "core_server.__main__:main"
+
+[tool.uv.sources]
+core-ai = { workspace = true }
+core-harness = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"
