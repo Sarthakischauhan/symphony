@@ -10,7 +10,13 @@ from core_ai.registry import ModelRegistry
 from core_harness.persistence import Persistence
 from core_harness.tools import Tool
 
-DEFAULT_SYSTEM_PROMPT = "You are a helpful agent."
+from core_server.ask_user import build_ask_user_tool
+
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a helpful agent. Use ask_user only when blocked by an ambiguity or "
+    "decision that requires user input. Keep each question concise and specific. "
+    "After asking, wait for the user's next message before continuing."
+)
 
 
 @dataclass
@@ -20,7 +26,7 @@ class ServerConfig:
     registry: ModelRegistry
     model_id: str
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
-    tools: List[Tool] = field(default_factory=list)
+    tools: List[Tool] = field(default_factory=lambda: [build_ask_user_tool()])
     persistence: Optional[Persistence] = None
     max_turns: int = 8
     context_limits: Optional[Dict[str, int]] = None
@@ -49,7 +55,7 @@ def build_config(
         registry=registry if registry is not None else _default_registry(),
         model_id=resolved_model,
         system_prompt=system_prompt,
-        tools=list(tools or []),
+        tools=list(tools) if tools is not None else [build_ask_user_tool()],
         persistence=persistence,
         max_turns=max_turns,
         cors_origins=list(cors_origins or ["*"]),

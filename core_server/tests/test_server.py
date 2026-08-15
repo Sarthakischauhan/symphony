@@ -15,7 +15,7 @@ from core_ai.types import Message, StreamEvent
 from core_harness import Tool
 from fastapi.testclient import TestClient
 
-from core_server import ServerConfig, build_config, create_app, encode_sse
+from core_server import ServerConfig, ask_user, build_config, create_app, encode_sse
 from core_server.sse import SSEControlPlane
 from core_harness.models.control_plane import ControlPlaneEvent
 
@@ -103,6 +103,7 @@ def test_health_reports_model_and_tools() -> None:
 def test_default_model_is_luna() -> None:
     config = build_config(registry=FakeRegistry())  # type: ignore[arg-type]
     assert config.model_id == "openai:gpt-5.6-luna"
+    assert [tool.name for tool in config.tools] == ["ask_user"]
 
 
 def test_runs_stream_harness_events() -> None:
@@ -177,6 +178,23 @@ def test_sse_control_plane_queues_events() -> None:
         assert event.event_type == "run_started"
         await plane.close()
         assert await plane.queue.get() is None
+
+    import asyncio
+
+    asyncio.run(scenario())
+
+
+def test_ask_user_emits_question() -> None:
+    async def scenario() -> None:
+        plane = SSEControlPlane()
+        task = asyncio.create_task(ask_user("Which option?", ["one", "two"], control_plane=plane))
+        event = await plane.queue.get()
+        assert event is not None
+        assert event.event_type == "question_asked"
+        request_id = event.payload["request_id"]
+        assert event.payload["choices"] == ["one", "two"]
+        assert request_id
+        assert await task == "Question sent to the user. Wait for their next message before continuing."
 
     import asyncio
 
