@@ -24,6 +24,9 @@ from coding_agent.tui.commands import (
 )
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
 from coding_agent.tui.modal import PlanModal
+from coding_agent.tui.modal.components import PlanSectionCard
+from coding_agent.tui.modal.plan import _plan_sections
+from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     PatchDiffWidget,
@@ -108,10 +111,73 @@ def test_plan_modal_offers_build_now(
         async with app.run_test() as pilot:
             app.push_screen(PlanModal(tmp_path), actions.append)
             await pilot.pause()
-            assert "add_api_plan.md" in str(app.screen.query_one("#plan-title").render())
+            assert app.screen.query_one(PlanSectionCard) is not None
             await pilot.click("#plan-build")
             await pilot.pause()
             assert actions == ["build"]
+
+    asyncio.run(_run())
+
+
+def test_plan_modal_normalizes_top_level_heading() -> None:
+    _task, sections = _plan_sections(
+        "# Plan\n\n**Task:** Keep tool output small\n\n"
+        "# Plan: Limit Large Tool Results\n\n1. Clip output.\n"
+    )
+
+    assert sections == [
+        ("Overview", "**Plan: Limit Large Tool Results**\n\n1. Clip output.")
+    ]
+
+
+def test_resume_app_selects_with_arrow_keys() -> None:
+    sessions = [
+        SessionOption("one", "2026-08-12T16:00:00+00:00", "First task", 3),
+        SessionOption("two", "2026-08-11T16:00:00+00:00", "Second task", 7),
+    ]
+    app = ResumeApp(sessions)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            assert app.return_value == "two"
+
+    asyncio.run(_run())
+
+
+def test_resume_options_use_existing_persistence_api() -> None:
+    class Persistence:
+        async def list_sessions(self) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    session_id="saved-1",
+                    updated_at="2026-08-12T16:00:00+00:00",
+                )
+            ]
+
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            assert session_id == "saved-1"
+            return [
+                Message(role="system", content="system"),
+                Message(role="user", content="Fix the login flow"),
+                Message(role="assistant", content="Done"),
+            ]
+
+    options = asyncio.run(load_session_options(Persistence()))
+
+    assert options[0].first_message == "Fix the login flow"
+    assert options[0].message_count == 3
+
+
+def test_resume_app_escape_exits_without_selection() -> None:
+    app = ResumeApp([SessionOption("one", "2026-08-12T16:00:00+00:00", "Task", 1)])
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.return_value is None
 
     asyncio.run(_run())
 
@@ -248,9 +314,9 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert "120 in / 30 out" in str(thinking.render())
             assert "18 reasoning" in str(thinking.render())
             assert [widget.reasoning_text for widget in reasoning] == [
-                "Inspecting the requested file.",
-                "Choosing an implementation.",
+                "Inspecting the requested file.\n\nChoosing an implementation.",
             ]
+            assert reasoning[0].collapsed
             assert app._assistant is not None
 
             read.scroll_visible()
@@ -272,11 +338,84 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
             process = app.query_one(RunProcess)
-            assert process.collapsed
-            await pilot.click("CollapsibleTitle")
-            assert not process.collapsed
+            assert process.query_one(".process-complete") is not None
+            await pilot.click(reasoning[0].query_one("CollapsibleTitle"))
+            assert not reasoning[0].collapsed
 
     asyncio.run(_run())
+
+
+def test_live_reasoning_follows_tail_then_folds_to_thought(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:test"})
+            app._presenter.handle(
+                "reasoning_delta",
+                {
+                    "turn": 0,
+                    "summary_index": 0,
+                    "delta": "**REASONING SUMMARY**\nStarting.",
+                    "text": "**REASONING SUMMARY**\nStarting.",
+                },
+            )
+            await pilot.pause()
+            text = "**REASONING SUMMARY**\n**Explaining application context**\n\nStarting.\n\n" + "\n\n".join(
+                f"Streaming thought {index}." for index in range(30)
+            )
+            app._presenter.handle(
+                "reasoning_delta",
+                {
+                    "turn": 0,
+                    "summary_index": 0,
+                    "delta": text,
+                    "text": text,
+                },
+            )
+            await pilot.pause()
+
+            thought = app.query_one(ReasoningWidget)
+            scroll = thought.query_one(".reasoning-scroll")
+            assert not thought.collapsed
+            assert "REASONING SUMMARY" not in thought.reasoning_text
+            assert scroll.is_anchored
+
+            app._presenter.handle(
+                "tool_call_started",
+                {"tool_call_id": "read-1", "tool_name": "read_file"},
+            )
+            await pilot.pause()
+
+            assert thought.title == "Thought - Explaining application context"
+            assert thought.collapsed
+            assert not scroll.is_anchored
+            assert app._thinking is not None
+            assert not app._thinking.display
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_title"),
+    [
+        ("# Inspecting files\n\nReading the repository.", "Thought - Inspecting files"),
+        ("__Planning changes__\n\nReviewing the code.", "Thought - Planning changes"),
+        ("Explaining application context\n\nThis is ordinary prose.", "Thought"),
+        ("**Bold opening sentence.** More prose follows.", "Thought"),
+    ],
+)
+def test_reasoning_title_uses_only_a_standalone_markdown_heading(
+    content: str, expected_title: str
+) -> None:
+    thought = ReasoningWidget(content)
+    thought.complete()
+    assert thought.title == expected_title
 
 
 def test_slash_command_discovery_and_model_resolution() -> None:
@@ -295,7 +434,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
 
 
-def test_reasoning_usage_without_summary_shows_fallback(
+def test_reasoning_usage_without_summary_skips_reasoning_block(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -316,7 +455,7 @@ def test_reasoning_usage_without_summary_shows_fallback(
                 },
             )
             await pilot.pause()
-            assert "did not include" in app.query_one(ReasoningWidget).reasoning_text
+            assert not app.query(ReasoningWidget)
 
     asyncio.run(_run())
 

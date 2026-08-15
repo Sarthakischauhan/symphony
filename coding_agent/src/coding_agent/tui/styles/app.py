@@ -6,7 +6,8 @@ APP_CSS = """
 $background: #181818;
 $panel: #202020;
 $panel-light: #292929;
-$line: #393939;
+$panel-edge: #303238;
+$panel-edge-focus: #68748a;
 $muted: #727272;
 
 Screen {
@@ -26,6 +27,7 @@ Screen {
     height: 1fr;
     padding: 1 10 2 10;
     scrollbar-size: 1 1;
+    scrollbar-size-vertical: 1;
     scrollbar-color: #484848;
     scrollbar-color-hover: #606060;
     scrollbar-background: $background;
@@ -45,12 +47,12 @@ Screen {
     width: 100%;
     height: auto;
     margin: 1 0 0 0;
-    padding: 1 2;
+    padding: 0 1;
 }
 
 .user-message {
     background: $panel-light;
-    border-left: solid #777777;
+    border: round $panel-edge;
 }
 
 .assistant-message {
@@ -59,9 +61,10 @@ Screen {
 }
 
 .thinking-status {
-    width: 100%;
-    height: 2;
-    padding: 0 0 0 3;
+    width: auto;
+    max-width: 50;
+    height: 1;
+    padding: 0 1 0 2;
     color: $muted;
 }
 
@@ -69,34 +72,63 @@ Screen {
     width: 100%;
     height: auto;
     margin: 0;
-    padding: 0 0 0 1;
-    border-top: none;
+    padding: 0 0 0 2;
     background: $background;
 }
 
-.run-process > CollapsibleTitle {
+.process-complete {
+    width: auto;
+    height: 1;
+    margin: 1 0 0 1;
+    color: #5f6a62;
+}
+
+.reasoning-block {
+    width: 100%;
+    height: auto;
+    margin: 0 0 0 1;
+    padding: 0 0 0 1;
+    color: #777777;
+    border-left: solid #383838;
+    background: $background;
+    pointer: pointer;
+}
+
+.reasoning-block > CollapsibleTitle {
     width: auto;
     padding: 0 1;
-    color: #666666;
+    color: #d7a84b;
     background: $background;
+    pointer: pointer;
 }
 
-.run-process > CollapsibleTitle:hover {
+.reasoning-block.is-complete > CollapsibleTitle {
+    color: #777777;
+}
+
+.reasoning-block > CollapsibleTitle:hover {
     color: #a0a0a0;
     background: #202020;
 }
 
-.run-process > Contents {
+.reasoning-block > Contents {
     padding: 0 0 0 1;
 }
 
-.reasoning-summary {
+.reasoning-scroll {
     width: 100%;
     height: auto;
-    margin: 0 0 1 0;
-    padding: 0 2 0 3;
-    color: #777777;
-    border-left: solid #343434;
+    max-height: 12;
+    padding: 0 2;
+    scrollbar-size: 1 1;
+    scrollbar-color: #484848;
+    scrollbar-background: $background;
+}
+
+.reasoning-text {
+    width: 100%;
+    height: auto;
+    color: #858585;
 }
 
 .tool-call {
@@ -107,6 +139,7 @@ Screen {
     padding: 0 0 0 1;
     border-left: solid #383838;
     background: $background;
+    pointer: pointer;
 }
 
 .tool-call > CollapsibleTitle {
@@ -114,6 +147,7 @@ Screen {
     padding: 0 1;
     color: #666666;
     background: $background;
+    pointer: pointer;
 }
 
 .tool-call > CollapsibleTitle:hover {
@@ -160,7 +194,7 @@ Screen {
     margin: 0 10 1 10;
     padding: 0;
     background: $panel;
-    border: solid #505050;
+    border: round $panel-edge;
 }
 
 #slash-menu {
@@ -171,20 +205,19 @@ Screen {
     margin: 0 10;
     padding: 1 1 0 1;
     background: #202020;
-    border: solid #3f3f3f;
-    border-bottom: none;
+    border: round $panel-edge;
 }
 
 #composer:focus-within {
-    border: solid #888888;
+    border: round $panel-edge-focus;
 }
 
 #composer.plan-mode {
-    border: solid #d8bd62;
+    border: round #9d8950;
 }
 
 #composer.plan-mode:focus-within {
-    border: solid #ffe89a;
+    border: round #d8bd62;
 }
 
 #prompt {
@@ -194,6 +227,11 @@ Screen {
     border: none;
     background: $panel;
     color: #eeeeee;
+    pointer: text;
+}
+
+#transcript ScrollBar {
+    pointer: pointer;
 }
 
 #prompt:focus {

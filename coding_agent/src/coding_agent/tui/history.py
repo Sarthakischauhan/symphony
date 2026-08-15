@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.widgets import ToolCallWidget, UserMessage, make_tool_widget
+from core_harness.utils.tokens import estimate_prompt_tokens
 
 
 class HistoryView(Protocol):
@@ -14,10 +15,14 @@ class HistoryView(Protocol):
 
     def mount_transcript(self, widget: Any) -> None: ...
 
+    def set_context_metrics(self, tokens_used: int, context_limit: int) -> None: ...
+
 
 async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     """Load the agent's saved messages and mount their transcript widgets."""
     messages = await agent.persistence.load_conversation(session_id=agent.session_id)
+    context_limit = agent.harness.state.context_limit(agent.harness.model_id)
+    view.set_context_metrics(estimate_prompt_tokens(messages), context_limit)
     view.add_notice(f"Resumed session · {agent.session_id}")
     pending_tools: dict[str, ToolCallWidget] = {}
 

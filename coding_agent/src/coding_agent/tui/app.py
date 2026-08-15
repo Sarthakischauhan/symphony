@@ -11,6 +11,7 @@ from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.widget import Widget
 from textual.widgets import Input, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
@@ -25,6 +26,7 @@ from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
 from coding_agent.tui.styles.app import APP_CSS
+from coding_agent.tui.theme import SYMPHONY_RICH_THEME
 from coding_agent.tui.widgets import (
     AssistantMessage,
     Composer,
@@ -46,6 +48,8 @@ class CodingAgentApp(App[None]):
     """Full-screen chat transcript backed by core_harness events."""
 
     CSS = APP_CSS
+    # Keep terminal mouse drag selection enabled for transcript content.
+    ALLOW_SELECT = True
 
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=False),
@@ -91,6 +95,7 @@ class CodingAgentApp(App[None]):
         yield Static(id="status")
 
     def on_mount(self) -> None:
+        self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)
         self.control_plane.bind(self)
         self._presenter = EventPresenter(
             state=self._ui_state,
@@ -117,6 +122,9 @@ class CodingAgentApp(App[None]):
             return
 
         self._ui_state.model_id = self._agent.harness.model_id
+        self._ui_state.metrics.context_limit = self._agent.harness.state.context_limit(
+            self._ui_state.model_id
+        )
         self._ui_state.phase = "idle"
         self._ui_state.detail = "ready"
         topbar.set_context(self.workspace, self._ui_state.model_id)
@@ -151,7 +159,7 @@ class CodingAgentApp(App[None]):
         else:
             self._thinking.set_text(text)
 
-    def _mount_process_item(self, widget: Static) -> None:
+    def _mount_process_item(self, widget: Widget) -> None:
         if self._process is None:
             self.set_thinking("Thinking…")
         assert self._process is not None
@@ -161,6 +169,8 @@ class CodingAgentApp(App[None]):
 
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         if new or self._reasoning is None:
+            if self._thinking is not None:
+                self._thinking.display = False
             self._reasoning = ReasoningWidget(text)
             self._mount_process_item(self._reasoning)
         else:
@@ -168,7 +178,15 @@ class CodingAgentApp(App[None]):
         transcript = self.query_one("#transcript", VerticalScroll)
         self.call_after_refresh(transcript.scroll_end, animate=False)
 
+    def finish_reasoning(self) -> None:
+        if self._reasoning is None:
+            return
+        self._reasoning.complete()
+        self._reasoning = None
+
     def add_tool(self, call_id: str, name: str) -> None:
+        if self._thinking is not None:
+            self._thinking.display = False
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
@@ -208,6 +226,15 @@ class CodingAgentApp(App[None]):
 
     def _set_status(self, _value: str) -> None:
         self.query_one("#status", Static).update(render_status(self._ui_state, self.workspace))
+
+    def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        """Restore context usage for a resumed session before its first run."""
+        metrics = self._ui_state.metrics
+        metrics.tokens_used = tokens_used
+        metrics.context_limit = context_limit
+        metrics.context_left = max(context_limit - tokens_used, 0)
+        metrics.utilization = tokens_used / context_limit if context_limit else None
+        self._set_status("")
 
     @work(exclusive=False)
     async def load_session_history(self) -> None:
