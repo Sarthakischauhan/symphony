@@ -18,6 +18,7 @@ from coding_agent.learning.sanitize import sanitize_task, sanitize_text
 from coding_agent.learning.store import LearningStore, Lesson
 
 logger = logging.getLogger(__name__)
+LEARNING_MAX_OUTPUT_TOKENS = 900
 
 
 class LearningReview(BaseModel):
@@ -30,10 +31,18 @@ class LearningReview(BaseModel):
 
 
 class LearningLoop:
-    def __init__(self, store: LearningStore, *, registry: ModelRegistry, model_id: str) -> None:
+    def __init__(
+        self,
+        store: LearningStore,
+        *,
+        registry: ModelRegistry,
+        model_id: str,
+        max_output_tokens: int = LEARNING_MAX_OUTPUT_TOKENS,
+    ) -> None:
         self.store = store
         self.registry = registry
         self.model_id = model_id
+        self.max_output_tokens = max_output_tokens
         self._tasks: set[asyncio.Task[None]] = set()
 
     def schedule(self, task: str, result: HarnessResult) -> None:
@@ -80,7 +89,12 @@ class LearningLoop:
             Message(role="user", content=_review_prompt(task, result)),
         ]
         chunks: list[str] = []
-        async for event in self.registry.stream(self.model_id, messages, tools=[]):
+        async for event in self.registry.stream(
+            self.model_id,
+            messages,
+            tools=[],
+            max_output_tokens=self.max_output_tokens,
+        ):
             if event.type == "text_delta" and event.delta:
                 chunks.append(event.delta)
         payload = "".join(chunks).strip()

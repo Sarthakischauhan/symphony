@@ -15,14 +15,14 @@ from coding_agent import CodingAgent
 from coding_agent.agent import DEFAULT_MAX_TURNS, DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOOL_CALLS
 
 
-def test_coding_agent_defaults_are_safer_and_learning_is_opt_in(tmp_path: Path) -> None:
+def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path) -> None:
     agent = CodingAgent(
         registry=CapturingRegistry(),  # type: ignore[arg-type]
         model_id="fake:test-model",
         workspace=tmp_path,
         tools=[],
     )
-    assert agent.learning_loop is None
+    assert agent.learning_loop is not None
     assert agent.harness.max_turns == DEFAULT_MAX_TURNS == 24
     assert agent.harness.limits.max_tool_calls == DEFAULT_MAX_TOOL_CALLS
     assert agent.harness.limits.max_tokens == DEFAULT_MAX_TOKENS

@@ -13,6 +13,7 @@ from textual.widget import Widget
 from textual.widgets import Collapsible, Input, Static
 
 from coding_agent.tui.commands import ModeOption, ModelOption, PlanOption, SlashCommand
+from coding_agent.tui.file_selector import FileOption
 from coding_agent.tui.theme import themed_markdown
 from coding_agent.utils.diff import diff_stats, make_unified_diff
 from coding_agent.utils.text import clip_text, compact_json
@@ -411,6 +412,7 @@ class SlashMenu(Static):
         self._models: tuple[ModelOption, ...] = ()
         self._modes: tuple[ModeOption, ...] = ()
         self._plans: tuple[PlanOption, ...] = ()
+        self._files: tuple[FileOption, ...] = ()
         self._questions: tuple[str, ...] = ()
         self._question_text = ""
         self._current_model = ""
@@ -419,6 +421,8 @@ class SlashMenu(Static):
 
     @property
     def selected_value(self) -> str:
+        if self._files:
+            return f"@{self._files[self.selected_index].path}"
         if self._models:
             return f"/model {self._models[self.selected_index].id}"
         if self._modes:
@@ -433,7 +437,8 @@ class SlashMenu(Static):
 
     def move_selection(self, offset: int) -> None:
         count = (
-            len(self._models)
+            len(self._files)
+            or len(self._models)
             or len(self._modes)
             or len(self._plans)
             or len(self._questions)
@@ -450,6 +455,7 @@ class SlashMenu(Static):
             self._models = ()
             self._modes = ()
             self._plans = ()
+            self._files = ()
             self._questions = ()
             self._question_text = ""
             self.display = False
@@ -458,6 +464,7 @@ class SlashMenu(Static):
         self._models = ()
         self._modes = ()
         self._plans = ()
+        self._files = ()
         self._questions = ()
         self._question_text = ""
         self.selected_index = 0
@@ -469,6 +476,7 @@ class SlashMenu(Static):
             self._models = ()
             self._modes = ()
             self._plans = ()
+            self._files = ()
             self._questions = ()
             self._question_text = ""
             self.display = False
@@ -477,6 +485,7 @@ class SlashMenu(Static):
         self._models = models
         self._modes = ()
         self._plans = ()
+        self._files = ()
         self._questions = ()
         self._question_text = ""
         self._current_model = current
@@ -489,6 +498,7 @@ class SlashMenu(Static):
             self._models = ()
             self._modes = ()
             self._plans = ()
+            self._files = ()
             self._questions = ()
             self._question_text = ""
             self.display = False
@@ -497,6 +507,7 @@ class SlashMenu(Static):
         self._models = ()
         self._modes = modes
         self._plans = ()
+        self._files = ()
         self._questions = ()
         self._question_text = ""
         self._current_mode = current
@@ -511,11 +522,30 @@ class SlashMenu(Static):
         self._models = ()
         self._modes = ()
         self._plans = plans
+        self._files = ()
         self._questions = ()
         self._question_text = ""
         self._current_plan = current
         self.selected_index = 0
         self._render_options()
+
+    def set_files(self, files: tuple[FileOption, ...]) -> None:
+        if not files:
+            self.set_commands(())
+            return
+        self._commands = ()
+        self._models = ()
+        self._modes = ()
+        self._plans = ()
+        self._files = files
+        self._questions = ()
+        self._question_text = ""
+        self.selected_index = 0
+        self._render_options()
+
+    @property
+    def is_file_selector(self) -> bool:
+        return bool(self._files)
 
     def set_question(
         self, question: str, choices: list[str], *, default: str = ""
@@ -524,6 +554,7 @@ class SlashMenu(Static):
         self._models = ()
         self._modes = ()
         self._plans = ()
+        self._files = ()
         self._questions = tuple(choices)
         self._question_text = question
         self.selected_index = choices.index(default) if default in choices else 0
@@ -542,7 +573,18 @@ class SlashMenu(Static):
             self.display = True
             return
         rows: list[Text] = []
-        if self._models:
+        if self._files:
+            for index, file in enumerate(self._files):
+                pointer = "›" if index == self.selected_index else " "
+                style = (
+                    "bold #f2f2f2 on #383838"
+                    if index == self.selected_index
+                    else "bold #c5c5c5"
+                )
+                row = Text(f" {pointer} @ {file.path:<42}", style=style)
+                row.append(file.description, style="#858585")
+                rows.append(row)
+        elif self._models:
             for index, model in enumerate(self._models):
                 active = "●" if model.id == self._current_model else "○"
                 pointer = "›" if index == self.selected_index else " "

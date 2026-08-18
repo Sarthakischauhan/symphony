@@ -47,7 +47,8 @@ Earlier phases for the general-purpose harness are landed:
 - Approval gates ask before bash, file overwrite, or a broad patch (allow once / deny)
 - TUI Escape / Ctrl+X sends the harness cancel command and restores the composer
 - Safer defaults: 24 turns, 40 tool calls, 10 minutes, 200k tokens
-- Learning is opt-in (`enable_learning=True` or `coding-agent-tui --learn`); pending reflection is cancelled on TUI exit
+- Learning is enabled by default, capped at 900 output tokens, and pending reflection is cancelled on TUI exit
+- `@file` composer search reuses the existing model/command selector
 
 Shared `WorkspaceTool` base handles workspace binding, path escape rejection, pydantic schemas, and `as_harness_tool()`.
 

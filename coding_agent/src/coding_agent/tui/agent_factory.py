@@ -16,7 +16,7 @@ def build_agent(
     control_plane: TextualControlPlane,
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
-    enable_learning: bool = False,
+    enable_learning: bool = True,
 ) -> CodingAgent:
     """Build an OpenAI-backed coding agent from the current environment."""
     from core_ai import ModelRegistry

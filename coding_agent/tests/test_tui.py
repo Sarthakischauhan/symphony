@@ -23,6 +23,11 @@ from coding_agent.tui.commands import (
     model_matches,
 )
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
+from coding_agent.tui.file_selector import (
+    active_file_mention,
+    complete_file_mention,
+    file_matches,
+)
 from coding_agent.tui.modal import PlanModal
 from coding_agent.tui.modal.components import PlanSectionCard
 from coding_agent.tui.modal.plan import _plan_sections
@@ -482,6 +487,61 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     ]
     assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
+
+
+def test_file_mentions_are_bounded_and_preserve_prompt_text(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "turn.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_turn.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("hidden", encoding="utf-8")
+
+    matches = file_matches(tmp_path, "turn")
+
+    assert [match.path for match in matches] == ["src/turn.py", "tests/test_turn.py"]
+    assert active_file_mention("Review @tur") == (7, "tur")
+    assert active_file_mention("Review @src/turn.py next") is None
+    assert complete_file_mention("Review @tur", "src/turn.py") == (
+        "Review @src/turn.py ",
+        20,
+    )
+
+
+def test_at_file_selector_uses_existing_composer_menu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "turn.py").write_text("pass\n", encoding="utf-8")
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt")
+            prompt.value = "Review @tur"
+            await pilot.pause()
+
+            menu = app.query_one(SlashMenu)
+            assert menu.display
+            assert menu.is_file_selector
+            assert menu.selected_value == "@src/turn.py"
+
+            await pilot.press("tab")
+            await pilot.pause()
+            assert prompt.value == "Review @src/turn.py "
+            assert prompt.cursor_position == len(prompt.value)
+            assert not menu.display
+
+            prompt.value = "Also inspect @tur"
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert prompt.value == "Also inspect @src/turn.py "
+            assert not menu.display
+
+    asyncio.run(_run())
 
 
 def test_reasoning_usage_without_summary_skips_reasoning_block(

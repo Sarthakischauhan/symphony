@@ -16,6 +16,7 @@ def test_gpt_5_6_uses_responses_reasoning_stream() -> None:
         assert request.url.path == "/v1/responses"
         payload = json.loads(request.content)
         assert payload["reasoning"] == {"effort": "medium", "summary": "auto"}
+        assert payload["max_output_tokens"] == 900
         body = "\n\n".join(
             f"data: {event}"
             for event in (
@@ -35,7 +36,9 @@ def test_gpt_5_6_uses_responses_reasoning_stream() -> None:
         return [
             event
             async for event in provider.stream(
-                "gpt-5.6-luna", [Message(role="user", content="Inspect it")]
+                "gpt-5.6-luna",
+                [Message(role="user", content="Inspect it")],
+                max_output_tokens=900,
             )
         ]
 
@@ -53,6 +56,7 @@ def test_legacy_reasoning_model_uses_completion_stream() -> None:
         assert request.url.path == "/v1/chat/completions"
         payload = json.loads(request.content)
         assert payload["reasoning_effort"] == "medium"
+        assert payload["max_completion_tokens"] == 900
         body = "\n\n".join(
             f"data: {event}"
             for event in (
@@ -70,7 +74,9 @@ def test_legacy_reasoning_model_uses_completion_stream() -> None:
         return [
             event
             async for event in provider.stream(
-                "o3", [Message(role="user", content="Inspect it")]
+                "o3",
+                [Message(role="user", content="Inspect it")],
+                max_output_tokens=900,
             )
         ]
 

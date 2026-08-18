@@ -35,8 +35,8 @@ live tool rows, reasoning summaries, muted per-turn token usage, context warning
 compaction notices, persisted session history, and code blocks using the same
 muted Symphony palette as the surrounding interface. Use `Esc` (or `Ctrl+X`) to
 cancel an in-flight run, `Ctrl+L` or `/clear` to reset the visible transcript, and
-`Ctrl+D`, `/quit`, or `/exit` to leave. Learning is off by default; pass `--learn`
-to enable post-run reflection.
+`Ctrl+D`, `/quit`, or `/exit` to leave. Learning is enabled by default and each
+reflection is capped at 900 output tokens; pass `--no-learning` to disable it.
 
 Type `/` to discover commands. `/model` shows the built-in model catalog,
 `/model <id>` switches the harness and learning model, and `/mode` switches between
@@ -49,6 +49,8 @@ searchable picker for all saved workspace plans.
 valid tool-call blocks, `/diff` opens the current workspace diff in a modal,
 `/status` displays the current runtime context, `/help` shows commands, and `/clear`
 clears the visible transcript.
+Type `@` anywhere after whitespace to search workspace files in the same selector;
+Tab or Enter inserts the selected `@path` without sending the prompt.
 Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
 boundary can be replaced with provider-backed registry discovery later.
 
@@ -68,9 +70,9 @@ Runs default to 24 turns, 40 tool calls, 10 minutes, and 200k tokens.
 
 ### Learning
 
-Learning is opt-in. After a successful run returns, an optional background
-reflection makes one structured model call when `enable_learning=True` or the TUI
-is launched with `--learn`. Useful lessons are appended to:
+Learning is enabled by default. After a successful run returns, a background
+reflection makes one structured model call capped at 900 output tokens. Useful
+lessons are appended to:
 
 ```text
 <workspace>/.symphony/learning/lessons.jsonl
@@ -80,7 +82,7 @@ Reflection never delays or changes the completed run. Future runs receive only a
 small task-relevant selection of lessons. Routine runs can return
 `should_save=false`, and reflection failures are logged without affecting the agent.
 
-Disable learning by leaving the default (`enable_learning=False`). Call
+Disable learning with `enable_learning=False` or `coding-agent-tui --no-learning`. Call
 `await agent.shutdown_learning()` (or `wait_for_learning()`) when an application
 needs to cancel or drain pending reflection tasks before shutdown. The TUI does
 this automatically on exit.

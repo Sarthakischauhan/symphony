@@ -1,4 +1,4 @@
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
@@ -12,7 +12,11 @@ class ModelRegistry:
         self._providers[namespace] = provider
 
     async def stream(
-        self, model_id: str, messages: List[Message], tools: List[Dict[str, Any]] = []
+        self,
+        model_id: str,
+        messages: List[Message],
+        tools: List[Dict[str, Any]] = [],
+        max_output_tokens: Optional[int] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
 
         if ":" not in model_id:
@@ -25,5 +29,10 @@ class ModelRegistry:
 
         provider = self._providers[provider_name]
 
-        async for event in provider.stream(model_name, messages, tools):
+        async for event in provider.stream(
+            model_name,
+            messages,
+            tools,
+            max_output_tokens=max_output_tokens,
+        ):
             yield event

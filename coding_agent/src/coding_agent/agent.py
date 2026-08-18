@@ -51,7 +51,7 @@ class CodingAgent:
         session_id: Optional[str] = None,
         system_prompt: str = SYSTEM_PROMPT,
         mode: AgentMode = "build",
-        enable_learning: bool = False,
+        enable_learning: bool = True,
         auto_approve: bool = False,
         max_turns: int = DEFAULT_MAX_TURNS,
         max_tool_calls: Optional[int] = DEFAULT_MAX_TOOL_CALLS,

@@ -21,6 +21,11 @@ from coding_agent.tui.commands.command_manager import CommandManager
 from coding_agent.tui.commands.mode_switcher import toggle_mode
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
+from coding_agent.tui.file_selector import (
+    active_file_mention,
+    complete_file_mention,
+    file_matches,
+)
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
 from coding_agent.tui.state import UiRunState
@@ -66,7 +71,7 @@ class CodingAgentApp(App[None]):
         workspace: str | Path = ".",
         model_id: Optional[str] = None,
         session_id: Optional[str] = None,
-        enable_learning: bool = False,
+        enable_learning: bool = True,
     ) -> None:
         super().__init__()
         self.workspace = Path(workspace).resolve()
@@ -309,7 +314,11 @@ class CodingAgentApp(App[None]):
         if self._pending_question_id is not None:
             return
         menu = self.query_one("#slash-menu", SlashMenu)
-        if event.value.startswith("/model "):
+        mention = active_file_mention(event.value)
+        if mention is not None:
+            _start, query = mention
+            menu.set_files(file_matches(self.workspace, query))
+        elif event.value.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
             menu.set_models(model_matches(event.value.removeprefix("/model ")), current)
         elif event.value.startswith("/mode "):
@@ -341,9 +350,18 @@ class CodingAgentApp(App[None]):
             event.stop()
             return
         if event.key in {"tab", "enter"} and menu.selected_value:
-            prompt.value = menu.selected_value
-            prompt.cursor_position = len(prompt.value)
-            if event.key == "enter":
+            is_file_selector = menu.is_file_selector
+            if is_file_selector:
+                prompt.value, cursor = complete_file_mention(
+                    prompt.value,
+                    menu.selected_value.removeprefix("@"),
+                )
+                prompt.cursor_position = cursor
+                menu.set_commands(())
+            else:
+                prompt.value = menu.selected_value
+                prompt.cursor_position = len(prompt.value)
+            if event.key == "enter" and not is_file_selector:
                 menu.set_commands(())
                 self.call_later(prompt.action_submit)
             event.prevent_default()
@@ -479,7 +497,7 @@ def run_tui(
     workspace: str | Path = ".",
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
-    enable_learning: bool = False,
+    enable_learning: bool = True,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
     load_dotenv(override=True)

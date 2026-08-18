@@ -56,7 +56,7 @@ The harness (Symphony) is standalone and product-agnostic. Agents are separate c
 - **Streaming provider layer** — register providers by name, route `provider:model` requests through a shared `ModelRegistry`.
 - **Turn-based harness** — multi-turn tool calls, tool schema generation, and a typed control-plane event stream (thinking, `text_delta`, tool calls, usage, context). Every event carries `run_id`, `session_id`, a sequence number, timestamp, and schema version. Runs can cap turns, tool calls, runtime, and tokens.
 - **Control plane** — every UI subscribes to the same emit stream; supports fan-out, event logs, and inbound pause/cancel commands. Cancel stops the active model stream and tool execution, then persists `run_cancelled`.
-- **Coding agent** — workspace tools (`read_file`, `write_file`, `patch`, `search`, `bash`), streamed/capped bash, approval prompts before bash/overwrite/broad patch, a Textual TUI (Esc cancels), safer run limits, and opt-in learning.
+- **Coding agent** — workspace tools (`read_file`, `write_file`, `patch`, `search`, `bash`), `@file` composer search, streamed/capped bash, approval prompts before bash/overwrite/broad patch, a Textual TUI (Esc cancels), safer run limits, and 900-token-capped learning.
 - **Context management** — warn thresholds, token estimation, and pluggable compaction.
 - **Persistence** — a `Persistence` protocol with checkpoints, plus a SQLite store for conversation resume across runs.
 - **Browser-use agent (upcoming)** — same harness, browser tools and UX on top.
@@ -74,10 +74,10 @@ Launch against a different workspace:
 uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
 ```
 
-Enable optional post-run learning:
+Learning is enabled by default. Disable it when needed:
 
 ```sh
-uv run --package coding-agent coding-agent-tui --learn
+uv run --package coding-agent coding-agent-tui --no-learning
 ```
 
 Resume a previous session interactively:
