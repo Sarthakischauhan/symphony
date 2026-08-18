@@ -76,6 +76,7 @@ def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
             registry=NeverRegistry(),  # type: ignore[arg-type]
             model_id="test:model",
             workspace=tmp_path,
+            enable_learning=True,
         )
 
         async def fake_run(*args, **kwargs):
@@ -91,6 +92,21 @@ def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
     result, pending = asyncio.run(scenario())
     assert result.output_text == "fixed and tests passed"
     assert pending == 1
+
+
+def test_learning_cancel_finishes_pending_reflection(tmp_path: Path) -> None:
+    class NeverRegistry:
+        async def stream(self, model_id, messages, tools=None):
+            await asyncio.Event().wait()
+            yield StreamEvent(type="done")
+
+    async def scenario() -> None:
+        store = LearningStore(tmp_path)
+        loop = LearningLoop(store, registry=NeverRegistry(), model_id="test:model")
+        loop.schedule("fix bug", _result())
+        await asyncio.wait_for(loop.shutdown(), timeout=1)
+
+    asyncio.run(scenario())
 
 
 def test_relevant_lessons_are_bounded(tmp_path: Path) -> None:

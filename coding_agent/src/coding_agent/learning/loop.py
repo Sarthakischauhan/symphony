@@ -42,10 +42,20 @@ class LearningLoop:
         self._tasks.add(background)
         background.add_done_callback(self._tasks.discard)
 
+    def cancel(self) -> None:
+        """Cancel pending reflections without waiting for them to finish."""
+        for task in tuple(self._tasks):
+            task.cancel()
+
     async def wait(self) -> None:
         """Drain pending reflections during an explicit application shutdown."""
         if self._tasks:
             await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
+    async def shutdown(self) -> None:
+        """Cancel then finish any in-flight reflection before the TUI exits."""
+        self.cancel()
+        await self.wait()
 
     async def _review_and_store(self, task: str, result: HarnessResult) -> None:
         try:

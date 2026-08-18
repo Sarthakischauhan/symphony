@@ -38,7 +38,57 @@ from coding_agent.tui.widgets import (
 )
 
 
-def test_tui_composes_without_api_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_tui_escape_cancels_busy_run_and_restores_composer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._busy = True
+            prompt = app.query_one("#prompt")
+            prompt.disabled = True
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.control_plane.cancelled
+            assert app.control_plane.cancel_reason == "user_cancel"
+            assert not prompt.disabled
+            assert prompt.has_focus
+
+    asyncio.run(_run())
+
+
+def test_tui_quit_cancels_pending_learning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    cancelled: list[str] = []
+
+    class FakeLearning:
+        def cancel(self) -> None:
+            cancelled.append("cancel")
+
+        async def shutdown(self) -> None:
+            cancelled.append("shutdown")
+
+    class FakeAgent:
+        learning_loop = FakeLearning()
+
+        async def shutdown_learning(self) -> None:
+            await self.learning_loop.shutdown()
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            app.action_quit()
+            await app.on_unmount()
+            assert cancelled == ["cancel", "shutdown"]
+
+    asyncio.run(_run())
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
 

@@ -1,6 +1,10 @@
 """Execution of one model turn, including streamed events and tool calls."""
 
+from __future__ import annotations
+
+import asyncio
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -8,15 +12,16 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 
 from core_harness.control_plane import ControlPlane
+from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models.harness import UsageTotals
-from core_harness.models.tools import PendingToolCall, ToolCall
+from core_harness.models.tools import PendingToolCall, ToolCall, ToolResult
 from core_harness.state import HarnessState
+from core_harness.tools import Tool
 from core_harness.utils.tokens import (
     estimate_completion_tokens,
     estimate_prompt_tokens,
     message_size_breakdown,
 )
-from core_harness.tools import Tool
 
 
 @dataclass
@@ -46,6 +51,11 @@ class TurnRunner:
         context_limit: Optional[int],
         tool_result_max_chars: Optional[int],
         context_target_tokens: Optional[int],
+        remaining_runtime: Optional[float] = None,
+        max_tool_calls: Optional[int] = None,
+        tool_calls_so_far: int = 0,
+        deadline: Optional[float] = None,
+        max_runtime_seconds: Optional[float] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -56,6 +66,42 @@ class TurnRunner:
         self.context_limit = context_limit
         self.tool_result_max_chars = tool_result_max_chars
         self.context_target_tokens = context_target_tokens
+        self.remaining_runtime = remaining_runtime
+        self.max_tool_calls = max_tool_calls
+        self.tool_calls_so_far = tool_calls_so_far
+        self.deadline = deadline
+        self.max_runtime_seconds = max_runtime_seconds
+
+    def _cancelled(self) -> bool:
+        return bool(getattr(self.control_plane, "cancelled", False))
+
+    def _cancel_reason(self) -> str:
+        return str(getattr(self.control_plane, "cancel_reason", "cancelled"))
+
+    def _raise_if_cancelled(self) -> None:
+        if self._cancelled():
+            raise HarnessCancelled(self._cancel_reason())
+
+    def _remaining_runtime(self) -> Optional[float]:
+        if self.deadline is not None:
+            return self.deadline - time.monotonic()
+        return self.remaining_runtime
+
+    def _runtime_exceeded_error(self) -> HarnessLimitExceeded:
+        elapsed = None
+        if self.deadline is not None and self.max_runtime_seconds is not None:
+            elapsed = self.max_runtime_seconds - max(self._remaining_runtime() or 0.0, 0.0)
+        return HarnessLimitExceeded(
+            "max_runtime_seconds",
+            float(elapsed if elapsed is not None else 0.0),
+            float(self.max_runtime_seconds or 0.0),
+            f"Harness exceeded max_runtime_seconds={self.max_runtime_seconds}",
+        )
+
+    def _raise_if_runtime_exceeded(self) -> None:
+        remaining = self._remaining_runtime()
+        if remaining is not None and remaining <= 0:
+            raise self._runtime_exceeded_error()
 
     async def run(
         self,
@@ -66,6 +112,7 @@ class TurnRunner:
         context_left: Optional[int],
     ) -> TurnResult:
         """Process one turn and mutate ``messages`` with its results."""
+        self._raise_if_cancelled()
         estimated_message_tokens = estimate_prompt_tokens(messages)
         previous_request_tokens = (
             self.context_limit - context_left
@@ -98,11 +145,7 @@ class TurnRunner:
         reasoning_texts: Dict[int, str] = {}
         pending_calls: Dict[int, PendingToolCall] = {}
         saw_usage = False
-        async for event in self.registry.stream(
-            self.model_id,
-            messages,
-            self.tool_schemas,
-        ):
+        async for event in self._stream_events(messages):
             if event.type == "text_delta" and event.delta:
                 assistant_text += event.delta
                 await self.control_plane.emit(
@@ -229,13 +272,54 @@ class TurnRunner:
         tool_calls = self._build_tool_calls(pending_calls)
         if tool_calls:
             self.state.add_assistant_message(messages, assistant_text, tool_calls)
+            cancelled_rest = False
+            limit_error: Optional[HarnessLimitExceeded] = None
             for tool_call in tool_calls:
-                result = await self._execute_tool(tool_call)
-                self.state.add_tool_message(
-                    messages,
-                    tool_call,
-                    self._stringify_tool_output(result),
-                )
+                if limit_error is not None:
+                    result = ToolResult(
+                        status="error",
+                        content=f"max_tool_calls={self.max_tool_calls} exceeded",
+                        error_type="HarnessLimitExceeded",
+                    )
+                    await self._emit_tool_result(tool_call, result)
+                elif cancelled_rest or self._cancelled():
+                    result = ToolResult(status="cancelled", content=self._cancel_reason())
+                    cancelled_rest = True
+                    await self._emit_tool_result(tool_call, result)
+                elif (
+                    self.max_tool_calls is not None
+                    and self.tool_calls_so_far >= self.max_tool_calls
+                ):
+                    result = ToolResult(
+                        status="error",
+                        content=f"max_tool_calls={self.max_tool_calls} exceeded",
+                        error_type="HarnessLimitExceeded",
+                    )
+                    limit_error = HarnessLimitExceeded(
+                        "max_tool_calls",
+                        float(self.tool_calls_so_far + 1),
+                        float(self.max_tool_calls),
+                        f"Harness exceeded max_tool_calls={self.max_tool_calls}",
+                    )
+                    await self._emit_tool_result(tool_call, result)
+                else:
+                    result = await self._execute_tool(tool_call)
+                    self.tool_calls_so_far += 1
+                    if result.status == "cancelled":
+                        cancelled_rest = True
+                    elif (
+                        result.status == "timeout"
+                        and self.deadline is not None
+                        and time.monotonic() >= self.deadline
+                    ):
+                        limit_error = self._runtime_exceeded_error()
+                tool_call.result_status = result.status
+                bounded = self._limit_tool_output(result.for_model())
+                self.state.add_tool_message(messages, tool_call, bounded)
+            if limit_error is not None:
+                raise limit_error
+            if cancelled_rest:
+                raise HarnessCancelled(self._cancel_reason())
         else:
             self.state.add_assistant_message(messages, assistant_text)
 
@@ -247,6 +331,57 @@ class TurnRunner:
             context_left=context_left,
             message_sizes=message_sizes,
         )
+
+    async def _stream_events(self, messages: List[Message]):
+        agen = self.registry.stream(self.model_id, messages, self.tool_schemas)
+        cancel_event = getattr(self.control_plane, "cancel_event", None)
+        closed = False
+
+        async def close_stream() -> None:
+            nonlocal closed
+            if closed:
+                return
+            closed = True
+            await agen.aclose()
+
+        try:
+            while True:
+                self._raise_if_cancelled()
+                self._raise_if_runtime_exceeded()
+                next_event = asyncio.create_task(agen.__anext__())
+                waiters = {next_event}
+                cancel_wait = None
+                if cancel_event is not None and not cancel_event.is_set():
+                    cancel_wait = asyncio.create_task(cancel_event.wait())
+                    waiters.add(cancel_wait)
+                timeout = self._remaining_runtime()
+                if timeout is not None:
+                    timeout = max(timeout, 0.0)
+                done, pending = await asyncio.wait(
+                    waiters,
+                    return_when=asyncio.FIRST_COMPLETED,
+                    timeout=None if timeout is None else timeout,
+                )
+                for task in pending:
+                    task.cancel()
+                if not done:
+                    next_event.cancel()
+                    await close_stream()
+                    raise self._runtime_exceeded_error()
+                if cancel_wait is not None and cancel_wait in done:
+                    next_event.cancel()
+                    await close_stream()
+                    self._raise_if_cancelled()
+                    raise HarnessCancelled(self._cancel_reason())
+                try:
+                    yield next_event.result()
+                except StopAsyncIteration:
+                    break
+                except asyncio.CancelledError:
+                    await close_stream()
+                    raise HarnessCancelled(self._cancel_reason()) from None
+        finally:
+            await close_stream()
 
     async def _maybe_emit_context_warning(
         self,
@@ -274,29 +409,32 @@ class TurnRunner:
     ) -> List[ToolCall]:
         tool_calls: List[ToolCall] = []
         for pending in pending_calls.values():
-            if not pending.arguments_json.strip():
-                arguments = {}
-            else:
+            decode_error: Optional[str] = None
+            arguments: Dict[str, Any] = {}
+            raw = pending.arguments_json.strip()
+            if raw:
                 try:
-                    arguments = json.loads(pending.arguments_json)
+                    decoded = json.loads(pending.arguments_json)
                 except json.JSONDecodeError as exc:
-                    raise ValueError(
-                        f"Invalid tool arguments: {pending.arguments_json}"
-                    ) from exc
-            if not isinstance(arguments, dict):
-                raise ValueError("Tool arguments must decode to a JSON object.")
-            tool_calls.append(
-                ToolCall(
-                    id=pending.id,
-                    name=pending.name or "unknown_tool",
-                    arguments=arguments,
-                )
+                    decode_error = f"Invalid tool arguments: {pending.arguments_json} ({exc})"
+                    decoded = {}
+                if decode_error is None and not isinstance(decoded, dict):
+                    decode_error = "Tool arguments must decode to a JSON object."
+                    decoded = {}
+                arguments = decoded if isinstance(decoded, dict) else {}
+            call = ToolCall(
+                id=pending.id,
+                name=pending.name or "unknown_tool",
+                arguments=arguments,
             )
+            if decode_error:
+                call.result_status = "error"
+                call.arguments["_decode_error"] = decode_error
+            tool_calls.append(call)
         return tool_calls
 
-    async def _execute_tool(self, tool_call: ToolCall) -> Any:
-        if tool_call.name not in self.tools:
-            raise KeyError(f"Tool '{tool_call.name}' is not registered.")
+    async def _emit_tool_result(self, tool_call: ToolCall, result: ToolResult) -> None:
+        bounded = self._limit_tool_output(result.for_model())
         await self.control_plane.emit(
             "tool_execution_started",
             {
@@ -305,23 +443,108 @@ class TurnRunner:
                 "arguments": tool_call.arguments,
             },
         )
-        result = await self.tools[tool_call.name].execute(
-            control_plane=self.control_plane,
-            args=tool_call.arguments,
-        )
-        result_text = self._stringify_tool_output(result)
-        bounded_result = self._limit_tool_output(result_text)
         await self.control_plane.emit(
             "tool_execution_completed",
             {
                 "tool_call_id": tool_call.id,
                 "tool_name": tool_call.name,
-                "result": bounded_result,
-                "truncated": bounded_result != result_text,
-                "original_chars": len(result_text),
+                "status": result.status,
+                "result": bounded,
+                "truncated": bounded != result.for_model(),
+                "original_chars": len(result.for_model()),
             },
         )
-        return bounded_result
+
+    async def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
+        decode_error = tool_call.arguments.pop("_decode_error", None)
+        if decode_error:
+            result = ToolResult(status="error", content=str(decode_error), error_type="ValueError")
+            await self._emit_tool_result(tool_call, result)
+            return result
+        if tool_call.name not in self.tools:
+            result = ToolResult(
+                status="error",
+                content=f"Tool '{tool_call.name}' is not registered.",
+                error_type="KeyError",
+            )
+            await self._emit_tool_result(tool_call, result)
+            return result
+
+        await self.control_plane.emit(
+            "tool_execution_started",
+            {
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.name,
+                "arguments": tool_call.arguments,
+            },
+        )
+        result = await self._invoke_tool(tool_call)
+        bounded = self._limit_tool_output(result.for_model())
+        await self.control_plane.emit(
+            "tool_execution_completed",
+            {
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.name,
+                "status": result.status,
+                "result": bounded,
+                "truncated": bounded != result.for_model(),
+                "original_chars": len(result.for_model()),
+            },
+        )
+        return result
+
+    async def _invoke_tool(self, tool_call: ToolCall) -> ToolResult:
+        execute = self.tools[tool_call.name].execute(
+            control_plane=self.control_plane,
+            args=tool_call.arguments,
+        )
+        exec_task = asyncio.create_task(execute)
+        waiters = {exec_task}
+        cancel_event = getattr(self.control_plane, "cancel_event", None)
+        cancel_wait = None
+        if cancel_event is not None and not cancel_event.is_set():
+            cancel_wait = asyncio.create_task(cancel_event.wait())
+            waiters.add(cancel_wait)
+        timeout = self._remaining_runtime()
+        try:
+            done, pending = await asyncio.wait(
+                waiters,
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=None if timeout is None else max(timeout, 0.0),
+            )
+            for task in pending:
+                task.cancel()
+            if not done:
+                exec_task.cancel()
+                return ToolResult(
+                    status="timeout",
+                    content="tool execution exceeded remaining run time",
+                    error_type="TimeoutError",
+                )
+            if cancel_wait is not None and cancel_wait in done:
+                exec_task.cancel()
+                return ToolResult(
+                    status="cancelled",
+                    content=self._cancel_reason(),
+                )
+            try:
+                raw = exec_task.result()
+            except asyncio.CancelledError:
+                return ToolResult(status="cancelled", content=self._cancel_reason())
+            except Exception as exc:
+                return ToolResult(
+                    status="error",
+                    content=str(exc) or type(exc).__name__,
+                    error_type=type(exc).__name__,
+                )
+            return ToolResult(status="success", content=self._stringify_tool_output(raw))
+        except Exception as exc:
+            exec_task.cancel()
+            return ToolResult(
+                status="error",
+                content=str(exc) or type(exc).__name__,
+                error_type=type(exc).__name__,
+            )
 
     def _limit_tool_output(self, value: str) -> str:
         limit = self.tool_result_max_chars

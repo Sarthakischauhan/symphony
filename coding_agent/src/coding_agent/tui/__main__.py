@@ -28,6 +28,11 @@ def main() -> None:
         action="store_true",
         help="List saved sessions and interactively resume one",
     )
+    parser.add_argument(
+        "--learn",
+        action="store_true",
+        help="Enable optional post-run learning / reflection",
+    )
     args = parser.parse_args()
     workspace = Path(args.workspace or ".").resolve()
     session_id = None
@@ -39,7 +44,12 @@ def main() -> None:
         session_id = ResumeApp(sessions).run()
         if session_id is None:
             return
-    run_tui(workspace=workspace, model_id=args.model, session_id=session_id)
+    run_tui(
+        workspace=workspace,
+        model_id=args.model,
+        session_id=session_id,
+        enable_learning=args.learn,
+    )
 
 
 if __name__ == "__main__":

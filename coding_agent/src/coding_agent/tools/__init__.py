@@ -6,6 +6,7 @@ from typing import List, Type
 from core_harness import Tool
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+from coding_agent.tools.approvals import ApprovalTool, wrap_with_approvals
 from coding_agent.tools.ask_user import AskUserArgs, AskUserTool
 from coding_agent.tools.bash import BashArgs, BashTool
 from coding_agent.tools.patch import PatchArgs, PatchTool
@@ -23,9 +24,10 @@ TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
 )
 
 __all__ = [
-    "AskUserArgs", "AskUserTool", "BashArgs", "BashTool", "PatchArgs", "PatchTool", "ReadFileArgs",
-    "ReadFileTool", "SearchArgs", "SearchTool", "TOOL_CLASSES",
+    "ApprovalTool", "AskUserArgs", "AskUserTool", "BashArgs", "BashTool", "PatchArgs", "PatchTool",
+    "ReadFileArgs", "ReadFileTool", "SearchArgs", "SearchTool", "TOOL_CLASSES",
     "ToolArgsModel", "WorkspaceTool", "WriteFileArgs", "WriteFileTool", "build_tools",
+    "wrap_with_approvals",
 ]
 
 

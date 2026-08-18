@@ -2,6 +2,8 @@
 
 An open-source agent harness. `core_ai` and `core_harness` are the harness; `coding_agent` is the first product built on it — more are coming (a browser-use agent is next).
 
+![Symphony coding agent TUI](docs/demo.gif)
+
 Built with a simple philosophy: keep the harness product-agnostic, keep the provider layer swappable, and drive every UI from a single control-plane event stream instead of scraping output.
 
 ## Architecture
@@ -52,11 +54,11 @@ The harness (Symphony) is standalone and product-agnostic. Agents are separate c
 ## Features
 
 - **Streaming provider layer** — register providers by name, route `provider:model` requests through a shared `ModelRegistry`.
-- **Turn-based harness** — multi-turn tool calls, tool schema generation, and a typed control-plane event stream (thinking, `text_delta`, tool calls, usage, context).
-- **Control plane** — every UI subscribes to the same emit stream; supports fan-out, event logs, and inbound pause/cancel commands.
+- **Turn-based harness** — multi-turn tool calls, tool schema generation, and a typed control-plane event stream (thinking, `text_delta`, tool calls, usage, context). Every event carries `run_id`, `session_id`, a sequence number, timestamp, and schema version. Runs can cap turns, tool calls, runtime, and tokens.
+- **Control plane** — every UI subscribes to the same emit stream; supports fan-out, event logs, and inbound pause/cancel commands. Cancel stops the active model stream and tool execution, then persists `run_cancelled`.
+- **Coding agent** — workspace tools (`read_file`, `write_file`, `patch`, `search`, `bash`), streamed/capped bash, approval prompts before bash/overwrite/broad patch, a Textual TUI (Esc cancels), safer run limits, and opt-in learning.
 - **Context management** — warn thresholds, token estimation, and pluggable compaction.
 - **Persistence** — a `Persistence` protocol with checkpoints, plus a SQLite store for conversation resume across runs.
-- **Coding agent** — updated documentation regarding learning mechanisms and persistence management, including five workspace tools (`read_file`, `write_file`, `patch`, `search`, `bash`), a Textual TUI, and persisted sessions.
 - **Browser-use agent (upcoming)** — same harness, browser tools and UX on top.
 
 ## Quick Start
@@ -70,6 +72,12 @@ Launch against a different workspace:
 
 ```sh
 uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
+```
+
+Enable optional post-run learning:
+
+```sh
+uv run --package coding-agent coding-agent-tui --learn
 ```
 
 Resume a previous session interactively:

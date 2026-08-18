@@ -6,7 +6,8 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 
 from core_harness.control_plane import ControlPlane, NullControlPlane
-from core_harness.models.harness import HarnessResult
+from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
+from core_harness.models.harness import HarnessResult, RunLimits
 from core_harness.persistence import NullPersistence, Persistence
 from core_harness.run import HarnessRun
 from core_harness.state import Compactor, HarnessState
@@ -27,6 +28,10 @@ class CoreHarness:
         persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
         max_turns: int = 8,
+        max_tool_calls: Optional[int] = None,
+        max_runtime_seconds: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        limits: Optional[RunLimits] = None,
         context_limits: Optional[Dict[str, int]] = None,
         context_warn_threshold: Optional[int] = None,
         context_compact_threshold: Optional[int] = None,
@@ -40,7 +45,13 @@ class CoreHarness:
         self.control_plane = control_plane or NullControlPlane()
         self.persistence = persistence or NullPersistence()
         self.session_id = session_id
-        self.max_turns = max_turns
+        self.limits = limits or RunLimits(
+            max_turns=max_turns,
+            max_tool_calls=max_tool_calls,
+            max_runtime_seconds=max_runtime_seconds,
+            max_tokens=max_tokens,
+        )
+        self.max_turns = self.limits.max_turns
         if tool_result_max_chars is not None and tool_result_max_chars < 1:
             raise ValueError("tool_result_max_chars must be positive or None")
         self.tool_result_max_chars = tool_result_max_chars
@@ -79,7 +90,7 @@ class CoreHarness:
             control_plane=self.control_plane,
             persistence=self.persistence,
             default_session_id=self.session_id,
-            max_turns=self.max_turns,
+            limits=self.limits,
             state=self.state,
             tool_result_max_chars=self.tool_result_max_chars,
             context_target_tokens=self.context_target_tokens,
@@ -91,6 +102,4 @@ class CoreHarness:
         )
 
 
-from core_harness.run import HarnessCancelled
-
-__all__ = ["CoreHarness", "HarnessCancelled"]
+__all__ = ["CoreHarness", "HarnessCancelled", "HarnessLimitExceeded"]

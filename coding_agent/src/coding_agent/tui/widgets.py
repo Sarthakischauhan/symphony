@@ -39,7 +39,7 @@ class Welcome(Static):
             Text(f"  {workspace}", style="#666666"),
             Text(""),
             Text("Describe a task, ask a question, or request a code change.", style="#a0a0a0"),
-            Text("Enter sends  ·  Ctrl+D quits  ·  Ctrl+L clears", style="#575757"),
+            Text("Enter sends  ·  Esc cancels a run  ·  Ctrl+D quits  ·  Ctrl+L clears", style="#575757"),
         )
         super().__init__(body, classes="welcome")
 

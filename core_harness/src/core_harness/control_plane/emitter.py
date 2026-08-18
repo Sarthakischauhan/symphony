@@ -29,6 +29,9 @@ class NullControlPlane:
         self._paused = False
         self._resume_event = asyncio.Event()
         self._resume_event.set()
+        self._cancelled = False
+        self._cancel_reason = "cancelled"
+        self.cancel_event = asyncio.Event()
 
     async def emit(
         self,
@@ -48,7 +51,19 @@ class NullControlPlane:
             self._paused = True
             self._resume_event.clear()
             return
+        if command.type == ControlCommandType.CANCEL:
+            self._cancelled = True
+            self._cancel_reason = str(command.payload.get("reason", "cancelled"))
+            self.cancel_event.set()
         self._commands.append(command)
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    @property
+    def cancel_reason(self) -> str:
+        return self._cancel_reason
 
     async def drain_commands(self) -> List[ControlCommand]:
         commands = list(self._commands)

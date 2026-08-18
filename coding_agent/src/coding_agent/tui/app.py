@@ -41,7 +41,7 @@ from coding_agent.tui.widgets import (
     Welcome,
     make_tool_widget,
 )
-from core_harness import HarnessResult
+from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
 
 class CodingAgentApp(App[None]):
@@ -54,6 +54,8 @@ class CodingAgentApp(App[None]):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear", show=False),
+        Binding("escape", "cancel_run", "Cancel", show=True, priority=True),
+        Binding("ctrl+x", "cancel_run", "Cancel", show=False, priority=True),
     ]
 
     TITLE = "Symphony"
@@ -64,11 +66,13 @@ class CodingAgentApp(App[None]):
         workspace: str | Path = ".",
         model_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        enable_learning: bool = False,
     ) -> None:
         super().__init__()
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
+        self.enable_learning = enable_learning
         self.mode: AgentMode = "build"
         self.control_plane = TextualControlPlane()
         self._agent: Optional[CodingAgent] = None
@@ -113,6 +117,7 @@ class CodingAgentApp(App[None]):
                 control_plane=self.control_plane,
                 model_id=self.model_id,
                 session_id=self.session_id,
+                enable_learning=self.enable_learning,
             )
             self._agent.set_mode(self.mode)
         except Exception as exc:  # noqa: BLE001
@@ -295,7 +300,7 @@ class CodingAgentApp(App[None]):
             self._plan_run_active = True
         self._busy = True
         event.input.disabled = True
-        self.query_one("#composer-hint", Static).update("Working…")
+        self.query_one("#composer-hint", Static).update("Working… · Esc to cancel")
         self.run_agent(text)
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -356,15 +361,18 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer", Composer).set_class(
             self.mode == "plan", "plan-mode"
         )
-        hint = f"{label} · Tab mode · Enter to send"
+        hint = f"{label} · Tab mode · Enter to send · Esc cancels"
         if self._pending_question_id is not None:
-            hint = "Waiting for your answer…"
+            hint = "Waiting for your answer… · Esc cancels"
         self.query_one("#composer-hint", Static).update(hint)
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
         try:
             await self._run_agent_turn(user_input)
+        except (HarnessCancelled, HarnessLimitExceeded):
+            if self._presenter is not None:
+                self._presenter.flush_stream_to_log()
         except Exception as exc:  # noqa: BLE001
             if self._presenter is not None:
                 self._presenter.flush_stream_to_log()
@@ -375,6 +383,9 @@ class CodingAgentApp(App[None]):
                 self._ui_state.phase = "idle"
                 self._presenter.refresh_chrome()
             self._busy = False
+            self._pending_question_id = None
+            self._pending_question_default = ""
+            self.control_plane.reset_cancel()
             prompt = self.query_one("#prompt", Input)
             prompt.disabled = False
             self._update_composer_hint()
@@ -397,6 +408,34 @@ class CodingAgentApp(App[None]):
         self._reasoning = None
         self._process = None
         self._tools.clear()
+
+    def action_cancel_run(self) -> None:
+        menu = self.query_one("#slash-menu", SlashMenu)
+        if not self._busy:
+            menu.set_commands(())
+            return
+        self._pending_question_id = None
+        self._pending_question_default = ""
+        menu.set_commands(())
+        self.control_plane.request_cancel("user_cancel")
+        self.add_notice("Cancelling…", "warning")
+        prompt = self.query_one("#prompt", Input)
+        prompt.disabled = False
+        self._update_composer_hint()
+        prompt.focus()
+
+    def action_quit(self) -> None:
+        if self._busy:
+            self.control_plane.request_cancel("quit")
+        if self._agent is not None and self._agent.learning_loop is not None:
+            self._agent.learning_loop.cancel()
+        self.exit()
+
+    async def on_unmount(self) -> None:
+        if self._busy:
+            self.control_plane.request_cancel("quit")
+        if self._agent is not None:
+            await self._agent.shutdown_learning()
 
     def _show_question(self, payload: Mapping[str, Any]) -> None:
         request_id = str(payload.get("request_id") or "")
@@ -439,7 +478,13 @@ def run_tui(
     workspace: str | Path = ".",
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    enable_learning: bool = False,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
     load_dotenv(override=True)
-    CodingAgentApp(workspace=workspace, model_id=model_id, session_id=session_id).run()
+    CodingAgentApp(
+        workspace=workspace,
+        model_id=model_id,
+        session_id=session_id,
+        enable_learning=enable_learning,
+    ).run()
