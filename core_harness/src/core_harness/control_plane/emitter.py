@@ -31,7 +31,39 @@ class NullControlPlane:
         self._resume_event.set()
         self._cancelled = False
         self._cancel_reason = "cancelled"
-        self.cancel_event = asyncio.Event()
+        self._cancel_event: Optional[asyncio.Event] = None
+
+    def _loop_event(self, current: Optional[asyncio.Event], *, set_when: bool) -> asyncio.Event:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            if current is None:
+                current = asyncio.Event()
+                if set_when:
+                    current.set()
+            return current
+        if current is None:
+            current = asyncio.Event()
+            if set_when:
+                current.set()
+            return current
+        getter = getattr(current, "_get_loop", None)
+        bound = None
+        if getter is not None:
+            try:
+                bound = getter()
+            except RuntimeError:
+                bound = None
+        if bound is not loop:
+            current = asyncio.Event()
+            if set_when:
+                current.set()
+        return current
+
+    @property
+    def cancel_event(self) -> asyncio.Event:
+        self._cancel_event = self._loop_event(self._cancel_event, set_when=self._cancelled)
+        return self._cancel_event
 
     async def emit(
         self,

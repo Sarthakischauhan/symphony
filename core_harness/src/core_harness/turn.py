@@ -334,7 +334,6 @@ class TurnRunner:
 
     async def _stream_events(self, messages: List[Message]):
         agen = self.registry.stream(self.model_id, messages, self.tool_schemas)
-        cancel_event = getattr(self.control_plane, "cancel_event", None)
         closed = False
 
         async def close_stream() -> None:
@@ -342,12 +341,28 @@ class TurnRunner:
             if closed:
                 return
             closed = True
-            await agen.aclose()
+            try:
+                await agen.aclose()
+            except RuntimeError:
+                pass
 
+        async def settle(task: Optional[asyncio.Task]) -> None:
+            if task is None:
+                return
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, StopAsyncIteration, RuntimeError):
+                pass
+
+        next_event: Optional[asyncio.Task] = None
+        cancel_wait: Optional[asyncio.Task] = None
         try:
             while True:
                 self._raise_if_cancelled()
                 self._raise_if_runtime_exceeded()
+                cancel_event = getattr(self.control_plane, "cancel_event", None)
                 next_event = asyncio.create_task(agen.__anext__())
                 waiters = {next_event}
                 cancel_wait = None
@@ -357,30 +372,49 @@ class TurnRunner:
                 timeout = self._remaining_runtime()
                 if timeout is not None:
                     timeout = max(timeout, 0.0)
-                done, pending = await asyncio.wait(
+                done, _pending = await asyncio.wait(
                     waiters,
                     return_when=asyncio.FIRST_COMPLETED,
                     timeout=None if timeout is None else timeout,
                 )
-                for task in pending:
-                    task.cancel()
-                if not done:
-                    next_event.cancel()
+                actually_cancelled = self._cancelled() or (
+                    cancel_event is not None and cancel_event.is_set()
+                )
+                if actually_cancelled:
+                    await settle(next_event)
+                    await settle(cancel_wait)
+                    next_event = None
+                    cancel_wait = None
                     await close_stream()
-                    raise self._runtime_exceeded_error()
-                if cancel_wait is not None and cancel_wait in done:
-                    next_event.cancel()
-                    await close_stream()
-                    self._raise_if_cancelled()
                     raise HarnessCancelled(self._cancel_reason())
+                if next_event not in done:
+                    wait_timeout = self._remaining_runtime()
+                    more, _ = await asyncio.wait(
+                        {next_event},
+                        timeout=None if wait_timeout is None else max(wait_timeout, 0.0),
+                    )
+                    if not more:
+                        await settle(next_event)
+                        await settle(cancel_wait)
+                        next_event = None
+                        cancel_wait = None
+                        await close_stream()
+                        raise self._runtime_exceeded_error()
+                await settle(cancel_wait)
+                cancel_wait = None
                 try:
-                    yield next_event.result()
+                    event = next_event.result()
                 except StopAsyncIteration:
+                    next_event = None
                     break
                 except asyncio.CancelledError:
                     await close_stream()
                     raise HarnessCancelled(self._cancel_reason()) from None
+                next_event = None
+                yield event
         finally:
+            await settle(next_event)
+            await settle(cancel_wait)
             await close_stream()
 
     async def _maybe_emit_context_warning(

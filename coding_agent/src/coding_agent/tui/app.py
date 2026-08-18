@@ -434,8 +434,9 @@ class CodingAgentApp(App[None]):
     async def on_unmount(self) -> None:
         if self._busy:
             self.control_plane.request_cancel("quit")
-        if self._agent is not None:
-            await self._agent.shutdown_learning()
+        shutdown = getattr(self._agent, "shutdown_learning", None)
+        if callable(shutdown):
+            await shutdown()
 
     def _show_question(self, payload: Mapping[str, Any]) -> None:
         request_id = str(payload.get("request_id") or "")

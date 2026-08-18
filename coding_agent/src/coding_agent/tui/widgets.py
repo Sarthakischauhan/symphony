@@ -165,8 +165,9 @@ class ReasoningWidget(Collapsible):
         self._scroll.anchor()
 
     def complete(self) -> None:
-        self._scroll.anchor(False)
-        self._scroll.scroll_home(animate=False, force=True)
+        if self.is_mounted:
+            self._scroll.anchor(False)
+            self._scroll.scroll_home(animate=False, force=True)
         if self._summary_heading:
             self.title = f"Thought - {self._summary_heading}"
             self._body.update(
