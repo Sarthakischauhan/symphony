@@ -3,21 +3,26 @@ from core_harness.control_plane import (
     ControlPlane,
     EventLog,
     FanoutControlPlane,
+    IdentifiedControlPlane,
     InboundControlPlane,
     InMemoryEventLog,
     InteractiveControlPlane,
     NullControlPlane,
     PersistingControlPlane,
 )
-from core_harness.harness import CoreHarness, HarnessCancelled
+from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
+from core_harness.harness import CoreHarness
 from core_harness.models import (
     ControlCommand,
     ControlCommandType,
     ControlPlaneEvent,
     ControlPlaneEventType,
+    EVENT_SCHEMA_VERSION,
     HarnessResult,
     PendingToolCall,
+    RunLimits,
     ToolCall,
+    ToolResult,
 )
 from core_harness.models.harness import UsageTotals
 from core_harness.persistence import Checkpoint, NullPersistence, Persistence
@@ -32,10 +37,13 @@ __all__ = [
     "ControlPlaneEvent",
     "ControlPlaneEventType",
     "CoreHarness",
+    "EVENT_SCHEMA_VERSION",
     "EventLog",
     "FanoutControlPlane",
     "HarnessCancelled",
+    "HarnessLimitExceeded",
     "HarnessResult",
+    "IdentifiedControlPlane",
     "InboundControlPlane",
     "InMemoryEventLog",
     "InteractiveControlPlane",
@@ -45,7 +53,9 @@ __all__ = [
     "PendingToolCall",
     "Persistence",
     "PersistingControlPlane",
+    "RunLimits",
     "Tool",
     "ToolCall",
+    "ToolResult",
     "UsageTotals",
 ]

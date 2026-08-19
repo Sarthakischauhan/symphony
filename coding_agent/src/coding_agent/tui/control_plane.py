@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional, Union
 
 from textual.message import Message
 
-from core_harness import ControlPlaneEventType
+from core_harness import ControlCommand, ControlCommandType, ControlPlaneEventType
 
 
 class HarnessEvent(Message):
@@ -41,6 +41,9 @@ class TextualControlPlane:
     def __init__(self) -> None:
         self._app: Any = None
         self._question_futures: dict[str, asyncio.Future[str]] = {}
+        self._cancelled = False
+        self._cancel_reason = "cancelled"
+        self.cancel_event = asyncio.Event()
 
     def bind(self, app: Any) -> None:
         self._app = app
@@ -65,6 +68,32 @@ class TextualControlPlane:
             if request_id:
                 self._get_question_future(request_id)
         self._app.post_message(HarnessEvent(event_type, payload or {}))
+
+    def request_cancel(self, reason: str = "user_cancel") -> None:
+        """Synchronously stop the active run from a TUI key binding."""
+        self._cancelled = True
+        self._cancel_reason = reason
+        self.cancel_event.set()
+        for future in list(self._question_futures.values()):
+            if not future.done():
+                future.set_result("Deny")
+
+    async def send_command(self, command: ControlCommand) -> None:
+        if command.type == ControlCommandType.CANCEL:
+            self.request_cancel(str(command.payload.get("reason", "cancelled")))
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    @property
+    def cancel_reason(self) -> str:
+        return self._cancel_reason
+
+    def reset_cancel(self) -> None:
+        self._cancelled = False
+        self._cancel_reason = "cancelled"
+        self.cancel_event = asyncio.Event()
 
     async def ask_user(self, request_id: str) -> str:
         if self._app is None:

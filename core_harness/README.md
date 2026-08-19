@@ -8,6 +8,9 @@ Minimal agent loop for running a model with tools and a control plane. This pack
 - `Tool` for wrapping Python callables as model tools
 - control-plane primitives for lifecycle events and commands
 - `Persistence` protocol for conversation + checkpoint saves (`NullPersistence` default)
+- run limits for turns, tool calls, runtime, and tokens
+- event identity (`run_id`, `session_id`, `seq`, `ts`, `schema_version`) on every emit
+- cancellation that stops in-flight streams and tool execution
 - simple compaction and token-estimation helpers
 - bounded tool results to prevent large outputs from consuming the model context
 

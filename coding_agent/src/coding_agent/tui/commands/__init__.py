@@ -55,6 +55,7 @@ SLASH_COMMANDS = (
     SlashCommand("mode", "View or switch between build and plan", "[mode]"),
     SlashCommand("plan", "Choose and open a workspace plan", "[plan]"),
     SlashCommand("new", "Start a fresh conversation"),
+    SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),
     SlashCommand("learning", "Open markdown-rendered agent learnings"),

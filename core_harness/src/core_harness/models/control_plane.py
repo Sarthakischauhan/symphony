@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field
 from core_ai.types import Message
 
 
+EVENT_SCHEMA_VERSION = 1
+
+
 class ControlPlaneEventType(str, Enum):
     """Typed catalog of harness control-plane events (string-compatible)."""
 
@@ -15,6 +18,7 @@ class ControlPlaneEventType(str, Enum):
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
     RUN_CANCELLED = "run_cancelled"
+    RUN_LIMIT_EXCEEDED = "run_limit_exceeded"
     TURN_STARTED = "turn_started"
     TURN_COMPLETED = "turn_completed"
     TEXT_DELTA = "text_delta"

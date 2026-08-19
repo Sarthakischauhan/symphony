@@ -28,13 +28,19 @@ class OpenAIProvider(BaseProvider):
         model_name: str,
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
+        max_output_tokens: Optional[int] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         provider = (
             self._completion
             if self._uses_chat_completions(model_name)
             else self._responses
         )
-        async for event in provider.stream(model_name, messages, tools):
+        async for event in provider.stream(
+            model_name,
+            messages,
+            tools,
+            max_output_tokens=max_output_tokens,
+        ):
             yield event
 
     @staticmethod

@@ -26,8 +26,12 @@ Earlier phases for the general-purpose harness are landed:
 - Context management (warn threshold, compaction, token estimates)
 - Control-plane product surface (typed events, fan-out, persistence, inbound pause/cancel/inject)
 - Multi-turn OpenAI tool-call forwarding
+- Tool result protocol: every tool call gets `success`, `error`, `timeout`, or `cancelled`
+- Cancellation stops in-flight model streams and tool execution, then emits and persists `run_cancelled`
+- Optional run limits for turns, tool calls, runtime, and tokens (`run_limit_exceeded`)
+- Event identity on every control-plane event: `run_id`, `session_id`, `seq`, `ts`, `schema_version`
 
-### Done (coding agent tools)
+### Done (coding agent)
 
 `coding_agent` tools use one module each under a shared `WorkspaceTool` base:
 
@@ -36,9 +40,15 @@ Earlier phases for the general-purpose harness are landed:
 | `read_file` | `tools/read_file.py` | Read UTF-8 text |
 | `write_file` | `tools/write_file.py` | Create / overwrite text |
 | `patch` | `tools/patch.py` | Surgical exact-text edit |
-| `bash` | `tools/bash.py` | Shell in workspace |
-| `grep` | `tools/grep.py` | Regex search (path / glob) |
-| `ast_query` | `tools/ast_query.py` | Semantic AST queries |
+| `bash` | `tools/bash.py` | Async shell in workspace (streamed, capped, timed out) |
+| `search` | `tools/search.py` | File name / content search |
+| `ask_user` | `tools/ask_user.py` | Clarifying questions |
+
+- Approval gates ask before bash, file overwrite, or a broad patch (allow once / deny)
+- TUI Escape / Ctrl+X sends the harness cancel command and restores the composer
+- Safer defaults: 24 turns, 40 tool calls, 10 minutes, 200k tokens
+- Learning is enabled by default, capped at 900 output tokens, and pending reflection is cancelled on TUI exit
+- `@file` composer search reuses the existing model/command selector
 
 Shared `WorkspaceTool` base handles workspace binding, path escape rejection, pydantic schemas, and `as_harness_tool()`.
 
@@ -60,8 +70,7 @@ Shared `WorkspaceTool` base handles workspace binding, path escape rejection, py
 
 ### Not started yet / next
 
-- TUI streaming polish + cancel/pause
-- Permission / approval gates for destructive tools
+- Pause / resume bindings in the TUI
 - Richer lesson synthesis (model-authored summaries)
 - Multi-language AST beyond Python
 
@@ -95,25 +104,25 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 - [x] Minimal app: transcript log + input box + run agent turn
 - [x] Subscribe to control-plane events (tool start/complete; streaming later)
 - [x] Entry points: `python -m coding_agent.tui` / `coding-agent-tui`
-- [ ] Stream `text_delta` into the log without duplicating final output
-- [ ] Cancel / pause bindings via inbound CP commands
+- [x] Stream `text_delta` into the log without duplicating final output
+- [x] Cancel bindings via inbound CP commands
 
 ### Phase 3 — Agent hardening ✅ (this PR)
 
 - [x] `patch` / edit-file tool (surgical exact-text edits)
 - [x] Expand AST layer: semantic symbols, inheritance, call graph, `ast_query`
 - [x] Self-learning loop after each task under `.symphony/learning`
-- [ ] Permission policy (e.g. confirm before `bash` / overwrite)
+- [x] Permission policy (e.g. confirm before `bash` / overwrite)
 - [ ] Configurable tool allowlist / denylist
 - [ ] Model-authored lesson summaries (beyond heuristic tips)
 
 ### Phase 4 — Product UX
 
-- [ ] Streaming transcript in TUI (token deltas)
-- [ ] Tool-call panels (name, args, result collapse)
-- [ ] Cancel / pause via inbound control-plane commands
-- [ ] Session save / resume (messages + workspace path)
-- [ ] Usage / context footer from CP `usage` + `context` events
+- [x] Streaming transcript in TUI (token deltas)
+- [x] Tool-call panels (name, args, result collapse)
+- [x] Cancel via inbound control-plane commands
+- [x] Session save / resume (messages + workspace path)
+- [x] Usage / context footer from CP `usage` + `context` events
 
 ### Phase 5 — Platform backlog
 
@@ -123,7 +132,7 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 | Parallel tool execution | latency | tool executor + CP ordering |
 | Sub-agents / nested harness | orchestration | `run_id` / `parent_run_id` |
 | Eval / trace export | JSONL or OTel | event catalog |
-| Budget caps | stop on tokens / $ | usage events |
+| Budget caps | stop on tokens / $ | usage events — token/turn/runtime/tool-call caps landed |
 | Multi-provider polish | Anthropic / others | `core_ai` providers |
 
 ---
@@ -141,8 +150,8 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 - [x] Land `patch` / edit-file tool
 - [x] Semantic AST + `ast_query`
 - [x] `.symphony` self-learning loop
-- [ ] Tool result size caps (beyond read/grep)
-- [ ] Optional permission gate for bash / overwrite
+- [x] Tool result size caps (beyond read/grep)
+- [x] Optional permission gate for bash / overwrite
 
 ---
 
@@ -227,4 +236,4 @@ the duration of a run.
 3. Update **Current State** and checkboxes when work merges.
 4. Add new backlog rows under Phase 5 instead of rewriting history.
 
-**Primary near-term objectives:** permission gates, TUI streaming polish, richer learning summaries.
+**Primary near-term objectives:** richer learning summaries, pause/resume UX, multi-language AST.

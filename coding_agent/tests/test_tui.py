@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from textual import events
 
 from core_ai import ModelRegistry
 from core_ai.types import Message
@@ -23,6 +24,11 @@ from coding_agent.tui.commands import (
     model_matches,
 )
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
+from coding_agent.tui.file_selector import (
+    active_file_mention,
+    complete_file_mention,
+    file_matches,
+)
 from coding_agent.tui.modal import PlanModal
 from coding_agent.tui.modal.components import PlanSectionCard
 from coding_agent.tui.modal.plan import _plan_sections
@@ -33,12 +39,63 @@ from coding_agent.tui.widgets import (
     ReadFileWidget,
     ReasoningWidget,
     RunProcess,
-    SlashMenu,
     ThinkingStatus,
+    UserMessage,
 )
+from coding_agent.tui.slash_menu import SlashMenu
 
 
-def test_tui_composes_without_api_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_tui_escape_cancels_busy_run_and_restores_composer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._busy = True
+            prompt = app.query_one("#prompt")
+            prompt.disabled = True
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.control_plane.cancelled
+            assert app.control_plane.cancel_reason == "user_cancel"
+            assert not prompt.disabled
+            assert prompt.has_focus
+
+    asyncio.run(_run())
+
+
+def test_tui_quit_cancels_pending_learning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    cancelled: list[str] = []
+
+    class FakeLearning:
+        def cancel(self) -> None:
+            cancelled.append("cancel")
+
+        async def shutdown(self) -> None:
+            cancelled.append("shutdown")
+
+    class FakeAgent:
+        learning_loop = FakeLearning()
+
+        async def shutdown_learning(self) -> None:
+            await self.learning_loop.shutdown()
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            app.action_quit()
+            await app.on_unmount()
+            assert cancelled == ["cancel", "shutdown"]
+
+    asyncio.run(_run())
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
 
@@ -432,6 +489,226 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     ]
     assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
+
+
+def test_file_mentions_are_ranked_and_preserve_prompt_text(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "turn.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_turn.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("hidden", encoding="utf-8")
+
+    matches = file_matches(tmp_path, "turn")
+
+    assert [match.path for match in matches] == ["src/turn.py", "tests/test_turn.py"]
+    assert active_file_mention("Review @tur") == (7, "tur")
+    assert active_file_mention("Review @src/turn.py next") is None
+    assert complete_file_mention("Review @tur", "src/turn.py") == (
+        "Review @src/turn.py ",
+        20,
+    )
+
+
+def test_at_file_selector_uses_existing_composer_menu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "turn.py").write_text("pass\n", encoding="utf-8")
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt")
+            prompt.value = "Review @tur"
+            await pilot.pause()
+
+            menu = app.query_one(SlashMenu)
+            assert menu.display
+            assert menu.is_file_selector
+            assert menu.selected_value == "@src/turn.py"
+
+            await pilot.press("tab")
+            await pilot.pause()
+            assert prompt.value == "Review @src/turn.py "
+            assert prompt.cursor_position == len(prompt.value)
+            assert not menu.display
+
+            prompt.value = "Also inspect @tur"
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert prompt.value == "Also inspect @src/turn.py "
+            assert not menu.display
+
+    asyncio.run(_run())
+
+
+def test_file_selector_scrolls_to_keep_selection_visible(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    for index in range(20):
+        (tmp_path / f"file_{index:02}.py").write_text("pass\n", encoding="utf-8")
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt")
+            prompt.value = "Review @file_"
+            await pilot.pause()
+
+            menu = app.query_one(SlashMenu)
+            assert menu.display
+            assert len(menu._files) == 20
+            assert menu.scroll_y == 0
+
+            for _ in range(12):
+                await pilot.press("down")
+            await pilot.pause()
+
+            assert menu.selected_index == 12
+            assert menu.scroll_y > 0
+            assert menu.selected_value == "@file_12.py"
+            assert menu.styles.scrollbar_size_vertical == 1
+
+            menu.post_message(
+                events.MouseScrollDown(menu, 0, 0, 0, 1, 0, False, False, False)
+            )
+            await pilot.pause()
+            assert menu.selected_index == 13
+
+            menu.post_message(
+                events.MouseScrollUp(menu, 0, 0, 0, -1, 0, False, False, False)
+            )
+            await pilot.pause()
+            assert menu.selected_index == 12
+
+    asyncio.run(_run())
+
+
+def test_plan_menu_options_are_hoverable_and_clickable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._plan_store.save("Ship feature", "1. Build it.")
+            opened: list[object] = []
+            app.push_screen = lambda screen, *args: opened.append(screen)  # type: ignore[method-assign]
+
+            prompt = app.query_one("#prompt")
+            prompt.value = "/plan "
+            await pilot.pause()
+            menu = app.query_one(SlashMenu)
+
+            assert menu.display
+            assert menu.selected_value == "/plan ship_feature_plan.md"
+            assert await pilot.hover(menu, offset=(4, 2))
+            assert menu._mouse_hovering_over == 0
+            assert await pilot.click(menu, offset=(4, 2))
+            await pilot.pause()
+
+            assert opened and opened[0].__class__.__name__ == "PlanModal"
+
+    asyncio.run(_run())
+
+
+def test_permission_question_has_distinct_secure_design(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            answer = app.control_plane._get_question_future("approval-1")
+            app._show_question(
+                {
+                    "request_id": "approval-1",
+                    "question": "Allow bash command once?\n`uv run pytest`",
+                    "choices": ["Allow once", "Deny"],
+                    "default": "Deny",
+                    "kind": "approval",
+                    "tool_name": "bash",
+                }
+            )
+            await pilot.pause()
+
+            menu = app.query_one(SlashMenu)
+            assert menu.has_class("permission-menu")
+            assert menu.selected_value == "Deny"
+            assert menu.highlighted == menu._option_offset + 1
+            assert str(menu.options[0].prompt) == "  Allow to run following"
+            assert "uv run pytest" in str(menu.options[1].prompt)
+            assert app.query_one("#prompt").value == ""
+
+            assert await pilot.click(menu, offset=(4, 4))
+            await pilot.pause()
+            assert answer.result() == "Allow once"
+            assert app.query_one("#prompt").value == ""
+
+    asyncio.run(_run())
+
+
+def test_reload_refreshes_config_without_clearing_conversation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    loaded: list[bool] = []
+    built_with: dict[str, Any] = {}
+    selected_modes: list[str] = []
+
+    reloaded_agent = SimpleNamespace(
+        session_id="current-session",
+        harness=SimpleNamespace(
+            model_id="openai:reloaded-model",
+            state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
+        ),
+        learning_loop=None,
+        set_mode=lambda mode: selected_modes.append(mode),
+    )
+
+    def _load_dotenv(*, override: bool) -> None:
+        loaded.append(override)
+
+    def _build_agent(**kwargs: Any) -> Any:
+        built_with.update(kwargs)
+        return reloaded_agent
+
+    monkeypatch.setattr("coding_agent.tui.commands.reload.load_dotenv", _load_dotenv)
+    monkeypatch.setattr("coding_agent.tui.commands.reload.build_agent", _build_agent)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            selected_modes.clear()
+            built_with.clear()
+            app._agent = SimpleNamespace(
+                session_id="current-session", learning_loop=None
+            )
+            app._mount_transcript(UserMessage("Keep this conversation"))
+            await pilot.pause()
+
+            await app._command_manager.run("/reload")
+            await pilot.pause()
+
+            assert loaded == [True]
+            assert built_with["session_id"] == "current-session"
+            assert selected_modes == ["build"]
+            assert app._agent is reloaded_agent
+            assert len(app.query(".user-message")) == 1
+            assert app._ui_state.model_id == "openai:reloaded-model"
+
+    asyncio.run(_run())
 
 
 def test_reasoning_usage_without_summary_skips_reasoning_block(

@@ -12,6 +12,7 @@ from core_harness.models.harness import UsageTotals
 
 from coding_agent import CodingAgent
 from coding_agent.learning import LearningLoop, LearningStore
+from coding_agent.learning.loop import LEARNING_MAX_OUTPUT_TOKENS
 
 
 def _result() -> HarnessResult:
@@ -23,7 +24,11 @@ def _result() -> HarnessResult:
 
 
 class ReviewRegistry:
-    async def stream(self, model_id, messages, tools=None):
+    def __init__(self) -> None:
+        self.max_output_tokens = None
+
+    async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
+        self.max_output_tokens = max_output_tokens
         payload = {
             "should_save": True,
             "summary": "Run focused tests after surgical edits",
@@ -39,19 +44,21 @@ class ReviewRegistry:
 def test_reflection_is_scheduled_and_saved(tmp_path: Path) -> None:
     async def scenario():
         store = LearningStore(tmp_path)
-        loop = LearningLoop(store, registry=ReviewRegistry(), model_id="test:model")
+        registry = ReviewRegistry()
+        loop = LearningLoop(store, registry=registry, model_id="test:model")
         loop.schedule("fix bug", _result())
         await loop.wait()
-        return store.load()
+        return store.load(), registry.max_output_tokens
 
-    lessons = asyncio.run(scenario())
+    lessons, max_output_tokens = asyncio.run(scenario())
     assert len(lessons) == 1
     assert "focused tests" in lessons[0].summary
+    assert max_output_tokens == LEARNING_MAX_OUTPUT_TOKENS == 900
 
 
 def test_should_save_false_is_normal(tmp_path: Path) -> None:
     class EmptyRegistry:
-        async def stream(self, model_id, messages, tools=None):
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
             yield StreamEvent(type="text_delta", delta='{"should_save": false}')
             yield StreamEvent(type="done")
 
@@ -67,7 +74,7 @@ def test_should_save_false_is_normal(tmp_path: Path) -> None:
 
 def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
     class NeverRegistry:
-        async def stream(self, model_id, messages, tools=None):
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
             await asyncio.Event().wait()
             yield StreamEvent(type="done")
 
@@ -76,6 +83,7 @@ def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
             registry=NeverRegistry(),  # type: ignore[arg-type]
             model_id="test:model",
             workspace=tmp_path,
+            enable_learning=True,
         )
 
         async def fake_run(*args, **kwargs):
@@ -91,6 +99,21 @@ def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
     result, pending = asyncio.run(scenario())
     assert result.output_text == "fixed and tests passed"
     assert pending == 1
+
+
+def test_learning_cancel_finishes_pending_reflection(tmp_path: Path) -> None:
+    class NeverRegistry:
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
+            await asyncio.Event().wait()
+            yield StreamEvent(type="done")
+
+    async def scenario() -> None:
+        store = LearningStore(tmp_path)
+        loop = LearningLoop(store, registry=NeverRegistry(), model_id="test:model")
+        loop.schedule("fix bug", _result())
+        await asyncio.wait_for(loop.shutdown(), timeout=1)
+
+    asyncio.run(scenario())
 
 
 def test_relevant_lessons_are_bounded(tmp_path: Path) -> None:

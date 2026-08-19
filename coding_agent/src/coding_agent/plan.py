@@ -41,13 +41,25 @@ class PlanStore:
         return self.plans_dir / "plan.md"
 
     def list_paths(self) -> tuple[Path, ...]:
-        """Return stored plans newest first."""
+        """Return stored plans with the current plan first, then newest mtime."""
         try:
             paths = list(self.plans_dir.glob("*.md"))
         except OSError:
             return ()
+        latest_name = ""
+        try:
+            latest_name = self._latest_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
         return tuple(
-            sorted(paths, key=lambda path: path.stat().st_mtime, reverse=True)
+            sorted(
+                paths,
+                key=lambda path: (
+                    0 if path.name == latest_name else 1,
+                    -path.stat().st_mtime_ns,
+                    path.name,
+                ),
+            )
         )
 
     def select(self, value: str) -> Path | None:

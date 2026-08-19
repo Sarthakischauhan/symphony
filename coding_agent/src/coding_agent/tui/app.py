@@ -12,7 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Input, Static
+from textual.widgets import Input, OptionList, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
@@ -21,8 +21,14 @@ from coding_agent.tui.commands.command_manager import CommandManager
 from coding_agent.tui.commands.mode_switcher import toggle_mode
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
+from coding_agent.tui.file_selector import (
+    active_file_mention,
+    complete_file_mention,
+    file_matches,
+)
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
+from coding_agent.tui.slash_menu import SlashMenu
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
 from coding_agent.tui.styles.app import APP_CSS
@@ -33,7 +39,6 @@ from coding_agent.tui.widgets import (
     Notice,
     ReasoningWidget,
     RunProcess,
-    SlashMenu,
     ThinkingStatus,
     TopBar,
     ToolCallWidget,
@@ -41,7 +46,7 @@ from coding_agent.tui.widgets import (
     Welcome,
     make_tool_widget,
 )
-from core_harness import HarnessResult
+from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
 
 class CodingAgentApp(App[None]):
@@ -54,6 +59,8 @@ class CodingAgentApp(App[None]):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear", show=False),
+        Binding("escape", "cancel_run", "Cancel", show=True, priority=True),
+        Binding("ctrl+x", "cancel_run", "Cancel", show=False, priority=True),
     ]
 
     TITLE = "Symphony"
@@ -64,11 +71,13 @@ class CodingAgentApp(App[None]):
         workspace: str | Path = ".",
         model_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        enable_learning: bool = True,
     ) -> None:
         super().__init__()
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
+        self.enable_learning = enable_learning
         self.mode: AgentMode = "build"
         self.control_plane = TextualControlPlane()
         self._agent: Optional[CodingAgent] = None
@@ -113,6 +122,7 @@ class CodingAgentApp(App[None]):
                 control_plane=self.control_plane,
                 model_id=self.model_id,
                 session_id=self.session_id,
+                enable_learning=self.enable_learning,
             )
             self._agent.set_mode(self.mode)
         except Exception as exc:  # noqa: BLE001
@@ -295,7 +305,7 @@ class CodingAgentApp(App[None]):
             self._plan_run_active = True
         self._busy = True
         event.input.disabled = True
-        self.query_one("#composer-hint", Static).update("Working…")
+        self.query_one("#composer-hint", Static).update("Working… · Esc to cancel")
         self.run_agent(text)
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -304,7 +314,11 @@ class CodingAgentApp(App[None]):
         if self._pending_question_id is not None:
             return
         menu = self.query_one("#slash-menu", SlashMenu)
-        if event.value.startswith("/model "):
+        mention = active_file_mention(event.value)
+        if mention is not None:
+            _start, query = mention
+            menu.set_files(file_matches(self.workspace, query))
+        elif event.value.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
             menu.set_models(model_matches(event.value.removeprefix("/model ")), current)
         elif event.value.startswith("/mode "):
@@ -336,17 +350,48 @@ class CodingAgentApp(App[None]):
             event.stop()
             return
         if event.key in {"tab", "enter"} and menu.selected_value:
-            prompt.value = menu.selected_value
-            prompt.cursor_position = len(prompt.value)
-            if event.key == "enter":
-                menu.set_commands(())
-                self.call_later(prompt.action_submit)
+            self._choose_menu_option(menu, submit=event.key == "enter")
             event.prevent_default()
             event.stop()
         elif event.key == "enter" and self._pending_question_id is not None:
             self.call_later(prompt.action_submit)
             event.prevent_default()
             event.stop()
+
+    def on_option_list_option_selected(
+        self, event: OptionList.OptionSelected
+    ) -> None:
+        """Apply menu choices selected with the pointer."""
+        menu = self.query_one("#slash-menu", SlashMenu)
+        if event.option_list is not menu:
+            return
+        if menu.select_option_index(event.option_index):
+            self._choose_menu_option(menu, submit=True)
+        event.stop()
+
+    def _choose_menu_option(self, menu: SlashMenu, *, submit: bool) -> None:
+        prompt = self.query_one("#prompt", Input)
+        if self._pending_question_id is not None and submit:
+            answer = menu.selected_value
+            menu.set_commands(())
+            prompt.value = ""
+            self.call_later(self._answer_question, answer)
+            prompt.focus()
+            return
+        if menu.is_file_selector:
+            prompt.value, cursor = complete_file_mention(
+                prompt.value,
+                menu.selected_value.removeprefix("@"),
+            )
+            prompt.cursor_position = cursor
+            menu.set_commands(())
+        else:
+            prompt.value = menu.selected_value
+            prompt.cursor_position = len(prompt.value)
+            if submit:
+                menu.set_commands(())
+                self.call_later(prompt.action_submit)
+        prompt.focus()
 
     async def _run_slash_command(self, value: str) -> None:
         await self._command_manager.run(value)
@@ -356,15 +401,18 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer", Composer).set_class(
             self.mode == "plan", "plan-mode"
         )
-        hint = f"{label} · Tab mode · Enter to send"
+        hint = f"{label} · Tab mode · Enter to send · Esc cancels"
         if self._pending_question_id is not None:
-            hint = "Waiting for your answer…"
+            hint = "Waiting for your answer… · Esc cancels"
         self.query_one("#composer-hint", Static).update(hint)
 
     @work(exclusive=True)
     async def run_agent(self, user_input: str) -> None:
         try:
             await self._run_agent_turn(user_input)
+        except (HarnessCancelled, HarnessLimitExceeded):
+            if self._presenter is not None:
+                self._presenter.flush_stream_to_log()
         except Exception as exc:  # noqa: BLE001
             if self._presenter is not None:
                 self._presenter.flush_stream_to_log()
@@ -375,6 +423,9 @@ class CodingAgentApp(App[None]):
                 self._ui_state.phase = "idle"
                 self._presenter.refresh_chrome()
             self._busy = False
+            self._pending_question_id = None
+            self._pending_question_default = ""
+            self.control_plane.reset_cancel()
             prompt = self.query_one("#prompt", Input)
             prompt.disabled = False
             self._update_composer_hint()
@@ -398,11 +449,41 @@ class CodingAgentApp(App[None]):
         self._process = None
         self._tools.clear()
 
+    def action_cancel_run(self) -> None:
+        menu = self.query_one("#slash-menu", SlashMenu)
+        if not self._busy:
+            menu.set_commands(())
+            return
+        self._pending_question_id = None
+        self._pending_question_default = ""
+        menu.set_commands(())
+        self.control_plane.request_cancel("user_cancel")
+        self.add_notice("Cancelling…", "warning")
+        prompt = self.query_one("#prompt", Input)
+        prompt.disabled = False
+        self._update_composer_hint()
+        prompt.focus()
+
+    def action_quit(self) -> None:
+        if self._busy:
+            self.control_plane.request_cancel("quit")
+        if self._agent is not None and self._agent.learning_loop is not None:
+            self._agent.learning_loop.cancel()
+        self.exit()
+
+    async def on_unmount(self) -> None:
+        if self._busy:
+            self.control_plane.request_cancel("quit")
+        shutdown = getattr(self._agent, "shutdown_learning", None)
+        if callable(shutdown):
+            await shutdown()
+
     def _show_question(self, payload: Mapping[str, Any]) -> None:
         request_id = str(payload.get("request_id") or "")
         question = str(payload.get("question") or "")
         choices = [str(choice) for choice in payload.get("choices") or []]
         default = str(payload.get("default") or "")
+        kind = str(payload.get("kind") or "")
         if not request_id or not question:
             self.add_notice("The agent sent an invalid question request.", "error")
             return
@@ -412,11 +493,16 @@ class CodingAgentApp(App[None]):
         self._ui_state.detail = "waiting for user"
         self._update_composer_hint()
         menu = self.query_one("#slash-menu", SlashMenu)
-        menu.set_question(question, choices, default=default)
+        menu.set_question(
+            question,
+            choices,
+            default=default,
+            kind=kind,
+        )
         prompt = self.query_one("#prompt", Input)
         prompt.disabled = False
-        prompt.value = default
-        prompt.cursor_position = len(default)
+        prompt.value = "" if choices else default
+        prompt.cursor_position = len(prompt.value)
         prompt.focus()
 
     async def _answer_question(self, answer: str) -> None:
@@ -439,7 +525,13 @@ def run_tui(
     workspace: str | Path = ".",
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    enable_learning: bool = True,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
     load_dotenv(override=True)
-    CodingAgentApp(workspace=workspace, model_id=model_id, session_id=session_id).run()
+    CodingAgentApp(
+        workspace=workspace,
+        model_id=model_id,
+        session_id=session_id,
+        enable_learning=enable_learning,
+    ).run()

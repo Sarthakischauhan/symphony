@@ -25,6 +25,7 @@ class OpenAICompletionProvider(BaseProvider):
         model_name: str,
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
+        max_output_tokens: Optional[int] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         payload: Dict[str, Any] = {
             "model": model_name,
@@ -41,6 +42,8 @@ class OpenAICompletionProvider(BaseProvider):
             payload["messages"].append(formatted)
         if tools:
             payload["tools"] = [{"type": "function", "function": tool} for tool in tools]
+        if max_output_tokens is not None:
+            payload["max_completion_tokens"] = max_output_tokens
         if self._is_reasoning_model(model_name):
             payload["reasoning_effort"] = "medium"
 

@@ -23,7 +23,7 @@ from coding_agent.learning import LearningLoop, LearningStore
 from coding_agent.persistence import SqlitePersistence
 from coding_agent.plan import PlanStore
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
-from coding_agent.tools import build_tools
+from coding_agent.tools import build_tools, wrap_with_approvals
 
 AgentMode = Literal["build", "plan"]
 
@@ -31,6 +31,10 @@ DEFAULT_CONTEXT_WARN_THRESHOLD = 32_000
 DEFAULT_CONTEXT_COMPACT_THRESHOLD = 16_000
 DEFAULT_COMPACTION_KEEP_RECENT = 8
 DEFAULT_CONTEXT_TARGET_TOKENS = 80_000
+DEFAULT_MAX_TURNS = 24
+DEFAULT_MAX_TOOL_CALLS = 40
+DEFAULT_MAX_RUNTIME_SECONDS = 600.0
+DEFAULT_MAX_TOKENS = 200_000
 
 
 class CodingAgent:
@@ -48,7 +52,11 @@ class CodingAgent:
         system_prompt: str = SYSTEM_PROMPT,
         mode: AgentMode = "build",
         enable_learning: bool = True,
-        max_turns: int = 124,
+        auto_approve: bool = False,
+        max_turns: int = DEFAULT_MAX_TURNS,
+        max_tool_calls: Optional[int] = DEFAULT_MAX_TOOL_CALLS,
+        max_runtime_seconds: Optional[float] = DEFAULT_MAX_RUNTIME_SECONDS,
+        max_tokens: Optional[int] = DEFAULT_MAX_TOKENS,
         tools: Optional[List[Tool]] = None,
         context_limits: Optional[Dict[str, int]] = None,
         context_warn_threshold: Optional[int] = DEFAULT_CONTEXT_WARN_THRESHOLD,
@@ -74,7 +82,8 @@ class CodingAgent:
             if enable_learning
             else None
         )
-        self.tools = tools if tools is not None else build_tools(self.workspace)
+        raw_tools = tools if tools is not None else build_tools(self.workspace)
+        self.tools = raw_tools if auto_approve else wrap_with_approvals(raw_tools, self.workspace)
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -84,6 +93,9 @@ class CodingAgent:
             persistence=self.persistence,
             session_id=self.session_id,
             max_turns=max_turns,
+            max_tool_calls=max_tool_calls,
+            max_runtime_seconds=max_runtime_seconds,
+            max_tokens=max_tokens,
             context_limits=context_limits,
             context_warn_threshold=context_warn_threshold,
             context_compact_threshold=context_compact_threshold,
@@ -143,6 +155,11 @@ class CodingAgent:
         """Optionally drain pending reflections before application shutdown."""
         if self.learning_loop is not None:
             await self.learning_loop.wait()
+
+    async def shutdown_learning(self) -> None:
+        """Cancel or finish pending reflection when the TUI exits."""
+        if self.learning_loop is not None:
+            await self.learning_loop.shutdown()
 
     async def compact_conversation(self, *, keep_recent: int = 8) -> tuple[int, int]:
         """Manually compact the persisted conversation for the active session."""

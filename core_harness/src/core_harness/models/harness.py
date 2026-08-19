@@ -13,6 +13,15 @@ class UsageTotals(BaseModel):
     total_tokens: int = 0
 
 
+class RunLimits(BaseModel):
+    """Optional caps for a single harness run."""
+
+    max_turns: int = 8
+    max_tool_calls: Optional[int] = None
+    max_runtime_seconds: Optional[float] = None
+    max_tokens: Optional[int] = None
+
+
 class HarnessResult(BaseModel):
     output_text: str
     messages: List[Message]

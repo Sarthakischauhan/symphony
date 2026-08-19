@@ -25,6 +25,7 @@ class OpenAIResponsesProvider(BaseProvider):
         model_name: str,
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
+        max_output_tokens: Optional[int] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         payload: Dict[str, Any] = {
             "model": model_name,
@@ -33,6 +34,8 @@ class OpenAIResponsesProvider(BaseProvider):
         }
         if model_name.startswith("gpt-5"):
             payload["reasoning"] = {"effort": "medium", "summary": "auto"}
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
         if tools:
             payload["tools"] = [{"type": "function", **tool} for tool in tools]
 

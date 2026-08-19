@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from core_ai.types import Message, StreamEvent
 
@@ -11,6 +11,7 @@ class BaseProvider(ABC):
         model_name: str,
         messages: List[Message],
         tools: List[Dict[str, Any]] = [],
+        max_output_tokens: Optional[int] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Takes unified messages, translates to provider-specific format,

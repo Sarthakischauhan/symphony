@@ -165,6 +165,16 @@ class EventPresenter:
             self.view.add_notice(str(reason), "warning")
         self.view.finish_process("Cancelled")
 
+    def _on_run_limit_exceeded(self, payload: Dict[str, Any]) -> None:
+        self._finish_reasoning()
+        self.state.phase = "idle"
+        self.state.detail = "limit exceeded"
+        limit = payload.get("limit") or "run limit"
+        message = str(payload.get("message") or f"Harness exceeded {limit}")
+        self.view.set_thinking("Stopped at a run limit")
+        self.view.add_notice(message, "warning")
+        self.view.finish_process("Stopped at a run limit", collapse=False)
+
     # Turns and streaming
     def _on_turn_started(self, payload: Dict[str, Any]) -> None:
         turn = int(payload.get("turn") or 0)
