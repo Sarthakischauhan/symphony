@@ -206,6 +206,26 @@ Screen {
     padding: 1 1 0 1;
     background: #202020;
     border: round $panel-edge;
+    overflow-y: auto;
+    scrollbar-size-vertical: 1;
+}
+
+#slash-menu > .option-list--option {
+    padding: 0;
+    background: #202020;
+}
+
+#slash-menu > .option-list--option-highlighted {
+    background: #383838;
+}
+
+#slash-menu > .option-list--option-hover {
+    background: #383838;
+}
+
+#slash-menu > .option-list--option-disabled {
+    padding: 0;
+    background: #202020;
 }
 
 #composer:focus-within {

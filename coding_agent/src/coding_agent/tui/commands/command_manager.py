@@ -14,6 +14,7 @@ from coding_agent.tui.commands.plan_list import (
     plan_options as list_plan_options,
     show_plan_picker,
 )
+from coding_agent.tui.commands.reload import reload_project
 from coding_agent.tui.commands.session import start_new_session
 from coding_agent.tui.commands.status import show_status
 
@@ -53,6 +54,8 @@ class CommandManager:
                 select_mode(app, argument) if argument else show_mode_picker(app)
         elif app._busy:
             app.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
+        elif command == "reload":
+            await reload_project(app)
         elif app._agent is None:
             app.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
         elif command == "new":

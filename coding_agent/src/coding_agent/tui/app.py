@@ -12,7 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Input, Static
+from textual.widgets import Input, OptionList, Static
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
@@ -28,6 +28,7 @@ from coding_agent.tui.file_selector import (
 )
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
+from coding_agent.tui.slash_menu import SlashMenu
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
 from coding_agent.tui.styles.app import APP_CSS
@@ -38,7 +39,6 @@ from coding_agent.tui.widgets import (
     Notice,
     ReasoningWidget,
     RunProcess,
-    SlashMenu,
     ThinkingStatus,
     TopBar,
     ToolCallWidget,
@@ -350,26 +350,48 @@ class CodingAgentApp(App[None]):
             event.stop()
             return
         if event.key in {"tab", "enter"} and menu.selected_value:
-            is_file_selector = menu.is_file_selector
-            if is_file_selector:
-                prompt.value, cursor = complete_file_mention(
-                    prompt.value,
-                    menu.selected_value.removeprefix("@"),
-                )
-                prompt.cursor_position = cursor
-                menu.set_commands(())
-            else:
-                prompt.value = menu.selected_value
-                prompt.cursor_position = len(prompt.value)
-            if event.key == "enter" and not is_file_selector:
-                menu.set_commands(())
-                self.call_later(prompt.action_submit)
+            self._choose_menu_option(menu, submit=event.key == "enter")
             event.prevent_default()
             event.stop()
         elif event.key == "enter" and self._pending_question_id is not None:
             self.call_later(prompt.action_submit)
             event.prevent_default()
             event.stop()
+
+    def on_option_list_option_selected(
+        self, event: OptionList.OptionSelected
+    ) -> None:
+        """Apply menu choices selected with the pointer."""
+        menu = self.query_one("#slash-menu", SlashMenu)
+        if event.option_list is not menu:
+            return
+        if menu.select_option_index(event.option_index):
+            self._choose_menu_option(menu, submit=True)
+        event.stop()
+
+    def _choose_menu_option(self, menu: SlashMenu, *, submit: bool) -> None:
+        prompt = self.query_one("#prompt", Input)
+        if self._pending_question_id is not None and submit:
+            answer = menu.selected_value
+            menu.set_commands(())
+            prompt.value = ""
+            self.call_later(self._answer_question, answer)
+            prompt.focus()
+            return
+        if menu.is_file_selector:
+            prompt.value, cursor = complete_file_mention(
+                prompt.value,
+                menu.selected_value.removeprefix("@"),
+            )
+            prompt.cursor_position = cursor
+            menu.set_commands(())
+        else:
+            prompt.value = menu.selected_value
+            prompt.cursor_position = len(prompt.value)
+            if submit:
+                menu.set_commands(())
+                self.call_later(prompt.action_submit)
+        prompt.focus()
 
     async def _run_slash_command(self, value: str) -> None:
         await self._command_manager.run(value)
@@ -461,6 +483,7 @@ class CodingAgentApp(App[None]):
         question = str(payload.get("question") or "")
         choices = [str(choice) for choice in payload.get("choices") or []]
         default = str(payload.get("default") or "")
+        kind = str(payload.get("kind") or "")
         if not request_id or not question:
             self.add_notice("The agent sent an invalid question request.", "error")
             return
@@ -470,11 +493,16 @@ class CodingAgentApp(App[None]):
         self._ui_state.detail = "waiting for user"
         self._update_composer_hint()
         menu = self.query_one("#slash-menu", SlashMenu)
-        menu.set_question(question, choices, default=default)
+        menu.set_question(
+            question,
+            choices,
+            default=default,
+            kind=kind,
+        )
         prompt = self.query_one("#prompt", Input)
         prompt.disabled = False
-        prompt.value = default
-        prompt.cursor_position = len(default)
+        prompt.value = "" if choices else default
+        prompt.cursor_position = len(prompt.value)
         prompt.focus()
 
     async def _answer_question(self, answer: str) -> None:

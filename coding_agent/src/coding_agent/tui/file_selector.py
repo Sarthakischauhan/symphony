@@ -9,7 +9,6 @@ from pathlib import Path
 
 from coding_agent.utils.ignore_file import DEFAULT_SKIP_DIRS, is_ignored
 
-MAX_FILE_SUGGESTIONS = 8
 _ACTIVE_MENTION = re.compile(r"(?<!\S)@([^\s@]*)$")
 
 
@@ -38,13 +37,8 @@ def complete_file_mention(value: str, path: str) -> tuple[str, int]:
     return completed, len(completed)
 
 
-def file_matches(
-    workspace: Path,
-    query: str,
-    *,
-    limit: int = MAX_FILE_SUGGESTIONS,
-) -> tuple[FileOption, ...]:
-    """Return bounded, gitignore-aware file matches ranked by path relevance."""
+def file_matches(workspace: Path, query: str) -> tuple[FileOption, ...]:
+    """Return all gitignore-aware file matches ranked by path relevance."""
     workspace = workspace.resolve()
     needle = query.strip().lower()
     candidates: list[tuple[tuple[int, int, int, str], FileOption]] = []
@@ -80,7 +74,7 @@ def file_matches(
             candidates.append((rank, FileOption(relative, _size_label(size))))
 
     candidates.sort(key=lambda item: item[0])
-    return tuple(option for _rank, option in candidates[: max(1, limit)])
+    return tuple(option for _rank, option in candidates)
 
 
 def _size_label(size: int) -> str:

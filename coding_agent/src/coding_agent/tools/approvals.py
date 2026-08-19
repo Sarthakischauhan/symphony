@@ -28,7 +28,9 @@ class ApprovalTool:
     async def execute(self, *, control_plane: Any, args: dict[str, Any]) -> Any:
         needed, prompt = approval_prompt(self.name, args, self.workspace)
         if needed:
-            allowed = await request_approval(control_plane, prompt)
+            allowed = await request_approval(
+                control_plane, prompt, tool_name=self.name
+            )
             if not allowed:
                 return "error: tool call denied by user"
         return await self.inner.execute(control_plane=control_plane, args=args)
@@ -66,7 +68,9 @@ def _exists_in_workspace(workspace: Path, path: str) -> bool:
         return False
 
 
-async def request_approval(control_plane: Any, prompt: str) -> bool:
+async def request_approval(
+    control_plane: Any, prompt: str, *, tool_name: str = ""
+) -> bool:
     ask = getattr(control_plane, "ask_user", None)
     if not callable(ask):
         return True
@@ -77,9 +81,11 @@ async def request_approval(control_plane: Any, prompt: str) -> bool:
             "question_asked",
             {
                 "request_id": request_id,
-                "question": f"{prompt}\nAllow once or Deny.",
+                "question": prompt,
                 "choices": ["Allow once", "Deny"],
                 "default": "Deny",
+                "kind": "approval",
+                "tool_name": tool_name,
             },
         )
     answer = str(await ask(request_id) or "").strip()
