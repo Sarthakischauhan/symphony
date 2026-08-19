@@ -32,12 +32,18 @@ flowchart TD
         SQ["SQLite sessions"]
     end
 
+    subgraph SRV["core_server"]
+        API["FastAPI"]
+        SSE["SSE event stream"]
+    end
+
     subgraph BROW["browser agent · next"]
         BT["browser tools"]
         BU["browser UX"]
     end
 
     COD -- "plugs into" --> SYM
+    SRV -- "plugs into" --> SYM
     BROW -. "plugs into" .-> SYM
 ```
 
@@ -48,6 +54,7 @@ flowchart TD
 | Harness | [`core_harness`](./core_harness/README.md) | The agent loop: turns, tools, control-plane events, compaction |
 | Harness | [`core_ai`](./core_ai/README.md) | Provider registry, streaming `Message`/`StreamEvent` types |
 | Agent | [`coding_agent`](./coding_agent/README.md) | One consumer of the harness: workspace tools, SQLite sessions, Textual TUI |
+| Server | [`core_server`](./core_server/README.md) | FastAPI wrapper that streams harness control-plane events over SSE |
 
 The harness (Symphony) is standalone and product-agnostic. Agents are separate consumers that plug into the harness's tool and control-plane interfaces — `coding_agent` today, a browser-use agent next. `core_harness` builds on `core_ai`; agents do not extend the harness.
 
@@ -140,6 +147,7 @@ print(result.output_text)
 ```
 core_ai/            harness: shared model/provider abstractions
 core_harness/       harness: agent loop, control plane, persistence, state
+core_server/        FastAPI SSE server wrapping core_harness
 coding_agent/       product: workspace tools, SQLite sessions, Textual TUI
 plan.md             living roadmap and phase checklist
 ```
