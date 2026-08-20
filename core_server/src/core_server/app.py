@@ -3,30 +3,55 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import List, Optional
 
 from core_ai.types import Message
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from core_harness import CoreHarness
+from core_harness import CoreHarness, HarnessCancelled, HarnessLimitExceeded
 
 from core_server.config import ServerConfig
+from core_server.models import ModelRegistryResponse, RegistryModel, RegistryProvider
+from core_server.request_limits import RequestSizeLimitMiddleware
 from core_server.sse import SSEControlPlane, encode_sse
+
+logger = logging.getLogger(__name__)
 
 
 class RunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(..., min_length=1)
     conversation: Optional[List[Message]] = None
     session_id: Optional[str] = None
-    system_prompt: Optional[str] = None
-    model_id: Optional[str] = None
+    model_id: Optional[str] = Field(default=None, min_length=1)
+
+
+def _validate_request(request: RunRequest, config: ServerConfig) -> None:
+    if len(request.message) > config.max_message_chars:
+        raise HTTPException(status_code=413, detail="Message is too large")
+    history = request.conversation or []
+    if len(history) > config.max_history_messages:
+        raise HTTPException(status_code=413, detail="Conversation has too many messages")
+    history_chars = sum(len(message.model_dump_json()) for message in history)
+    if history_chars > config.max_history_chars:
+        raise HTTPException(status_code=413, detail="Conversation history is too large")
+    if request.model_id and request.model_id not in {
+        model.slug for model in config.supported_models
+    }:
+        raise HTTPException(status_code=422, detail="Unsupported model_id")
 
 
 def create_app(config: ServerConfig) -> FastAPI:
     app = FastAPI(title="core-server", version="0.1.0")
+    app.add_middleware(
+        RequestSizeLimitMiddleware,
+        max_bytes=config.max_request_bytes,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.cors_origins,
@@ -42,18 +67,39 @@ def create_app(config: ServerConfig) -> FastAPI:
             "tools": [tool.name for tool in config.tools],
         }
 
+    @app.get("/models", response_model=ModelRegistryResponse)
+    def models() -> ModelRegistryResponse:
+        return ModelRegistryResponse(
+            default_provider_id="symphony",
+            providers=[
+                RegistryProvider(
+                    id="symphony",
+                    label="Symphony",
+                    default_model=config.model_id,
+                    models=[
+                        RegistryModel(id=model.slug, label=model.label)
+                        for model in config.supported_models
+                    ],
+                )
+            ],
+        )
+
     @app.post("/runs")
     async def start_run(request: RunRequest) -> StreamingResponse:
-        plane = SSEControlPlane()
+        _validate_request(request, config)
+        plane = SSEControlPlane(max_queue_size=config.sse_queue_size)
         harness = CoreHarness(
             registry=config.registry,
             model_id=request.model_id or config.model_id,
-            system_prompt=request.system_prompt or config.system_prompt,
+            system_prompt=config.system_prompt,
             tools=list(config.tools),
             control_plane=plane,
             persistence=config.persistence,
             session_id=request.session_id,
             max_turns=config.max_turns,
+            max_tool_calls=config.max_tool_calls,
+            max_runtime_seconds=config.max_runtime_seconds,
+            max_tokens=config.max_tokens,
             context_limits=config.context_limits,
             context_warn_threshold=config.context_warn_threshold,
             context_compact_threshold=config.context_compact_threshold,
@@ -68,26 +114,41 @@ def create_app(config: ServerConfig) -> FastAPI:
                     conversation=request.conversation,
                     session_id=request.session_id,
                 )
+            except HarnessCancelled:
+                logger.info("Harness run cancelled")
+            except HarnessLimitExceeded as exc:
+                logger.warning("Harness run limit exceeded: %s", exc)
             except Exception:
-                pass
+                # The harness owns terminal failure events; the server records the
+                # exception without emitting a duplicate run_failed event.
+                logger.exception("Harness run failed")
             finally:
                 await plane.close()
 
         async def event_stream():
             task = asyncio.create_task(run_harness())
+            stream_completed = False
             try:
                 while True:
                     event = await plane.queue.get()
                     if event is None:
+                        stream_completed = True
                         break
                     yield encode_sse(event)
             finally:
-                if not task.done():
-                    task.cancel()
+                if stream_completed:
+                    await task
+                elif not task.done():
+                    await plane.disconnect()
                     try:
-                        await task
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                        await asyncio.wait_for(
+                            task,
+                            timeout=config.disconnect_cancel_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("Harness cancellation timed out")
+                    except asyncio.CancelledError:
+                        raise
 
         return StreamingResponse(
             event_stream(),

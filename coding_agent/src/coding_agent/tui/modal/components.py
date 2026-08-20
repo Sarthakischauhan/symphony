@@ -50,11 +50,6 @@ class LearningCard(Static):
 
     def __init__(self, lesson: Lesson, index: int) -> None:
         rows: list[object] = []
-        heading = Text()
-        heading.append(f"{index:02d}  ", style="bold #596b76")
-        heading.append(lesson.summary, style="bold #d8d8d8")
-        rows.append(heading)
-
         meta = Text("     ")
         confidence_color = "#79a985" if lesson.confidence >= 0.7 else "#d0a85c"
         meta.append(f"{round(lesson.confidence * 100)}% confidence", style=confidence_color)
@@ -87,10 +82,7 @@ class PlanSectionCard(Static):
     """A plan section presented as a numbered, readable card."""
 
     def __init__(self, title: str, body: str, index: int) -> None:
-        heading = Text()
-        heading.append(f"{index:02d}  ", style="bold #596b76")
-        heading.append(title, style="bold #d8d8d8")
         super().__init__(
-            Group(heading, themed_markdown(body or "_No details provided._")),
+            Group(themed_markdown(body or "_No details provided._")),
             classes="content-card plan-section-card",
         )

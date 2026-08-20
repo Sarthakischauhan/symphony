@@ -6,7 +6,6 @@ from pathlib import Path
 
 from rich.console import Group
 from rich.syntax import Syntax
-from rich.text import Text
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Static
 
@@ -21,13 +20,8 @@ class DiffFileCard(Static):
     """One changed file with a clear header, stats, and highlighted patch."""
 
     def __init__(self, path: str, body: str) -> None:
-        heading = Text()
-        heading.append("◇  ", style="bold #738794")
-        heading.append(path, style="bold #d8d8d8")
         super().__init__(
             Group(
-                heading,
-                Text(""),
                 Syntax(
                     body,
                     "diff",
