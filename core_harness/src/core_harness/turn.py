@@ -193,6 +193,16 @@ class TurnRunner:
                         "delta": event.delta,
                     },
                 )
+            elif event.type == "retry":
+                await self.control_plane.emit(
+                    "model_retry_scheduled",
+                    {
+                        "turn": turn,
+                        "retry_after": event.retry_after or 0.0,
+                        "attempt": event.retry_attempt or 1,
+                        "reason": "rate_limit",
+                    },
+                )
             elif event.type == "usage":
                 saw_usage = True
                 usage.prompt_tokens += event.prompt_tokens or 0

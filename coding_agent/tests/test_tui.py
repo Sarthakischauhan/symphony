@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 from textual import events
+from textual.containers import VerticalScroll
+from textual.widgets import Static
 
 from core_ai import ModelRegistry
 from core_ai.types import Message
@@ -29,13 +31,14 @@ from coding_agent.tui.file_selector import (
     complete_file_mention,
     file_matches,
 )
-from coding_agent.tui.modal import PlanModal
+from coding_agent.tui.modal import ContentModal, PlanModal
 from coding_agent.tui.modal.components import PlanSectionCard
 from coding_agent.tui.modal.plan import _plan_sections
 from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     PatchDiffWidget,
+    PromptInput,
     ReadFileWidget,
     ReasoningWidget,
     RunProcess,
@@ -114,7 +117,7 @@ def test_tui_quit_cancels_pending_learning(
 def test_markdown_code_theme_matches_tui_surface() -> None:
     background = SYMPHONY_CODE_THEME.get_background_style().bgcolor
     assert background is not None
-    assert background.get_truecolor().hex == "#202020"
+    assert background.get_truecolor().hex == "#0a0a0a"
 
 
 def test_themed_markdown_avoids_rich_monokai_default() -> None:
@@ -185,6 +188,106 @@ def test_plan_modal_normalizes_top_level_heading() -> None:
     assert sections == [
         ("Overview", "**Plan: Limit Large Tool Results**\n\n1. Clip output.")
     ]
+
+
+def test_pasted_prompt_is_compacted_without_changing_agent_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    calls: list[str] = []
+
+    class FakeAgent:
+        learning_loop = None
+
+        async def run(self, user_input: str) -> HarnessResult:
+            calls.append(user_input)
+            return HarnessResult(output_text="", messages=[])
+
+    prefix = "Can you help me with the error "
+    pasted = "traceback line\n" * 90
+    expected = (prefix + pasted).strip()
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            prompt = app.query_one("#prompt", PromptInput)
+            prompt.value = prefix
+            prompt.cursor_position = len(prefix)
+            prompt.post_message(events.Paste(pasted))
+            await pilot.pause()
+
+            assert prompt.value == f"{prefix}[{len(pasted):,} chars]"
+            assert prompt.expanded_value() == prefix + pasted
+            assert prompt.pasted_chunks == (pasted,)
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert calls == [expected]
+            message = app.query_one(UserMessage)
+            assert message._hidden_content == {"0": pasted.rstrip()}
+            display = message._compact_content(expected, (pasted,))
+            assert display.plain == f"{prefix}[{len(pasted.rstrip()):,} chars]"
+            assert display.spans[0].style.meta["@click"] == "open_content('0')"
+
+            message.action_open_content("0")
+            await pilot.pause()
+            modal = app.screen
+            assert isinstance(modal, ContentModal)
+            assert modal.query_one("#content-text", Static).content == pasted.rstrip()
+
+    asyncio.run(_run())
+
+
+def test_compact_paste_marker_opens_modal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    prefix = "Can you help "
+    pasted = "failure details\n" * 40
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt", PromptInput)
+            prompt.value = prefix
+            prompt.cursor_position = len(prefix)
+            prompt.post_message(events.Paste(pasted))
+            await pilot.pause()
+
+            await pilot.click(prompt, offset=(len(prefix) + 2, 0))
+            await pilot.pause()
+
+            assert isinstance(app.screen, ContentModal)
+            assert app.screen.query_one("#content-text", Static).content == pasted
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ContentModal)
+
+    asyncio.run(_run())
+
+
+def test_modal_escape_closes_when_scroll_has_focus(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.push_screen(ContentModal("long content\n" * 50))
+            await pilot.pause()
+            scroll = app.screen.query_one("#content-body", VerticalScroll)
+            scroll.focus()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ContentModal)
+
+    asyncio.run(_run())
 
 
 def test_resume_app_selects_with_arrow_keys() -> None:
@@ -398,6 +501,40 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert process.query_one(".process-complete") is not None
             await pilot.click(reasoning[0].query_one("CollapsibleTitle"))
             assert not reasoning[0].collapsed
+
+    asyncio.run(_run())
+
+
+def test_tui_animates_working_gradient_while_rate_limit_retries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:test"})
+            app._presenter.handle("turn_started", {"turn": 0, "message_count": 2})
+            app._presenter.handle(
+                "model_retry_scheduled",
+                {"turn": 0, "retry_after": 2.5, "attempt": 1},
+            )
+            await pilot.pause()
+
+            thinking = app.query_one(ThinkingStatus)
+            first = thinking.render()
+            first_styles = [span.style for span in first.spans]
+            thinking._advance_gradient()
+            second = thinking.render()
+            second_styles = [span.style for span in second.spans]
+
+            assert "Working" in first.plain
+            assert "retrying in 2.5s" in first.plain
+            assert "attempt 1" in first.plain
+            assert first_styles != second_styles
+            assert app._ui_state.detail == "rate limited; retrying in 2.5s"
 
     asyncio.run(_run())
 

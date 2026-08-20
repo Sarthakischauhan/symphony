@@ -58,7 +58,8 @@ Earlier phases for the general-purpose harness are landed:
 
 - Approval gates ask before bash, file overwrite, or a broad patch (allow once / deny)
 - TUI Escape / Ctrl+X sends the harness cancel command and restores the composer
-- Safer defaults: 24 turns, 40 tool calls, 10 minutes, 200k tokens
+- Safer defaults: 24 turns, 40 tool calls, 10 minutes, no aggregate token cap
+- OpenAI 429s honor Retry-After and keep an animated Working state while retrying
 - Learning is enabled by default, capped at 900 output tokens, and pending reflection is cancelled on TUI exit
 - `@file` composer search reuses the existing model/command selector
 

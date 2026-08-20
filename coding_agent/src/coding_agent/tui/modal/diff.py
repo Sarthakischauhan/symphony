@@ -10,7 +10,7 @@ from textual.containers import Container, VerticalScroll
 from textual.widgets import Static
 
 from coding_agent.tui.modal.base import ModalBase, ModalCloseButton
-from coding_agent.tui.modal.components import EmptyState, ModalHeader
+from coding_agent.tui.modal.components import EmptyState
 from coding_agent.tui.styles.diff import DIFF_MODAL_CSS
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME
 from coding_agent.utils.diff import read_workspace_diff, split_diff
@@ -48,12 +48,6 @@ class DiffModal(ModalBase[None]):
         files = split_diff(diff_text)
         with Container(id="diff-pane", classes="modal-pane"):
             yield ModalCloseButton("×", id="modal-close")
-            yield ModalHeader(
-                "Working tree",
-                "Workspace diff",
-                "Uncommitted changes across the current project",
-                id="diff-title",
-            )
             with VerticalScroll(id="diff-body", classes="modal-body"):
                 if not files:
                     yield EmptyState(

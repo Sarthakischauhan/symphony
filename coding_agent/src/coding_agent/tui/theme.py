@@ -20,42 +20,67 @@ from rich.syntax import PygmentsSyntaxTheme
 from rich.theme import Theme
 
 
-class SymphonyCodeStyle(Style):
-    """Low-contrast syntax palette matched to Symphony's charcoal surface."""
+# The palette is kept in one place so Rich content and Textual CSS can be
+# changed together.  These are the semantic tokens from the Symphony dark
+# theme (rather than terminal colour names, which vary by terminal).
+SYMPHONY_COLORS = {
+    "background": "#0A0A0A",
+    "foreground": "#EDEDED",
+    "comment": "#737373",
+    "keyword": "#db6767",
+    "type_keywords": "#db6767",
+    "string": "#799e7c",
+    "function": "#6374d0",
+    "variable": "#EDEDED",
+    "number": "#d08a61",
+    "operator": "#6b6b6b",
+    "punctuation": "#525252",
+    "type": "#cda059",
+    "tag": "#5a9a95",
+    "attribute": "#8ca0cc",
+    "constant": "#d08a61",
+    "surface": "#171717",
+    "overlay": "#262626",
+    "subtext": "#A3A3A3",
+}
 
-    background_color = "#202020"
-    highlight_color = "#343434"
-    line_number_color = "#555555"
-    line_number_background_color = "#202020"
-    line_number_special_color = "#aaaaaa"
-    line_number_special_background_color = "#343434"
+
+class SymphonyCodeStyle(Style):
+    """Syntax palette for the active Symphony dark theme."""
+
+    background_color = SYMPHONY_COLORS["background"]
+    highlight_color = SYMPHONY_COLORS["overlay"]
+    line_number_color = SYMPHONY_COLORS["comment"]
+    line_number_background_color = SYMPHONY_COLORS["background"]
+    line_number_special_color = SYMPHONY_COLORS["foreground"]
+    line_number_special_background_color = SYMPHONY_COLORS["overlay"]
 
     styles = {
-        Text: "#d0d0d0",
-        Text.Whitespace: "#4d4d4d",
-        Comment: "italic #686868",
-        Comment.Preproc: "#858585",
-        Keyword: "#c39ac9",
-        Keyword.Type: "#87b5b1",
-        Operator: "#a8a8a8",
-        Punctuation: "#929292",
-        Name: "#d0d0d0",
-        Name.Builtin: "#87b5b1",
-        Name.Class: "bold #d6b879",
-        Name.Decorator: "#c39ac9",
-        Name.Exception: "#d88b91",
-        Name.Function: "#8eafc2",
-        Name.Namespace: "#d6b879",
-        Name.Tag: "#d88b91",
-        Name.Variable: "#d0d0d0",
-        String: "#a7b582",
-        String.Doc: "italic #7f916a",
-        Number: "#d2a06f",
-        Generic.Deleted: "#df8b91 bg:#352225",
-        Generic.Inserted: "#8fc49a bg:#203026",
-        Generic.Heading: "bold #d0d0d0",
-        Generic.Subheading: "#a0a0a0",
-        Error: "#f0a0a0 bg:#402326",
+        Text: SYMPHONY_COLORS["foreground"],
+        Text.Whitespace: SYMPHONY_COLORS["punctuation"],
+        Comment: "italic " + SYMPHONY_COLORS["comment"],
+        Comment.Preproc: SYMPHONY_COLORS["comment"],
+        Keyword: SYMPHONY_COLORS["keyword"],
+        Keyword.Type: SYMPHONY_COLORS["type_keywords"],
+        Operator: SYMPHONY_COLORS["operator"],
+        Punctuation: SYMPHONY_COLORS["punctuation"],
+        Name: SYMPHONY_COLORS["variable"],
+        Name.Builtin: SYMPHONY_COLORS["constant"],
+        Name.Class: "bold " + SYMPHONY_COLORS["type"],
+        Name.Decorator: SYMPHONY_COLORS["attribute"],
+        Name.Exception: SYMPHONY_COLORS["keyword"],
+        Name.Function: SYMPHONY_COLORS["function"],
+        Name.Namespace: SYMPHONY_COLORS["type"],
+        Name.Tag: SYMPHONY_COLORS["tag"],
+        Name.Variable: SYMPHONY_COLORS["variable"],
+        String: SYMPHONY_COLORS["string"],
+        String.Doc: "italic " + SYMPHONY_COLORS["comment"],
+        Number: SYMPHONY_COLORS["number"],
+        Generic.Deleted: SYMPHONY_COLORS["keyword"] + " bg:" + SYMPHONY_COLORS["overlay"],
+        Generic.Inserted: SYMPHONY_COLORS["string"] + " bg:" + SYMPHONY_COLORS["surface"],
+        Generic.Heading: "bold " + SYMPHONY_COLORS["foreground"],
+        Generic.Subheading: SYMPHONY_COLORS["subtext"],
+        Error: SYMPHONY_COLORS["keyword"] + " bg:" + SYMPHONY_COLORS["overlay"],
     }
 
 
@@ -63,24 +88,24 @@ SYMPHONY_CODE_THEME = PygmentsSyntaxTheme(SymphonyCodeStyle)
 
 SYMPHONY_RICH_THEME = Theme(
     {
-        "markdown.paragraph": "#d0d0d0",
-        "markdown.text": "#d0d0d0",
-        "markdown.h1": "bold #e6e6e6",
-        "markdown.h2": "bold #b9c5d4",
-        "markdown.h3": "bold #9fb1c2",
-        "markdown.h4": "italic #a0a0a0",
-        "markdown.h5": "italic #909090",
-        "markdown.h6": "dim #888888",
-        "markdown.block_quote": "#7f916a",
-        "markdown.list": "#d0d0d0",
-        "markdown.item.bullet": "bold #8eafc2",
-        "markdown.item.number": "#8eafc2",
-        "markdown.code": "bold #87b5b1",
-        "markdown.link": "#8eafc2",
-        "markdown.link_url": "underline #718da3",
-        "markdown.table.border": "#4d626e",
-        "markdown.table.header": "bold #b9c5d4",
-        "markdown.kbd": "bold #d6b879",
+        "markdown.paragraph": SYMPHONY_COLORS["foreground"],
+        "markdown.text": SYMPHONY_COLORS["foreground"],
+        "markdown.h1": "bold " + SYMPHONY_COLORS["foreground"],
+        "markdown.h2": "bold " + SYMPHONY_COLORS["attribute"],
+        "markdown.h3": "bold " + SYMPHONY_COLORS["tag"],
+        "markdown.h4": "italic " + SYMPHONY_COLORS["subtext"],
+        "markdown.h5": "italic " + SYMPHONY_COLORS["comment"],
+        "markdown.h6": "dim " + SYMPHONY_COLORS["comment"],
+        "markdown.block_quote": SYMPHONY_COLORS["string"],
+        "markdown.list": SYMPHONY_COLORS["foreground"],
+        "markdown.item.bullet": "bold " + SYMPHONY_COLORS["function"],
+        "markdown.item.number": SYMPHONY_COLORS["function"],
+        "markdown.code": "bold " + SYMPHONY_COLORS["tag"],
+        "markdown.link": SYMPHONY_COLORS["function"],
+        "markdown.link_url": "underline " + SYMPHONY_COLORS["attribute"],
+        "markdown.table.border": SYMPHONY_COLORS["punctuation"],
+        "markdown.table.header": "bold " + SYMPHONY_COLORS["attribute"],
+        "markdown.kbd": "bold " + SYMPHONY_COLORS["type"],
     },
     inherit=True,
 )

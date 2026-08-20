@@ -31,6 +31,8 @@ class TranscriptView(Protocol):
 
     def set_thinking(self, text: str) -> None: ...
 
+    def set_working(self, detail: str = "") -> None: ...
+
     def set_reasoning(self, text: str, *, new: bool = False) -> None: ...
 
     def finish_reasoning(self) -> None: ...
@@ -187,6 +189,20 @@ class EventPresenter:
         self.state.detail = "running tools" if payload.get("had_tool_calls") else "finishing"
         if not payload.get("had_tool_calls"):
             self._assistant_open = False
+
+    def _on_model_retry_scheduled(self, payload: Dict[str, Any]) -> None:
+        retry_after = float(payload.get("retry_after") or 0.0)
+        attempt = int(payload.get("attempt") or 1)
+        delay = (
+            f"{retry_after:.1f}s"
+            if retry_after < 10 and not retry_after.is_integer()
+            else f"{retry_after:.0f}s"
+        )
+        self.state.phase = "thinking"
+        self.state.detail = f"rate limited; retrying in {delay}"
+        self.view.set_working(
+            f"Rate limited · retrying in {delay} · attempt {attempt}"
+        )
 
     def _on_text_delta(self, payload: Dict[str, Any]) -> None:
         delta = str(payload.get("delta") or "")

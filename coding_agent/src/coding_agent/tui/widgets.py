@@ -7,11 +7,13 @@ import re
 from typing import Any, Mapping
 
 from rich.console import Group
+from rich.style import Style
 from rich.text import Text
 from textual.containers import Container, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Collapsible, Input, Static
 
+from coding_agent.tui.modal.base import ContentModal
 from coding_agent.tui.theme import themed_markdown
 from coding_agent.utils.diff import diff_stats, make_unified_diff
 from coding_agent.utils.text import clip_text, compact_json
@@ -44,11 +46,75 @@ class Welcome(Static):
 
 
 class UserMessage(Static):
-    def __init__(self, content: str) -> None:
+    """A user prompt with long pasted chunks hidden behind compact links."""
+
+    COMPACT_PASTE_AFTER = 100
+
+    def __init__(self, content: str, *, pasted_chunks: tuple[str, ...] = ()) -> None:
+        self._hidden_content: dict[str, str] = {}
         super().__init__(
-            Group(Text("YOU", style="bold #8a8a8a"), Text(content)),
+            Group(
+                Text("YOU", style="bold #8a8a8a"),
+                self._compact_content(content, pasted_chunks),
+            ),
             classes="message user-message",
         )
+
+    def _compact_content(self, content: str, pasted_chunks: tuple[str, ...]) -> Text:
+        self._hidden_content.clear()
+        matches: list[tuple[int, int, str, str]] = []
+        occupied: list[tuple[int, int]] = []
+        for chunk in pasted_chunks:
+            candidates = (chunk, chunk.strip(), chunk.lstrip(), chunk.rstrip())
+            displayed_chunk = next(
+                (candidate for candidate in candidates if candidate in content),
+                "",
+            )
+            if (
+                len(displayed_chunk) <= self.COMPACT_PASTE_AFTER
+                and "\n" not in displayed_chunk
+                and "\r" not in displayed_chunk
+            ):
+                continue
+            start = content.find(displayed_chunk)
+            while start >= 0 and any(
+                start < occupied_end
+                and start + len(displayed_chunk) > occupied_start
+                for occupied_start, occupied_end in occupied
+            ):
+                start = content.find(displayed_chunk, start + 1)
+            if start < 0:
+                continue
+            end = start + len(displayed_chunk)
+            key = str(len(self._hidden_content))
+            self._hidden_content[key] = displayed_chunk
+            occupied.append((start, end))
+            matches.append((start, end, key, displayed_chunk))
+
+        if not matches:
+            return Text(content)
+
+        display = Text()
+        cursor = 0
+        for start, end, key, chunk in sorted(matches):
+            display.append(content[cursor:start])
+            display.append(
+                f"[{len(chunk):,} chars]",
+                style=Style(
+                    color="#87b5b1",
+                    bold=True,
+                    underline=True,
+                    meta={"@click": f"open_content('{key}')"},
+                ),
+            )
+            cursor = end
+        display.append(content[cursor:])
+        return display
+
+    def action_open_content(self, key: str) -> None:
+        content = self._hidden_content.get(key)
+        if content is not None:
+            self.app.push_screen(ContentModal(content))
 
 
 class AssistantMessage(Static):
@@ -66,15 +132,125 @@ class AssistantMessage(Static):
         )
 
 
+class PromptInput(Input):
+    """Prompt input that replaces large clipboard chunks with compact markers."""
+
+    COMPACT_PASTE_AFTER = UserMessage.COMPACT_PASTE_AFTER
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._pasted_chunks: list[tuple[str, str]] = []
+        super().__init__(*args, **kwargs)
+
+    @property
+    def pasted_chunks(self) -> tuple[str, ...]:
+        return tuple(content for _marker, content in self._pasted_chunks)
+
+    def expanded_value(self, value: str | None = None) -> str:
+        """Restore compact markers to the clipboard text sent to the agent."""
+        expanded = self.value if value is None else value
+        for marker, content in self._pasted_chunks:
+            expanded = expanded.replace(marker, content, 1)
+        return expanded
+
+    def take_pasted_chunks(self) -> tuple[str, ...]:
+        chunks = self.pasted_chunks
+        self._pasted_chunks.clear()
+        return chunks
+
+    def _insert_paste(self, content: str) -> None:
+        if not content:
+            return
+        start, end = self.selection
+        should_compact = (
+            len(content) > self.COMPACT_PASTE_AFTER or "\n" in content or "\r" in content
+        )
+        if not should_compact:
+            self.replace(content, start, end)
+            return
+        marker = f"[{len(content):,} chars]"
+        self.replace(marker, start, end)
+        self._pasted_chunks.append((marker, content))
+
+    def _on_paste(self, event: Any) -> None:
+        self._insert_paste(str(event.text))
+        event.prevent_default()
+        event.stop()
+
+    def action_paste(self) -> None:
+        self._insert_paste(self.app.clipboard)
+
+    def on_click(self, event: Any) -> None:
+        position = self.cursor_position
+        search_from = 0
+        for marker, content in self._pasted_chunks:
+            start = self.value.find(marker, search_from)
+            if start < 0:
+                continue
+            end = start + len(marker)
+            if start <= position <= end:
+                self.app.push_screen(ContentModal(content))
+                event.stop()
+                return
+            search_from = end
+
+
 class ThinkingStatus(Static):
     """Muted run/usage metadata displayed directly beneath the user prompt."""
 
+    _WORKING_COLORS = (
+        "#6f5930",
+        "#94733a",
+        "#bd9145",
+        "#e2b85f",
+        "#f0d58a",
+        "#d7a84b",
+        "#a77f3d",
+    )
+
     def __init__(self, text: str = "Thinking…") -> None:
+        self._working = False
+        self._working_detail = ""
+        self._gradient_step = 0
+        self._animation_timer: Any = None
         super().__init__(classes="thinking-status")
         self.set_text(text)
 
+    def on_mount(self) -> None:
+        self._animation_timer = self.set_interval(0.12, self._advance_gradient)
+        if not self._working:
+            self._animation_timer.pause()
+
     def set_text(self, value: str) -> None:
+        self._working = False
+        if self._animation_timer is not None:
+            self._animation_timer.pause()
         self.update(Text(f"✻  {value}", style="#666666"))
+
+    def set_working(self, detail: str = "") -> None:
+        """Show a moving color gradient while a model request is retrying."""
+        self._working = True
+        self._working_detail = detail
+        if self._animation_timer is not None:
+            self._animation_timer.resume()
+        self._render_working()
+
+    def _advance_gradient(self) -> None:
+        if not self._working:
+            return
+        self._gradient_step = (self._gradient_step + 1) % len(self._WORKING_COLORS)
+        self._render_working()
+
+    def _render_working(self) -> None:
+        label = "✻  Working"
+        line = Text()
+        for index, character in enumerate(label):
+            color = self._WORKING_COLORS[
+                (index + self._gradient_step) % len(self._WORKING_COLORS)
+            ]
+            line.append(character, style=f"bold {color}")
+        if self._working_detail:
+            line.append(f"  ·  {self._working_detail}", style="#666666")
+        self.update(line)
 
 
 class RunProcess(Container):
@@ -396,6 +572,5 @@ class Composer(Container):
     """Input surface with an always-visible interaction hint."""
 
     def compose(self):  # type: ignore[no-untyped-def]
-        yield Input(placeholder="Ask Symphony to build, fix, or explain…", id="prompt")
+        yield PromptInput(placeholder="Ask Symphony to build, fix, or explain…", id="prompt")
         yield Static("BUILD · Tab mode · Enter to send", id="composer-hint")
-
