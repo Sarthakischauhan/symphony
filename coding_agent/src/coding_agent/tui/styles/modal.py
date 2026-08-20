@@ -10,7 +10,7 @@ MODAL_BASE_CSS = """
     height: 1;
     color: #858585;
     content-align: center middle;
-    background: #202020;
+    background: #171717;
 }
 
 #modal-close:hover,
@@ -24,7 +24,7 @@ MODAL_BASE_CSS = """
     max-width: 124;
     height: 78%;
     padding: 1 2;
-    background: #1b1b1b;
+    background: #171717;
     border-left: solid #60717a;
 }
 
@@ -69,5 +69,23 @@ MODAL_BASE_CSS = """
     height: 2;
     padding: 1 1 0 1;
     color: #686868;
+}
+"""
+
+
+CONTENT_MODAL_CSS = MODAL_BASE_CSS + """
+ContentModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#content-pane {
+    border-left: solid #4f7374;
+}
+
+#content-text {
+    width: 100%;
+    height: auto;
+    color: #d0d0d0;
 }
 """

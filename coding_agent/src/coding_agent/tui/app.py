@@ -11,6 +11,7 @@ from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Input, OptionList, Static
 
@@ -37,6 +38,7 @@ from coding_agent.tui.widgets import (
     AssistantMessage,
     Composer,
     Notice,
+    PromptInput,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
@@ -169,6 +171,13 @@ class CodingAgentApp(App[None]):
         else:
             self._thinking.set_text(text)
 
+    def set_working(self, detail: str = "") -> None:
+        if self._thinking is None:
+            self.set_thinking("Working")
+        assert self._thinking is not None
+        self._thinking.display = True
+        self._thinking.set_working(detail)
+
     def _mount_process_item(self, widget: Widget) -> None:
         if self._process is None:
             self.set_thinking("Thinking…")
@@ -275,7 +284,12 @@ class CodingAgentApp(App[None]):
     on_control_plane_event = on_harness_event
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = (event.value or "").strip()
+        if isinstance(event.input, PromptInput):
+            text = event.input.expanded_value(event.value or "").strip()
+            pasted_chunks = event.input.take_pasted_chunks()
+        else:
+            text = (event.value or "").strip()
+            pasted_chunks = ()
         event.input.value = ""
         if self._pending_question_id is not None:
             await self._answer_question(text or self._pending_question_default)
@@ -298,7 +312,7 @@ class CodingAgentApp(App[None]):
         self._reasoning = None
         self._process = None
         self._tools = {}
-        self._mount_transcript(UserMessage(text))
+        self._mount_transcript(UserMessage(text, pasted_chunks=pasted_chunks))
         self.set_thinking("Thinking…")
         if self.mode == "plan":
             self._plan_store.begin(text)
@@ -450,6 +464,9 @@ class CodingAgentApp(App[None]):
         self._tools.clear()
 
     def action_cancel_run(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            self.screen.dismiss(None)
+            return
         menu = self.query_one("#slash-menu", SlashMenu)
         if not self._busy:
             menu.set_commands(())
