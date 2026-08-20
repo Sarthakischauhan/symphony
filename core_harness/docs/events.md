@@ -54,6 +54,24 @@
 }
 ```
 
+## `model_retry_scheduled` (conditional)
+
+Emitted when a provider keeps the current turn alive after a retryable response,
+such as an OpenAI 429. The OpenAI provider honors `Retry-After` and uses capped
+exponential backoff when that header is absent.
+
+```json
+{
+  "event_type": "model_retry_scheduled",
+  "payload": {
+    "turn": 0,
+    "retry_after": 2.5,
+    "attempt": 1,
+    "reason": "rate_limit"
+  }
+}
+```
+
 ## `tool_call_started`
 
 ```json

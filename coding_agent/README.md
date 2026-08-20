@@ -66,7 +66,9 @@ result = await agent.run("Fix the failing test")
 
 The agent asks before running `bash`, overwriting an existing file, or applying a
 broad patch. Answer **Allow once** or **Deny**. Plan-mode reads stay unprompted.
-Runs default to 24 turns, 40 tool calls, 10 minutes, and 200k tokens.
+Runs default to 24 turns, 40 tool calls, and 10 minutes, with no aggregate token
+failure limit. OpenAI 429 responses remain in a live Working state and retry after
+the server-requested delay.
 
 ### Learning
 

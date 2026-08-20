@@ -14,7 +14,14 @@ class Message(BaseModel):
 # The strict event stream coming OUT of the provider
 class StreamEvent(BaseModel):
     type: Literal[
-        "text_start", "text_delta", "reasoning_delta", "toolcall_start", "toolcall_delta", "usage", "done"
+        "text_start",
+        "text_delta",
+        "reasoning_delta",
+        "toolcall_start",
+        "toolcall_delta",
+        "retry",
+        "usage",
+        "done",
     ]
     content_index: int = 0
     delta: Optional[str] = None
@@ -24,3 +31,5 @@ class StreamEvent(BaseModel):
     completion_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    retry_after: Optional[float] = None
+    retry_attempt: Optional[int] = None

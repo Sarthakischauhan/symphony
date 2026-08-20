@@ -282,6 +282,26 @@ def test_max_tokens_emits_run_limit_exceeded() -> None:
     assert plane.events[-1].payload["limit"] == "max_tokens"
 
 
+def test_model_retry_event_keeps_run_alive() -> None:
+    events = [
+        StreamEvent(type="retry", retry_after=2.5, retry_attempt=1),
+        *_text_turn("recovered"),
+    ]
+    registry = ScriptedRegistry([events])
+    _, plane, harness = _harness(registry)
+
+    result = asyncio.run(harness.run("go"))
+
+    assert result.output_text == "recovered"
+    retry = next(
+        event for event in plane.events if event.event_type == "model_retry_scheduled"
+    )
+    assert retry.payload["retry_after"] == 2.5
+    assert retry.payload["attempt"] == 1
+    assert retry.payload["reason"] == "rate_limit"
+    assert plane.events[-1].event_type == "run_completed"
+
+
 def test_max_runtime_stops_stream() -> None:
     class SlowRegistry:
         async def stream(self, model_id, messages, tools):

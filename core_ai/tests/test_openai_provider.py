@@ -111,6 +111,40 @@ def test_regular_model_uses_responses_stream() -> None:
     assert events[-1].type == "done"
 
 
+def test_rate_limit_retries_using_retry_after_header() -> None:
+    requests = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"})
+        body = "\n\n".join(
+            (
+                'data: {"type":"response.output_text.delta","content_index":0,"delta":"Done"}',
+                "data: [DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> list[StreamEvent]:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "gpt-5.6-luna", [Message(role="user", content="Do it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+
+    assert requests == 2
+    assert [event.type for event in events] == ["retry", "text_delta", "done"]
+    assert events[0].retry_after == 0
+    assert events[0].retry_attempt == 1
+    assert events[1].delta == "Done"
+
+
 def call_openai_provider(
     prompt: str = "what is 3+5. just answer in number",
     model_name: str | None = None,

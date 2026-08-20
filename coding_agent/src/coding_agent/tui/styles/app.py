@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 APP_CSS = """
-$background: #181818;
-$panel: #202020;
-$panel-light: #292929;
-$panel-edge: #303238;
-$panel-edge-focus: #68748a;
-$muted: #727272;
+$background: #0A0A0A;
+$panel: #171717;
+$panel-light: #262626;
+$panel-edge: #262626;
+$panel-edge-focus: #8ca0cc;
+$muted: #737373;
 
 Screen {
     layout: vertical;
     background: $background;
-    color: #d4d4d4;
+    color: #EDEDED;
 }
 
 #topbar {
@@ -62,7 +62,7 @@ Screen {
 
 .thinking-status {
     width: auto;
-    max-width: 50;
+    max-width: 72;
     height: 1;
     padding: 0 1 0 2;
     color: $muted;
