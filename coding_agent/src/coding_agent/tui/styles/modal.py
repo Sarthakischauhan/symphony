@@ -7,10 +7,11 @@ MODAL_BASE_CSS = """
 #modal-close {
     dock: right;
     width: 3;
-    height: 1;
-    color: #858585;
+    height: 3;
+    color: #a0a0a0;
     content-align: center middle;
-    background: #171717;
+    background: #101010;
+    border: round #343434;
 }
 
 #modal-close:hover,
@@ -20,48 +21,45 @@ MODAL_BASE_CSS = """
 }
 
 .modal-pane {
-    width: 82%;
-    max-width: 124;
-    height: 78%;
-    padding: 1 2;
-    background: #171717;
-    border-left: solid #60717a;
-}
-
-.modal-header {
-    width: 1fr;
-    height: 4;
-    padding: 0 1 1 1;
-    color: #a8a8a8;
+    width: 86%;
+    max-width: 132;
+    height: 84%;
+    padding: 2 3;
+    background: #101010;
+    border: round #383838;
 }
 
 .modal-body {
     width: 100%;
     height: 1fr;
-    padding: 0 1 1 0;
+    padding: 1 1 2 1;
     scrollbar-size: 1 1;
-    scrollbar-color: #484848;
-    scrollbar-color-hover: #606060;
-    scrollbar-background: #1b1b1b;
+    scrollbar-color: #343434;
+    scrollbar-color-active: #525252;
+    scrollbar-color-hover: #484848;
+    scrollbar-background: #101010;
+    scrollbar-background-active: #101010;
+    scrollbar-background-hover: #101010;
 }
 
 .content-card {
     width: 100%;
     height: auto;
-    margin-bottom: 1;
-    padding: 1 1;
+    margin-bottom: 2;
+    padding: 1 2 2 2;
     color: #bdbdbd;
-    background: #1d1d1d;
+    background: #121212;
+    border-top: solid #303030;
 }
 
 .empty-state {
     width: 100%;
     height: auto;
-    padding: 3 4;
-    margin-top: 1;
+    padding: 4 5;
+    margin: 2 0;
     content-align: center middle;
     text-align: center;
-    background: #1d1d1d;
+    background: #121212;
 }
 
 .modal-footer {
@@ -69,6 +67,7 @@ MODAL_BASE_CSS = """
     height: 2;
     padding: 1 1 0 1;
     color: #686868;
+    background: #101010;
 }
 """
 
@@ -80,12 +79,14 @@ ContentModal {
 }
 
 #content-pane {
-    border-left: solid #4f7374;
+    border: round #38474a;
 }
 
 #content-text {
     width: 100%;
     height: auto;
+    padding: 1 2;
     color: #d0d0d0;
+    background: #0d0d0d;
 }
 """

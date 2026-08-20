@@ -9,7 +9,9 @@ from typing import Any, Mapping
 from rich.console import Group
 from rich.style import Style
 from rich.text import Text
-from textual.containers import Container, VerticalScroll
+from textual import events
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Collapsible, Input, Static
 
@@ -20,15 +22,26 @@ from coding_agent.utils.text import clip_text, compact_json
 
 
 class TopBar(Static):
-    """Small, product-like header instead of Textual's application chrome."""
+    """Terminal header with a quiet workspace label and model chip."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._workspace = ""
+        self._model = ""
+        super().__init__(*args, **kwargs)
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        yield Static("◆  symphony", id="topbar-product")
+        yield Static(id="topbar-workspace")
+        yield Static("model", id="topbar-model")
 
     def set_context(self, workspace: Path, model: str = "") -> None:
-        title = Text("◆  symphony", style="bold #e6e6e6")
-        location = str(workspace.parent / workspace.name)
-        title.append(f"   {location}", style="#777777")
-        if model:
-            title.append(f"   {model}", style="#626262")
-        self.update(title)
+        self._workspace = str(workspace)
+        self._model = model
+        self.query_one("#topbar-workspace", Static).update(
+            Text(self._workspace, style="#777777")
+        )
+        chip = Text(f" {model or 'no model'} ", style="#a0a0a0")
+        self.query_one("#topbar-model", Static).update(chip)
 
 
 class Welcome(Static):
@@ -53,10 +66,7 @@ class UserMessage(Static):
     def __init__(self, content: str, *, pasted_chunks: tuple[str, ...] = ()) -> None:
         self._hidden_content: dict[str, str] = {}
         super().__init__(
-            Group(
-                Text("YOU", style="bold #8a8a8a"),
-                self._compact_content(content, pasted_chunks),
-            ),
+            self._compact_content(content, pasted_chunks),
             classes="message user-message",
         )
 
@@ -368,6 +378,22 @@ class Notice(Static):
         super().__init__(Text(f"  {text}", style=color), classes=f"notice {tone}")
 
 
+class BashToolHeader(Horizontal, can_focus=True):
+    """Focusable Bash timeline header that toggles its output."""
+
+    class Toggle(Message):
+        pass
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.post_message(self.Toggle())
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            self.post_message(self.Toggle())
+
+
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
@@ -390,8 +416,8 @@ class ToolCallWidget(Collapsible):
             self._body,
             title="",
             collapsed=False,
-            collapsed_symbol="▸",
-            expanded_symbol="▾",
+            collapsed_symbol="",
+            expanded_symbol="",
             classes="tool-call",
         )
         self.refresh_content()
@@ -460,8 +486,53 @@ class ToolCallWidget(Collapsible):
         summary = clip_text(self._summary(), 140)
         title = f"{marker}  {label}"
         if summary:
-            title = f"{title} ({summary})"
+            title = f"{title}  {summary}"
+        if self.status in {"preparing", "running"}:
+            title = f"{title}   {self.status}"
         self.title = title
+        self.remove_class(
+            "status-preparing", "status-running", "status-done", "status-failed"
+        )
+        self.add_class(f"status-{self.status}")
+        self._body.update(Group(*self._body_rows()))
+
+
+class BashToolWidget(ToolCallWidget):
+    """Bash-specific row with command and lifecycle status on one line."""
+
+    def __init__(self, call_id: str, tool_name: str) -> None:
+        self._bash_label = Static(classes="bash-tool-label")
+        self._bash_command = Static(classes="bash-tool-command")
+        self._bash_status = Static(classes="bash-tool-status")
+        super().__init__(call_id, tool_name)
+        self.add_class("bash-tool")
+        self._body.add_class("bash-tool-body")
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        with BashToolHeader(classes="bash-tool-header"):
+            yield self._bash_label
+            yield self._bash_command
+            yield self._bash_status
+        yield self._body
+
+    def on_bash_tool_header_toggle(self, event: BashToolHeader.Toggle) -> None:
+        event.stop()
+        self.collapsed = not self.collapsed
+
+    def _watch_collapsed(self, collapsed: bool) -> None:
+        super()._watch_collapsed(collapsed)
+        self._body.display = not collapsed
+
+    def refresh_content(self) -> None:
+        marker = {
+            "preparing": "○",
+            "running": "●",
+            "done": "✓",
+            "failed": "×",
+        }.get(self.status, "○")
+        self._bash_label.update(f"{marker}  Bash")
+        self._bash_command.update(clip_text(self._summary(), 180))
+        self._bash_status.update(self.status)
         self.remove_class(
             "status-preparing", "status-running", "status-done", "status-failed"
         )
@@ -533,6 +604,8 @@ class PatchDiffWidget(ToolCallWidget):
             title = f"{title} ({path})"
         if diff:
             title = f"{title}  +{additions} -{deletions}"
+        if self.status in {"preparing", "running"}:
+            title = f"{title}   {self.status}"
         self.title = title
         self.remove_class(
             "status-preparing", "status-running", "status-done", "status-failed"
@@ -561,6 +634,8 @@ class PatchDiffWidget(ToolCallWidget):
 
 
 def make_tool_widget(call_id: str, tool_name: str) -> ToolCallWidget:
+    if tool_name == "bash":
+        return BashToolWidget(call_id, tool_name)
     if tool_name == "read_file":
         return ReadFileWidget(call_id, tool_name)
     if tool_name == "patch":
@@ -572,5 +647,9 @@ class Composer(Container):
     """Input surface with an always-visible interaction hint."""
 
     def compose(self):  # type: ignore[no-untyped-def]
-        yield PromptInput(placeholder="Ask Symphony to build, fix, or explain…", id="prompt")
-        yield Static("BUILD · Tab mode · Enter to send", id="composer-hint")
+        yield PromptInput(
+            placeholder="Ask Symphony to build, fix, or explain…", id="prompt"
+        )
+        with Horizontal(id="composer-footer"):
+            yield Static("BUILD · Tab mode", id="composer-mode")
+            yield Static("↵ Send   Esc cancel", id="composer-hint")

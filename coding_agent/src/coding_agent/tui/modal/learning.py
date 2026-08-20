@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from textual.containers import Container, VerticalScroll
+from textual.containers import Container
 from textual.widgets import Static
 
 from coding_agent.learning import LearningStore
-from coding_agent.tui.modal.base import ModalBase, ModalCloseButton
+from coding_agent.tui.modal.base import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.modal.components import EmptyState, LearningCard
 from coding_agent.tui.styles.learning import LEARNING_MODAL_CSS
 
@@ -26,7 +26,7 @@ class LearningModal(ModalBase[None]):
         lessons = list(reversed(LearningStore(self.workspace).load()))
         with Container(id="learning-pane", classes="modal-pane"):
             yield ModalCloseButton("×", id="modal-close")
-            with VerticalScroll(id="learning-body", classes="modal-body"):
+            with ModalScroll(id="learning-body", classes="modal-body"):
                 if not lessons:
                     yield EmptyState(
                         "No learnings yet",

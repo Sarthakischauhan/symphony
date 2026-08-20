@@ -11,17 +11,6 @@ from coding_agent.learning import Lesson
 from coding_agent.tui.theme import themed_markdown
 
 
-class ModalHeader(Static):
-    """A compact product header with a quiet eyebrow and supporting detail."""
-
-    def __init__(self, eyebrow: str, title: str, detail: str, **kwargs: object) -> None:
-        super().__init__(
-            f"{eyebrow.upper()}\n{title}\n{detail}",
-            classes="modal-header",
-            **kwargs,
-        )
-
-
 class EmptyState(Static):
     """Friendly empty state shared by data-backed modal screens."""
 
@@ -50,7 +39,7 @@ class LearningCard(Static):
 
     def __init__(self, lesson: Lesson, index: int) -> None:
         rows: list[object] = []
-        meta = Text("     ")
+        meta = Text()
         confidence_color = "#79a985" if lesson.confidence >= 0.7 else "#d0a85c"
         meta.append(f"{round(lesson.confidence * 100)}% confidence", style=confidence_color)
         if lesson.created_at:
@@ -70,9 +59,9 @@ class LearningCard(Static):
     ) -> None:
         if not items:
             return
-        rows.append(Text(f"\n     {label}", style=f"bold {color}"))
+        rows.append(Text(f"\n{label}", style=color))
         for item in items:
-            line = Text("     ")
+            line = Text("  ")
             line.append(f"{marker}  ", style=color)
             line.append(item, style="#aaaaaa")
             rows.append(line)
@@ -83,6 +72,10 @@ class PlanSectionCard(Static):
 
     def __init__(self, title: str, body: str, index: int) -> None:
         super().__init__(
-            Group(themed_markdown(body or "_No details provided._")),
+            Group(
+                Text(f"{index:02}  {title}", style="#8f835a"),
+                Text(""),
+                themed_markdown(body or "_No details provided._"),
+            ),
             classes="content-card plan-section-card",
         )

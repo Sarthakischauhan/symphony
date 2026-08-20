@@ -31,12 +31,14 @@ from coding_agent.tui.file_selector import (
     complete_file_mention,
     file_matches,
 )
-from coding_agent.tui.modal import ContentModal, PlanModal
+from coding_agent.tui.modal import ContentModal, DiffModal, PlanModal
+from coding_agent.tui.modal.diff import DiffFileCard
 from coding_agent.tui.modal.components import PlanSectionCard
 from coding_agent.tui.modal.plan import _plan_sections
 from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
+    BashToolWidget,
     PatchDiffWidget,
     PromptInput,
     ReadFileWidget,
@@ -290,6 +292,38 @@ def test_modal_escape_closes_when_scroll_has_focus(
     asyncio.run(_run())
 
 
+def test_diff_modal_shows_file_names_and_change_stats(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        "coding_agent.tui.modal.diff.read_workspace_diff",
+        lambda _workspace: (
+            "diff --git a/src/app.py b/src/app.py\n"
+            "--- a/src/app.py\n"
+            "+++ b/src/app.py\n"
+            "@@ -1 +1,2 @@\n"
+            "-old\n"
+            "+new\n"
+            "+added\n"
+        ),
+    )
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            app.push_screen(DiffModal(tmp_path))
+            await pilot.pause()
+
+            card = app.screen.query_one(DiffFileCard)
+            assert card.path == "src/app.py"
+            assert (card.additions, card.deletions) == (2, 1)
+            assert "src/app.py" in str(card.query_one(".diff-file-path").render())
+            assert "+2" in str(card.query_one(".diff-file-stats").render())
+            assert "−1" in str(card.query_one(".diff-file-stats").render())
+
+    asyncio.run(_run())
+
+
 def test_resume_app_selects_with_arrow_keys() -> None:
     sessions = [
         SessionOption("one", "2026-08-12T16:00:00+00:00", "First task", 3),
@@ -539,6 +573,39 @@ def test_tui_animates_working_gradient_while_rate_limit_retries(
     asyncio.run(_run())
 
 
+def test_bash_tool_uses_timeline_header_with_right_aligned_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("bash-1", "bash")
+            app.update_tool(
+                "bash-1",
+                arguments={"command": "git diff --check && git diff --stat"},
+                status="running",
+            )
+            await pilot.pause()
+
+            bash = app.query_one(BashToolWidget)
+            assert "Bash" in str(bash.query_one(".bash-tool-label").render())
+            assert "git diff --check" in str(
+                bash.query_one(".bash-tool-command").render()
+            )
+            assert str(bash.query_one(".bash-tool-status").render()) == "running"
+            assert not list(bash.query("CollapsibleTitle"))
+
+            app.update_tool("bash-1", status="done", result="clean")
+            await pilot.pause()
+            assert bash.collapsed
+            assert not bash.query_one(".bash-tool-body").display
+
+    asyncio.run(_run())
+
+
 def test_live_reasoning_follows_tail_then_folds_to_thought(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -783,7 +850,9 @@ def test_permission_question_has_distinct_secure_design(
             assert menu.has_class("permission-menu")
             assert menu.selected_value == "Deny"
             assert menu.highlighted == menu._option_offset + 1
-            assert str(menu.options[0].prompt) == "  Allow to run following"
+            assert str(menu.options[0].prompt) == (
+                "  Allow Symphony to run the following command?"
+            )
             assert "uv run pytest" in str(menu.options[1].prompt)
             assert app.query_one("#prompt").value == ""
 
@@ -952,7 +1021,7 @@ def test_slash_menu_and_commands(
             await pilot.pause()
             assert app.mode == "plan"
             assert fake.mode == "plan"
-            assert "PLAN" in str(app.query_one("#composer-hint").render())
+            assert "PLAN" in str(app.query_one("#composer-mode").render())
 
             await app._run_slash_command("/compact")
             assert fake.compacted

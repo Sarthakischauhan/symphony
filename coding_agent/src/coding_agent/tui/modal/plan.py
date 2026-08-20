@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Literal
 
 from textual import events
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
 from coding_agent.plan import PlanStore
-from coding_agent.tui.modal.base import ModalBase, ModalCloseButton
+from coding_agent.tui.modal.base import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.modal.components import EmptyState, PlanSectionCard
 from coding_agent.tui.styles.plan import PLAN_MODAL_CSS
 
@@ -76,7 +76,7 @@ class PlanModal(ModalBase[PlanAction | None]):
         _task, sections = _plan_sections(markdown)
         with Container(id="plan-pane", classes="modal-pane"):
             yield ModalCloseButton("×", id="modal-close")
-            with VerticalScroll(id="plan-body", classes="modal-body"):
+            with ModalScroll(id="plan-body", classes="modal-body"):
                 if not sections:
                     yield EmptyState(
                         "No plan available",

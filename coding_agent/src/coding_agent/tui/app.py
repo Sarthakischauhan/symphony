@@ -117,6 +117,7 @@ class CodingAgentApp(App[None]):
         topbar = self.query_one("#topbar", TopBar)
         topbar.set_context(self.workspace, self.model_id or os.getenv("OPENAI_MODEL", ""))
         self._update_composer_hint()
+        self.set_interval(1, lambda: self._set_status(""))
 
         try:
             self._agent = build_agent(
@@ -319,7 +320,7 @@ class CodingAgentApp(App[None]):
             self._plan_run_active = True
         self._busy = True
         event.input.disabled = True
-        self.query_one("#composer-hint", Static).update("Working… · Esc to cancel")
+        self.query_one("#composer-hint", Static).update("Working…   Esc cancel")
         self.run_agent(text)
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -415,9 +416,10 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer", Composer).set_class(
             self.mode == "plan", "plan-mode"
         )
-        hint = f"{label} · Tab mode · Enter to send · Esc cancels"
+        self.query_one("#composer-mode", Static).update(f"{label} · Tab mode")
+        hint = "↵ Send   Esc cancel"
         if self._pending_question_id is not None:
-            hint = "Waiting for your answer… · Esc cancels"
+            hint = "↵ Submit   Esc cancel"
         self.query_one("#composer-hint", Static).update(hint)
 
     @work(exclusive=True)

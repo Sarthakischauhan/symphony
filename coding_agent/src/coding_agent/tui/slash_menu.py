@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Any
 
 from rich.text import Text
@@ -131,6 +132,7 @@ class SlashMenu(OptionList):
         self._question_kind = question_kind
         self.selected_index = selected_index
         self.set_class(question_kind == "approval", "permission-menu")
+        self.set_class(bool(files), "file-menu")
 
         if self._choice_count or question_text:
             self._render_options()
@@ -141,6 +143,7 @@ class SlashMenu(OptionList):
         self._option_offset = 0
         self.clear_options()
         self.remove_class("permission-menu")
+        self.remove_class("file-menu")
         self.display = False
 
     def set_commands(self, commands: tuple[SlashCommand, ...]) -> None:
@@ -184,6 +187,13 @@ class SlashMenu(OptionList):
             return
 
         rows = self._choice_rows()
+        if self._files:
+            self._set_rendered_options(
+                rows,
+                headers=[Text("  FILES", style="#666666")],
+                hint="  ↑↓ select   Tab insert   Enter choose",
+            )
+            return
         self._set_rendered_options(
             rows, hint="   ↑/↓ select  ·  Enter choose  ·  Tab complete"
         )
@@ -212,10 +222,7 @@ class SlashMenu(OptionList):
 
     def _choice_rows(self) -> list[Text]:
         if self._files:
-            return [
-                self._described_row(f"@ {file.path:<42}", file.description)
-                for file in self._files
-            ]
+            return [self._file_row(file) for file in self._files]
         if self._models:
             return [
                 self._described_row(
@@ -251,6 +258,18 @@ class SlashMenu(OptionList):
         row.append(description, style="#858585")
         return row
 
+    @staticmethod
+    def _file_row(file: FileOption) -> Text:
+        path = PurePosixPath(file.path)
+        parent = "" if str(path.parent) == "." else f"{path.parent}/"
+        row = Text("  @  ", style="#7085ba")
+        row.append(parent, style="#737373")
+        row.append(path.name, style="#d0d0d0")
+        occupied = 5 + len(parent) + len(path.name)
+        row.append(" " * max(3, 58 - occupied))
+        row.append(file.description, style="#5f5f5f")
+        return row
+
     def _set_rendered_options(
         self,
         rows: list[Text],
@@ -281,6 +300,6 @@ class SlashMenu(OptionList):
             preview.append("  │ ", style="#666666")
             preview.append(line, style="bold #d0d0d0")
         return [
-            Text("  Allow to run following", style="bold #d0d0d0"),
+            Text("  Allow Symphony to run the following command?", style="bold #d0d0d0"),
             preview,
         ]
