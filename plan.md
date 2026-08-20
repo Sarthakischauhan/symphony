@@ -31,6 +31,18 @@ Earlier phases for the general-purpose harness are landed:
 - Optional run limits for turns, tool calls, runtime, and tokens (`run_limit_exceeded`)
 - Event identity on every control-plane event: `run_id`, `session_id`, `seq`, `ts`, `schema_version`
 
+### Done (core server transport)
+
+- Run requests may select `model_id`; system prompt and tools remain trusted server configuration
+- `GET /models` exposes supported model slugs using the Chat SDK registry contract; `/runs` rejects unadvertised slugs
+- Request-body, message, and conversation-history limits are enforced before harness execution
+- Bounded SSE queues apply backpressure instead of allowing unbounded event buffering
+- Harness event identity is preserved over SSE and exposed as `id: <run_id>:<seq>`
+- Client disconnects send the harness cancel command, stopping active model streams and tools cleanly
+- Harness owns terminal `run_completed`, `run_cancelled`, `run_limit_exceeded`, and `run_failed` events; the server does not duplicate them
+- CORS origins are explicit and deny browser cross-origin access by default
+- `ask_user` remains opt-in until the server supports responding to and resuming the same run
+
 ### Done (coding agent)
 
 `coding_agent` tools use one module each under a shared `WorkspaceTool` base:
