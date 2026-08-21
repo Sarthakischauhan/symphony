@@ -2,6 +2,10 @@
 
 A workspace coding agent built on `core_harness`.
 
+<div align="center">
+  <img src="../docs/demo.png" alt="Symphony coding agent TUI" height="400">
+</div>
+
 ### What it provides
 
 - Five workspace tools: `read_file`, `write_file`, `patch`, `search`, and `bash`
