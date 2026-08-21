@@ -197,9 +197,8 @@ Screen {
 }
 
 .tool-call-label {
-    width: auto;
+    width: 13;
     height: 1;
-    margin-right: 2;
     color: #666666;
     background: transparent;
 }
@@ -214,7 +213,7 @@ Screen {
 }
 
 .tool-call-status {
-    width: auto;
+    width: 10;
     height: 1;
     padding-left: 2;
     color: #666666;
@@ -261,7 +260,7 @@ Screen {
 }
 
 .bash-tool {
-    padding-right: 1;
+    padding: 0;
 }
 
 .bash-tool-header {
@@ -278,9 +277,8 @@ Screen {
 }
 
 .bash-tool-label {
-    width: auto;
+    width: 13;
     height: 1;
-    margin-right: 2;
     color: #666666;
     background: transparent;
 }
@@ -295,7 +293,7 @@ Screen {
 }
 
 .bash-tool-status {
-    width: auto;
+    width: 10;
     height: 1;
     padding-left: 2;
     color: #666666;
@@ -328,12 +326,15 @@ Screen {
     background: $background;
 }
 
+.bash-tool.-collapsed .bash-tool-body {
+    display: none;
+}
+
 .diff-tool {
     margin-top: 1;
     margin-bottom: 1;
     padding-bottom: 1;
     background: $background;
-    border-left: solid #454545;
 }
 
 /* Keep collapsed Update cards visually consistent with the timeline while

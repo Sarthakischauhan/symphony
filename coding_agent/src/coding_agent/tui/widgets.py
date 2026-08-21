@@ -418,7 +418,7 @@ class ToolCallWidget(Collapsible):
         super().__init__(
             self._body,
             title="Tool",
-            collapsed=False,
+            collapsed=True,
             collapsed_symbol="",
             expanded_symbol="",
             classes="tool-call",
@@ -441,7 +441,14 @@ class ToolCallWidget(Collapsible):
         self.collapsed = not self.collapsed
 
     def _watch_collapsed(self, collapsed: bool) -> None:
-        super()._watch_collapsed(collapsed)
+        # Collapsible scrolls itself into view after every state change. The
+        # transcript already owns tail-following, so that competing scroll
+        # produces visible jumps as tools complete.
+        self._update_collapsed(collapsed)
+        if collapsed:
+            self.post_message(self.Collapsed(self))
+        else:
+            self.post_message(self.Expanded(self))
         self._body.display = not collapsed
         self.refresh_content()
 
@@ -456,13 +463,11 @@ class ToolCallWidget(Collapsible):
     def set_running(self, arguments: Mapping[str, Any] | None) -> None:
         self.status = "running"
         self.arguments = dict(arguments or {})
-        self.collapsed = False
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
         self.status = "failed" if str(result).startswith(("error:", "exit=")) else "done"
         self.result = str(result or "")
-        self.collapsed = self.status == "done"
         self.refresh_content()
 
     def _tool_title(self) -> tuple[str, str]:

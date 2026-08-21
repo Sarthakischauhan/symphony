@@ -147,22 +147,31 @@ class CodingAgentApp(App[None]):
         self.query_one("#prompt", Input).focus()
 
     # TranscriptView implementation
+    def _follow_transcript_tail(
+        self, transcript: VerticalScroll, *, was_at_end: bool
+    ) -> None:
+        """Keep following live output unless the user has scrolled away."""
+        if was_at_end:
+            self.call_after_refresh(transcript.scroll_end, animate=False)
+
     def _mount_transcript(self, widget: Static) -> None:
+        transcript = self.query_one("#transcript", VerticalScroll)
+        was_at_end = transcript.is_vertical_scroll_end
         welcome = self.query(".welcome")
         if welcome:
             welcome.first().remove()
-        transcript = self.query_one("#transcript", VerticalScroll)
         transcript.mount(widget)
-        self.call_after_refresh(transcript.scroll_end, animate=False)
+        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         if new or self._assistant is None:
             self._assistant = AssistantMessage(text)
             self._mount_transcript(self._assistant)
         else:
+            transcript = self.query_one("#transcript", VerticalScroll)
+            was_at_end = transcript.is_vertical_scroll_end
             self._assistant.set_content(text)
-        transcript = self.query_one("#transcript", VerticalScroll)
-        self.call_after_refresh(transcript.scroll_end, animate=False)
+            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def set_thinking(self, text: str) -> None:
         if self._thinking is None:
@@ -180,12 +189,13 @@ class CodingAgentApp(App[None]):
         self._thinking.set_working(detail)
 
     def _mount_process_item(self, widget: Widget) -> None:
+        transcript = self.query_one("#transcript", VerticalScroll)
+        was_at_end = transcript.is_vertical_scroll_end
         if self._process is None:
             self.set_thinking("Thinking…")
         assert self._process is not None
         self._process.add_item(widget)
-        transcript = self.query_one("#transcript", VerticalScroll)
-        self.call_after_refresh(transcript.scroll_end, animate=False)
+        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         if new or self._reasoning is None:
@@ -194,9 +204,10 @@ class CodingAgentApp(App[None]):
             self._reasoning = ReasoningWidget(text)
             self._mount_process_item(self._reasoning)
         else:
+            transcript = self.query_one("#transcript", VerticalScroll)
+            was_at_end = transcript.is_vertical_scroll_end
             self._reasoning.set_content(text)
-        transcript = self.query_one("#transcript", VerticalScroll)
-        self.call_after_refresh(transcript.scroll_end, animate=False)
+            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def finish_reasoning(self) -> None:
         if self._reasoning is None:
@@ -220,6 +231,8 @@ class CodingAgentApp(App[None]):
         status: str = "preparing",
         result: Any = None,
     ) -> None:
+        transcript = self.query_one("#transcript", VerticalScroll)
+        was_at_end = transcript.is_vertical_scroll_end
         widget = self._tools.get(call_id)
         if widget is None:
             self.add_tool(call_id, "tool")
@@ -230,8 +243,7 @@ class CodingAgentApp(App[None]):
             widget.set_result(result)
         else:
             widget.set_arguments(arguments, raw_arguments)
-        transcript = self.query_one("#transcript", VerticalScroll)
-        self.call_after_refresh(transcript.scroll_end, animate=False)
+        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)

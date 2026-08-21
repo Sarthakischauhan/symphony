@@ -623,6 +623,160 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
     asyncio.run(_run())
 
 
+def test_tool_timeline_columns_align_across_widget_types(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("search-1", "search")
+            app.update_tool(
+                "search-1", arguments={"query": "collapsible"}, status="running"
+            )
+            app.add_tool("read-1", "read_file")
+            app.update_tool(
+                "read-1", arguments={"path": "src/app.py"}, status="running"
+            )
+            app.add_tool("patch-1", "patch")
+            app.update_tool(
+                "patch-1",
+                arguments={
+                    "path": "src/app.py",
+                    "old_str": "old\n",
+                    "new_str": "new\n",
+                },
+                status="running",
+            )
+            app.add_tool("bash-1", "bash")
+            app.update_tool(
+                "bash-1", arguments={"command": "pytest -q"}, status="running"
+            )
+            await pilot.pause()
+
+            widgets = [
+                app._tools[call_id]
+                for call_id in ("search-1", "read-1", "patch-1", "bash-1")
+            ]
+            headers = [
+                widget.query_one(
+                    ".bash-tool-header"
+                    if isinstance(widget, BashToolWidget)
+                    else ".tool-call-header"
+                )
+                for widget in widgets
+            ]
+            labels = [
+                widget.query_one(
+                    ".bash-tool-label"
+                    if isinstance(widget, BashToolWidget)
+                    else ".tool-call-label"
+                )
+                for widget in widgets
+            ]
+            commands = [
+                widget.query_one(
+                    ".bash-tool-command"
+                    if isinstance(widget, BashToolWidget)
+                    else ".tool-call-command"
+                )
+                for widget in widgets
+            ]
+            statuses = [
+                widget.query_one(
+                    ".bash-tool-status"
+                    if isinstance(widget, BashToolWidget)
+                    else ".tool-call-status"
+                )
+                for widget in widgets
+            ]
+
+            assert len({header.region.x for header in headers}) == 1
+            assert len({label.region.x for label in labels}) == 1
+            assert len({command.region.x for command in commands}) == 1
+            assert len({status.region.right for status in statuses}) == 1
+
+    asyncio.run(_run())
+
+
+def test_tool_updates_keep_rows_stable_until_manually_expanded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("patch-1", "patch")
+            await pilot.pause()
+            widget = app.query_one(PatchDiffWidget)
+            heights = [widget.region.height]
+            assert widget.collapsed
+
+            arguments = {
+                "path": "src/app.py",
+                "old_str": "old\n",
+                "new_str": "new\n",
+            }
+            app.update_tool("patch-1", arguments=arguments)
+            await pilot.pause()
+            heights.append(widget.region.height)
+            assert widget.collapsed
+
+            app.update_tool("patch-1", arguments=arguments, status="running")
+            await pilot.pause()
+            heights.append(widget.region.height)
+            assert widget.collapsed
+
+            app.update_tool("patch-1", status="done", result="patched src/app.py")
+            await pilot.pause()
+            heights.append(widget.region.height)
+            assert widget.collapsed
+            assert len(set(heights)) == 1
+
+            widget.collapsed = False
+            await pilot.pause()
+            app.update_tool("patch-1", status="done", result="patched src/app.py")
+            await pilot.pause()
+            assert not widget.collapsed
+
+    asyncio.run(_run())
+
+
+def test_live_tool_updates_do_not_hijack_transcript_scroll(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.mount_transcript(Static("\n".join(f"line {i}" for i in range(80))))
+            await pilot.pause()
+            transcript = app.query_one("#transcript", VerticalScroll)
+            transcript.scroll_end(animate=False, force=True)
+            await pilot.pause()
+            assert transcript.scroll_y > 0
+
+            transcript.scroll_home(animate=False, force=True)
+            await pilot.pause()
+            assert transcript.scroll_y == 0
+
+            app.add_tool("bash-1", "bash")
+            app.update_tool(
+                "bash-1", arguments={"command": "pytest -q"}, status="running"
+            )
+            app.update_tool("bash-1", status="done", result="clean")
+            await pilot.pause()
+            assert transcript.scroll_y == 0
+
+    asyncio.run(_run())
+
+
 def test_live_reasoning_follows_tail_then_folds_to_thought(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
