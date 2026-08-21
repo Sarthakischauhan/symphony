@@ -55,11 +55,15 @@ Screen {
     width: 100%;
     height: 1fr;
     padding: 1 8 2 8;
+    /* Keep scrollbars out of the way until the user interacts with them. */
     scrollbar-size: 1 1;
     scrollbar-size-vertical: 1;
-    scrollbar-color: #484848;
+    scrollbar-color: transparent;
     scrollbar-color-hover: #606060;
-    scrollbar-background: $background;
+    scrollbar-color-active: #707070;
+    scrollbar-background: transparent;
+    scrollbar-background-hover: transparent;
+    scrollbar-background-active: transparent;
 }
 
 .welcome {
@@ -116,10 +120,9 @@ Screen {
 .reasoning-block {
     width: 100%;
     height: auto;
-    margin: 0 0 0 2;
-    padding: 0 0 0 2;
-    color: #777777;
-    border-left: solid #383838;
+    margin: 0;
+    padding: 0;
+    color: #5b9bd5;
     background: $background;
     pointer: pointer;
 }
@@ -127,38 +130,42 @@ Screen {
 .reasoning-block > CollapsibleTitle {
     width: auto;
     padding: 0 1;
-    color: #d7a84b;
+    color: #5b9bd5;
     background: $background;
     pointer: pointer;
 }
 
 .reasoning-block.is-complete > CollapsibleTitle {
-    color: #777777;
+    color: #5b9bd5;
 }
 
 .reasoning-block > CollapsibleTitle:hover {
-    color: #a0a0a0;
+    color: #83b8e8;
     background: #202020;
 }
 
 .reasoning-block > Contents {
-    padding: 0 0 0 1;
+    padding: 0;
 }
 
 .reasoning-scroll {
     width: 100%;
     height: auto;
     max-height: 12;
-    padding: 0 2;
+    padding: 0;
     scrollbar-size: 1 1;
-    scrollbar-color: #484848;
-    scrollbar-background: $background;
+    scrollbar-color: transparent;
+    scrollbar-color-hover: #606060;
+    scrollbar-color-active: #707070;
+    scrollbar-background: transparent;
+    scrollbar-background-hover: transparent;
+    scrollbar-background-active: transparent;
 }
 
 .reasoning-text {
     width: 100%;
     height: auto;
-    color: #858585;
+    color: #5b9bd5;
 }
 
 .tool-call {
@@ -359,7 +366,8 @@ Screen {
 
 #composer {
     width: 1fr;
-    height: 6;
+    height: auto;
+    min-height: 6;
     margin: 0 8 1 8;
     padding: 0;
     layout: vertical;
@@ -378,6 +386,10 @@ Screen {
     border: round $panel-edge;
     overflow-y: auto;
     scrollbar-size-vertical: 1;
+}
+
+#approval-menu {
+    display: none;
 }
 
 #slash-menu > .option-list--option {
@@ -412,7 +424,9 @@ Screen {
 
 #prompt {
     width: 100%;
-    height: 3;
+    height: auto;
+    min-height: 3;
+    max-height: 10;
     padding: 0 2;
     border: none;
     background: #101010;
@@ -467,28 +481,32 @@ Screen {
     color: #686868;
 }
 
-#slash-menu.permission-menu {
-    width: 76%;
-    max-width: 84;
+#approval-menu.permission-menu {
+    width: 100%;
+    max-width: 100%;
     height: auto;
     max-height: 14;
-    margin: 0 0 1 0;
-    offset-x: 12%;
+    margin: 0;
+    offset-x: 0;
     padding: 1 1 0 1;
     border: round #3d3d3d;
     background: #101010;
 }
 
-#slash-menu.permission-menu > .option-list--option {
+#approval-menu.permission-menu > .option-list--option {
     padding: 0 1;
     background: #101010;
 }
 
-#slash-menu.permission-menu > .option-list--option-disabled {
+#approval-menu.permission-menu > .option-list--option-disabled {
     background: #101010;
 }
 
-#slash-menu.permission-menu > .option-list--option-highlighted {
+#approval-menu.permission-menu > .option-list--option-highlighted {
+    background: #242a3c;
+}
+
+#approval-menu.permission-menu > .option-list--option-hover {
     background: #242a3c;
 }
 

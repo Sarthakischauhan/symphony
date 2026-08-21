@@ -13,7 +13,7 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Input, OptionList, Static
+from textual.widgets import OptionList, Static, TextArea
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
@@ -131,7 +131,7 @@ class CodingAgentApp(App[None]):
         except Exception as exc:  # noqa: BLE001
             self._set_status("")
             self.add_notice(f"Offline · {exc}. Add it to .env and restart.", "error")
-            self.query_one("#prompt", Input).focus()
+            self.query_one("#prompt", PromptInput).focus()
             return
 
         self._ui_state.model_id = self._agent.harness.model_id
@@ -144,7 +144,7 @@ class CodingAgentApp(App[None]):
         self._presenter.refresh_chrome()
         if self.session_id:
             self.load_session_history()
-        self.query_one("#prompt", Input).focus()
+        self.query_one("#prompt", PromptInput).focus()
 
     # TranscriptView implementation
     def _follow_transcript_tail(
@@ -296,14 +296,10 @@ class CodingAgentApp(App[None]):
 
     on_control_plane_event = on_harness_event
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if isinstance(event.input, PromptInput):
-            text = event.input.expanded_value(event.value or "").strip()
-            pasted_chunks = event.input.take_pasted_chunks()
-        else:
-            text = (event.value or "").strip()
-            pasted_chunks = ()
-        event.input.value = ""
+    async def on_prompt_input_submitted(self, event: PromptInput.Submitted) -> None:
+        text = event.input.expanded_value(event.input.text).strip()
+        pasted_chunks = event.input.take_pasted_chunks()
+        event.input.load_text("")
         if self._pending_question_id is not None:
             await self._answer_question(text or self._pending_question_default)
             return
@@ -335,35 +331,50 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer-hint", Static).update("Working…   Esc cancel")
         self.run_agent(text)
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id != "prompt":
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id != "prompt":
             return
         if self._pending_question_id is not None:
             return
-        menu = self.query_one("#slash-menu", SlashMenu)
-        mention = active_file_mention(event.value)
+        approval_menu = self.query_one("#approval-menu", SlashMenu)
+        menu = (
+            approval_menu
+            if approval_menu.display
+            else self.query_one("#slash-menu", SlashMenu)
+        )
+        mention = active_file_mention(event.text_area.text)
         if mention is not None:
             _start, query = mention
             menu.set_files(file_matches(self.workspace, query))
-        elif event.value.startswith("/model "):
+        elif event.text_area.text.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
-            menu.set_models(model_matches(event.value.removeprefix("/model ")), current)
-        elif event.value.startswith("/mode "):
-            menu.set_modes(mode_matches(event.value.removeprefix("/mode ")), self.mode)
-        elif event.value.startswith("/plan "):
+            menu.set_models(model_matches(event.text_area.text.removeprefix("/model ")), current)
+        elif event.text_area.text.startswith("/mode "):
+            menu.set_modes(mode_matches(event.text_area.text.removeprefix("/mode ")), self.mode)
+        elif event.text_area.text.startswith("/plan "):
             menu.set_plans(
-                self._command_manager.plan_options(event.value.removeprefix("/plan ")),
+                self._command_manager.plan_options(event.text_area.text.removeprefix("/plan ")),
                 self._plan_store.path.name,
             )
         else:
-            menu.set_commands(command_matches(event.value))
+            menu.set_commands(command_matches(event.text_area.text))
 
     def on_key(self, event: events.Key) -> None:
         """Navigate, choose, or complete the visible slash menu."""
-        prompt = self.query_one("#prompt", Input)
+        prompt = self.query_one("#prompt", PromptInput)
         if not prompt.has_focus:
             return
-        menu = self.query_one("#slash-menu", SlashMenu)
+        if event.key in {"ctrl+enter", "control+enter"}:
+            prompt.action_submit()
+            event.prevent_default()
+            event.stop()
+            return
+        approval_menu = self.query_one("#approval-menu", SlashMenu)
+        menu = (
+            approval_menu
+            if approval_menu.display
+            else self.query_one("#slash-menu", SlashMenu)
+        )
         if not menu.display:
             if event.key == "tab" and not self._busy:
                 toggle_mode(self)
@@ -389,19 +400,20 @@ class CodingAgentApp(App[None]):
         self, event: OptionList.OptionSelected
     ) -> None:
         """Apply menu choices selected with the pointer."""
-        menu = self.query_one("#slash-menu", SlashMenu)
-        if event.option_list is not menu:
+        if event.option_list.id not in {"slash-menu", "approval-menu"}:
             return
+        menu = event.option_list
+        assert isinstance(menu, SlashMenu)
         if menu.select_option_index(event.option_index):
             self._choose_menu_option(menu, submit=True)
         event.stop()
 
     def _choose_menu_option(self, menu: SlashMenu, *, submit: bool) -> None:
-        prompt = self.query_one("#prompt", Input)
+        prompt = self.query_one("#prompt", PromptInput)
         if self._pending_question_id is not None and submit:
             answer = menu.selected_value
             menu.set_commands(())
-            prompt.value = ""
+            prompt.load_text("")
             self.call_later(self._answer_question, answer)
             prompt.focus()
             return
@@ -429,9 +441,9 @@ class CodingAgentApp(App[None]):
             self.mode == "plan", "plan-mode"
         )
         self.query_one("#composer-mode", Static).update(f"{label} · Tab mode")
-        hint = "↵ Send   Esc cancel"
+        hint = "Ctrl+↵ send   Enter line break   Esc cancel"
         if self._pending_question_id is not None:
-            hint = "↵ Submit   Esc cancel"
+            hint = "↵ approve   ↑↓ choose   Esc deny"
         self.query_one("#composer-hint", Static).update(hint)
 
     @work(exclusive=True)
@@ -454,7 +466,8 @@ class CodingAgentApp(App[None]):
             self._pending_question_id = None
             self._pending_question_default = ""
             self.control_plane.reset_cancel()
-            prompt = self.query_one("#prompt", Input)
+            prompt = self.query_one("#prompt", PromptInput)
+            prompt.submit_on_enter = False
             prompt.disabled = False
             self._update_composer_hint()
             prompt.focus()
@@ -482,15 +495,19 @@ class CodingAgentApp(App[None]):
             self.screen.dismiss(None)
             return
         menu = self.query_one("#slash-menu", SlashMenu)
+        approval_menu = self.query_one("#approval-menu", SlashMenu)
         if not self._busy:
             menu.set_commands(())
+            approval_menu.set_commands(())
             return
         self._pending_question_id = None
         self._pending_question_default = ""
         menu.set_commands(())
+        approval_menu.set_commands(())
         self.control_plane.request_cancel("user_cancel")
         self.add_notice("Cancelling…", "warning")
-        prompt = self.query_one("#prompt", Input)
+        prompt = self.query_one("#prompt", PromptInput)
+        prompt.submit_on_enter = False
         prompt.disabled = False
         self._update_composer_hint()
         prompt.focus()
@@ -523,14 +540,18 @@ class CodingAgentApp(App[None]):
         self._ui_state.phase = "paused"
         self._ui_state.detail = "waiting for user"
         self._update_composer_hint()
-        menu = self.query_one("#slash-menu", SlashMenu)
+        menu = self.query_one(
+            "#approval-menu" if kind == "approval" else "#slash-menu",
+            SlashMenu,
+        )
         menu.set_question(
             question,
             choices,
             default=default,
             kind=kind,
         )
-        prompt = self.query_one("#prompt", Input)
+        prompt = self.query_one("#prompt", PromptInput)
+        prompt.submit_on_enter = kind == "approval"
         prompt.disabled = False
         prompt.value = "" if choices else default
         prompt.cursor_position = len(prompt.value)
@@ -543,10 +564,12 @@ class CodingAgentApp(App[None]):
         self._pending_question_id = None
         self._pending_question_default = ""
         self.query_one("#slash-menu", SlashMenu).set_commands(())
+        self.query_one("#approval-menu", SlashMenu).set_commands(())
         await self.control_plane.answer_user(request_id, answer)
         self._ui_state.phase = "thinking"
         self._ui_state.detail = "resuming"
-        prompt = self.query_one("#prompt", Input)
+        prompt = self.query_one("#prompt", PromptInput)
+        prompt.submit_on_enter = False
         prompt.disabled = True
         self._update_composer_hint()
 
