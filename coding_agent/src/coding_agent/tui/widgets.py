@@ -384,11 +384,11 @@ class BashToolHeader(Horizontal, can_focus=True):
     class Toggle(Message):
         pass
 
-    def on_click(self, event: events.Click) -> None:
+    def _on_click(self, event: events.Click) -> None:
         event.stop()
         self.post_message(self.Toggle())
 
-    def on_key(self, event: events.Key) -> None:
+    def _on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:
             event.stop()
             self.post_message(self.Toggle())
@@ -406,6 +406,9 @@ class ToolCallWidget(Collapsible):
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._body = Static()
+        self._tool_label = Static(classes="tool-call-label")
+        self._tool_command = Static(classes="tool-call-command")
+        self._tool_status = Static(classes="tool-call-status")
         self.call_id = call_id
         self.tool_name = tool_name
         self.arguments: dict[str, Any] = {}
@@ -414,13 +417,36 @@ class ToolCallWidget(Collapsible):
         self.status = "preparing"
         super().__init__(
             self._body,
-            title="",
+            title="Tool",
             collapsed=False,
             collapsed_symbol="",
             expanded_symbol="",
             classes="tool-call",
         )
         self.refresh_content()
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
+        # the timeline header is the visible control shared by every tool.
+        yield self._title
+        with BashToolHeader(classes="tool-call-header"):
+            yield self._tool_label
+            yield self._tool_command
+            yield self._tool_status
+        with self.Contents():
+            yield self._body
+
+    def on_bash_tool_header_toggle(self, event: BashToolHeader.Toggle) -> None:
+        event.stop()
+        self.collapsed = not self.collapsed
+
+    def _watch_collapsed(self, collapsed: bool) -> None:
+        super()._watch_collapsed(collapsed)
+        self._body.display = not collapsed
+        self.refresh_content()
+
+    def _disclosure_symbol(self) -> str:
+        return "▸" if self.collapsed else "▾"
 
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         self.arguments = dict(arguments or {})
@@ -467,12 +493,12 @@ class ToolCallWidget(Collapsible):
         rows: list[Any] = []
         summary = clip_text(self._summary(), 300)
         if summary:
-            rows.append(Text(f"   {summary}", style="#a4a4a4"))
+            rows.append(Text(summary, style="#a4a4a4"))
         result = self._result_summary()
         if result:
             _label, icon = self._tool_title()
             result_color = "#d66b73" if self.status == "failed" else "#666666"
-            rows.append(Text(f"   {icon}  {result}", style=result_color))
+            rows.append(Text(f"{icon}  {result}", style=result_color))
         return rows
 
     def refresh_content(self) -> None:
@@ -490,6 +516,9 @@ class ToolCallWidget(Collapsible):
         if self.status in {"preparing", "running"}:
             title = f"{title}   {self.status}"
         self.title = title
+        self._tool_label.update(f"{self._disclosure_symbol()} {marker}  {label}")
+        self._tool_command.update(summary)
+        self._tool_status.update(self.status)
         self.remove_class(
             "status-preparing", "status-running", "status-done", "status-failed"
         )
@@ -515,14 +544,6 @@ class BashToolWidget(ToolCallWidget):
             yield self._bash_status
         yield self._body
 
-    def on_bash_tool_header_toggle(self, event: BashToolHeader.Toggle) -> None:
-        event.stop()
-        self.collapsed = not self.collapsed
-
-    def _watch_collapsed(self, collapsed: bool) -> None:
-        super()._watch_collapsed(collapsed)
-        self._body.display = not collapsed
-
     def refresh_content(self) -> None:
         marker = {
             "preparing": "○",
@@ -530,7 +551,7 @@ class BashToolWidget(ToolCallWidget):
             "done": "✓",
             "failed": "×",
         }.get(self.status, "○")
-        self._bash_label.update(f"{marker}  Bash")
+        self._bash_label.update(f"{self._disclosure_symbol()} {marker}  Bash")
         self._bash_command.update(clip_text(self._summary(), 180))
         self._bash_status.update(self.status)
         self.remove_class(
@@ -607,6 +628,15 @@ class PatchDiffWidget(ToolCallWidget):
         if self.status in {"preparing", "running"}:
             title = f"{title}   {self.status}"
         self.title = title
+        summary = path
+        if diff:
+            stats = f"+{additions} -{deletions}"
+            summary = f"{summary}  {stats}" if summary else stats
+        self._tool_label.update(
+            f"{self._disclosure_symbol()} {marker}  Update"
+        )
+        self._tool_command.update(summary)
+        self._tool_status.update(self.status)
         self.remove_class(
             "status-preparing", "status-running", "status-done", "status-failed"
         )
@@ -616,20 +646,20 @@ class PatchDiffWidget(ToolCallWidget):
         visible = diff[: self.MAX_DIFF_LINES]
         for line in visible:
             if line.startswith("@@"):
-                rows.append(Text(f"   {line}", style="#6688a8"))
+                rows.append(Text(line, style="#6688a8"))
             elif line.startswith("+"):
-                rows.append(Text(f"   {line}", style="#8fc49a on #203026"))
+                rows.append(Text(line, style="#8fc49a on #203026"))
             elif line.startswith("-"):
-                rows.append(Text(f"   {line}", style="#df8b91 on #352225"))
+                rows.append(Text(line, style="#df8b91 on #352225"))
             else:
-                rows.append(Text(f"   {line}", style="#686868"))
+                rows.append(Text(line, style="#686868"))
         if len(diff) > self.MAX_DIFF_LINES:
             hidden = len(diff) - self.MAX_DIFF_LINES
-            rows.append(Text(f"   … {hidden} diff lines hidden", style="#555555"))
+            rows.append(Text(f"… {hidden} diff lines hidden", style="#555555"))
 
         if self.result:
             result_color = "#d66b73" if self.status == "failed" else "#626262"
-            rows.append(Text(f"   └  {clip_text(self.result, 260)}", style=result_color))
+            rows.append(Text(f"└  {clip_text(self.result, 260)}", style=result_color))
         self._body.update(Group(*rows))
 
 

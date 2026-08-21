@@ -603,6 +603,23 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
             assert bash.collapsed
             assert not bash.query_one(".bash-tool-body").display
 
+            bash.scroll_visible()
+            await pilot.pause()
+            header = bash.query_one(".bash-tool-header")
+            assert "▸" in str(bash.query_one(".bash-tool-label").render())
+            await pilot.click(header)
+            await pilot.pause()
+            assert not bash.collapsed
+            assert bash.query_one(".bash-tool-body").display
+            assert "▾" in str(bash.query_one(".bash-tool-label").render())
+
+            header.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert bash.collapsed
+            assert not bash.query_one(".bash-tool-body").display
+            assert "▸" in str(bash.query_one(".bash-tool-label").render())
+
     asyncio.run(_run())
 
 
@@ -1144,6 +1161,12 @@ def test_patch_events_render_a_specialized_diff_widget(
             assert widget._stats(diff) == (2, 2)
             assert '-    return "hello"' in diff
             assert '+    return f"hello {name}"' in diff
+            assert "Update" in str(widget.query_one(".tool-call-label").render())
+            assert "src/greeting.py" in str(
+                widget.query_one(".tool-call-command").render()
+            )
+            assert "+2 -2" in str(widget.query_one(".tool-call-command").render())
+            assert str(widget.query_one(".tool-call-status").render()) == "done"
 
             widget.scroll_visible()
             await pilot.pause()
