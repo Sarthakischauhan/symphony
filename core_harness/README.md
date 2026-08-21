@@ -1,75 +1,222 @@
 # core-harness
 
-Minimal agent loop for running a model with tools and a control plane. This package is under active development with key capabilities, including: \n- `CoreHarness` for executing model tools and managing command/event workflows.\n- Various control plane implementations for handling events and logging.\n- `Persistence` protocols for managing conversation state and checkpointing., so the README is intentionally short.
+`core-harness` is a provider-independent, asynchronous agent loop. It runs a model with Python tools, maintains the conversation for each run, reports lifecycle events, and applies operational limits and context-window policies.
 
-## What it provides
+> The package is under active development. The public API is exported from `core_harness`.
 
-- `CoreHarness` for turn-based agent execution
-- `Tool` for wrapping Python callables as model tools
-- control-plane primitives for lifecycle events and commands
-- `Persistence` protocol for conversation + checkpoint saves (`NullPersistence` default)
-- run limits for turns, tool calls, runtime, and tokens
-- event identity (`run_id`, `session_id`, `seq`, `ts`, `schema_version`) on every emit
-- cancellation that stops in-flight streams and tool execution
-- simple compaction and token-estimation helpers
-- bounded tool results to prevent large outputs from consuming the model context
+## Installation
 
-Pass any `Persistence` implementation into `CoreHarness` (or `CodingAgent`); the harness
-saves conversation state and turn checkpoints as the run progresses.
+From this repository:
 
-## Example
+```sh
+uv add core-harness
+```
 
-`core-harness` powers the coding agent:
+When using the workspace checkout, install the workspace dependencies with `uv sync` and run commands from the repository root or from this directory.
+
+## Quick start
+
+The following is a complete, editable example. Set `OPENAI_API_KEY`, then replace `read_file` or add more tools for your application:
 
 ```python
+# example.py
+import asyncio
+import os
+from pathlib import Path
+
 from core_ai import ModelRegistry, OpenAIProvider
-from core_harness import CoreHarness, Tool
+from core_harness import CoreHarness, NullControlPlane, Tool
+
+
+WORKSPACE = Path(".")
 
 
 def read_file(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+    """Read a UTF-8 text file from the configured workspace."""
+    target = (WORKSPACE / path).resolve()
+    if WORKSPACE.resolve() not in target.parents and target != WORKSPACE.resolve():
+        raise ValueError("path must stay inside the workspace")
+    return target.read_text(encoding="utf-8")
 
 
-registry = ModelRegistry()
-registry.register("openai", OpenAIProvider(api_key=...))
+async def main() -> None:
+    api_key = os.environ["OPENAI_API_KEY"]
+
+    registry = ModelRegistry()
+    registry.register("openai", OpenAIProvider(api_key=api_key))
+
+    # NullControlPlane records events locally and also accepts pause, resume,
+    # cancel, and message-injection commands. Use InteractiveControlPlane or
+    # FanoutControlPlane when an application needs to forward events elsewhere.
+    control_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,
+        model_id="openai:gpt-4o-mini",
+        system_prompt="You are a concise assistant. Use tools when they help.",
+        tools=[Tool(read_file)],
+        control_plane=control_plane,
+        max_turns=8,
+        max_tool_calls=12,
+        max_runtime_seconds=120,
+        max_tokens=8_000,
+        tool_result_max_chars=12_000,
+        context_target_tokens=80_000,
+        session_id="example-session",
+    )
+
+    result = await harness.run(
+        "Inspect README.md and summarize the project in three bullet points."
+    )
+    print(result.output_text)
+    print(f"tool calls: {len(result.tool_calls)}")
+    print(f"tokens used: {result.usage.total_tokens}")
+
+    # Every emitted event is available for logging, metrics, or a UI.
+    for event in control_plane.events:
+        print(event.event_type, event.payload)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Run it with:
+
+```sh
+OPENAI_API_KEY=your-key-here uv run python example.py
+```
+
+`model_id` must use the form `provider:model-name`. Register the provider under the matching namespace before calling `run`.
+
+## Tools
+
+Wrap synchronous or asynchronous Python callables with `Tool`. The callable's name, docstring, signature, and basic type annotations are used to create the model-facing schema. For full control, provide `name`, `description`, and/or an explicit JSON-schema `parameters` object.
+
+```python
+async def search_docs(query: str, limit: int = 5) -> list:
+    """Search the application documentation."""
+    return await my_search_backend(query, limit=limit)
+
+harness.register_tool(
+    Tool(
+        search_docs,
+        name="search_docs",
+        description="Search internal documentation and return matching pages.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
+            "required": ["query"],
+        },
+    )
+)
+```
+
+A tool may declare a `control_plane` parameter. The harness supplies the active control plane automatically; it is not exposed as a model argument:
+
+```python
+def approve(action: str, control_plane: NullControlPlane) -> str:
+    """Record an approval request."""
+    return f"Approved {action}"  # application code can also inspect/emit events
+```
+
+Tool results are bounded to 12,000 characters by default before being sent in the next model request. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected.
+
+## Runs, results, and conversations
+
+`await harness.run(user_input)` returns a `HarnessResult` containing:
+
+- `output_text` — the assistant's final text
+- `messages` — messages accumulated during the run
+- `tool_calls` — tool calls made during the run
+- `usage` — prompt, completion, reasoning, and total token counts
+- `context_limit` and `context_left` — provider context information when available
+
+A conversation can be supplied explicitly, and a session can be selected per run:
+
+```python
+result = await harness.run(
+    "Continue from our previous discussion.",
+    conversation=previous_messages,
+    session_id="customer-42",
+)
+```
+
+By default, `NullPersistence` discards state. Pass an implementation of the `Persistence` protocol to save and load conversation messages and `Checkpoint` objects as the run progresses. `session_id` is the key used by persistence.
+
+## Limits and cancellation
+
+Configure safeguards either with individual arguments or with a `RunLimits` object:
+
+```python
+from core_harness import RunLimits
 
 harness = CoreHarness(
     registry=registry,
     model_id="openai:gpt-4o-mini",
-    system_prompt="You are a concise coding assistant.",
-    tools=[Tool(read_file)],
+    system_prompt="Be helpful.",
+    limits=RunLimits(
+        max_turns=6,
+        max_tool_calls=10,
+        max_runtime_seconds=60,
+        max_tokens=4_000,
+    ),
 )
-
-result = await harness.run("Inspect README.md and summarize it.")
-print(result.output_text)
 ```
 
-Tool results are limited to 12,000 characters by default before they are added
-to the next model request. Configure `tool_result_max_chars` on `CoreHarness`
-or `CodingAgent`, or pass `None` to disable the limit.
-
-`CodingAgent` also proactively compacts when its estimated conversation reaches
-80,000 tokens by default. Configure this with `context_target_tokens`.
-
-The coding agent builds on top of this layer to add workspace tools:
+The harness raises `HarnessCancelled` when a run is cancelled and `HarnessLimitExceeded` when a configured limit is reached. An inbound control plane can pause, resume, cancel, or inject a user/system message while a run is active:
 
 ```python
-from core_ai import ModelRegistry, OpenAIProvider
-from coding_agent import CodingAgent
+from core_harness import ControlCommand
 
-registry = ModelRegistry()
-registry.register("openai", OpenAIProvider(api_key=...))
+await control_plane.send_command(ControlCommand.pause())
+await control_plane.send_command(ControlCommand.resume())
+await control_plane.send_command(ControlCommand.inject_message(
+    role="user", content="Also include the security implications."
+))
+await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
+```
 
-agent = CodingAgent(
+## Events and control planes
+
+The harness emits run, turn, text-stream, tool, usage, context, compaction, pause/resume, injection, cancellation, and limit events. Event types are available as `ControlPlaneEventType` values. `NullControlPlane` records events in memory and is the default.
+
+Available control-plane adapters include:
+
+- `NullControlPlane` — records events and supports inbound commands.
+- `InteractiveControlPlane` — records events and optionally forwards them to subscribers or an event log.
+- `FanoutControlPlane` — sends events to multiple control planes in order.
+- `PersistingControlPlane` — appends events to an `EventLog`.
+- `IdentifiedControlPlane` — adds `run_id`, `session_id`, sequence, timestamp, and schema-version metadata to each event.
+- `InMemoryEventLog` — a simple event-log implementation for tests and local use.
+
+For custom integrations, implement the `ControlPlane` protocol's asynchronous `emit(event_type, payload)` method. Inbound implementations can additionally implement `send_command` and `drain_commands`.
+
+## Context management
+
+The harness includes token-estimation helpers and compaction support. Configure `context_limits`, `context_warn_threshold`, and `context_compact_threshold` for context monitoring. Set `context_target_tokens` to control the target size after compaction, and provide a custom `Compactor` when application-specific summarization is needed.
+
+`KeepSystemRecentCompactor` is included for a simple policy that preserves the leading system message and the most recent conversation messages while keeping assistant tool-call groups intact:
+
+```python
+from core_harness import KeepSystemRecentCompactor
+
+harness = CoreHarness(
     registry=registry,
     model_id="openai:gpt-4o-mini",
-    workspace=".workspace",
+    system_prompt="Be concise.",
+    compactor=KeepSystemRecentCompactor(keep_recent=8),
+    context_target_tokens=20_000,
 )
-
-result = await agent.run("Create hello.txt with hi, then read it back.")
-print(result.output_text)
 ```
+
+## Public building blocks
+
+The package exports the main types needed to integrate the harness:
+
+`CoreHarness`, `Tool`, `HarnessResult`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, and `HarnessLimitExceeded`.
 
 ## Development
 

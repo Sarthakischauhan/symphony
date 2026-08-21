@@ -55,11 +55,15 @@ Screen {
     width: 100%;
     height: 1fr;
     padding: 1 8 2 8;
+    /* Keep scrollbars out of the way until the user interacts with them. */
     scrollbar-size: 1 1;
     scrollbar-size-vertical: 1;
-    scrollbar-color: #484848;
+    scrollbar-color: transparent;
     scrollbar-color-hover: #606060;
-    scrollbar-background: $background;
+    scrollbar-color-active: #707070;
+    scrollbar-background: transparent;
+    scrollbar-background-hover: transparent;
+    scrollbar-background-active: transparent;
 }
 
 .welcome {
@@ -150,8 +154,12 @@ Screen {
     max-height: 12;
     padding: 0;
     scrollbar-size: 1 1;
-    scrollbar-color: #484848;
-    scrollbar-background: $background;
+    scrollbar-color: transparent;
+    scrollbar-color-hover: #606060;
+    scrollbar-color-active: #707070;
+    scrollbar-background: transparent;
+    scrollbar-background-hover: transparent;
+    scrollbar-background-active: transparent;
 }
 
 .reasoning-text {

@@ -83,7 +83,7 @@ async def request_approval(
                 "request_id": request_id,
                 "question": prompt,
                 "choices": ["Allow once", "Deny"],
-                "default": "Deny",
+                "default": "Allow once",
                 "kind": "approval",
                 "tool_name": tool_name,
             },
