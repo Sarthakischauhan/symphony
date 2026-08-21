@@ -9,6 +9,7 @@ $panel-light: #262626;
 $panel-edge: #262626;
 $panel-edge-focus: #8ca0cc;
 $muted: #737373;
+$blue: #7186c7;
 
 Screen {
     layout: vertical;
@@ -17,15 +18,43 @@ Screen {
 }
 
 #topbar {
-    height: 3;
+    layout: horizontal;
+    height: 5;
     padding: 1 3 0 3;
     background: $background;
+}
+
+#topbar-product {
+    width: auto;
+    height: 2;
+    color: #e6e6e6;
+    text-style: bold;
+    content-align: left middle;
+    background: $background;
+}
+
+#topbar-workspace {
+    width: 1fr;
+    height: 2;
+    padding: 0 0 0 4;
+    content-align: left middle;
+    background: $background;
+}
+
+#topbar-model {
+    width: auto;
+    height: 3;
+    min-width: 20;
+    padding: 0 1;
+    content-align: center middle;
+    border: round #3b3b3b;
+    background: #0d0d0d;
 }
 
 #transcript {
     width: 100%;
     height: 1fr;
-    padding: 1 10 2 10;
+    padding: 1 8 2 8;
     scrollbar-size: 1 1;
     scrollbar-size-vertical: 1;
     scrollbar-color: #484848;
@@ -37,26 +66,27 @@ Screen {
     width: 72;
     height: auto;
     min-height: 10;
-    margin: 2 0 1 2;
+    margin: 3 0 1 2;
     padding: 1 2;
-    border-left: thick #777777;
+    border-left: thick #3f3f3f;
     color: #bcbcbc;
 }
 
 .message {
     width: 100%;
     height: auto;
-    margin: 1 0 0 0;
-    padding: 0 1;
+    margin: 1 0 0 1;
+    padding: 0 2;
 }
 
 .user-message {
-    background: $panel-light;
-    border: round $panel-edge;
+    background: $background;
+    border-left: solid #7197e8;
+    padding: 1 2;
 }
 
 .assistant-message {
-    padding-left: 1;
+    padding-left: 2;
     background: $background;
 }
 
@@ -72,7 +102,7 @@ Screen {
     width: 100%;
     height: auto;
     margin: 0;
-    padding: 0 0 0 2;
+    padding: 0 0 0 3;
     background: $background;
 }
 
@@ -86,8 +116,8 @@ Screen {
 .reasoning-block {
     width: 100%;
     height: auto;
-    margin: 0 0 0 1;
-    padding: 0 0 0 1;
+    margin: 0 0 0 2;
+    padding: 0 0 0 2;
     color: #777777;
     border-left: solid #383838;
     background: $background;
@@ -134,25 +164,82 @@ Screen {
 .tool-call {
     width: 100%;
     height: auto;
-    min-height: 2;
-    margin: 0 0 0 1;
-    padding: 0 0 0 1;
-    border-left: solid #383838;
+    min-height: 1;
+    margin: 0;
+    padding: 0;
     background: $background;
     pointer: pointer;
 }
 
 .tool-call > CollapsibleTitle {
-    width: auto;
+    width: 1;
+    height: 0;
+    padding: 0;
+    color: transparent;
+    background: transparent;
+}
+
+.bash-tool > CollapsibleTitle {
+    display: none;
+}
+
+.tool-call-header {
+    width: 100%;
+    height: 1;
     padding: 0 1;
-    color: #666666;
     background: $background;
     pointer: pointer;
 }
 
-.tool-call > CollapsibleTitle:hover {
-    color: #a0a0a0;
+.tool-call-header:hover,
+.tool-call-header:focus {
     background: #202020;
+}
+
+.tool-call-label {
+    width: 13;
+    height: 1;
+    color: #666666;
+    background: transparent;
+}
+
+.tool-call-command {
+    width: 1fr;
+    height: 1;
+    color: #c8c8c8;
+    background: transparent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tool-call-status {
+    width: 10;
+    height: 1;
+    padding-left: 2;
+    color: #666666;
+    text-align: right;
+    background: transparent;
+}
+
+.tool-call.status-preparing .tool-call-label,
+.tool-call.status-preparing .tool-call-status,
+.tool-call.status-running .tool-call-label,
+.tool-call.status-running .tool-call-status {
+    color: #d7a84b;
+}
+
+.tool-call.status-done .tool-call-label,
+.tool-call.status-done .tool-call-status {
+    color: #72a57a;
+}
+
+.tool-call.status-failed .tool-call-label,
+.tool-call.status-failed .tool-call-status {
+    color: #d66b73;
+}
+
+.tool-call > Contents {
+    padding: 0;
 }
 
 .tool-call.status-preparing > CollapsibleTitle,
@@ -172,12 +259,94 @@ Screen {
     padding: 0 0 0 1;
 }
 
+.bash-tool {
+    padding: 0;
+}
+
+.bash-tool-header {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    background: $background;
+    pointer: pointer;
+}
+
+.bash-tool-header:hover,
+.bash-tool-header:focus {
+    background: #202020;
+}
+
+.bash-tool-label {
+    width: 13;
+    height: 1;
+    color: #666666;
+    background: transparent;
+}
+
+.bash-tool-command {
+    width: 1fr;
+    height: 1;
+    color: #c8c8c8;
+    background: transparent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bash-tool-status {
+    width: 10;
+    height: 1;
+    padding-left: 2;
+    color: #666666;
+    text-align: right;
+    background: transparent;
+}
+
+.bash-tool.status-preparing .bash-tool-label,
+.bash-tool.status-preparing .bash-tool-status,
+.bash-tool.status-running .bash-tool-label,
+.bash-tool.status-running .bash-tool-status {
+    color: #d7a84b;
+}
+
+.bash-tool.status-done .bash-tool-label,
+.bash-tool.status-done .bash-tool-status {
+    color: #72a57a;
+}
+
+.bash-tool.status-failed .bash-tool-label,
+.bash-tool.status-failed .bash-tool-status {
+    color: #d66b73;
+}
+
+.bash-tool-body {
+    width: 100%;
+    height: auto;
+    padding: 0 1 0 3;
+    color: #777777;
+    background: $background;
+}
+
+.bash-tool.-collapsed .bash-tool-body {
+    display: none;
+}
+
 .diff-tool {
     margin-top: 1;
     margin-bottom: 1;
     padding-bottom: 1;
-    background: #1b1b1b;
-    border-left: solid #454545;
+    background: $background;
+}
+
+/* Keep collapsed Update cards visually consistent with the timeline while
+   retaining strong line-level colors when the diff is expanded. */
+.diff-tool > Contents,
+.diff-tool .tool-call-header {
+    background: $background;
+}
+
+.diff-tool .tool-call-header:hover,
+.diff-tool .tool-call-header:focus {
+    background: #202020;
 }
 
 .notice {
@@ -191,10 +360,11 @@ Screen {
 #composer {
     width: 1fr;
     height: 6;
-    margin: 0 10 1 10;
+    margin: 0 8 1 8;
     padding: 0;
-    background: $panel;
-    border: round $panel-edge;
+    layout: vertical;
+    background: #101010;
+    border: round $blue;
 }
 
 #slash-menu {
@@ -229,7 +399,7 @@ Screen {
 }
 
 #composer:focus-within {
-    border: round $panel-edge-focus;
+    border: round #91a7ed;
 }
 
 #composer.plan-mode {
@@ -243,11 +413,18 @@ Screen {
 #prompt {
     width: 100%;
     height: 3;
-    padding: 0 1;
+    padding: 0 2;
     border: none;
-    background: $panel;
+    background: #101010;
     color: #eeeeee;
     pointer: text;
+}
+
+#composer-footer {
+    width: 100%;
+    height: 1;
+    padding: 0 2;
+    background: #101010;
 }
 
 #transcript ScrollBar {
@@ -263,18 +440,76 @@ Screen {
 }
 
 #composer-hint {
+    width: 1fr;
     height: 1;
-    padding: 0 1;
     color: #595959;
     text-align: right;
-    background: $panel;
+    background: #101010;
+}
+
+#composer-mode {
+    width: auto;
+    height: 1;
+    color: #596585;
+    background: #101010;
+}
+
+#composer.plan-mode #composer-mode {
+    color: #9d8950;
+    background: #101010;
 }
 
 #status {
     width: 100%;
     height: 1;
     padding: 0 3;
-    background: #141414;
+    background: #111111;
     color: #686868;
+}
+
+#slash-menu.permission-menu {
+    width: 76%;
+    max-width: 84;
+    height: auto;
+    max-height: 14;
+    margin: 0 0 1 0;
+    offset-x: 12%;
+    padding: 1 1 0 1;
+    border: round #3d3d3d;
+    background: #101010;
+}
+
+#slash-menu.permission-menu > .option-list--option {
+    padding: 0 1;
+    background: #101010;
+}
+
+#slash-menu.permission-menu > .option-list--option-disabled {
+    background: #101010;
+}
+
+#slash-menu.permission-menu > .option-list--option-highlighted {
+    background: #242a3c;
+}
+
+#slash-menu.file-menu {
+    width: 1fr;
+    max-height: 12;
+    margin: 0 8 1 8;
+    padding: 1 1 0 1;
+    background: #101010;
+    border: round #343434;
+}
+
+#slash-menu.file-menu > .option-list--option,
+#slash-menu.file-menu > .option-list--option-disabled {
+    padding: 0 1;
+    background: #101010;
+}
+
+#slash-menu.file-menu > .option-list--option-highlighted,
+#slash-menu.file-menu > .option-list--option-hover {
+    color: #e4e4e4;
+    background: #20283c;
 }
 """

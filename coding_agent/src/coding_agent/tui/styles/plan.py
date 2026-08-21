@@ -11,11 +11,11 @@ PlanModal {
 }
 
 #plan-pane {
-    border-left: solid #81754e;
+    border: round #4a4532;
 }
 
 #plan-body {
-    padding-top: 1;
+    padding-top: 0;
 }
 
 #plan-hint {
@@ -28,17 +28,17 @@ PlanModal {
 #plan-actions {
     width: 100%;
     height: 3;
-    background: #1b1b1b;
+    background: #101010;
 }
 
 #plan-build {
     width: 16;
     height: 3;
-    padding: 1 1;
+    padding: 0 1;
     color: #c7b66e;
     content-align: center middle;
-    background: #27251e;
-    border-left: solid #5a5132;
+    background: #181712;
+    border: round #4a4532;
 }
 
 #plan-build:hover,

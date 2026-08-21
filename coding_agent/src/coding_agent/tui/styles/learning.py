@@ -11,7 +11,7 @@ LearningModal {
 }
 
 #learning-pane {
-    border-left: solid #71848e;
+    border: round #38454b;
 }
 
 #learning-hint {
