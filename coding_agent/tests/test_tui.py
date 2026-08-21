@@ -224,7 +224,7 @@ def test_pasted_prompt_is_compacted_without_changing_agent_input(
             assert prompt.expanded_value() == prefix + pasted
             assert prompt.pasted_chunks == (pasted,)
 
-            await pilot.press("enter")
+            await pilot.press("ctrl+enter")
             await pilot.pause()
 
             assert calls == [expected]
@@ -900,7 +900,7 @@ def test_at_file_selector_uses_existing_composer_menu(
             prompt.value = "Review @tur"
             await pilot.pause()
 
-            menu = app.query_one(SlashMenu)
+            menu = app.query_one("#slash-menu", SlashMenu)
             assert menu.display
             assert menu.is_file_selector
             assert menu.selected_value == "@src/turn.py"
@@ -936,7 +936,7 @@ def test_file_selector_scrolls_to_keep_selection_visible(
             prompt.value = "Review @file_"
             await pilot.pause()
 
-            menu = app.query_one(SlashMenu)
+            menu = app.query_one("#slash-menu", SlashMenu)
             assert menu.display
             assert len(menu._files) == 20
             assert menu.scroll_y == 0
@@ -981,7 +981,7 @@ def test_plan_menu_options_are_hoverable_and_clickable(
             prompt = app.query_one("#prompt")
             prompt.value = "/plan "
             await pilot.pause()
-            menu = app.query_one(SlashMenu)
+            menu = app.query_one("#slash-menu", SlashMenu)
 
             assert menu.display
             assert menu.selected_value == "/plan ship_feature_plan.md"
@@ -1010,17 +1010,17 @@ def test_permission_question_has_distinct_secure_design(
                     "request_id": "approval-1",
                     "question": "Allow bash command once?\n`uv run pytest`",
                     "choices": ["Allow once", "Deny"],
-                    "default": "Deny",
+                    "default": "Allow once",
                     "kind": "approval",
                     "tool_name": "bash",
                 }
             )
             await pilot.pause()
 
-            menu = app.query_one(SlashMenu)
+            menu = app.query_one("#approval-menu", SlashMenu)
             assert menu.has_class("permission-menu")
-            assert menu.selected_value == "Deny"
-            assert menu.highlighted == menu._option_offset + 1
+            assert menu.selected_value == "Allow once"
+            assert menu.highlighted == menu._option_offset
             assert str(menu.options[0].prompt) == (
                 "  Allow Symphony to run the following command?"
             )
@@ -1161,19 +1161,19 @@ def test_slash_menu_and_commands(
 
             prompt.value = "/mo"  # type: ignore[attr-defined]
             await pilot.pause()
-            assert app.query_one(SlashMenu).display
+            assert app.query_one("#slash-menu", SlashMenu).display
             await pilot.press("tab")
             assert prompt.value == "/model"  # type: ignore[attr-defined]
 
             prompt.value = "/model 4.1-m"  # type: ignore[attr-defined]
             await pilot.pause()
-            assert app.query_one(SlashMenu).display
+            assert app.query_one("#slash-menu", SlashMenu).display
             await pilot.press("tab")
             assert prompt.value == "/model openai:gpt-4.1-mini"  # type: ignore[attr-defined]
 
             prompt.value = "/model "  # type: ignore[attr-defined]
             await pilot.pause()
-            menu = app.query_one(SlashMenu)
+            menu = app.query_one("#slash-menu", SlashMenu)
             assert menu.selected_index == 0
             await pilot.press("down")
             assert menu.selected_index == 1
