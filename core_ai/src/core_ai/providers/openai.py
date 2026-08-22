@@ -6,6 +6,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 from dotenv import load_dotenv
 
+from core_ai.models import get_model
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.openai_completion import OpenAICompletionProvider
 from core_ai.providers.openai_responses import OpenAIResponsesProvider
@@ -63,6 +64,9 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _uses_chat_completions(model_name: str) -> bool:
+        model = get_model("openai", model_name)
+        if model is not None:
+            return model.api == "chat_completions"
         return model_name.startswith(("o1", "o3", "o4"))
 
     @staticmethod

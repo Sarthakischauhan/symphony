@@ -1,5 +1,6 @@
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from core_ai.models import ModelInfo, list_models, register_model, unregister_model
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
 
@@ -10,6 +11,15 @@ class ModelRegistry:
 
     def register(self, namespace: str, provider: BaseProvider):
         self._providers[namespace] = provider
+
+    def register_model(self, model: ModelInfo) -> None:
+        register_model(model)
+
+    def unregister_model(self, provider: str, model_id: str) -> None:
+        unregister_model(provider, model_id)
+
+    def models(self, provider: str | None = None) -> tuple[ModelInfo, ...]:
+        return list_models(provider)
 
     async def stream(
         self,
