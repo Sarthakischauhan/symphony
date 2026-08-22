@@ -5,15 +5,16 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from rich.console import Group
 from rich.text import Text
 from textual.containers import Container, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tui.animation import EnterAnimated, play_fade_enter
 from coding_agent.tui.theme import themed_markdown
 
-class ThinkingStatus(Static):
+
+class ThinkingStatus(EnterAnimated, Static):
     """Muted run/usage metadata displayed directly beneath the user prompt."""
 
     _WORKING_COLORS = (
@@ -72,6 +73,13 @@ class ThinkingStatus(Static):
         self.update(line)
 
 
+class ProcessComplete(EnterAnimated, Static):
+    """Muted completion row that wipes in at the end of a run."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__(Text(f"✓  {title}", style="#5f6a62"), classes="process-complete")
+
+
 class RunProcess(Container):
     """One run's flat timeline of live status, thoughts, and tools."""
 
@@ -107,9 +115,7 @@ class RunProcess(Container):
             return
         self._completed = True
         self._thinking.display = False
-        self.add_item(
-            Static(Text(f"✓  {title}", style="#5f6a62"), classes="process-complete")
-        )
+        self.add_item(ProcessComplete(title))
 
 
 class ReasoningWidget(Collapsible):
@@ -157,6 +163,7 @@ class ReasoningWidget(Collapsible):
 
     def on_mount(self) -> None:
         self._scroll.anchor()
+        play_fade_enter(self)
 
     def complete(self) -> None:
         if self.is_mounted:
@@ -174,7 +181,7 @@ class ReasoningWidget(Collapsible):
         self.add_class("is-complete")
 
 
-class Notice(Static):
+class Notice(EnterAnimated, Static):
     COLORS = {
         "info": "#707070",
         "warning": "#d7a84b",

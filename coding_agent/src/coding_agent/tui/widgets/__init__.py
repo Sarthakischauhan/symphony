@@ -8,7 +8,13 @@ from coding_agent.tui.widgets.base import (
     Welcome,
 )
 from coding_agent.tui.widgets.composer import Composer
-from coding_agent.tui.widgets.status import Notice, ReasoningWidget, RunProcess, ThinkingStatus
+from coding_agent.tui.widgets.status import (
+    Notice,
+    ProcessComplete,
+    ReasoningWidget,
+    RunProcess,
+    ThinkingStatus,
+)
 from coding_agent.tui.widgets.tools import (
     BashToolHeader,
     BashToolWidget,
@@ -25,6 +31,7 @@ __all__ = [
     "Composer",
     "Notice",
     "PatchDiffWidget",
+    "ProcessComplete",
     "PromptInput",
     "ReadFileWidget",
     "ReasoningWidget",

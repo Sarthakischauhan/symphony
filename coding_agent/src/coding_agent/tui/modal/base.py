@@ -10,6 +10,7 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
+from coding_agent.tui.animation import MODAL_DURATION, play_fade_enter
 from coding_agent.tui.styles.modal import CONTENT_MODAL_CSS
 
 
@@ -56,6 +57,13 @@ class ModalBase(ModalScreen[ResultT], Generic[ResultT]):
 
     def action_close_modal(self) -> None:
         self.dismiss(None)
+
+    def on_mount(self) -> None:
+        self.call_after_refresh(self._animate_enter)
+
+    def _animate_enter(self) -> None:
+        for pane in self.query(".modal-pane"):
+            play_fade_enter(pane, duration=MODAL_DURATION, slide=0)
 
 
 class ContentModal(ModalBase[None]):

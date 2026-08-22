@@ -10,9 +10,9 @@ from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.message import Message
-from textual.widget import Widget
 from textual.widgets import Static, TextArea
 
+from coding_agent.tui.animation import EnterAnimated
 from coding_agent.tui.modal.base import ContentModal
 from coding_agent.tui.theme import themed_markdown
 
@@ -40,7 +40,7 @@ class TopBar(Static):
         self.query_one("#topbar-model", Static).update(chip)
 
 
-class Welcome(Static):
+class Welcome(EnterAnimated, Static):
     def __init__(self, workspace: Path) -> None:
         body = Group(
             Text("Symphony", style="bold #f0f0f0"),
@@ -54,7 +54,7 @@ class Welcome(Static):
         super().__init__(body, classes="welcome")
 
 
-class UserMessage(Static):
+class UserMessage(EnterAnimated, Static):
     """A user prompt with long pasted chunks hidden behind compact links."""
 
     COMPACT_PASTE_AFTER = 100
@@ -123,7 +123,7 @@ class UserMessage(Static):
             self.app.push_screen(ContentModal(content))
 
 
-class AssistantMessage(Static):
+class AssistantMessage(EnterAnimated, Static):
     def __init__(self, content: str = "") -> None:
         super().__init__(classes="message assistant-message")
         self.set_content(content)

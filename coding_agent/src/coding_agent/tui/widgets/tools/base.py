@@ -8,8 +8,10 @@ from rich.console import Group
 from rich.text import Text
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tui.animation import play_fade_enter
 from coding_agent.tui.widgets.tools.header import BashToolHeader
 from coding_agent.utils.text import clip_text, compact_json
+
 
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
@@ -52,6 +54,9 @@ class ToolCallWidget(Collapsible):
             yield self._tool_status
         with self.Contents():
             yield self._body
+
+    def on_mount(self) -> None:
+        play_fade_enter(self)
 
     def on_bash_tool_header_toggle(self, event: BashToolHeader.Toggle) -> None:
         event.stop()

@@ -37,10 +37,12 @@ uv run --package coding-agent coding-agent-tui --workspace /path/to/project
 The TUI renders harness events as a conversation: streamed Markdown responses,
 live tool rows, reasoning summaries, muted per-turn token usage, context warnings,
 compaction notices, persisted session history, and code blocks using the same
-muted Symphony palette as the surrounding interface. Use `Esc` (or `Ctrl+X`) to
-cancel an in-flight run, `Ctrl+L` or `/clear` to reset the visible transcript, and
-`Ctrl+D`, `/quit`, or `/exit` to leave. Learning is enabled by default and each
-reflection is capped at 900 output tokens; pass `--no-learning` to disable it.
+muted Symphony palette as the surrounding interface. Transcript cards enter with
+a left-to-right opacity wipe; tool rows, menus, and modals fade in. Use `Esc`
+(or `Ctrl+X`) to cancel an in-flight run, `Ctrl+L` or `/clear` to reset the
+visible transcript, and `Ctrl+D`, `/quit`, or `/exit` to leave. Learning is
+enabled by default and each reflection is capped at 900 output tokens; pass
+`--no-learning` to disable it.
 
 Type `/` to discover commands. `/model` shows the built-in model catalog,
 `/model <id>` switches the harness and learning model, and `/mode` switches between
