@@ -12,6 +12,9 @@ class ModelRegistry:
     def register(self, namespace: str, provider: BaseProvider):
         self._providers[namespace] = provider
 
+    def namespaces(self) -> tuple[str, ...]:
+        return tuple(self._providers)
+
     def register_model(self, model: ModelInfo) -> None:
         register_model(model)
 

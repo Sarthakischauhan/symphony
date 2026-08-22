@@ -21,7 +21,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="Model id (default: OPENAI_MODEL or openai:gpt-5.6-luna)",
+        help="Model id (default: SYMPHONY_MODEL, OPENAI_MODEL, or first available provider)",
     )
     parser.add_argument(
         "--resume",

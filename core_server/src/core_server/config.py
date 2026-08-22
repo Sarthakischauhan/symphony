@@ -87,9 +87,16 @@ def build_config(
     disconnect_cancel_timeout: float = 5.0,
 ) -> ServerConfig:
     """Build a server config from explicit values or the process environment."""
-    resolved_model = model_id or os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+    resolved_model = (
+        model_id
+        or os.getenv("SYMPHONY_MODEL")
+        or os.getenv("OPENAI_MODEL")
+        or os.getenv("ANTHROPIC_MODEL")
+        or os.getenv("GEMINI_MODEL")
+        or "gpt-5.6-luna"
+    )
     if ":" not in resolved_model:
-        resolved_model = f"openai:{resolved_model}"
+        resolved_model = _qualify_model(resolved_model)
     return ServerConfig(
         registry=registry if registry is not None else _default_registry(),
         model_id=resolved_model,
@@ -111,14 +118,15 @@ def build_config(
     )
 
 
-def _default_registry() -> ModelRegistry:
-    from core_ai import ModelRegistry as Registry
-    from core_ai.providers.openai import OpenAIProvider
+def _qualify_model(model_name: str) -> str:
+    if model_name.startswith("claude-"):
+        return f"anthropic:{model_name}"
+    if model_name.startswith("gemini-"):
+        return f"gemini:{model_name}"
+    return f"openai:{model_name}"
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    registry = Registry()
-    registry.register("openai", OpenAIProvider(api_key=api_key, base_url=base_url))
-    return registry
+
+def _default_registry() -> ModelRegistry:
+    from core_ai.providers.defaults import build_default_registry
+
+    return build_default_registry()

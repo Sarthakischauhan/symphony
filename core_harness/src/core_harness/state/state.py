@@ -20,6 +20,14 @@ DEFAULT_CONTEXT_LIMITS = {
     "gpt-4.1": 1047576,
     "gpt-4.1-mini": 1047576,
     "gpt-4.1-nano": 1047576,
+    "claude-fable-5": 200000,
+    "claude-haiku-4-5": 200000,
+    "claude-opus-5": 200000,
+    "claude-sonnet-5": 200000,
+    "gemini-3.1-pro-preview": 1048576,
+    "gemini-3.5-flash": 1048576,
+    "gemini-3.6-flash": 1048576,
+    "gemini-3.7-flash": 1048576,
 }
 
 

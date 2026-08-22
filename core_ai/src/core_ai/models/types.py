@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-ModelAPI = Literal["responses", "chat_completions"]
+ModelAPI = Literal["responses", "chat_completions", "messages", "generate_content"]
 
 
 @dataclass(frozen=True, slots=True)

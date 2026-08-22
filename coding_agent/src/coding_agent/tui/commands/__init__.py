@@ -42,7 +42,12 @@ MODEL_CATALOG = (
     ModelOption("openai:gpt-5.6-luna", "GPT-5.6 Luna", "Thinking model"),
     ModelOption("openai:gpt-4o-mini", "GPT-4o mini", "Fast and economical"),
     ModelOption("openai:gpt-4.1-mini", "GPT-4.1 mini", "Fast coding model"),
-    ModelOption("openai:gpt-4.1", "GPT-4.1", "Most capable in this catalog"),
+    ModelOption("openai:gpt-4.1", "GPT-4.1", "Most capable OpenAI model in this catalog"),
+    ModelOption("anthropic:claude-sonnet-5", "Claude Sonnet 5", "Fast Anthropic coding model"),
+    ModelOption("anthropic:claude-opus-5", "Claude Opus 5", "Most capable Anthropic model"),
+    ModelOption("anthropic:claude-fable-5", "Claude Fable 5", "Anthropic reasoning model"),
+    ModelOption("gemini:gemini-3.7-flash", "Gemini 3.7 Flash", "Fast Gemini coding model"),
+    ModelOption("gemini:gemini-3.1-pro-preview", "Gemini 3.1 Pro", "Most capable Gemini model"),
 )
 
 MODE_CATALOG = (

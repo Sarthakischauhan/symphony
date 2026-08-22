@@ -55,6 +55,10 @@ valid tool-call blocks, `/diff` opens the current workspace diff in a modal,
 clears the visible transcript.
 Type `@` anywhere after whitespace to search workspace files in the same selector;
 Tab or Enter inserts the selected `@path` without sending the prompt.
+The TUI registers OpenAI, Anthropic, and Gemini from `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` / `GOOGLE_API_KEY`. Pass `--model`,
+or set `SYMPHONY_MODEL`, to pick a `provider:model` id such as
+`anthropic:claude-sonnet-5` or `gemini:gemini-3.7-flash`.
 Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
 boundary can be replaced with provider-backed registry discovery later.
 
@@ -71,7 +75,7 @@ result = await agent.run("Fix the failing test")
 The agent asks before running `bash`, overwriting an existing file, or applying a
 broad patch. Answer **Allow once** or **Deny**. Plan-mode reads stay unprompted.
 Runs default to 24 turns, 40 tool calls, and 10 minutes, with no aggregate token
-failure limit. OpenAI 429 responses remain in a live Working state and retry after
+failure limit. Provider 429 responses remain in a live Working state and retry after
 the server-requested delay.
 
 ### Learning

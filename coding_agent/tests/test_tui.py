@@ -858,6 +858,8 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
     assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
+    assert find_model("claude-sonnet-5").id == "anthropic:claude-sonnet-5"  # type: ignore[union-attr]
+    assert find_model("gemini-3.7-flash").id == "gemini:gemini-3.7-flash"  # type: ignore[union-attr]
     assert find_model("missing") is None
     assert [model.id for model in model_matches("4.1-m")] == [
         "openai:gpt-4.1-mini"
