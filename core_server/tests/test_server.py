@@ -165,6 +165,20 @@ def test_default_model_is_luna() -> None:
     assert config.tools == []
 
 
+def test_qualifies_anthropic_and_gemini_model_ids(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("SYMPHONY_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5")
+    config = build_config(registry=FakeRegistry())  # type: ignore[arg-type]
+    assert config.model_id == "anthropic:claude-sonnet-5"
+
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.7-flash")
+    config = build_config(registry=FakeRegistry())  # type: ignore[arg-type]
+    assert config.model_id == "gemini:gemini-3.7-flash"
+
+
 def test_runs_stream_harness_events() -> None:
     app, registry = make_app()
     with TestClient(app).stream("POST", "/runs", json={"message": "hi"}) as response:
