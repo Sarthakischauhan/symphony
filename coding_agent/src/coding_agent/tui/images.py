@@ -13,31 +13,13 @@ from urllib.parse import unquote, urlparse
 from rich.style import Style
 from rich.text import Text
 
-from core_ai.content import image_part, normalize_content
+from core_ai.content import IMAGE_MIME_BY_SUFFIX, image_part, normalize_content
 from core_ai.types import Content
 
 
 IMAGE_MARKER_RE = re.compile(r"\[Image (\d+)\]")
-IMAGE_EXTENSIONS = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".bmp",
-    ".tif",
-    ".tiff",
-}
-IMAGE_MIME_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".bmp": "image/bmp",
-    ".tif": "image/tiff",
-    ".tiff": "image/tiff",
-}
+IMAGE_EXTENSIONS = set(IMAGE_MIME_BY_SUFFIX)
+IMAGE_MIME_TYPES = IMAGE_MIME_BY_SUFFIX
 
 
 @dataclass(frozen=True)

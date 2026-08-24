@@ -190,7 +190,11 @@ class AnthropicProvider(BaseProvider):
                     {
                         "type": "tool_result",
                         "tool_use_id": message.tool_call_id,
-                        "content": message.content if isinstance(message.content, str) else json.dumps(message.content),
+                        "content": (
+                            message.content
+                            if isinstance(message.content, str)
+                            else to_anthropic_blocks(message.content)
+                        ),
                     }
                 )
                 continue

@@ -85,7 +85,7 @@ class HarnessState:
         self,
         messages: List[Message],
         tool_call: ToolCall,
-        content: str,
+        content: Content,
     ) -> None:
         messages.append(
             Message(role="tool", content=content, tool_call_id=tool_call.id)

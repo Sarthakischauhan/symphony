@@ -3,6 +3,8 @@ from core_ai.content import (
     estimate_content_tokens,
     image_part,
     normalize_content,
+    sniff_image_media_type,
+    split_text_and_images,
     text_from_content,
     to_anthropic_blocks,
     to_gemini_parts,
@@ -109,3 +111,19 @@ def test_text_and_token_helpers_do_not_dump_image_bytes() -> None:
     tokens = estimate_content_tokens(content)
     assert tokens == IMAGE_TOKEN_ESTIMATE + 1
     assert huge not in text_from_content(content)
+
+
+def test_sniff_image_media_type_uses_suffix_and_magic() -> None:
+    assert sniff_image_media_type(b"", filename="shot.GIF") == "image/gif"
+    assert sniff_image_media_type(b"\x89PNG\r\n\x1a\nxxxx") == "image/png"
+    assert sniff_image_media_type(b"GIF89a....") == "image/gif"
+    assert sniff_image_media_type(b"not an image", filename="notes.txt") is None
+
+
+def test_split_text_and_images_keeps_tool_text_and_parts() -> None:
+    text, images = split_text_and_images(
+        [{"type": "text", "text": "Read image shot.png"}, _image()]
+    )
+    assert text == "Read image shot.png"
+    assert images[0]["data"] == PNG_B64
+    assert images[0]["filename"] == "shot.png"

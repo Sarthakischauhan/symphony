@@ -1,13 +1,19 @@
-"""Read a text file from the workspace."""
+"""Read a text or image file from the workspace."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from pydantic import Field
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+from core_ai.content import image_part_from_bytes, sniff_image_media_type
 
 MAX_READ_BYTES = 32_000
-"""Hard cap on returned file content so a huge file can't flood model context."""
+"""Hard cap on returned text so a huge file can't flood model context."""
+
+MAX_IMAGE_BYTES = 8_000_000
+"""Hard cap on image files returned as visual tool content."""
 
 
 class ReadFileArgs(ToolArgsModel):
@@ -15,8 +21,8 @@ class ReadFileArgs(ToolArgsModel):
         ...,
         min_length=1,
         description=(
-            "Workspace-relative path to the UTF-8 text file to read "
-            "(e.g. 'src/main.py')."
+            "Workspace-relative path to a UTF-8 text file or image "
+            "(png, jpeg, gif, webp, bmp, tiff), e.g. 'src/main.py' or 'shot.png'."
         ),
     )
     offset: int = Field(
@@ -24,7 +30,8 @@ class ReadFileArgs(ToolArgsModel):
         ge=1,
         description=(
             "1-based line number to start reading from. Use to page "
-            "through large files (e.g. offset=501 to read past the cap)."
+            "through large text files (e.g. offset=501 to read past the cap). "
+            "Ignored for images."
         ),
     )
     limit: int = Field(
@@ -32,7 +39,7 @@ class ReadFileArgs(ToolArgsModel):
         ge=0,
         description=(
             "Maximum number of lines to return. 0 means no line cap; "
-            "the byte cap still applies."
+            "the byte cap still applies. Ignored for images."
         ),
     )
 
@@ -40,14 +47,16 @@ class ReadFileArgs(ToolArgsModel):
 class ReadFileTool(WorkspaceTool):
     name = "read_file"
     description = (
-        "Read a UTF-8 text file from the workspace and return its contents. "
-        "Use for inspecting source, configs, and other text files. "
-        "Large files are truncated at ~32KB; pass offset to page through "
-        "the rest. Paths are relative to the workspace root and cannot escape it."
+        "Read a workspace file. UTF-8 text is returned as text (capped at ~32KB; "
+        "pass offset to page). Images (png, jpeg, gif, webp, bmp, tiff) are returned "
+        "as visual content the model can see. Paths are relative to the workspace "
+        "root and cannot escape it."
     )
     args_model = ReadFileArgs
 
-    def run(self, path: str, offset: int = 1, limit: int = 0) -> str:
+    def run(
+        self, path: str, offset: int = 1, limit: int = 0
+    ) -> str | list[dict[str, object]]:
         try:
             target = self.resolve_path(path)
         except (TypeError, ValueError) as exc:
@@ -63,6 +72,48 @@ class ReadFileTool(WorkspaceTool):
         if not target.is_file():
             return f"error: not a file: {path}"
 
+        try:
+            size = target.stat().st_size
+            with target.open("rb") as handle:
+                header = handle.read(32)
+        except OSError as exc:
+            return f"error: failed to read {path}: {exc}"
+
+        media_type = sniff_image_media_type(header, filename=target.name)
+        if media_type:
+            return self._read_image(target, path, media_type, size)
+        return self._read_text(target, path, offset, limit)
+
+    def _read_image(
+        self,
+        target: Path,
+        path: str,
+        media_type: str,
+        size: int,
+    ) -> str | list[dict[str, object]]:
+        if size > MAX_IMAGE_BYTES:
+            return (
+                f"error: image exceeds {MAX_IMAGE_BYTES:,} bytes: {path} "
+                f"({size:,} bytes)"
+            )
+        try:
+            payload = target.read_bytes()
+        except OSError as exc:
+            return f"error: failed to read {path}: {exc}"
+        media_type = sniff_image_media_type(payload, filename=target.name) or media_type
+        return [
+            {
+                "type": "text",
+                "text": f"Read image {path} ({media_type}, {size:,} bytes)",
+            },
+            image_part_from_bytes(
+                payload,
+                media_type=media_type,
+                filename=target.name,
+            ),
+        ]
+
+    def _read_text(self, target: Path, path: str, offset: int, limit: int) -> str:
         try:
             with target.open("r", encoding="utf-8") as fh:
                 lines: list[str] = []

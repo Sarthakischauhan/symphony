@@ -18,7 +18,7 @@ A workspace coding agent built on `core_harness`.
 
 The agent intentionally exposes five workspace tools:
 
-- `read_file` reads bounded UTF-8 content.
+- `read_file` reads bounded UTF-8 text, or image files (png/jpeg/gif/webp/…) as visual content the model can see.
 - `write_file` creates or replaces a complete file without stripping whitespace.
 - `patch` performs unique-match exact-text edits.
 - `search` finds file names or literal/regex content with path and glob filters.

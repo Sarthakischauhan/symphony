@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
 import time
 from pathlib import Path
 
+import pytest
+
 from coding_agent.tools import (
     BashTool,
     PatchTool,
+    ReadFileTool,
     SearchTool,
     WriteFileArgs,
     WriteFileTool,
@@ -17,14 +21,75 @@ from coding_agent.tools import (
     wrap_with_approvals,
 )
 from coding_agent.tools.approvals import approval_prompt
+from coding_agent.tui.widgets.tools.read_file import ReadFileWidget
 from coding_agent.tools.bash import MAX_OUTPUT_BYTES
 from core_harness import NullControlPlane
+
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+GIF_1X1 = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00"
+    b"!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00"
+    b"\x02\x02D\x01\x00;"
+)
 
 
 def test_tool_surface_is_small(tmp_path: Path) -> None:
     assert [tool.name for tool in build_tools(tmp_path)] == [
         "read_file", "write_file", "patch", "bash", "search", "ask_user"
     ]
+
+
+def test_read_file_returns_image_parts_by_type(tmp_path: Path) -> None:
+    png = tmp_path / "shot.png"
+    png.write_bytes(PNG_1X1)
+    gif = tmp_path / "anim.gif"
+    gif.write_bytes(GIF_1X1)
+    nameless = tmp_path / "screenshot"
+    nameless.write_bytes(PNG_1X1)
+    notes = tmp_path / "notes.py"
+    notes.write_text("print(1)\n", encoding="utf-8")
+    blob = tmp_path / "data.bin"
+    blob.write_bytes(b"\xff\xfe\x00\x00not-an-image")
+
+    tool = ReadFileTool(tmp_path)
+    png_result = tool.run("shot.png")
+    assert isinstance(png_result, list)
+    assert png_result[0]["text"].startswith("Read image shot.png")
+    assert png_result[1]["type"] == "image"
+    assert png_result[1]["media_type"] == "image/png"
+    assert png_result[1]["filename"] == "shot.png"
+
+    gif_result = tool.run("anim.gif")
+    assert gif_result[1]["media_type"] == "image/gif"
+
+    sniffed = tool.run("screenshot")
+    assert sniffed[1]["media_type"] == "image/png"
+
+    assert tool.run("notes.py") == "print(1)\n"
+    assert tool.run("data.bin").startswith("error: file is not valid UTF-8 text")
+
+    wrapped = tool.as_harness_tool()
+    executed = asyncio.run(wrapped.execute(control_plane=None, args={"path": "shot.png"}))
+    assert isinstance(executed, list)
+    assert executed[1]["type"] == "image"
+
+
+def test_read_file_rejects_oversized_images(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image = tmp_path / "huge.png"
+    image.write_bytes(PNG_1X1)
+    monkeypatch.setattr("coding_agent.tools.read_file.MAX_IMAGE_BYTES", 1)
+    result = ReadFileTool(tmp_path).run("huge.png")
+    assert result.startswith("error: image exceeds")
+
+
+def test_read_file_widget_summarizes_image_results() -> None:
+    widget = ReadFileWidget("read-1", "read_file")
+    widget.result = "Read image shot.gif (image/gif, 1,204 bytes)\n[image:shot.gif]"
+    assert widget._result_summary() == "Read image shot.gif (image/gif, 1,204 bytes)"
 
 
 def test_write_file_preserves_whitespace_through_validation(tmp_path: Path) -> None:

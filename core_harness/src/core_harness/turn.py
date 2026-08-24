@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
-from core_ai.types import Message
+from core_ai.content import text_from_content
+from core_ai.types import Content, Message
 
 from core_harness.control_plane import ControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
@@ -489,14 +490,7 @@ class TurnRunner:
         )
         await self.control_plane.emit(
             "tool_execution_completed",
-            {
-                "tool_call_id": tool_call.id,
-                "tool_name": tool_call.name,
-                "status": result.status,
-                "result": bounded,
-                "truncated": bounded != result.for_model(),
-                "original_chars": len(result.for_model()),
-            },
+            self._tool_completed_payload(tool_call, result, bounded),
         )
 
     async def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
@@ -526,14 +520,7 @@ class TurnRunner:
         bounded = self._limit_tool_output(result.for_model())
         await self.control_plane.emit(
             "tool_execution_completed",
-            {
-                "tool_call_id": tool_call.id,
-                "tool_name": tool_call.name,
-                "status": result.status,
-                "result": bounded,
-                "truncated": bounded != result.for_model(),
-                "original_chars": len(result.for_model()),
-            },
+            self._tool_completed_payload(tool_call, result, bounded),
         )
         return result
 
@@ -581,7 +568,7 @@ class TurnRunner:
                     content=str(exc) or type(exc).__name__,
                     error_type=type(exc).__name__,
                 )
-            return ToolResult(status="success", content=self._stringify_tool_output(raw))
+            return ToolResult(status="success", content=self._coerce_tool_output(raw))
         except Exception as exc:
             exec_task.cancel()
             return ToolResult(
@@ -590,7 +577,42 @@ class TurnRunner:
                 error_type=type(exc).__name__,
             )
 
-    def _limit_tool_output(self, value: str) -> str:
+    def _tool_completed_payload(
+        self,
+        tool_call: ToolCall,
+        result: ToolResult,
+        bounded: Content,
+    ) -> Dict[str, Any]:
+        original = result.for_model()
+        if isinstance(original, str):
+            original_preview = original
+            original_chars = len(original)
+        else:
+            original_preview = text_from_content(original)
+            original_chars = len(original_preview)
+        preview = bounded if isinstance(bounded, str) else text_from_content(bounded)
+        return {
+            "tool_call_id": tool_call.id,
+            "tool_name": tool_call.name,
+            "status": result.status,
+            "result": preview,
+            "truncated": preview != original_preview,
+            "original_chars": original_chars,
+        }
+
+    def _limit_tool_output(self, value: Content) -> Content:
+        if isinstance(value, list):
+            return [
+                (
+                    {**part, "text": self._limit_text(str(part.get("text") or ""))}
+                    if isinstance(part, dict) and part.get("type") == "text"
+                    else part
+                )
+                for part in value
+            ]
+        return self._limit_text(value)
+
+    def _limit_text(self, value: str) -> str:
         limit = self.tool_result_max_chars
         if limit is None or len(value) <= limit:
             return value
@@ -603,8 +625,10 @@ class TurnRunner:
         tail = available // 2
         return value[:head] + marker + value[-tail:]
 
-    def _stringify_tool_output(self, value: Any) -> str:
+    def _coerce_tool_output(self, value: Any) -> Content:
         if isinstance(value, str):
+            return value
+        if isinstance(value, list):
             return value
         try:
             return json.dumps(value)

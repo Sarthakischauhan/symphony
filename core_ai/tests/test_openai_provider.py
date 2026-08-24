@@ -267,3 +267,77 @@ def test_openai_responses_sends_input_image_parts() -> None:
         "type": "input_image",
         "image_url": "data:image/png;base64,aaa",
     }
+
+
+def test_openai_forwards_tool_images_as_followup_user_content() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["payload"] = json.loads(request.content)
+        if request.url.path.endswith("/chat/completions"):
+            body = "\n\n".join(
+                f"data: {event}"
+                for event in (
+                    '{"choices":[{"index":0,"delta":{"content":"cat"}}]}',
+                    "[DONE]",
+                )
+            )
+        else:
+            body = "\n\n".join(
+                f"data: {event}"
+                for event in (
+                    '{"type":"response.output_text.delta","content_index":0,"delta":"cat"}',
+                    "[DONE]",
+                )
+            )
+        return httpx.Response(200, text=body)
+
+    tool_messages = [
+        Message(role="user", content="look"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path":"shot.png"}'},
+                }
+            ],
+        ),
+        Message(
+            role="tool",
+            tool_call_id="call_1",
+            content=[
+                {"type": "text", "text": "Read image shot.png (image/png, 3 bytes)"},
+                {"type": "image", "media_type": "image/png", "data": "aaa", "filename": "shot.png"},
+            ],
+        ),
+    ]
+
+    async def collect_chat() -> None:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream("o3", tool_messages):
+            pass
+
+    asyncio.run(collect_chat())
+    messages = captured["payload"]["messages"]  # type: ignore[index]
+    assert messages[-2]["role"] == "tool"
+    assert "aaa" not in messages[-2]["content"]
+    assert messages[-2]["content"].startswith("Read image shot.png")
+    assert messages[-1]["role"] == "user"
+    assert messages[-1]["content"][0]["type"] == "image_url"
+    assert messages[-1]["content"][0]["image_url"]["url"] == "data:image/png;base64,aaa"
+
+    async def collect_responses() -> None:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream("gpt-4o-mini", tool_messages):
+            pass
+
+    asyncio.run(collect_responses())
+    items = captured["payload"]["input"]  # type: ignore[index]
+    assert items[-2]["type"] == "function_call_output"
+    assert "aaa" not in items[-2]["output"]
+    assert items[-1]["role"] == "user"
+    assert items[-1]["content"][0]["type"] == "input_image"

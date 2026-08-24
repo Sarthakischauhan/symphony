@@ -5,7 +5,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 from dotenv import load_dotenv
 
-from core_ai.content import to_gemini_parts
+from core_ai.content import split_text_and_images, to_gemini_parts
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import iter_sse_json, retry_after
 from core_ai.types import Message, StreamEvent
@@ -199,18 +199,16 @@ class GeminiProvider(BaseProvider):
                 continue
             if message.role == "tool":
                 name = call_names.get(str(message.tool_call_id or ""), "tool")
+                text, images = split_text_and_images(message.content)
                 pending_responses.append(
                     {
                         "functionResponse": {
                             "name": name,
-                            "response": {
-                                "result": message.content
-                                if isinstance(message.content, str)
-                                else json.dumps(message.content),
-                            },
+                            "response": {"result": text},
                         }
                     }
                 )
+                pending_responses.extend(to_gemini_parts(images))
                 continue
             flush_tool_responses()
             if message.role == "assistant":

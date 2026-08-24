@@ -23,9 +23,26 @@ from core_ai.types import Content
 ContentPart = Dict[str, Any]
 
 IMAGE_TOKEN_ESTIMATE = 768
+IMAGE_MIME_BY_SUFFIX = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+}
 _DATA_URL_RE = re.compile(
     r"^data:(?P<media>image/[A-Za-z0-9.+-]+);base64,(?P<data>[A-Za-z0-9+/=\s]+)$",
     re.IGNORECASE,
+)
+_MAGIC_TYPES: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
 )
 
 
@@ -165,6 +182,45 @@ def image_part_from_bytes(
         data=base64.b64encode(payload).decode("ascii"),
         filename=filename,
     )
+
+
+def sniff_image_media_type(data: bytes, *, filename: str = "") -> Optional[str]:
+    """Return an image media type from a filename suffix or magic bytes."""
+    name = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    suffix = ""
+    if "." in name:
+        suffix = "." + name.rsplit(".", 1)[-1].lower()
+    if suffix in IMAGE_MIME_BY_SUFFIX:
+        return IMAGE_MIME_BY_SUFFIX[suffix]
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:4] in {b"II*\x00", b"MM\x00*"}:
+        return "image/tiff"
+    for magic, media_type in _MAGIC_TYPES:
+        if data.startswith(magic):
+            return media_type
+    return None
+
+
+def split_text_and_images(content: Optional[Content]) -> tuple[str, List[ContentPart]]:
+    """Split a message/tool body into text and canonical image parts."""
+    if content is None:
+        return "", []
+    if isinstance(content, str):
+        return content, []
+    texts: List[str] = []
+    images: List[ContentPart] = []
+    for part in normalize_content(content):
+        if part["type"] == "text":
+            text = str(part.get("text") or "")
+            if text:
+                texts.append(text)
+        elif part["type"] == "image":
+            images.append(part)
+    text = "\n".join(texts)
+    if not text and images:
+        text = text_from_content(images)
+    return text, images
 
 
 def estimate_content_tokens(content: Optional[Content]) -> int:
