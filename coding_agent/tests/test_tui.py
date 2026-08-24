@@ -39,6 +39,7 @@ from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_optio
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     BashToolWidget,
+    GenerateImageWidget,
     PatchDiffWidget,
     PromptInput,
     ReadFileWidget,
@@ -47,6 +48,7 @@ from coding_agent.tui.widgets import (
     ThinkingStatus,
     UserMessage,
 )
+
 from coding_agent.tui.slash_menu import SlashMenu
 
 
@@ -336,6 +338,50 @@ def test_dropped_image_becomes_clickable_chip(
             message.action_open_image("1")
             await pilot.pause()
             assert isinstance(app.screen, ImageModal)
+
+    asyncio.run(_run())
+
+
+def test_generate_image_tool_chip_opens_modal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    image_path = tmp_path / "icon.png"
+    image_path.write_bytes(
+        __import__("base64").b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+    )
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("img-1", "generate_image")
+            app.update_tool(
+                "img-1",
+                arguments={"path": "icon.png", "prompt": "a red square"},
+                status="running",
+            )
+            app.update_tool(
+                "img-1",
+                status="done",
+                result="Wrote image icon.png (image/png, 70 bytes)\n[image:icon.png]",
+            )
+
+            await pilot.pause()
+            widget = app._tools["img-1"]
+            assert isinstance(widget, GenerateImageWidget)
+            assert not widget.collapsed
+            assert widget.open_preview()
+            await pilot.pause()
+            assert isinstance(app.screen, ImageModal)
+            title = app.screen.query_one("#image-title", Static).content
+            title_text = title.plain if hasattr(title, "plain") else str(title)
+            assert "icon.png" in title_text
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ImageModal)
 
     asyncio.run(_run())
 

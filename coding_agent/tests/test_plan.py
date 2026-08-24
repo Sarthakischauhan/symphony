@@ -68,7 +68,9 @@ def test_plan_mode_uses_read_only_tools_and_saves_result(tmp_path: Path) -> None
     assert list(agent.harness.tools) == [
         "read_file",
         "write_file",
+        "generate_image",
         "patch",
+
         "bash",
         "search",
         "ask_user",

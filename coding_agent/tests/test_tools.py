@@ -5,13 +5,17 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
+import json
 import time
 from pathlib import Path
 
+import httpx
 import pytest
+
 
 from coding_agent.tools import (
     BashTool,
+    GenerateImageTool,
     PatchTool,
     ReadFileTool,
     SearchTool,
@@ -21,7 +25,9 @@ from coding_agent.tools import (
     wrap_with_approvals,
 )
 from coding_agent.tools.approvals import approval_prompt
+from coding_agent.tui.widgets.tools.generate_image import GenerateImageWidget
 from coding_agent.tui.widgets.tools.read_file import ReadFileWidget
+
 from coding_agent.tools.bash import MAX_OUTPUT_BYTES
 from core_harness import NullControlPlane
 
@@ -37,7 +43,8 @@ GIF_1X1 = (
 
 def test_tool_surface_is_small(tmp_path: Path) -> None:
     assert [tool.name for tool in build_tools(tmp_path)] == [
-        "read_file", "write_file", "patch", "bash", "search", "ask_user"
+        "read_file", "write_file", "generate_image", "patch", "bash", "search", "ask_user"
+
     ]
 
 
@@ -100,6 +107,107 @@ def test_write_file_preserves_whitespace_through_validation(tmp_path: Path) -> N
     result = asyncio.run(tool.execute(control_plane=None, args=args.model_dump()))
     assert result.startswith("wrote a.py")
     assert (tmp_path / "a.py").read_text(encoding="utf-8") == "    x = 1\n\n"
+
+
+def test_generate_image_writes_file_and_returns_image_parts(tmp_path: Path) -> None:
+    async def fake_generate(prompt: str, output_format: str) -> tuple[bytes, str]:
+        assert prompt == "a red square"
+        assert output_format == "png"
+        return PNG_1X1, "image/png"
+
+    tool = GenerateImageTool(tmp_path, generate=fake_generate)
+    result = asyncio.run(tool.run("a red square", "assets/icon.png"))
+    assert isinstance(result, list)
+    assert result[0]["text"].startswith("Wrote image assets/icon.png")
+    assert result[1]["type"] == "image"
+    assert result[1]["media_type"] == "image/png"
+    assert result[1]["filename"] == "icon.png"
+    written = tmp_path / "assets" / "icon.png"
+    assert written.read_bytes() == PNG_1X1
+
+    wrapped = tool.as_harness_tool()
+    executed = asyncio.run(
+        wrapped.execute(
+            control_plane=None,
+            args={"prompt": "a red square", "path": "assets/icon.png"},
+        )
+    )
+    assert isinstance(executed, list)
+    assert executed[1]["type"] == "image"
+
+
+def test_generate_image_rejects_non_image_paths_and_missing_key(tmp_path: Path) -> None:
+    async def fake_generate(prompt: str, output_format: str) -> tuple[bytes, str]:
+        del prompt, output_format
+        return PNG_1X1, "image/png"
+
+    tool = GenerateImageTool(tmp_path, generate=fake_generate)
+    assert "path must end in" in asyncio.run(tool.run("a cat", "notes.txt"))
+    assert "escapes workspace" in asyncio.run(tool.run("a cat", "../out.png"))
+
+    missing = GenerateImageTool(tmp_path, api_key="")
+    error = asyncio.run(missing.run("a cat", "cat.png"))
+    assert error.startswith("error: image generation failed")
+    assert "OPENAI_API_KEY" in error
+    assert not (tmp_path / "cat.png").exists()
+
+
+def test_generate_image_calls_openai_images_api(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["payload"] = json.loads(request.content)
+
+        return httpx.Response(
+            200,
+            json={"data": [{"b64_json": base64.b64encode(PNG_1X1).decode("ascii")}]},
+        )
+
+    tool = GenerateImageTool(
+
+        tmp_path,
+        api_key="test-key",
+        base_url="https://api.openai.com/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(tool.run("a blue otter icon", "otter.webp"))
+    assert captured["url"] == "https://api.openai.com/v1/images/generations"
+    payload = captured["payload"]
+    assert payload["prompt"] == "a blue otter icon"
+    assert payload["output_format"] == "webp"
+    assert payload["model"] == "gpt-image-1"
+    assert isinstance(result, list)
+    assert result[1]["media_type"] == "image/webp"
+    assert (tmp_path / "otter.webp").read_bytes() == PNG_1X1
+
+
+def test_generate_image_widget_summarizes_and_opens_preview(tmp_path: Path) -> None:
+
+    (tmp_path / "icon.png").write_bytes(PNG_1X1)
+    widget = GenerateImageWidget("img-1", "generate_image")
+    widget.set_arguments({"path": "icon.png", "prompt": "a red square"})
+    widget.set_result("Wrote image icon.png (image/png, 70 bytes)\n[image:icon.png]")
+    assert widget._summary() == "icon.png"
+    assert widget._result_summary() == "Wrote image icon.png (image/png, 70 bytes)"
+    rows = widget._body_rows()
+    chip = rows[-1]
+    assert "[Image 1]" in chip.plain
+
+
+
+def test_generate_image_overwrite_asks_for_approval(tmp_path: Path) -> None:
+    (tmp_path / "icon.png").write_bytes(PNG_1X1)
+    needed, prompt = approval_prompt(
+        "generate_image", {"path": "icon.png", "prompt": "a cat"}, tmp_path
+    )
+    assert needed
+    assert "Overwrite" in prompt
+    fresh, _ = approval_prompt(
+        "generate_image", {"path": "new.png", "prompt": "a cat"}, tmp_path
+    )
+    assert not fresh
+
 
 
 def test_search_content_literal_regex_and_glob(tmp_path: Path) -> None:

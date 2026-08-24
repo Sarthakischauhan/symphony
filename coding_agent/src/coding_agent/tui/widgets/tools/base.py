@@ -11,6 +11,7 @@ from textual.widgets import Collapsible, Static
 from coding_agent.tui.widgets.tools.header import BashToolHeader
 from coding_agent.utils.text import clip_text, compact_json
 
+
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
@@ -18,11 +19,12 @@ class ToolCallWidget(Collapsible):
         "bash": ("Bash", "$"),
         "search": ("Search", "⌕"),
         "write_file": ("Write", "+"),
+        "generate_image": ("Image", "└"),
         "patch": ("Edit", "±"),
     }
 
     def __init__(self, call_id: str, tool_name: str) -> None:
-        self._body = Static()
+        self._body = self._make_body()
         self._tool_label = Static(classes="tool-call-label")
         self._tool_command = Static(classes="tool-call-command")
         self._tool_status = Static(classes="tool-call-status")
@@ -41,6 +43,9 @@ class ToolCallWidget(Collapsible):
             classes="tool-call",
         )
         self.refresh_content()
+
+    def _make_body(self) -> Static:
+        return Static()
 
     def compose(self):  # type: ignore[no-untyped-def]
         # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
@@ -99,7 +104,7 @@ class ToolCallWidget(Collapsible):
                 or self.arguments.get("pattern")
                 or compact_json(self.arguments)
             )
-        if self.tool_name in {"write_file", "patch"}:
+        if self.tool_name in {"write_file", "patch", "generate_image", "read_file"}:
             return str(self.arguments.get("path") or compact_json(self.arguments))
         return compact_json(self.arguments) or self.raw_arguments
 
