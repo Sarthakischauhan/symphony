@@ -3,6 +3,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
+from core_ai.content import to_openai_chat_content
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
 
@@ -34,7 +35,10 @@ class OpenAICompletionProvider(BaseProvider):
             "messages": [],
         }
         for message in messages:
-            formatted = {"role": message.role, "content": message.content}
+            formatted = {
+                "role": message.role,
+                "content": to_openai_chat_content(message.content),
+            }
             if message.tool_call_id:
                 formatted["tool_call_id"] = message.tool_call_id
             if message.tool_calls:

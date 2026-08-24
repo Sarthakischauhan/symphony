@@ -126,7 +126,7 @@ Tool results are bounded to 12,000 characters by default before being sent in th
 
 ## Runs, results, and conversations
 
-`await harness.run(user_input)` returns a `HarnessResult` containing:
+`await harness.run(user_input)` accepts a string or a list of canonical text/image parts. It returns a `HarnessResult` containing:
 
 - `output_text` — the assistant's final text
 - `messages` — messages accumulated during the run

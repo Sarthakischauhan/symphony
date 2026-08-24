@@ -29,6 +29,7 @@ from coding_agent.tui.file_selector import (
 )
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
+from coding_agent.tui.images import build_user_content
 from coding_agent.tui.slash_menu import SlashMenu
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
@@ -48,6 +49,7 @@ from coding_agent.tui.widgets import (
     Welcome,
     make_tool_widget,
 )
+from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
 
@@ -301,14 +303,18 @@ class CodingAgentApp(App[None]):
         pasted_chunks = event.input.take_pasted_chunks()
         event.input.load_text("")
         if self._pending_question_id is not None:
+            event.input.take_images()
             await self._answer_question(text or self._pending_question_default)
             return
         if not text:
+            event.input.take_images()
             return
         self.query_one("#slash-menu", SlashMenu).set_commands(())
         if text.startswith("/"):
+            event.input.take_images()
             await self._run_slash_command(text)
             return
+        images = event.input.take_images()
         if self._agent is None:
             self.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
             return
@@ -316,12 +322,15 @@ class CodingAgentApp(App[None]):
             self.add_notice("A turn is already in progress.", "warning")
             return
 
+        user_content = build_user_content(text, images)
         self._assistant = None
         self._thinking = None
         self._reasoning = None
         self._process = None
         self._tools = {}
-        self._mount_transcript(UserMessage(text, pasted_chunks=pasted_chunks))
+        self._mount_transcript(
+            UserMessage(text, pasted_chunks=pasted_chunks, images=images)
+        )
         self.set_thinking("Thinking…")
         if self.mode == "plan":
             self._plan_store.begin(text)
@@ -329,7 +338,7 @@ class CodingAgentApp(App[None]):
         self._busy = True
         event.input.disabled = True
         self.query_one("#composer-hint", Static).update("Working…   Esc cancel")
-        self.run_agent(text)
+        self.run_agent(user_content)
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id != "prompt":
@@ -447,7 +456,7 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer-hint", Static).update(hint)
 
     @work(exclusive=True)
-    async def run_agent(self, user_input: str) -> None:
+    async def run_agent(self, user_input: Content) -> None:
         try:
             await self._run_agent_turn(user_input)
         except (HarnessCancelled, HarnessLimitExceeded):
@@ -472,7 +481,7 @@ class CodingAgentApp(App[None]):
             self._update_composer_hint()
             prompt.focus()
 
-    async def _run_agent_turn(self, user_input: str) -> HarnessResult:
+    async def _run_agent_turn(self, user_input: Content) -> HarnessResult:
         assert self._agent is not None
         mode = self.mode
         result = await self._agent.run(user_input)

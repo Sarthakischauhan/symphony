@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 from dotenv import load_dotenv
 
+from core_ai.content import to_gemini_parts
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import iter_sse_json, retry_after
 from core_ai.types import Message, StreamEvent
@@ -213,9 +214,7 @@ class GeminiProvider(BaseProvider):
                 continue
             flush_tool_responses()
             if message.role == "assistant":
-                parts: List[Dict[str, Any]] = []
-                if isinstance(message.content, str) and message.content:
-                    parts.append({"text": message.content})
+                parts: List[Dict[str, Any]] = to_gemini_parts(message.content)
                 for tool_call in message.tool_calls or []:
                     function = tool_call.get("function") or {}
                     raw_args = function.get("arguments") or "{}"
@@ -238,17 +237,8 @@ class GeminiProvider(BaseProvider):
                 if parts:
                     contents.append({"role": "model", "parts": parts})
                 continue
-            contents.append(
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": message.content
-                            if isinstance(message.content, str)
-                            else json.dumps(message.content)
-                        }
-                    ],
-                }
-            )
+            parts = to_gemini_parts(message.content)
+            if parts:
+                contents.append({"role": "user", "parts": parts})
         flush_tool_responses()
         return "\n\n".join(system_chunks), contents

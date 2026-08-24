@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from core_ai.types import Message
+from core_ai.types import Content, Message
 
 from core_harness.models.tools import ToolCall
 from core_harness.state.compaction import Compactor
@@ -57,7 +57,7 @@ class HarnessState:
             raise ValueError("context_target_tokens must be positive or None")
         self.context_target_tokens = context_target_tokens
 
-    def add_user_message(self, messages: List[Message], content: str) -> None:
+    def add_user_message(self, messages: List[Message], content: Content) -> None:
         messages.append(Message(role="user", content=content))
 
     def add_assistant_message(

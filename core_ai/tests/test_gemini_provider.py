@@ -125,3 +125,37 @@ def test_gemini_translates_tool_history() -> None:
     assert contents[2]["role"] == "user"
     assert contents[2]["parts"][0]["functionResponse"]["name"] == "read_file"
     assert contents[2]["parts"][0]["functionResponse"]["response"]["result"] == "print(1)"
+
+
+def test_gemini_sends_inline_image_parts() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            text=_sse('{"candidates":[{"content":{"parts":[{"text":"cat"}]}}]}'),
+        )
+
+    async def collect() -> None:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "gemini-3.7-flash",
+            [
+                Message(
+                    role="user",
+                    content=[
+                        {"type": "text", "text": "what is this?"},
+                        {"type": "image", "media_type": "image/png", "data": "aaa", "filename": "shot.png"},
+                    ],
+                )
+            ],
+        ):
+            pass
+
+    asyncio.run(collect())
+    parts = captured["payload"]["contents"][0]["parts"]  # type: ignore[index]
+    assert parts == [
+        {"text": "what is this?"},
+        {"inlineData": {"mimeType": "image/png", "data": "aaa"}},
+    ]

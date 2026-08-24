@@ -31,7 +31,7 @@ from coding_agent.tui.file_selector import (
     complete_file_mention,
     file_matches,
 )
-from coding_agent.tui.modal import ContentModal, DiffModal, PlanModal
+from coding_agent.tui.modal import ContentModal, DiffModal, ImageModal, PlanModal
 from coding_agent.tui.modal.diff import DiffFileCard
 from coding_agent.tui.modal.components import PlanSectionCard
 from coding_agent.tui.modal.plan import _plan_sections
@@ -268,6 +268,74 @@ def test_compact_paste_marker_opens_modal(
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, ContentModal)
+
+    asyncio.run(_run())
+
+
+def test_dropped_image_becomes_clickable_chip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    image_path = tmp_path / "shot.png"
+    image_path.write_bytes(
+        __import__("base64").b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+    )
+    app = CodingAgentApp(workspace=tmp_path)
+    calls: list[object] = []
+
+    class FakeAgent:
+        learning_loop = None
+
+        async def run(self, user_input: object) -> HarnessResult:
+            calls.append(user_input)
+            return HarnessResult(output_text="", messages=[])
+
+    prefix = "What is in "
+    expected_marker = "[Image 1]"
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            prompt = app.query_one("#prompt", PromptInput)
+            prompt.value = prefix
+            prompt.cursor_position = len(prefix)
+            prompt.post_message(events.Paste(f"{image_path}\n"))
+            await pilot.pause()
+
+            assert expected_marker in prompt.value
+            assert prompt.images[0].filename == "shot.png"
+            assert str(image_path) not in prompt.value
+
+            await pilot.click(prompt, offset=(len(prefix) + 2, 0))
+            await pilot.pause()
+            assert isinstance(app.screen, ImageModal)
+            title = app.screen.query_one("#image-title", Static).content
+            title_text = title.plain if hasattr(title, "plain") else str(title)
+            assert "shot.png" in title_text
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ImageModal)
+
+            await pilot.press("ctrl+enter")
+            await pilot.pause()
+
+            assert calls
+            content = calls[0]
+            assert isinstance(content, list)
+            assert content[0] == {"type": "text", "text": prefix}
+            assert content[1]["type"] == "image"
+            assert content[1]["filename"] == "shot.png"
+            message = app.query_one(UserMessage)
+            display = message._compact_content(f"{prefix}{expected_marker} ", ())
+            assert display.plain == f"{prefix}{expected_marker} "
+            assert display.spans[0].style.meta["@click"] == "open_image('1')"
+
+            message.action_open_image("1")
+            await pilot.pause()
+            assert isinstance(app.screen, ImageModal)
 
     asyncio.run(_run())
 

@@ -173,3 +173,39 @@ def test_anthropic_merges_consecutive_same_role_messages() -> None:
         {"type": "text", "text": "first"},
         {"type": "text", "text": "second"},
     ]
+
+
+def test_anthropic_sends_image_blocks() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"cat"}}'
+            ),
+        )
+
+    async def collect() -> None:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "claude-sonnet-5",
+            [
+                Message(
+                    role="user",
+                    content=[
+                        {"type": "text", "text": "what is this?"},
+                        {"type": "image", "media_type": "image/png", "data": "aaa", "filename": "shot.png"},
+                    ],
+                )
+            ],
+        ):
+            pass
+
+    asyncio.run(collect())
+    content = captured["payload"]["messages"][0]["content"]  # type: ignore[index]
+    assert content == [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aaa"}},
+    ]

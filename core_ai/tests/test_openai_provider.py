@@ -191,3 +191,79 @@ def test_openai_provider_with_usage() -> None:
     assert response_text  == "5"
 
     assert usage is not None
+
+
+def test_openai_chat_completions_sends_image_url_parts() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        body = "\n\n".join(
+            f"data: {event}"
+            for event in (
+                '{"choices":[{"index":0,"delta":{"content":"cat"}}]}',
+                "[DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> None:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "o3",
+            [
+                Message(
+                    role="user",
+                    content=[
+                        {"type": "text", "text": "what is this?"},
+                        {"type": "image", "media_type": "image/png", "data": "aaa", "filename": "shot.png"},
+                    ],
+                )
+            ],
+        ):
+            pass
+
+    asyncio.run(collect())
+    content = captured["payload"]["messages"][0]["content"]  # type: ignore[index]
+    assert content[0] == {"type": "text", "text": "what is this?"}
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"] == "data:image/png;base64,aaa"
+
+
+def test_openai_responses_sends_input_image_parts() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        body = "\n\n".join(
+            f"data: {event}"
+            for event in (
+                '{"type":"response.output_text.delta","content_index":0,"delta":"cat"}',
+                "[DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> None:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "gpt-4o-mini",
+            [
+                Message(
+                    role="user",
+                    content=[
+                        {"type": "text", "text": "what is this?"},
+                        {"type": "image", "media_type": "image/png", "data": "aaa"},
+                    ],
+                )
+            ],
+        ):
+            pass
+
+    asyncio.run(collect())
+    content = captured["payload"]["input"][0]["content"]  # type: ignore[index]
+    assert content[0] == {"type": "input_text", "text": "what is this?"}
+    assert content[1] == {
+        "type": "input_image",
+        "image_url": "data:image/png;base64,aaa",
+    }

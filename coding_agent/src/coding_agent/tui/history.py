@@ -6,7 +6,9 @@ import json
 from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
+from coding_agent.tui.images import display_from_content
 from coding_agent.tui.widgets import ToolCallWidget, UserMessage, make_tool_widget
+from core_ai.content import text_from_content
 from core_harness.utils.tokens import estimate_prompt_tokens
 
 
@@ -27,19 +29,17 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     pending_tools: dict[str, ToolCallWidget] = {}
 
     for message in messages:
-        content = _message_content(message.content)
         if message.role == "user":
-            view.mount_transcript(UserMessage(content))
+            text, images = display_from_content(message.content)
+            view.mount_transcript(UserMessage(text, images=images))
         elif message.role == "assistant":
-            _restore_assistant_message(view, message, content, pending_tools)
+            _restore_assistant_message(
+                view, message, text_from_content(message.content), pending_tools
+            )
         elif message.role == "tool":
             widget = pending_tools.get(str(message.tool_call_id))
             if widget:
-                widget.set_result(content)
-
-
-def _message_content(content: Any) -> str:
-    return content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+                widget.set_result(text_from_content(message.content))
 
 
 def _restore_assistant_message(

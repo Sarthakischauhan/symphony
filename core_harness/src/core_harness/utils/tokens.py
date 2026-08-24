@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
+from core_ai.content import estimate_content_tokens
 from core_ai.types import Message
 
 
@@ -15,19 +16,8 @@ def estimate_text_tokens(text: str) -> int:
     return max(1, (len(text) + 3) // 4)
 
 
-def _content_to_text(content: Union[str, List[Dict[str, Any]], None]) -> str:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    try:
-        return json.dumps(content)
-    except TypeError:
-        return str(content)
-
-
 def estimate_message_tokens(message: Message) -> int:
-    tokens = estimate_text_tokens(_content_to_text(message.content))
+    tokens = estimate_content_tokens(message.content)
     if message.tool_calls:
         try:
             tokens += estimate_text_tokens(json.dumps(message.tool_calls))

@@ -3,6 +3,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
+from core_ai.content import to_openai_responses_content
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
 
@@ -104,7 +105,15 @@ class OpenAIResponsesProvider(BaseProvider):
                 items.append({"type": "function_call_output", "call_id": message.tool_call_id, "output": message.content})
                 continue
             if message.content:
-                items.append({"role": message.role, "content": message.content})
+                items.append(
+                    {
+                        "role": message.role,
+                        "content": to_openai_responses_content(
+                            message.content,
+                            role=message.role,
+                        ),
+                    }
+                )
             for tool_call in message.tool_calls or []:
                 function = tool_call.get("function") or {}
                 items.append({"type": "function_call", "call_id": tool_call.get("id"), "name": function.get("name"), "arguments": function.get("arguments", "{}")})

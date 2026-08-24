@@ -6,8 +6,9 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
+from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
-from core_ai.types import Message
+from core_ai.types import Content, Message
 from core_harness import (
     ControlPlane,
     CoreHarness,
@@ -110,14 +111,15 @@ class CodingAgent:
 
     async def run(
         self,
-        user_input: str,
+        user_input: Content,
         *,
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
     ) -> HarnessResult:
         """Run the agent and schedule reflection only after successful completion."""
         mode = self.mode
-        lessons = self.learning_store.context_for(user_input) if self.learning_loop else ""
+        task_text = text_from_content(user_input)
+        lessons = self.learning_store.context_for(task_text) if self.learning_loop else ""
         self.harness.system_prompt = self.base_system_prompt
         if lessons:
             self.harness.system_prompt += f"\n\n{lessons}"
@@ -127,7 +129,7 @@ class CodingAgent:
 
         tools = self.harness.tools
         if mode == "plan":
-            self.plan_store.begin(user_input)
+            self.plan_store.begin(task_text)
             self.harness.tools = {
                 name: tool
                 for name, tool in tools.items()
@@ -143,9 +145,9 @@ class CodingAgent:
             self.harness.tools = tools
 
         if mode == "plan":
-            self.plan_store.save(user_input, result.output_text)
+            self.plan_store.save(task_text, result.output_text)
         elif self.learning_loop is not None:
-            self.learning_loop.schedule(user_input, result)
+            self.learning_loop.schedule(task_text, result)
         return result
 
     def set_mode(self, mode: AgentMode) -> None:

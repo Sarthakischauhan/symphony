@@ -65,6 +65,8 @@ valid tool-call blocks, `/reload` reloads `.env` and rebuilds the provider regis
 clears the visible transcript.
 Type `@` anywhere after whitespace to search workspace files in the same selector;
 Tab or Enter inserts the selected `@path` without sending the prompt.
+Drop an image onto the composer (terminals paste the file path) to attach it as a
+clickable `[Image 1]` chip; click the chip to open a large preview modal.
 The TUI registers every provider for which a credential is available. Pass
 `--model`, or set `SYMPHONY_MODEL`, to pick a `provider:model` id such as
 `anthropic:claude-sonnet-5` or `gemini:gemini-3.7-flash`.

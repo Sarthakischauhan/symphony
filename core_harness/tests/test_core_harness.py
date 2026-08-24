@@ -470,6 +470,47 @@ def test_control_plane_fanout_and_event_log() -> None:
     assert event_log.events[0].payload["model_id"] == "fake:test"
 
 
+class ImageEchoRegistry:
+    def __init__(self) -> None:
+        self.calls: list[list[Message]] = []
+
+    async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
+        del model_id, tools
+        self.calls.append(list(messages))
+        yield StreamEvent(type="text_delta", content_index=0, delta="seen")
+        yield StreamEvent(type="usage", prompt_tokens=12, completion_tokens=1, total_tokens=13)
+        yield StreamEvent(type="done", content_index=0)
+
+
+def test_harness_forwards_multimodal_user_content() -> None:
+    registry = ImageEchoRegistry()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="system",
+        tools=[],
+        context_limits={"fake:test-model": 1000},
+    )
+    payload = "a" * 20_000
+    user_input = [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image", "media_type": "image/png", "data": payload, "filename": "shot.png"},
+    ]
+
+    result = asyncio.run(harness.run(user_input))
+
+    user = [message for message in registry.calls[0] if message.role == "user"][0]
+    assert user.content == user_input
+    assert result.output_text == "seen"
+    sizes = [
+        event.payload["context"]["message_sizes"]
+        for event in harness.control_plane.events
+        if event.event_type == "run_completed"
+    ]
+    user_tokens = next(item["tokens"] for item in sizes[0] if item["role"] == "user")
+    assert user_tokens < 2_000
+
+
 def test_control_plane_cancel_stops_harness() -> None:
     registry = FakeRegistry()
     control_plane = InteractiveControlPlane()
