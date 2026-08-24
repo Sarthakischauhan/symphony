@@ -15,10 +15,10 @@ from textual.widgets import Static, TextArea
 from coding_agent.tui.images import (
     IMAGE_MARKER_RE,
     ImageAttachment,
+    ImageModal,
     dropped_image_paths,
 )
 from coding_agent.tui.modal.base import ContentModal
-from coding_agent.tui.modal.image import ImageModal
 from coding_agent.tui.theme import themed_markdown
 
 

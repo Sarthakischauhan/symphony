@@ -260,3 +260,17 @@ def test_anthropic_sends_image_blocks() -> None:
         {"type": "text", "text": "what is this?"},
         {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aaa"}},
     ]
+
+
+def test_anthropic_does_not_generate_images() -> None:
+    provider = AnthropicProvider(api_key="test")
+
+    async def run() -> None:
+        await provider.generate_image("claude-sonnet-5", "a cat")
+
+    try:
+        asyncio.run(run())
+    except NotImplementedError as exc:
+        assert "does not support image generation" in str(exc)
+    else:
+        raise AssertionError("expected NotImplementedError")

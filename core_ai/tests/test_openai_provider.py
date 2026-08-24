@@ -341,3 +341,52 @@ def test_openai_forwards_tool_images_as_followup_user_content() -> None:
     assert "aaa" not in items[-2]["output"]
     assert items[-1]["role"] == "user"
     assert items[-1]["content"][0]["type"] == "input_image"
+
+
+def test_openai_generate_image_uses_images_api() -> None:
+    captured: dict[str, object] = {}
+    png = "iVBORw0KGgo="
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(200, json={"data": [{"b64_json": png}]})
+
+    async def run() -> tuple[bytes, str]:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return await provider.generate_image("gpt-4o", "a blue otter", "webp")
+
+    payload, media_type = asyncio.run(run())
+    assert captured["path"] == "/v1/images/generations"
+    body = captured["payload"]
+    assert body["model"] == "gpt-image-1"
+    assert body["prompt"] == "a blue otter"
+    assert body["output_format"] == "webp"
+    assert media_type == "image/webp"
+    assert payload == __import__("base64").b64decode(png)
+
+
+def test_registry_falls_back_from_anthropic_to_openai_image_gen() -> None:
+    png = "iVBORw0KGgo="
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"b64_json": png}]})
+
+    from core_ai.providers.anthropic import AnthropicProvider
+    from core_ai.registry import ModelRegistry
+
+    registry = ModelRegistry()
+    registry.register("anthropic", AnthropicProvider(api_key="test"))
+    registry.register(
+        "openai",
+        OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler)),
+    )
+
+    async def run() -> tuple[bytes, str]:
+        return await registry.generate_image(
+            "a cat", output_format="png", model_id="anthropic:claude-sonnet-5"
+        )
+
+    payload, media_type = asyncio.run(run())
+    assert media_type == "image/png"
+    assert payload == __import__("base64").b64decode(png)

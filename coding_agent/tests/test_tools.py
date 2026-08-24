@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
-import json
 import time
 from pathlib import Path
 
-import httpx
 import pytest
 
 
@@ -25,8 +23,9 @@ from coding_agent.tools import (
     wrap_with_approvals,
 )
 from coding_agent.tools.approvals import approval_prompt
-from coding_agent.tui.widgets.tools.generate_image import GenerateImageWidget
+from coding_agent.tui.widgets.tools.base import GenerateImageWidget
 from coding_agent.tui.widgets.tools.read_file import ReadFileWidget
+
 
 from coding_agent.tools.bash import MAX_OUTPUT_BYTES
 from core_harness import NullControlPlane
@@ -136,7 +135,7 @@ def test_generate_image_writes_file_and_returns_image_parts(tmp_path: Path) -> N
     assert executed[1]["type"] == "image"
 
 
-def test_generate_image_rejects_non_image_paths_and_missing_key(tmp_path: Path) -> None:
+def test_generate_image_rejects_non_image_paths_and_missing_provider(tmp_path: Path) -> None:
     async def fake_generate(prompt: str, output_format: str) -> tuple[bytes, str]:
         del prompt, output_format
         return PNG_1X1, "image/png"
@@ -145,44 +144,20 @@ def test_generate_image_rejects_non_image_paths_and_missing_key(tmp_path: Path) 
     assert "path must end in" in asyncio.run(tool.run("a cat", "notes.txt"))
     assert "escapes workspace" in asyncio.run(tool.run("a cat", "../out.png"))
 
-    missing = GenerateImageTool(tmp_path, api_key="")
+    class EmptyRegistry:
+        async def generate_image(self, prompt: str, **kwargs: object) -> tuple[bytes, str]:
+            del prompt, kwargs
+            raise RuntimeError("image generation requires an OpenAI or Gemini provider")
+
+    missing = GenerateImageTool(tmp_path, registry=EmptyRegistry())
     error = asyncio.run(missing.run("a cat", "cat.png"))
     assert error.startswith("error: image generation failed")
-    assert "OPENAI_API_KEY" in error
+    assert "OpenAI or Gemini" in error
     assert not (tmp_path / "cat.png").exists()
 
 
-def test_generate_image_calls_openai_images_api(tmp_path: Path) -> None:
-    captured: dict[str, object] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        captured["payload"] = json.loads(request.content)
-
-        return httpx.Response(
-            200,
-            json={"data": [{"b64_json": base64.b64encode(PNG_1X1).decode("ascii")}]},
-        )
-
-    tool = GenerateImageTool(
-
-        tmp_path,
-        api_key="test-key",
-        base_url="https://api.openai.com/v1",
-        transport=httpx.MockTransport(handler),
-    )
-    result = asyncio.run(tool.run("a blue otter icon", "otter.webp"))
-    assert captured["url"] == "https://api.openai.com/v1/images/generations"
-    payload = captured["payload"]
-    assert payload["prompt"] == "a blue otter icon"
-    assert payload["output_format"] == "webp"
-    assert payload["model"] == "gpt-image-1"
-    assert isinstance(result, list)
-    assert result[1]["media_type"] == "image/webp"
-    assert (tmp_path / "otter.webp").read_bytes() == PNG_1X1
-
-
 def test_generate_image_widget_summarizes_and_opens_preview(tmp_path: Path) -> None:
+
 
     (tmp_path / "icon.png").write_bytes(PNG_1X1)
     widget = GenerateImageWidget("img-1", "generate_image")

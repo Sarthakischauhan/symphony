@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -55,6 +56,32 @@ class GeminiProvider(BaseProvider):
                     retry_attempt=retry_attempt,
                 )
                 await asyncio.sleep(delay)
+
+    async def generate_image(
+        self,
+        model_name: str,
+        prompt: str,
+        output_format: str = "png",
+    ) -> tuple[bytes, str]:
+        del output_format
+        model_id = model_name.removeprefix("models/")
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+        }
+        async with httpx.AsyncClient(transport=self.transport, timeout=120.0) as client:
+            response = await client.post(
+                f"{self.base_url}/models/{model_id}:generateContent",
+                headers={
+                    "x-goog-api-key": self.api_key,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(_http_error(response))
+            body = response.json()
+        return _first_inline_image(body)
 
     async def _stream_once(
         self,
@@ -240,3 +267,32 @@ class GeminiProvider(BaseProvider):
                 contents.append({"role": "user", "parts": parts})
         flush_tool_responses()
         return "\n\n".join(system_chunks), contents
+
+
+def _first_inline_image(payload: Dict[str, Any]) -> tuple[bytes, str]:
+    for candidate in payload.get("candidates") or []:
+        content = candidate.get("content") or {}
+        for part in content.get("parts") or []:
+            inline = part.get("inlineData") or part.get("inline_data") or {}
+            data = inline.get("data")
+            if not data:
+                continue
+            media_type = str(
+                inline.get("mimeType") or inline.get("mime_type") or "image/png"
+            )
+            return base64.b64decode(data), media_type
+    raise RuntimeError("provider returned no image data")
+
+
+def _http_error(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])
+        if isinstance(error, str) and error:
+            return error
+    return (response.text or "").strip() or f"HTTP {response.status_code}"

@@ -21,7 +21,8 @@ The agent intentionally exposes a small workspace tool surface:
 
 - `read_file` reads bounded UTF-8 text, or image files (png/jpeg/gif/webp/…) as visual content the model can see.
 - `write_file` creates or replaces a complete file without stripping whitespace.
-- `generate_image` generates a png/jpeg/webp from a prompt, writes it to a workspace path, and shows a clickable `[Image 1]` preview.
+- `generate_image` generates a png/jpeg/webp from a prompt via the current OpenAI or Gemini provider, writes it to a workspace path, and shows a clickable `[Image 1]` preview.
+
 - `patch` performs unique-match exact-text edits.
 - `search` finds file names or literal/regex content with path and glob filters.
 - `bash` runs workspace-scoped shell commands with streamed, capped output, a timeout, and process-group cleanup.

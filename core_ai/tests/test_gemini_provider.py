@@ -205,3 +205,39 @@ def test_gemini_sends_inline_image_parts() -> None:
         {"text": "what is this?"},
         {"inlineData": {"mimeType": "image/png", "data": "aaa"}},
     ]
+
+
+def test_gemini_generate_image_uses_generate_content() -> None:
+    captured: dict[str, object] = {}
+    png = "iVBORw0KGgo="
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": "here"},
+                                {"inlineData": {"mimeType": "image/png", "data": png}},
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+
+    async def run() -> tuple[bytes, str]:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return await provider.generate_image("gemini-3.7-flash", "a cat icon")
+
+    payload, media_type = asyncio.run(run())
+    assert str(captured["path"]).endswith("/models/gemini-3.7-flash:generateContent")
+    body = captured["payload"]
+    assert body["generationConfig"]["responseModalities"] == ["TEXT", "IMAGE"]
+    assert body["contents"][0]["parts"][0]["text"] == "a cat icon"
+    assert media_type == "image/png"
+    assert payload == __import__("base64").b64decode(png)

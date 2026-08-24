@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import base64
 import inspect
-import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-import httpx
 from pydantic import Field
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
@@ -26,9 +23,6 @@ FORMAT_MEDIA_TYPES = {
     "jpeg": "image/jpeg",
     "webp": "image/webp",
 }
-DEFAULT_MODEL = "gpt-image-1"
-DEFAULT_SIZE = "1024x1024"
-DEFAULT_TIMEOUT_SECONDS = 120.0
 
 
 class GenerateImageArgs(ToolArgsModel):
@@ -51,8 +45,8 @@ class GenerateImageTool(WorkspaceTool):
     name = "generate_image"
     description = (
         "Generate an image from a text prompt and write it to a workspace path. "
-        "Use for icons, mockups, and other visual assets. The path must end in "
-        ".png, .jpg, .jpeg, or .webp. Requires OPENAI_API_KEY."
+        "Uses the current OpenAI or Gemini provider (same credentials as chat). "
+        "The path must end in .png, .jpg, .jpeg, or .webp."
     )
     args_model = GenerateImageArgs
 
@@ -61,17 +55,13 @@ class GenerateImageTool(WorkspaceTool):
         workspace: str | Path,
         *,
         generate: Optional[GenerateFn] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        transport: Optional[httpx.AsyncBaseTransport] = None,
+        registry: Any = None,
+        model_id: Optional[str] = None,
     ) -> None:
         super().__init__(workspace)
         self._generate = generate
-        self._api_key = api_key
-        self._base_url = base_url
-        self._model = model
-        self._transport = transport
+        self._registry = registry
+        self._model_id = model_id
 
     async def run(self, prompt: str, path: str) -> str | list[dict[str, object]]:
         if not isinstance(prompt, str) or not prompt.strip():
@@ -81,13 +71,9 @@ class GenerateImageTool(WorkspaceTool):
         except (TypeError, ValueError) as exc:
             return f"error: {exc}"
 
-        suffix = target.suffix.lower()
-        output_format = OUTPUT_FORMATS.get(suffix)
+        output_format = OUTPUT_FORMATS.get(target.suffix.lower())
         if output_format is None:
-            return (
-                "error: path must end in .png, .jpg, .jpeg, or .webp: "
-                f"{path}"
-            )
+            return f"error: path must end in .png, .jpg, .jpeg, or .webp: {path}"
 
         try:
             payload, media_type = await self._produce(prompt.strip(), output_format)
@@ -123,76 +109,15 @@ class GenerateImageTool(WorkspaceTool):
             if inspect.isawaitable(raw):
                 raw = await raw
             if isinstance(raw, tuple) and len(raw) == 2:
-                payload, media_type = raw
-                return bytes(payload), str(media_type)
+                return bytes(raw[0]), str(raw[1])
             return bytes(raw), FORMAT_MEDIA_TYPES[output_format]
-        return await self._openai_generate(prompt, output_format)
+        from core_ai import build_default_registry, default_model_id
 
-    async def _openai_generate(self, prompt: str, output_format: str) -> tuple[bytes, str]:
-        api_key = self._api_key if self._api_key is not None else os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("image generation requires OPENAI_API_KEY")
-        base_url = (
-            self._base_url
-            or os.getenv("OPENAI_BASE_URL")
-            or "https://api.openai.com/v1"
-        ).rstrip("/")
-        model = self._model or os.getenv("OPENAI_IMAGE_MODEL") or DEFAULT_MODEL
-        body: dict[str, object] = {
-            "model": model,
-            "prompt": prompt,
-            "n": 1,
-            "size": DEFAULT_SIZE,
-        }
-        if str(model).startswith("gpt-image"):
-            body["output_format"] = output_format
-        else:
-            body["response_format"] = "b64_json"
+        registry = self._registry or build_default_registry()
+        model_id = self._model_id
+        if model_id is None and self._registry is None:
+            model_id = default_model_id(registry)
+        return await registry.generate_image(
+            prompt, output_format=output_format, model_id=model_id
+        )
 
-        async with httpx.AsyncClient(
-            transport=self._transport, timeout=DEFAULT_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.post(
-                f"{base_url}/images/generations",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            if response.status_code >= 400:
-                raise RuntimeError(_http_error(response))
-            payload = response.json()
-
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, list) or not data:
-            raise RuntimeError("provider returned no image data")
-        item = data[0] if isinstance(data[0], dict) else {}
-        encoded = item.get("b64_json")
-        if encoded:
-            return base64.b64decode(encoded), FORMAT_MEDIA_TYPES[output_format]
-        url = str(item.get("url") or "")
-        if not url:
-            raise RuntimeError("provider returned no image data")
-        async with httpx.AsyncClient(
-            transport=self._transport, timeout=DEFAULT_TIMEOUT_SECONDS
-        ) as client:
-            downloaded = await client.get(url)
-            if downloaded.status_code >= 400:
-                raise RuntimeError(_http_error(downloaded))
-            return downloaded.content, FORMAT_MEDIA_TYPES[output_format]
-
-
-def _http_error(response: httpx.Response) -> str:
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = None
-    if isinstance(payload, dict):
-        error = payload.get("error")
-        if isinstance(error, dict) and error.get("message"):
-            return str(error["message"])
-        if isinstance(error, str) and error:
-            return error
-    text = (response.text or "").strip()
-    return text or f"HTTP {response.status_code}"
