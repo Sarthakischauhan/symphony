@@ -9,7 +9,7 @@
 {
   "event_type": "run_started",
   "payload": {
-    "model_id": "openai:gpt-5.6-luna",
+    "model_id": "anthropic:claude-sonnet-5",
     "tool_names": ["get_weather"],
     "session_id": "session-123"
   }
@@ -56,9 +56,9 @@
 
 ## `model_retry_scheduled` (conditional)
 
-Emitted when a provider keeps the current turn alive after a retryable response,
-such as an OpenAI 429. The OpenAI provider honors `Retry-After` and uses capped
-exponential backoff when that header is absent.
+Emitted when a provider keeps the current turn alive after a retryable 429.
+OpenAI, Anthropic, and Gemini honor `Retry-After` and use capped exponential
+backoff when that header is absent.
 
 ```json
 {

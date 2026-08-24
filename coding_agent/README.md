@@ -29,9 +29,18 @@ agent does not parse or preload a semantic repository index.
 
 ### Run it
 
+Set at least one provider credential in the environment or `.env`:
+
+| Provider | Credential | Optional model / base URL |
+|---|---|---|
+| OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL`, `OPENAI_BASE_URL` |
+| Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
+| Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
+
 ```bash
 uv run --package coding-agent coding-agent-tui
 uv run --package coding-agent coding-agent-tui --workspace /path/to/project
+uv run --package coding-agent coding-agent-tui --model gemini:gemini-3.7-flash
 ```
 
 The TUI renders harness events as a conversation: streamed Markdown responses,
@@ -50,22 +59,28 @@ task-named files such as `.symphony/plans/to_build_a_server_plan.md`. When plann
 finishes, the plan opens in a modal with a **Build now** action; `/plan` opens a
 searchable picker for all saved workspace plans.
 `/new` starts a new persisted session, `/compact` keeps the system prompt and recent
-valid tool-call blocks, `/diff` opens the current workspace diff in a modal,
+valid tool-call blocks, `/reload` reloads `.env` and rebuilds the provider registry,
+`/diff` opens the current workspace diff in a modal,
 `/status` displays the current runtime context, `/help` shows commands, and `/clear`
 clears the visible transcript.
 Type `@` anywhere after whitespace to search workspace files in the same selector;
 Tab or Enter inserts the selected `@path` without sending the prompt.
-The TUI registers OpenAI, Anthropic, and Gemini from `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` / `GOOGLE_API_KEY`. Pass `--model`,
-or set `SYMPHONY_MODEL`, to pick a `provider:model` id such as
+The TUI registers every provider for which a credential is available. Pass
+`--model`, or set `SYMPHONY_MODEL`, to pick a `provider:model` id such as
 `anthropic:claude-sonnet-5` or `gemini:gemini-3.7-flash`.
+Without that override, provider-specific `*_MODEL` variables are checked before
+the default for the first available provider (OpenAI, Anthropic, then Gemini).
 Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
 boundary can be replaced with provider-backed registry discovery later.
 
 ```python
+from core_ai import build_default_registry, default_model_id
+from coding_agent import CodingAgent
+
+registry = build_default_registry()
 agent = CodingAgent(
     registry=registry,
-    model_id="openai:gpt-4o-mini",
+    model_id=default_model_id(registry),
     workspace=".",
     enable_learning=True,
 )

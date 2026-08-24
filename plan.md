@@ -10,7 +10,7 @@ Ship a reusable agent stack:
 
 | Layer | Package | Role |
 |---|---|---|
-| Models | `core_ai` | Provider registry + streaming messages |
+| Models | `core_ai` | Provider registry + model catalog + streaming messages |
 | Loop | `core_harness` | Multi-turn tool loop + control plane |
 | Product | `coding_agent` | Workspace coding agent (tools + UX) |
 
@@ -25,7 +25,7 @@ Earlier phases for the general-purpose harness are landed:
 - Usage + context metrics on the control plane (`usage`, `context`, turn events)
 - Context management (warn threshold, compaction, token estimates)
 - Control-plane product surface (typed events, fan-out, persistence, inbound pause/cancel/inject)
-- Multi-turn OpenAI tool-call forwarding
+- Multi-turn provider-neutral tool-call forwarding
 - Tool result protocol: every tool call gets `success`, `error`, `timeout`, or `cancelled`
 - Cancellation stops in-flight model streams and tool execution, then emits and persists `run_cancelled`
 - Optional run limits for turns, tool calls, runtime, and tokens (`run_limit_exceeded`)
@@ -43,6 +43,17 @@ Earlier phases for the general-purpose harness are landed:
 - CORS origins are explicit and deny browser cross-origin access by default
 - `ask_user` remains opt-in until the server supports responding to and resuming the same run
 
+### Done (provider layer)
+
+- OpenAI Responses / Chat Completions, Anthropic Messages, and Gemini
+  generateContent stream through the shared `StreamEvent` contract
+- Credential-aware registry construction registers every configured provider
+- `provider:model` selection supports global and provider-specific environment overrides
+- Generated model catalog records provider and API family, refreshes during packaging,
+  and retains the checked-in snapshot when live discovery is unavailable
+- Coding-agent TUI and `core_server` register OpenAI, Anthropic, and Gemini from
+  their available credentials
+
 ### Done (coding agent)
 
 `coding_agent` tools use one module each under a shared `WorkspaceTool` base:
@@ -59,7 +70,7 @@ Earlier phases for the general-purpose harness are landed:
 - Approval gates ask before bash, file overwrite, or a broad patch (allow once / deny)
 - TUI Escape / Ctrl+X sends the harness cancel command and restores the composer
 - Safer defaults: 24 turns, 40 tool calls, 10 minutes, no aggregate token cap
-- OpenAI 429s honor Retry-After and keep an animated Working state while retrying
+- Provider 429s honor Retry-After and keep an animated Working state while retrying
 - Learning is enabled by default, capped at 900 output tokens, and pending reflection is cancelled on TUI exit
 - `@file` composer search reuses the existing model/command selector
 
@@ -146,7 +157,7 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 | Sub-agents / nested harness | orchestration | `run_id` / `parent_run_id` |
 | Eval / trace export | JSONL or OTel | event catalog |
 | Budget caps | stop on tokens / $ | usage events — token/turn/runtime/tool-call caps landed |
-| Multi-provider polish | Anthropic / others | `core_ai` providers |
+| Additional providers | Extend beyond OpenAI, Anthropic, and Gemini | `core_ai` provider contract |
 
 ---
 
@@ -154,9 +165,9 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 
 ### Align tools + TUI
 
-- [ ] Merge tools PR and TUI PR (#4); resolve `plan.md` if needed
-- [ ] Point TUI docs at `read_file` / `write_file` / `grep` names
-- [ ] Stream `text_delta` in TUI without duplicating `output_text`
+- [x] Merge tools and TUI work
+- [x] Point TUI docs at the current `read_file` / `write_file` / `patch` / `search` / `bash` names
+- [x] Stream `text_delta` in TUI without duplicating `output_text`
 
 ### Next agent work
 

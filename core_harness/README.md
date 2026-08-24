@@ -16,15 +16,15 @@ When using the workspace checkout, install the workspace dependencies with `uv s
 
 ## Quick start
 
-The following is a complete, editable example. Set `OPENAI_API_KEY`, then replace `read_file` or add more tools for your application:
+The following is a complete, editable example. Set any supported provider key,
+then replace `read_file` or add more tools for your application:
 
 ```python
 # example.py
 import asyncio
-import os
 from pathlib import Path
 
-from core_ai import ModelRegistry, OpenAIProvider
+from core_ai import build_default_registry, default_model_id
 from core_harness import CoreHarness, NullControlPlane, Tool
 
 
@@ -40,10 +40,7 @@ def read_file(path: str) -> str:
 
 
 async def main() -> None:
-    api_key = os.environ["OPENAI_API_KEY"]
-
-    registry = ModelRegistry()
-    registry.register("openai", OpenAIProvider(api_key=api_key))
+    registry = build_default_registry()
 
     # NullControlPlane records events locally and also accepts pause, resume,
     # cancel, and message-injection commands. Use InteractiveControlPlane or
@@ -51,7 +48,7 @@ async def main() -> None:
     control_plane = NullControlPlane()
     harness = CoreHarness(
         registry=registry,
-        model_id="openai:gpt-4o-mini",
+        model_id=default_model_id(registry),
         system_prompt="You are a concise assistant. Use tools when they help.",
         tools=[Tool(read_file)],
         control_plane=control_plane,
@@ -83,10 +80,13 @@ if __name__ == "__main__":
 Run it with:
 
 ```sh
-OPENAI_API_KEY=your-key-here uv run python example.py
+ANTHROPIC_API_KEY=your-key-here uv run python example.py
 ```
 
-`model_id` must use the form `provider:model-name`. Register the provider under the matching namespace before calling `run`.
+`build_default_registry()` recognizes OpenAI, Anthropic, and Gemini credentials.
+`model_id` must use the form `provider:model-name`, and that provider must be
+registered before calling `run`. You can also construct `ModelRegistry` manually
+and register any `BaseProvider` implementation under a matching namespace.
 
 ## Tools
 
@@ -155,7 +155,7 @@ from core_harness import RunLimits
 
 harness = CoreHarness(
     registry=registry,
-    model_id="openai:gpt-4o-mini",
+    model_id=default_model_id(registry),
     system_prompt="Be helpful.",
     limits=RunLimits(
         max_turns=6,
@@ -205,7 +205,7 @@ from core_harness import KeepSystemRecentCompactor
 
 harness = CoreHarness(
     registry=registry,
-    model_id="openai:gpt-4o-mini",
+    model_id=default_model_id(registry),
     system_prompt="Be concise.",
     compactor=KeepSystemRecentCompactor(keep_recent=8),
     context_target_tokens=20_000,
