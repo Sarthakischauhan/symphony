@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
-from core_ai.types import Message
+from core_ai.types import Content, Message
 
 from core_harness.control_plane import ControlPlane, NullControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
@@ -75,7 +75,7 @@ class CoreHarness:
 
     async def run(
         self,
-        user_input: str,
+        user_input: Content,
         *,
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,

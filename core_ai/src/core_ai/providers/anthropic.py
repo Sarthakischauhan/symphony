@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 import httpx
 from dotenv import load_dotenv
 
+from core_ai.content import to_anthropic_blocks
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import iter_sse_json, retry_after
 from core_ai.types import Message, StreamEvent
@@ -189,15 +190,17 @@ class AnthropicProvider(BaseProvider):
                     {
                         "type": "tool_result",
                         "tool_use_id": message.tool_call_id,
-                        "content": message.content if isinstance(message.content, str) else json.dumps(message.content),
+                        "content": (
+                            message.content
+                            if isinstance(message.content, str)
+                            else to_anthropic_blocks(message.content)
+                        ),
                     }
                 )
                 continue
             flush_tool_results()
             if message.role == "assistant":
-                content: List[Dict[str, Any]] = []
-                if isinstance(message.content, str) and message.content:
-                    content.append({"type": "text", "text": message.content})
+                content: List[Dict[str, Any]] = to_anthropic_blocks(message.content)
                 for tool_call in message.tool_calls or []:
                     function = tool_call.get("function") or {}
                     raw_args = function.get("arguments") or "{}"
@@ -216,7 +219,7 @@ class AnthropicProvider(BaseProvider):
                 if content:
                     cls._append_role(items, "assistant", content)
                 continue
-            cls._append_role(items, "user", message.content)
+            cls._append_role(items, "user", to_anthropic_blocks(message.content))
         flush_tool_results()
         return "\n\n".join(system_chunks), items
 

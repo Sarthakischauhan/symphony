@@ -4,6 +4,11 @@ from core_ai.models import ModelInfo, list_models, register_model, unregister_mo
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
 
+_IMAGE_MODELS = {
+    "openai": "gpt-image-1",
+    "gemini": "gemini-3.7-flash",
+}
+
 
 class ModelRegistry:
     def __init__(self):
@@ -40,6 +45,7 @@ class ModelRegistry:
         if provider_name not in self._providers:
             raise KeyError(f"Provider '{provider_name}' not registered.")
 
+
         provider = self._providers[provider_name]
 
         async for event in provider.stream(
@@ -49,3 +55,36 @@ class ModelRegistry:
             max_output_tokens=max_output_tokens,
         ):
             yield event
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        output_format: str = "png",
+        model_id: Optional[str] = None,
+    ) -> tuple[bytes, str]:
+        """Generate an image via the current provider, then any other registered provider that can."""
+        errors: list[str] = []
+        tried: set[str] = set()
+        if model_id and ":" in model_id:
+            provider_name, model_name = model_id.split(":", 1)
+            if provider_name in self._providers:
+                tried.add(provider_name)
+                try:
+                    return await self._providers[provider_name].generate_image(
+                        model_name, prompt, output_format
+                    )
+                except NotImplementedError as exc:
+                    errors.append(str(exc))
+        for name, provider in self._providers.items():
+            if name in tried:
+                continue
+            model_name = _IMAGE_MODELS.get(name, name)
+            try:
+                return await provider.generate_image(model_name, prompt, output_format)
+            except NotImplementedError as exc:
+                errors.append(str(exc))
+        detail = errors[0] if errors else "no image-capable provider is registered"
+        raise RuntimeError(
+            f"image generation requires an OpenAI or Gemini provider ({detail})"
+        )

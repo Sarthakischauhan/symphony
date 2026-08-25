@@ -7,6 +7,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from coding_agent.tui.agent_factory import build_agent
+from coding_agent.tui.commands import model_options
 
 
 async def reload_project(app: Any) -> None:
@@ -24,6 +25,7 @@ async def reload_project(app: Any) -> None:
         )
         reloaded_agent.set_mode(app.mode)
         app._agent = reloaded_agent
+        app._model_options = model_options(reloaded_agent.registry.namespaces())
         app.session_id = reloaded_agent.session_id
 
         if previous_agent is not None and previous_agent.learning_loop is not None:

@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from rich.console import Group
 from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.message import Message
-from textual.widget import Widget
 from textual.widgets import Static, TextArea
 
+from coding_agent.tui.images import (
+    IMAGE_MARKER_RE,
+    ImageAttachment,
+    ImageModal,
+    dropped_image_paths,
+)
 from coding_agent.tui.modal.base import ContentModal
 from coding_agent.tui.theme import themed_markdown
 
@@ -55,12 +60,19 @@ class Welcome(Static):
 
 
 class UserMessage(Static):
-    """A user prompt with long pasted chunks hidden behind compact links."""
+    """A user prompt with long pasted chunks and images hidden behind compact links."""
 
     COMPACT_PASTE_AFTER = 100
 
-    def __init__(self, content: str, *, pasted_chunks: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        content: str,
+        *,
+        pasted_chunks: tuple[str, ...] = (),
+        images: Sequence[ImageAttachment] = (),
+    ) -> None:
         self._hidden_content: dict[str, str] = {}
+        self._images = {image.number: image for image in images}
         super().__init__(
             self._compact_content(content, pasted_chunks),
             classes="message user-message",
@@ -68,8 +80,9 @@ class UserMessage(Static):
 
     def _compact_content(self, content: str, pasted_chunks: tuple[str, ...]) -> Text:
         self._hidden_content.clear()
-        matches: list[tuple[int, int, str, str]] = []
+        replacements: list[tuple[int, int, Text]] = []
         occupied: list[tuple[int, int]] = []
+
         for chunk in pasted_chunks:
             candidates = (chunk, chunk.strip(), chunk.lstrip(), chunk.rstrip())
             displayed_chunk = next(
@@ -83,11 +96,7 @@ class UserMessage(Static):
             ):
                 continue
             start = content.find(displayed_chunk)
-            while start >= 0 and any(
-                start < occupied_end
-                and start + len(displayed_chunk) > occupied_start
-                for occupied_start, occupied_end in occupied
-            ):
+            while start >= 0 and _overlaps(start, start + len(displayed_chunk), occupied):
                 start = content.find(displayed_chunk, start + 1)
             if start < 0:
                 continue
@@ -95,24 +104,54 @@ class UserMessage(Static):
             key = str(len(self._hidden_content))
             self._hidden_content[key] = displayed_chunk
             occupied.append((start, end))
-            matches.append((start, end, key, displayed_chunk))
+            replacements.append(
+                (
+                    start,
+                    end,
+                    Text(
+                        f"[{len(displayed_chunk):,} chars]",
+                        style=Style(
+                            color="#87b5b1",
+                            bold=True,
+                            underline=True,
+                            meta={"@click": f"open_content('{key}')"},
+                        ),
+                    ),
+                )
+            )
 
-        if not matches:
+        for match in IMAGE_MARKER_RE.finditer(content):
+            number = match.group(1)
+            if number not in self._images:
+                continue
+            start, end = match.span()
+            if _overlaps(start, end, occupied):
+                continue
+            occupied.append((start, end))
+            replacements.append(
+                (
+                    start,
+                    end,
+                    Text(
+                        match.group(0),
+                        style=Style(
+                            color="#87b5b1",
+                            bold=True,
+                            underline=True,
+                            meta={"@click": f"open_image('{number}')"},
+                        ),
+                    ),
+                )
+            )
+
+        if not replacements:
             return Text(content)
 
         display = Text()
         cursor = 0
-        for start, end, key, chunk in sorted(matches):
+        for start, end, chip in sorted(replacements, key=lambda item: item[0]):
             display.append(content[cursor:start])
-            display.append(
-                f"[{len(chunk):,} chars]",
-                style=Style(
-                    color="#87b5b1",
-                    bold=True,
-                    underline=True,
-                    meta={"@click": f"open_content('{key}')"},
-                ),
-            )
+            display.append(chip)
             cursor = end
         display.append(content[cursor:])
         return display
@@ -121,6 +160,11 @@ class UserMessage(Static):
         content = self._hidden_content.get(key)
         if content is not None:
             self.app.push_screen(ContentModal(content))
+
+    def action_open_image(self, number: str) -> None:
+        image = self._images.get(number)
+        if image is not None:
+            self.app.push_screen(ImageModal(image))
 
 
 class AssistantMessage(Static):
@@ -139,7 +183,7 @@ class AssistantMessage(Static):
 
 
 class PromptInput(TextArea):
-    """Multiline prompt editor with compact handling for large pastes."""
+    """Multiline prompt editor with compact handling for large pastes and images."""
 
     class Submitted(Message):
         def __init__(self, text_area: "PromptInput") -> None:
@@ -150,6 +194,8 @@ class PromptInput(TextArea):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._pasted_chunks: list[tuple[str, str]] = []
+        self._images: list[ImageAttachment] = []
+        self._image_seq = 0
         self.submit_on_enter = False
         super().__init__(*args, **kwargs)
 
@@ -192,6 +238,10 @@ class PromptInput(TextArea):
     def pasted_chunks(self) -> tuple[str, ...]:
         return tuple(content for _marker, content in self._pasted_chunks)
 
+    @property
+    def images(self) -> tuple[ImageAttachment, ...]:
+        return tuple(self._images)
+
     def expanded_value(self, value: str | None = None) -> str:
         """Restore compact markers to the clipboard text sent to the agent."""
         expanded = self.value if value is None else value
@@ -204,8 +254,19 @@ class PromptInput(TextArea):
         self._pasted_chunks.clear()
         return chunks
 
+    def take_images(self) -> tuple[ImageAttachment, ...]:
+        images = self.images
+        self._images.clear()
+        self._image_seq = 0
+        return images
+
     def _insert_paste(self, content: str) -> None:
         if not content:
+            return
+        paths = dropped_image_paths(content)
+        if paths:
+            for path in paths:
+                self._attach_image(path)
             return
         start, end = self.selection.start, self.selection.end
         should_compact = (
@@ -217,6 +278,17 @@ class PromptInput(TextArea):
         marker = f"[{len(content):,} chars]"
         self.replace(marker, start, end)
         self._pasted_chunks.append((marker, content))
+
+    def _attach_image(self, path: Path) -> None:
+        self._image_seq += 1
+        marker = f"[Image {self._image_seq}]"
+        self._images.append(ImageAttachment.from_path(path, marker))
+        start, end = self.selection.start, self.selection.end
+        index = self.document.get_index_from_location(start)
+        prefix = ""
+        if index > 0 and self.value[index - 1] not in " \n\t":
+            prefix = " "
+        self.replace(f"{prefix}{marker} ", start, end)
 
     def _on_paste(self, event: Any) -> None:
         self._insert_paste(str(event.text))
@@ -239,3 +311,21 @@ class PromptInput(TextArea):
                 event.stop()
                 return
             search_from = end
+        search_from = 0
+        for image in self._images:
+            start = self.value.find(image.marker, search_from)
+            if start < 0:
+                continue
+            end = start + len(image.marker)
+            if start <= position <= end:
+                self.app.push_screen(ImageModal(image))
+                event.stop()
+                return
+            search_from = end
+
+
+def _overlaps(start: int, end: int, occupied: Sequence[tuple[int, int]]) -> bool:
+    return any(
+        start < occupied_end and end > occupied_start
+        for occupied_start, occupied_end in occupied
+    )

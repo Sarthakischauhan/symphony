@@ -8,7 +8,8 @@ A workspace coding agent built on `core_harness`.
 
 ### What it provides
 
-- Five workspace tools: `read_file`, `write_file`, `patch`, `search`, and `bash`
+- Workspace tools: `read_file`, `write_file`, `generate_image`, `patch`, `search`, and `bash`
+
 - Incremental repository discovery through `search` + `read_file`, without a preloaded repo index
 - Persisted conversations in SQLite, resumable by `session_id` or TUI `--resume`
 - Optional learning/reflection after successful runs
@@ -16,13 +17,16 @@ A workspace coding agent built on `core_harness`.
 
 ### Tool surface
 
-The agent intentionally exposes five workspace tools:
+The agent intentionally exposes a small workspace tool surface:
 
-- `read_file` reads bounded UTF-8 content.
+- `read_file` reads bounded UTF-8 text, or image files (png/jpeg/gif/webp/…) as visual content the model can see.
 - `write_file` creates or replaces a complete file without stripping whitespace.
+- `generate_image` generates a png/jpeg/webp from a prompt via the current OpenAI or Gemini provider, writes it to a workspace path, and shows a clickable `[Image 1]` preview.
+
 - `patch` performs unique-match exact-text edits.
 - `search` finds file names or literal/regex content with path and glob filters.
 - `bash` runs workspace-scoped shell commands with streamed, capped output, a timeout, and process-group cleanup.
+
 
 Repository context is discovered incrementally with `search` and `read_file`; the
 agent does not parse or preload a semantic repository index.
@@ -51,7 +55,8 @@ cancel an in-flight run, `Ctrl+L` or `/clear` to reset the visible transcript, a
 `Ctrl+D`, `/quit`, or `/exit` to leave. Learning is enabled by default and each
 reflection is capped at 900 output tokens; pass `--no-learning` to disable it.
 
-Type `/` to discover commands. `/model` shows the built-in model catalog,
+Type `/` to discover commands. `/model` shows the generated `core_ai` catalog
+for providers whose credentials are currently registered,
 `/model <id>` switches the harness and learning model, and `/mode` switches between
 build and read-only plan modes. Tab toggles the mode without opening the menu.
 Plan mode uses a yellow composer border and writes streamed plans to readable,
@@ -65,13 +70,18 @@ valid tool-call blocks, `/reload` reloads `.env` and rebuilds the provider regis
 clears the visible transcript.
 Type `@` anywhere after whitespace to search workspace files in the same selector;
 Tab or Enter inserts the selected `@path` without sending the prompt.
+Drop an image onto the composer (terminals paste the file path) to attach it as a
+clickable `[Image 1]` chip; click the chip to open a large preview modal.
+`generate_image` writes the asset to disk and uses the same `[Image 1]` chip on the
+tool row so you can preview it the same way.
+
 The TUI registers every provider for which a credential is available. Pass
 `--model`, or set `SYMPHONY_MODEL`, to pick a `provider:model` id such as
 `anthropic:claude-sonnet-5` or `gemini:gemini-3.7-flash`.
 Without that override, provider-specific `*_MODEL` variables are checked before
 the default for the first available provider (OpenAI, Anthropic, then Gemini).
-Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
-boundary can be replaced with provider-backed registry discovery later.
+`/reload` rebuilds both the provider registry and these model
+choices, so the TUI has no separate hardcoded model inventory.
 
 ```python
 from core_ai import build_default_registry, default_model_id

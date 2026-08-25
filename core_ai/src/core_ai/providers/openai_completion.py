@@ -3,6 +3,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
+from core_ai.content import split_text_and_images, to_openai_chat_content
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
 
@@ -31,15 +32,8 @@ class OpenAICompletionProvider(BaseProvider):
             "model": model_name,
             "stream": True,
             "stream_options": {"include_usage": True},
-            "messages": [],
+            "messages": self._chat_messages(messages),
         }
-        for message in messages:
-            formatted = {"role": message.role, "content": message.content}
-            if message.tool_call_id:
-                formatted["tool_call_id"] = message.tool_call_id
-            if message.tool_calls:
-                formatted["tool_calls"] = message.tool_calls
-            payload["messages"].append(formatted)
         if tools:
             payload["tools"] = [{"type": "function", "function": tool} for tool in tools]
         if max_output_tokens is not None:
@@ -90,6 +84,44 @@ class OpenAICompletionProvider(BaseProvider):
                                 delta=function["arguments"],
                             )
         yield StreamEvent(type="done", content_index=0)
+
+    @staticmethod
+    def _chat_messages(messages: List[Message]) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+        pending_images: List[Dict[str, Any]] = []
+
+        def flush_images() -> None:
+            if not pending_images:
+                return
+            items.append(
+                {
+                    "role": "user",
+                    "content": to_openai_chat_content(list(pending_images)),
+                }
+            )
+            pending_images.clear()
+
+        for message in messages:
+            if message.role == "tool":
+                text, images = split_text_and_images(message.content)
+                formatted: Dict[str, Any] = {"role": "tool", "content": text}
+                if message.tool_call_id:
+                    formatted["tool_call_id"] = message.tool_call_id
+                items.append(formatted)
+                pending_images.extend(images)
+                continue
+            flush_images()
+            formatted = {
+                "role": message.role,
+                "content": to_openai_chat_content(message.content),
+            }
+            if message.tool_call_id:
+                formatted["tool_call_id"] = message.tool_call_id
+            if message.tool_calls:
+                formatted["tool_calls"] = message.tool_calls
+            items.append(formatted)
+        flush_images()
+        return items
 
     @property
     def _headers(self) -> Dict[str, str]:

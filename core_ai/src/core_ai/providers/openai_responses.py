@@ -3,6 +3,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
+from core_ai.content import split_text_and_images, to_openai_responses_content
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
 
@@ -99,13 +100,44 @@ class OpenAIResponsesProvider(BaseProvider):
     @staticmethod
     def _responses_input(messages: List[Message]) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
+        pending_images: List[Dict[str, Any]] = []
+
+        def flush_images() -> None:
+            if not pending_images:
+                return
+            items.append(
+                {
+                    "role": "user",
+                    "content": to_openai_responses_content(list(pending_images)),
+                }
+            )
+            pending_images.clear()
+
         for message in messages:
             if message.role == "tool":
-                items.append({"type": "function_call_output", "call_id": message.tool_call_id, "output": message.content})
+                text, images = split_text_and_images(message.content)
+                items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": message.tool_call_id,
+                        "output": text,
+                    }
+                )
+                pending_images.extend(images)
                 continue
+            flush_images()
             if message.content:
-                items.append({"role": message.role, "content": message.content})
+                items.append(
+                    {
+                        "role": message.role,
+                        "content": to_openai_responses_content(
+                            message.content,
+                            role=message.role,
+                        ),
+                    }
+                )
             for tool_call in message.tool_calls or []:
                 function = tool_call.get("function") or {}
                 items.append({"type": "function_call", "call_id": tool_call.get("id"), "name": function.get("name"), "arguments": function.get("arguments", "{}")})
+        flush_images()
         return items

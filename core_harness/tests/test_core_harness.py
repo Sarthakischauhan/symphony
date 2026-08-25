@@ -470,6 +470,113 @@ def test_control_plane_fanout_and_event_log() -> None:
     assert event_log.events[0].payload["model_id"] == "fake:test"
 
 
+class ImageEchoRegistry:
+    def __init__(self) -> None:
+        self.calls: list[list[Message]] = []
+
+    async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
+        del model_id, tools
+        self.calls.append(list(messages))
+        yield StreamEvent(type="text_delta", content_index=0, delta="seen")
+        yield StreamEvent(type="usage", prompt_tokens=12, completion_tokens=1, total_tokens=13)
+        yield StreamEvent(type="done", content_index=0)
+
+
+def test_harness_forwards_multimodal_user_content() -> None:
+    registry = ImageEchoRegistry()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="system",
+        tools=[],
+        context_limits={"fake:test-model": 1000},
+    )
+    payload = "a" * 20_000
+    user_input = [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image", "media_type": "image/png", "data": payload, "filename": "shot.png"},
+    ]
+
+    result = asyncio.run(harness.run(user_input))
+
+    user = [message for message in registry.calls[0] if message.role == "user"][0]
+    assert user.content == user_input
+    assert result.output_text == "seen"
+    sizes = [
+        event.payload["context"]["message_sizes"]
+        for event in harness.control_plane.events
+        if event.event_type == "run_completed"
+    ]
+    user_tokens = next(item["tokens"] for item in sizes[0] if item["role"] == "user")
+    assert user_tokens < 2_000
+
+
+class ImageToolRegistry:
+    def __init__(self) -> None:
+        self.calls: list[list[Message]] = []
+
+    async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
+        del model_id, tools
+        self.calls.append(list(messages))
+        if len(self.calls) == 1:
+            yield StreamEvent(
+                type="toolcall_start",
+                content_index=0,
+                tool_call_id="call-image",
+                tool_name="look_at_shot",
+            )
+            yield StreamEvent(type="toolcall_delta", content_index=0, delta="{}")
+            yield StreamEvent(type="usage", prompt_tokens=1, completion_tokens=1, total_tokens=2)
+            yield StreamEvent(type="done", content_index=0)
+            return
+        yield StreamEvent(type="text_delta", content_index=0, delta="a cat")
+        yield StreamEvent(type="usage", prompt_tokens=1, completion_tokens=1, total_tokens=2)
+        yield StreamEvent(type="done", content_index=0)
+
+
+def look_at_shot() -> list[dict[str, str]]:
+    return [
+        {"type": "text", "text": "Read image shot.png (image/png, 300 bytes)"},
+        {
+            "type": "image",
+            "media_type": "image/png",
+            "data": "a" * 300,
+            "filename": "shot.png",
+        },
+    ]
+
+
+def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
+    registry = ImageToolRegistry()
+    control_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="system",
+        tools=[Tool(look_at_shot)],
+        control_plane=control_plane,
+        tool_result_max_chars=80,
+    )
+
+    result = asyncio.run(harness.run("look"))
+
+    tool_message = next(message for message in result.messages if message.role == "tool")
+    assert isinstance(tool_message.content, list)
+    assert tool_message.content[1]["data"] == "a" * 300
+    followup = registry.calls[1][-1]
+    assert followup.role == "tool"
+    assert followup.content[1]["data"] == "a" * 300
+    completed = [
+        event
+        for event in control_plane.events
+        if event.event_type == "tool_execution_completed"
+    ]
+    preview = completed[0].payload["result"]
+    assert "Read image shot.png" in preview
+    assert "a" * 50 not in preview
+    assert result.output_text == "a cat"
+
+
 def test_control_plane_cancel_stops_harness() -> None:
     registry = FakeRegistry()
     control_plane = InteractiveControlPlane()

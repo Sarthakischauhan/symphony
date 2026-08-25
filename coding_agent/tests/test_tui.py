@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
+
 from types import SimpleNamespace
 from typing import Any
 
@@ -31,7 +33,15 @@ from coding_agent.tui.file_selector import (
     complete_file_mention,
     file_matches,
 )
-from coding_agent.tui.modal import ContentModal, DiffModal, PlanModal
+from coding_agent.tui.images import (
+    ImageAttachment,
+    build_user_content,
+    display_from_content,
+    dropped_image_paths,
+    render_half_block,
+)
+from coding_agent.tui.modal import ContentModal, DiffModal, ImageModal, PlanModal
+
 from coding_agent.tui.modal.diff import DiffFileCard
 from coding_agent.tui.modal.components import PlanSectionCard
 from coding_agent.tui.modal.plan import _plan_sections
@@ -39,6 +49,7 @@ from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_optio
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
     BashToolWidget,
+    GenerateImageWidget,
     PatchDiffWidget,
     PromptInput,
     ReadFileWidget,
@@ -47,6 +58,7 @@ from coding_agent.tui.widgets import (
     ThinkingStatus,
     UserMessage,
 )
+
 from coding_agent.tui.slash_menu import SlashMenu
 
 
@@ -268,6 +280,118 @@ def test_compact_paste_marker_opens_modal(
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, ContentModal)
+
+    asyncio.run(_run())
+
+
+def test_dropped_image_becomes_clickable_chip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    image_path = tmp_path / "shot.png"
+    image_path.write_bytes(
+        __import__("base64").b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+    )
+    app = CodingAgentApp(workspace=tmp_path)
+    calls: list[object] = []
+
+    class FakeAgent:
+        learning_loop = None
+
+        async def run(self, user_input: object) -> HarnessResult:
+            calls.append(user_input)
+            return HarnessResult(output_text="", messages=[])
+
+    prefix = "What is in "
+    expected_marker = "[Image 1]"
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            prompt = app.query_one("#prompt", PromptInput)
+            prompt.value = prefix
+            prompt.cursor_position = len(prefix)
+            prompt.post_message(events.Paste(f"{image_path}\n"))
+            await pilot.pause()
+
+            assert expected_marker in prompt.value
+            assert prompt.images[0].filename == "shot.png"
+            assert str(image_path) not in prompt.value
+
+            await pilot.click(prompt, offset=(len(prefix) + 2, 0))
+            await pilot.pause()
+            assert isinstance(app.screen, ImageModal)
+            title = app.screen.query_one("#image-title", Static).content
+            title_text = title.plain if hasattr(title, "plain") else str(title)
+            assert "shot.png" in title_text
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ImageModal)
+
+            await pilot.press("ctrl+enter")
+            await pilot.pause()
+
+            assert calls
+            content = calls[0]
+            assert isinstance(content, list)
+            assert content[0] == {"type": "text", "text": prefix}
+            assert content[1]["type"] == "image"
+            assert content[1]["filename"] == "shot.png"
+            message = app.query_one(UserMessage)
+            display = message._compact_content(f"{prefix}{expected_marker} ", ())
+            assert display.plain == f"{prefix}{expected_marker} "
+            assert display.spans[0].style.meta["@click"] == "open_image('1')"
+
+            message.action_open_image("1")
+            await pilot.pause()
+            assert isinstance(app.screen, ImageModal)
+
+    asyncio.run(_run())
+
+
+def test_generate_image_tool_chip_opens_modal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    image_path = tmp_path / "icon.png"
+    image_path.write_bytes(
+        __import__("base64").b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+    )
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("img-1", "generate_image")
+            app.update_tool(
+                "img-1",
+                arguments={"path": "icon.png", "prompt": "a red square"},
+                status="running",
+            )
+            app.update_tool(
+                "img-1",
+                status="done",
+                result="Wrote image icon.png (image/png, 70 bytes)\n[image:icon.png]",
+            )
+
+            await pilot.pause()
+            widget = app._tools["img-1"]
+            assert isinstance(widget, GenerateImageWidget)
+            assert not widget.collapsed
+            assert widget.open_preview()
+            await pilot.pause()
+            assert isinstance(app.screen, ImageModal)
+            title = app.screen.query_one("#image-title", Static).content
+            title_text = title.plain if hasattr(title, "plain") else str(title)
+            assert "icon.png" in title_text
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ImageModal)
 
     asyncio.run(_run())
 
@@ -1331,3 +1455,66 @@ def test_patch_events_render_a_specialized_diff_widget(
             assert not widget.collapsed
 
     asyncio.run(_run())
+
+
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _write_png(path: Path, name: str = "shot.png") -> Path:
+    image = path / name
+    image.write_bytes(PNG_1X1)
+    return image
+
+
+def test_dropped_image_paths_detects_quoted_and_file_urls(tmp_path: Path) -> None:
+    shot = _write_png(tmp_path, "my shot.png")
+    other = _write_png(tmp_path, "other.png")
+    notes = tmp_path / "notes.txt"
+    notes.write_text("hello")
+
+    assert dropped_image_paths(f'"{shot}"\n') == [shot.resolve()]
+    assert dropped_image_paths(f"file://{shot}") == [shot.resolve()]
+    assert dropped_image_paths(f'"{shot}" "{other}"') == [shot.resolve(), other.resolve()]
+    assert dropped_image_paths(f"{shot}\n{other}") == [shot.resolve(), other.resolve()]
+    assert dropped_image_paths(str(notes)) == []
+    assert dropped_image_paths(f"please look at {shot}") == []
+    assert dropped_image_paths("just a sentence") == []
+
+
+def test_build_user_content_keeps_string_without_images() -> None:
+    assert build_user_content("hello", ()) == "hello"
+
+
+def test_build_user_content_interleaves_markers(tmp_path: Path) -> None:
+    shot = _write_png(tmp_path)
+    image = ImageAttachment.from_path(shot, "[Image 1]")
+    content = build_user_content("Look at [Image 1] please", (image,))
+    assert content[0] == {"type": "text", "text": "Look at "}
+    assert content[1]["type"] == "image"
+    assert content[1]["filename"] == "shot.png"
+    assert content[1]["data"] == base64.b64encode(PNG_1X1).decode("ascii")
+    assert content[2] == {"type": "text", "text": " please"}
+
+
+def test_display_from_content_rebuilds_clickable_markers() -> None:
+    content = [
+        {"type": "text", "text": "Look at "},
+        {
+            "type": "image",
+            "media_type": "image/png",
+            "data": "aaa",
+            "filename": "shot.png",
+        },
+        {"type": "text", "text": "please"},
+    ]
+    text, images = display_from_content(content)
+    assert text == "Look at [Image 1] please"
+    assert images[0].filename == "shot.png"
+    assert images[0].marker == "[Image 1]"
+
+
+def test_half_block_preview_renders_unicode_blocks() -> None:
+    preview = render_half_block(PNG_1X1, max_width=8, max_rows=4)
+    assert "▀" in preview.plain

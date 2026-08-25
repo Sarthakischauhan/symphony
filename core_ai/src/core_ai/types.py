@@ -3,10 +3,13 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel
 
 
+Content = Union[str, List[Dict[str, Any]]]
+
+
 # The unified message format going INTO the provider
 class Message(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
-    content: Union[str, List[Dict[str, Any]]]  # Handles text or image/tool payloads
+    content: Content  # Text or canonical text/image parts
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
 

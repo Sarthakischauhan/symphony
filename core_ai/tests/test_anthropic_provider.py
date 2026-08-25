@@ -142,6 +142,57 @@ def test_anthropic_translates_tool_history() -> None:
     assert messages[2]["content"][0]["tool_use_id"] == "toolu_1"
 
 
+def test_anthropic_puts_tool_images_in_tool_result_blocks() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}'
+            ),
+        )
+
+    async def collect() -> None:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "claude-sonnet-5",
+            [
+                Message(role="user", content="look"),
+                Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "toolu_1",
+                            "type": "function",
+                            "function": {"name": "read_file", "arguments": '{"path":"shot.png"}'},
+                        }
+                    ],
+                ),
+                Message(
+                    role="tool",
+                    tool_call_id="toolu_1",
+                    content=[
+                        {"type": "text", "text": "Read image shot.png"},
+                        {"type": "image", "media_type": "image/png", "data": "aaa", "filename": "shot.png"},
+                    ],
+                ),
+            ],
+        ):
+            pass
+
+    asyncio.run(collect())
+    result = captured["payload"]["messages"][2]["content"][0]  # type: ignore[index]
+    assert result["type"] == "tool_result"
+    assert result["content"][0] == {"type": "text", "text": "Read image shot.png"}
+    assert result["content"][1] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "aaa"},
+    }
+
+
 def test_anthropic_merges_consecutive_same_role_messages() -> None:
     captured: dict[str, object] = {}
 
@@ -173,3 +224,53 @@ def test_anthropic_merges_consecutive_same_role_messages() -> None:
         {"type": "text", "text": "first"},
         {"type": "text", "text": "second"},
     ]
+
+
+def test_anthropic_sends_image_blocks() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"cat"}}'
+            ),
+        )
+
+    async def collect() -> None:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "claude-sonnet-5",
+            [
+                Message(
+                    role="user",
+                    content=[
+                        {"type": "text", "text": "what is this?"},
+                        {"type": "image", "media_type": "image/png", "data": "aaa", "filename": "shot.png"},
+                    ],
+                )
+            ],
+        ):
+            pass
+
+    asyncio.run(collect())
+    content = captured["payload"]["messages"][0]["content"]  # type: ignore[index]
+    assert content == [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aaa"}},
+    ]
+
+
+def test_anthropic_does_not_generate_images() -> None:
+    provider = AnthropicProvider(api_key="test")
+
+    async def run() -> None:
+        await provider.generate_image("claude-sonnet-5", "a cat")
+
+    try:
+        asyncio.run(run())
+    except NotImplementedError as exc:
+        assert "does not support image generation" in str(exc)
+    else:
+        raise AssertionError("expected NotImplementedError")

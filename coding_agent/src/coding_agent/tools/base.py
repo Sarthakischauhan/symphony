@@ -51,8 +51,8 @@ class WorkspaceTool(ABC):
             raise ValueError(f"invalid {self.name} arguments: {exc}") from exc
 
     @abstractmethod
-    def run(self, *args: Any, **kwargs: Any) -> str:
-        """Execute the tool and return a string result for the model."""
+    def run(self, *args: Any, **kwargs: Any) -> str | list[dict[str, Any]]:
+        """Execute the tool and return a string or multimodal content for the model."""
 
     def as_harness_tool(self) -> Tool:
         """Wrap ``run`` as a ``core_harness.Tool`` with explicit JSON schema."""
@@ -60,7 +60,7 @@ class WorkspaceTool(ABC):
         run_signature = inspect.signature(self.run)
         accepts_control_plane = "control_plane" in run_signature.parameters
 
-        async def invoke(**kwargs: Any) -> str:
+        async def invoke(**kwargs: Any) -> str | list[dict[str, Any]]:
             control_plane = kwargs.pop("control_plane", None) if accepts_control_plane else None
             validated = tool.validate_args(**kwargs)
             result = tool.run(
@@ -69,7 +69,7 @@ class WorkspaceTool(ABC):
             )
             if inspect.isawaitable(result):
                 result = await result
-            return str(result)
+            return result
 
         params = []
         for field_name, field in self.args_model.model_fields.items():

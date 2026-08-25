@@ -2,6 +2,8 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from core_ai.types import Content
+
 ToolResultStatus = Literal["success", "error", "timeout", "cancelled"]
 
 
@@ -22,13 +24,14 @@ class ToolResult(BaseModel):
     """Canonical outcome for every tool invocation."""
 
     status: ToolResultStatus
-    content: str
+    content: Content
     error_type: Optional[str] = None
 
-    def for_model(self) -> str:
+    def for_model(self) -> Content:
         if self.status == "success":
             return self.content
+        text = self.content if isinstance(self.content, str) else str(self.content)
         prefix = f"[tool:{self.status}]"
         if self.error_type:
-            return f"{prefix} {self.error_type}: {self.content}"
-        return f"{prefix} {self.content}"
+            return f"{prefix} {self.error_type}: {text}"
+        return f"{prefix} {text}"

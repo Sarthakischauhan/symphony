@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping
 
 from rich.console import Group
+from rich.style import Style
 from rich.text import Text
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tui.images import ImageAttachment, ImageModal
 from coding_agent.tui.widgets.tools.header import BashToolHeader
 from coding_agent.utils.text import clip_text, compact_json
+
 
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
@@ -18,11 +22,12 @@ class ToolCallWidget(Collapsible):
         "bash": ("Bash", "$"),
         "search": ("Search", "⌕"),
         "write_file": ("Write", "+"),
+        "generate_image": ("Image", "└"),
         "patch": ("Edit", "±"),
     }
 
     def __init__(self, call_id: str, tool_name: str) -> None:
-        self._body = Static()
+        self._body = self._make_body()
         self._tool_label = Static(classes="tool-call-label")
         self._tool_command = Static(classes="tool-call-command")
         self._tool_status = Static(classes="tool-call-status")
@@ -41,6 +46,9 @@ class ToolCallWidget(Collapsible):
             classes="tool-call",
         )
         self.refresh_content()
+
+    def _make_body(self) -> Static:
+        return Static()
 
     def compose(self):  # type: ignore[no-untyped-def]
         # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
@@ -99,7 +107,7 @@ class ToolCallWidget(Collapsible):
                 or self.arguments.get("pattern")
                 or compact_json(self.arguments)
             )
-        if self.tool_name in {"write_file", "patch"}:
+        if self.tool_name in {"write_file", "patch", "generate_image", "read_file"}:
             return str(self.arguments.get("path") or compact_json(self.arguments))
         return compact_json(self.arguments) or self.raw_arguments
 
@@ -146,3 +154,87 @@ class ToolCallWidget(Collapsible):
         )
         self.add_class(f"status-{self.status}")
         self._body.update(Group(*self._body_rows()))
+
+
+IMAGE_CHIP = "[Image 1]"
+
+
+class ImageChipBody(Static):
+    """Tool-result body that opens an image modal when clicked."""
+
+    def action_open_image(self) -> None:
+        self._open_owner_preview()
+
+    def on_click(self, event: object) -> None:
+        if self._open_owner_preview():
+            stop = getattr(event, "stop", None)
+            if callable(stop):
+                stop()
+
+    def _open_owner_preview(self) -> bool:
+        node = self.parent
+        while node is not None:
+            method = getattr(node, "open_preview", None)
+            if callable(method):
+                return bool(method())
+            node = node.parent
+        return False
+
+
+class GenerateImageWidget(ToolCallWidget):
+    """Path-oriented generate_image card with a clickable `[Image 1]` preview."""
+
+    def _make_body(self) -> Static:
+        return ImageChipBody()
+
+    def _tool_title(self) -> tuple[str, str]:
+        return ("Image", "└")
+
+    def _summary(self) -> str:
+        return str(self.arguments.get("path") or self.raw_arguments)
+
+    def _result_summary(self) -> str:
+        if not self.result:
+            return ""
+        if self.result.startswith("error:"):
+            return self.result
+        return self.result.splitlines()[0]
+
+    def set_result(self, result: Any) -> None:
+        super().set_result(result)
+        if self.status == "done" and self.is_attached:
+            self.collapsed = False
+
+    def _body_rows(self) -> list[Any]:
+        rows: list[Any] = []
+        summary = clip_text(self._summary(), 300)
+        if summary:
+            rows.append(Text(summary, style="#a4a4a4"))
+        if self.status == "failed":
+            if self.result:
+                rows.append(Text(f"└  {self.result}", style="#d66b73"))
+            return rows
+        if self.status == "done":
+            chip = Text()
+            chip.append(IMAGE_CHIP, style=Style(color="#87b5b1", bold=True, underline=True))
+            detail = self._result_summary()
+            if detail:
+                chip.append(f"  {detail}", style="#666666")
+            rows.append(chip)
+        return rows
+
+    def open_preview(self) -> bool:
+        workspace = getattr(self.app, "workspace", None)
+        path = str(self.arguments.get("path") or "")
+        if workspace is None or not path or self.status == "failed":
+            return False
+        try:
+            root = Path(workspace).resolve()
+            target = (root / path).resolve()
+            if not target.is_relative_to(root) or not target.is_file():
+                return False
+            image = ImageAttachment.from_path(target, IMAGE_CHIP)
+        except OSError:
+            return False
+        self.app.push_screen(ImageModal(image))
+        return True

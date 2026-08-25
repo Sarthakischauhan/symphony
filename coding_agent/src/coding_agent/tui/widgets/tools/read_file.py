@@ -27,6 +27,8 @@ class ReadFileWidget(ToolCallWidget):
             return ""
         if self.result.startswith("error:"):
             return self.result
+        if self.result.startswith("Read image ") or "[image:" in self.result:
+            return self.result.splitlines()[0]
         count = len(self.result.splitlines())
         size = len(self.result.encode("utf-8"))
         return f"Read {count} lines ({size:,} bytes)"

@@ -44,7 +44,7 @@ def approval_prompt(name: str, args: dict[str, Any], workspace: Path) -> tuple[b
     if name == "bash":
         command = str(args.get("command") or "").strip()
         return True, f"Allow bash command once?\n`{command}`"
-    if name == "write_file":
+    if name in {"write_file", "generate_image"}:
         path = str(args.get("path") or "").strip()
         if path and _exists_in_workspace(workspace, path):
             return True, f"Overwrite existing file `{path}`?"

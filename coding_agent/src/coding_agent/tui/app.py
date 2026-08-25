@@ -17,7 +17,12 @@ from textual.widgets import OptionList, Static, TextArea
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
-from coding_agent.tui.commands import command_matches, mode_matches, model_matches
+from coding_agent.tui.commands import (
+    command_matches,
+    mode_matches,
+    model_matches,
+    model_options,
+)
 from coding_agent.tui.commands.command_manager import CommandManager
 from coding_agent.tui.commands.mode_switcher import toggle_mode
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
@@ -29,6 +34,7 @@ from coding_agent.tui.file_selector import (
 )
 from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
+from coding_agent.tui.images import build_user_content
 from coding_agent.tui.slash_menu import SlashMenu
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
@@ -48,6 +54,7 @@ from coding_agent.tui.widgets import (
     Welcome,
     make_tool_widget,
 )
+from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
 
@@ -95,6 +102,7 @@ class CodingAgentApp(App[None]):
         self._plan_run_active = False
         self._pending_question_id: str | None = None
         self._pending_question_default = ""
+        self._model_options = ()
         self._command_manager = CommandManager(self)
 
     def compose(self) -> ComposeResult:
@@ -135,6 +143,7 @@ class CodingAgentApp(App[None]):
             return
 
         self._ui_state.model_id = self._agent.harness.model_id
+        self._model_options = model_options(self._agent.registry.namespaces())
         self._ui_state.metrics.context_limit = self._agent.harness.state.context_limit(
             self._ui_state.model_id
         )
@@ -301,14 +310,18 @@ class CodingAgentApp(App[None]):
         pasted_chunks = event.input.take_pasted_chunks()
         event.input.load_text("")
         if self._pending_question_id is not None:
+            event.input.take_images()
             await self._answer_question(text or self._pending_question_default)
             return
         if not text:
+            event.input.take_images()
             return
         self.query_one("#slash-menu", SlashMenu).set_commands(())
         if text.startswith("/"):
+            event.input.take_images()
             await self._run_slash_command(text)
             return
+        images = event.input.take_images()
         if self._agent is None:
             self.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
             return
@@ -316,12 +329,15 @@ class CodingAgentApp(App[None]):
             self.add_notice("A turn is already in progress.", "warning")
             return
 
+        user_content = build_user_content(text, images)
         self._assistant = None
         self._thinking = None
         self._reasoning = None
         self._process = None
         self._tools = {}
-        self._mount_transcript(UserMessage(text, pasted_chunks=pasted_chunks))
+        self._mount_transcript(
+            UserMessage(text, pasted_chunks=pasted_chunks, images=images)
+        )
         self.set_thinking("Thinking…")
         if self.mode == "plan":
             self._plan_store.begin(text)
@@ -329,7 +345,7 @@ class CodingAgentApp(App[None]):
         self._busy = True
         event.input.disabled = True
         self.query_one("#composer-hint", Static).update("Working…   Esc cancel")
-        self.run_agent(text)
+        self.run_agent(user_content)
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id != "prompt":
@@ -348,7 +364,13 @@ class CodingAgentApp(App[None]):
             menu.set_files(file_matches(self.workspace, query))
         elif event.text_area.text.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
-            menu.set_models(model_matches(event.text_area.text.removeprefix("/model ")), current)
+            menu.set_models(
+                model_matches(
+                    event.text_area.text.removeprefix("/model "),
+                    self._model_options,
+                ),
+                current,
+            )
         elif event.text_area.text.startswith("/mode "):
             menu.set_modes(mode_matches(event.text_area.text.removeprefix("/mode ")), self.mode)
         elif event.text_area.text.startswith("/plan "):
@@ -447,7 +469,7 @@ class CodingAgentApp(App[None]):
         self.query_one("#composer-hint", Static).update(hint)
 
     @work(exclusive=True)
-    async def run_agent(self, user_input: str) -> None:
+    async def run_agent(self, user_input: Content) -> None:
         try:
             await self._run_agent_turn(user_input)
         except (HarnessCancelled, HarnessLimitExceeded):
@@ -472,7 +494,7 @@ class CodingAgentApp(App[None]):
             self._update_composer_hint()
             prompt.focus()
 
-    async def _run_agent_turn(self, user_input: str) -> HarnessResult:
+    async def _run_agent_turn(self, user_input: Content) -> HarnessResult:
         assert self._agent is not None
         mode = self.mode
         result = await self._agent.run(user_input)

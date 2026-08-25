@@ -90,3 +90,30 @@ ContentModal {
     background: #0d0d0d;
 }
 """
+
+
+IMAGE_MODAL_CSS = MODAL_BASE_CSS + """
+ImageModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#content-pane {
+    border: round #38474a;
+}
+
+#image-title {
+    width: 100%;
+    height: auto;
+    padding: 0 1 1 1;
+    color: #d0d0d0;
+    background: #101010;
+}
+
+#image-preview {
+    width: 100%;
+    height: auto;
+    padding: 1 1;
+    background: #0d0d0d;
+}
+"""

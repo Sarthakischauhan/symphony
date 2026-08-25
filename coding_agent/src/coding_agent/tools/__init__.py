@@ -9,6 +9,7 @@ from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from coding_agent.tools.approvals import ApprovalTool, wrap_with_approvals
 from coding_agent.tools.ask_user import AskUserArgs, AskUserTool
 from coding_agent.tools.bash import BashArgs, BashTool
+from coding_agent.tools.generate_image import GenerateImageArgs, GenerateImageTool
 from coding_agent.tools.patch import PatchArgs, PatchTool
 from coding_agent.tools.read_file import ReadFileArgs, ReadFileTool
 from coding_agent.tools.search import SearchArgs, SearchTool
@@ -17,6 +18,7 @@ from coding_agent.tools.write_file import WriteFileArgs, WriteFileTool
 TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
     ReadFileTool,
     WriteFileTool,
+    GenerateImageTool,
     PatchTool,
     BashTool,
     SearchTool,
@@ -24,7 +26,8 @@ TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
 )
 
 __all__ = [
-    "ApprovalTool", "AskUserArgs", "AskUserTool", "BashArgs", "BashTool", "PatchArgs", "PatchTool",
+    "ApprovalTool", "AskUserArgs", "AskUserTool", "BashArgs", "BashTool",
+    "GenerateImageArgs", "GenerateImageTool", "PatchArgs", "PatchTool",
     "ReadFileArgs", "ReadFileTool", "SearchArgs", "SearchTool", "TOOL_CLASSES",
     "ToolArgsModel", "WorkspaceTool", "WriteFileArgs", "WriteFileTool", "build_tools",
     "wrap_with_approvals",

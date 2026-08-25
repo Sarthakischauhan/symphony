@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
-from core_ai.types import Message
+from core_ai.types import Content, Message
 
 from core_harness.control_plane import ControlPlane, IdentifiedControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
@@ -55,7 +55,7 @@ class HarnessRun:
 
     async def execute(
         self,
-        user_input: str,
+        user_input: Content,
         *,
         conversation: Optional[List[Message]],
         session_id: Optional[str] = None,
@@ -259,7 +259,7 @@ class HarnessRun:
     async def _initial_messages(
         self,
         session_id: str,
-        user_input: str,
+        user_input: Content,
         conversation: Optional[List[Message]],
     ) -> List[Message]:
         prior = conversation

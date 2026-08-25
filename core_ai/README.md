@@ -9,6 +9,7 @@ Small shared package for model providers and streaming response types. It is und
 - `build_default_registry()` to register every provider that has credentials in the environment
 - A generated model catalog (`ModelCatalog`, `ModelInfo`, `list_models()`, and `get_model()`)
 - `Message` and `StreamEvent` as the provider-neutral message and stream contract
+- Canonical text/image `Message.content` parts, translated per provider (`image_url`, `input_image`, Anthropic `image.source`, Gemini `inlineData`)
 
 ## Example
 

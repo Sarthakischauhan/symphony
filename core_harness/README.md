@@ -122,11 +122,11 @@ def approve(action: str, control_plane: NullControlPlane) -> str:
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
 
-Tool results are bounded to 12,000 characters by default before being sent in the next model request. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected.
+Tool results are bounded to 12,000 characters by default before being sent in the next model request. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected.
 
 ## Runs, results, and conversations
 
-`await harness.run(user_input)` returns a `HarnessResult` containing:
+`await harness.run(user_input)` accepts a string or a list of canonical text/image parts. It returns a `HarnessResult` containing:
 
 - `output_text` — the assistant's final text
 - `messages` — messages accumulated during the run
