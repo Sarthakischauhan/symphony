@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
+from core_ai import list_models
+
 
 @dataclass(frozen=True)
 class SlashCommand:
@@ -38,18 +40,6 @@ class PlanOption:
     description: str
 
 
-MODEL_CATALOG = (
-    ModelOption("openai:gpt-5.6-luna", "GPT-5.6 Luna", "Thinking model"),
-    ModelOption("openai:gpt-4o-mini", "GPT-4o mini", "Fast and economical"),
-    ModelOption("openai:gpt-4.1-mini", "GPT-4.1 mini", "Fast coding model"),
-    ModelOption("openai:gpt-4.1", "GPT-4.1", "Most capable OpenAI model in this catalog"),
-    ModelOption("anthropic:claude-sonnet-5", "Claude Sonnet 5", "Fast Anthropic coding model"),
-    ModelOption("anthropic:claude-opus-5", "Claude Opus 5", "Most capable Anthropic model"),
-    ModelOption("anthropic:claude-fable-5", "Claude Fable 5", "Anthropic reasoning model"),
-    ModelOption("gemini:gemini-3.7-flash", "Gemini 3.7 Flash", "Fast Gemini coding model"),
-    ModelOption("gemini:gemini-3.1-pro-preview", "Gemini 3.1 Pro", "Most capable Gemini model"),
-)
-
 MODE_CATALOG = (
     ModeOption("build", "Build", "Read, edit, and run code"),
     ModeOption("plan", "Plan", "Inspect and write a plan only"),
@@ -78,7 +68,26 @@ def command_matches(value: str) -> tuple[SlashCommand, ...]:
     return tuple(command for command in SLASH_COMMANDS if command.name.startswith(prefix))
 
 
-def find_model(value: str, models: Iterable[ModelOption] = MODEL_CATALOG) -> Optional[ModelOption]:
+def model_options(providers: Iterable[str] | None = None) -> tuple[ModelOption, ...]:
+    """Build TUI choices from the core_ai catalog, optionally by provider."""
+    source = list_models() if providers is None else tuple(
+        model for provider in providers for model in list_models(provider)
+    )
+    return tuple(
+        ModelOption(
+            id=model.full_id,
+            label=model.id,
+            description=f"{model.provider} · {model.api.replace('_', ' ')}",
+        )
+        for model in source
+    )
+
+
+def find_model(
+    value: str,
+    models: Iterable[ModelOption] | None = None,
+) -> Optional[ModelOption]:
+    models = model_options() if models is None else models
     needle = value.strip().lower()
     if not needle:
         return None
@@ -89,7 +98,11 @@ def find_model(value: str, models: Iterable[ModelOption] = MODEL_CATALOG) -> Opt
     return matches[0] if len(matches) == 1 else None
 
 
-def model_matches(value: str, models: Iterable[ModelOption] = MODEL_CATALOG) -> tuple[ModelOption, ...]:
+def model_matches(
+    value: str,
+    models: Iterable[ModelOption] | None = None,
+) -> tuple[ModelOption, ...]:
+    models = model_options() if models is None else models
     needle = value.strip().lower()
     return tuple(model for model in models if not needle or needle in model.id.lower() or needle in model.label.lower())
 

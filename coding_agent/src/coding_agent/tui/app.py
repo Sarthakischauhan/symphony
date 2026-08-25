@@ -17,7 +17,12 @@ from textual.widgets import OptionList, Static, TextArea
 
 from coding_agent.agent import AgentMode, CodingAgent
 from coding_agent.plan import PlanStore
-from coding_agent.tui.commands import command_matches, mode_matches, model_matches
+from coding_agent.tui.commands import (
+    command_matches,
+    mode_matches,
+    model_matches,
+    model_options,
+)
 from coding_agent.tui.commands.command_manager import CommandManager
 from coding_agent.tui.commands.mode_switcher import toggle_mode
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
@@ -97,6 +102,7 @@ class CodingAgentApp(App[None]):
         self._plan_run_active = False
         self._pending_question_id: str | None = None
         self._pending_question_default = ""
+        self._model_options = ()
         self._command_manager = CommandManager(self)
 
     def compose(self) -> ComposeResult:
@@ -137,6 +143,7 @@ class CodingAgentApp(App[None]):
             return
 
         self._ui_state.model_id = self._agent.harness.model_id
+        self._model_options = model_options(self._agent.registry.namespaces())
         self._ui_state.metrics.context_limit = self._agent.harness.state.context_limit(
             self._ui_state.model_id
         )
@@ -357,7 +364,13 @@ class CodingAgentApp(App[None]):
             menu.set_files(file_matches(self.workspace, query))
         elif event.text_area.text.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
-            menu.set_models(model_matches(event.text_area.text.removeprefix("/model ")), current)
+            menu.set_models(
+                model_matches(
+                    event.text_area.text.removeprefix("/model "),
+                    self._model_options,
+                ),
+                current,
+            )
         elif event.text_area.text.startswith("/mode "):
             menu.set_modes(mode_matches(event.text_area.text.removeprefix("/mode ")), self.mode)
         elif event.text_area.text.startswith("/plan "):

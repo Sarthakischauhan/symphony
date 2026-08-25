@@ -55,7 +55,8 @@ cancel an in-flight run, `Ctrl+L` or `/clear` to reset the visible transcript, a
 `Ctrl+D`, `/quit`, or `/exit` to leave. Learning is enabled by default and each
 reflection is capped at 900 output tokens; pass `--no-learning` to disable it.
 
-Type `/` to discover commands. `/model` shows the built-in model catalog,
+Type `/` to discover commands. `/model` shows the generated `core_ai` catalog
+for providers whose credentials are currently registered,
 `/model <id>` switches the harness and learning model, and `/mode` switches between
 build and read-only plan modes. Tab toggles the mode without opening the menu.
 Plan mode uses a yellow composer border and writes streamed plans to readable,
@@ -79,8 +80,8 @@ The TUI registers every provider for which a credential is available. Pass
 `anthropic:claude-sonnet-5` or `gemini:gemini-3.7-flash`.
 Without that override, provider-specific `*_MODEL` variables are checked before
 the default for the first available provider (OpenAI, Anthropic, then Gemini).
-Model choices currently come from `coding_agent.tui.commands.MODEL_CATALOG`; this
-boundary can be replaced with provider-backed registry discovery later.
+`/reload` rebuilds both the provider registry and these model
+choices, so the TUI has no separate hardcoded model inventory.
 
 ```python
 from core_ai import build_default_registry, default_model_id
