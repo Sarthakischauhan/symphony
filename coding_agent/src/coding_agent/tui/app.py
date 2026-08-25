@@ -34,6 +34,7 @@ from coding_agent.tui.file_selector import (
 )
 from coding_agent.tui.history import load_session_history
 from coding_agent.tui.images import build_user_content
+from coding_agent.tui.subagent import SubagentRecord, SubagentScreen
 from coding_agent.tui.slash_menu import SlashMenu
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
@@ -53,6 +54,7 @@ from coding_agent.tui.widgets import (
     Welcome,
     make_tool_widget,
 )
+from coding_agent.tui.subagent import SubagentWidget
 from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
@@ -97,6 +99,7 @@ class CodingAgentApp(App[None]):
         self._reasoning: Optional[ReasoningWidget] = None
         self._process: Optional[RunProcess] = None
         self._tools: dict[str, ToolCallWidget] = {}
+        self._subagents: dict[str, SubagentRecord] = {}
         self._plan_store = PlanStore(self.workspace)
         self._plan_run_active = False
         self._pending_question_id: str | None = None
@@ -287,20 +290,102 @@ class CodingAgentApp(App[None]):
         self._mount_transcript(widget)
 
     def on_harness_event(self, message: HarnessEvent) -> None:
+        payload = message.payload or {}
+        if message.event_type == "agent_spawned":
+            self._on_agent_spawned(payload)
+            return
+        if message.event_type in {"agent_completed", "agent_failed"}:
+            self._on_agent_finished(message.event_type, payload)
+            return
+        if payload.get("parent_id"):
+            self._on_child_event(message.event_type, payload)
+            return
         if self._plan_run_active and message.event_type == "text_delta":
-            self._plan_store.append(str(message.payload.get("delta") or ""))
+            self._plan_store.append(str(payload.get("delta") or ""))
             return
         if message.event_type == "question_asked":
-            self._show_question(message.payload)
+            self._show_question(payload)
             return
         if self._presenter is not None:
-            self._presenter.handle(message.event_type, message.payload)
+            self._presenter.handle(message.event_type, payload)
         if self._plan_run_active and message.event_type in {
             "run_completed",
             "run_failed",
             "run_cancelled",
         }:
             self._plan_run_active = False
+
+    def _on_agent_spawned(self, payload: dict[str, Any]) -> None:
+        child_id = str(payload.get("child_id") or "")
+        record = SubagentRecord(
+            agent_id=child_id,
+            parent_id=str(payload.get("agent_id") or ""),
+            label=str(payload.get("label") or "subagent"),
+            prompt=str(payload.get("prompt") or ""),
+            model_id=str(payload.get("model_id") or ""),
+        )
+        if child_id:
+            self._subagents[child_id] = record
+        widget = next(
+            (
+                item
+                for item in self._tools.values()
+                if isinstance(item, SubagentWidget) and item.record is None
+            ),
+            None,
+        )
+        if widget is not None:
+            widget.bind(record)
+        self._refresh_subagent_screen(record)
+
+    def _on_agent_finished(self, event_type: str, payload: dict[str, Any]) -> None:
+        child_id = str(payload.get("child_id") or "")
+        record = self._subagents.get(child_id)
+        if record is None:
+            return
+        record.ingest(event_type, payload)
+        self._refresh_subagent_widgets(record)
+        self._refresh_subagent_screen(record)
+
+    def _on_child_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        agent_id = str(payload.get("agent_id") or "")
+        record = self._subagents.get(agent_id)
+        if record is None:
+            record = SubagentRecord(
+                agent_id=agent_id,
+                parent_id=str(payload.get("parent_id") or ""),
+                label="subagent",
+                prompt="",
+                model_id=str(payload.get("model_id") or ""),
+            )
+            if agent_id:
+                self._subagents[agent_id] = record
+            widget = next(
+                (
+                    item
+                    for item in self._tools.values()
+                    if isinstance(item, SubagentWidget) and item.record is None
+                ),
+                None,
+            )
+            if widget is not None:
+                widget.bind(record)
+        record.ingest(event_type, payload)
+        self._refresh_subagent_widgets(record)
+        self._refresh_subagent_screen(record)
+
+    def _refresh_subagent_widgets(self, record: SubagentRecord) -> None:
+        for widget in self._tools.values():
+            if isinstance(widget, SubagentWidget) and widget.record is record:
+                widget.refresh_content()
+
+    def _refresh_subagent_screen(self, record: SubagentRecord) -> None:
+        screen = self.screen
+        if isinstance(screen, SubagentScreen) and screen.record.agent_id == record.agent_id:
+            screen.refresh_record()
+
+    def open_subagent(self, record: SubagentRecord) -> None:
+        self.push_screen(SubagentScreen(record))
 
     on_control_plane_event = on_harness_event
 
@@ -510,6 +595,7 @@ class CodingAgentApp(App[None]):
         self._reasoning = None
         self._process = None
         self._tools.clear()
+        self._subagents.clear()
 
     def action_cancel_run(self) -> None:
         if isinstance(self.screen, ModalScreen):

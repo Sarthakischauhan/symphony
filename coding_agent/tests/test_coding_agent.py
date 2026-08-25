@@ -28,6 +28,18 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert agent.harness.limits.max_tokens == DEFAULT_MAX_TOKENS
     assert agent.harness.limits.max_runtime_seconds == 600.0
 
+
+def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> None:
+    agent = CodingAgent(
+        registry=CapturingRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        enable_learning=False,
+        auto_approve=True,
+    )
+    assert "spawn_agent" in agent.harness.tools
+    assert "read_file" in agent.harness.tools
+
 load_dotenv(override=True)
 
 

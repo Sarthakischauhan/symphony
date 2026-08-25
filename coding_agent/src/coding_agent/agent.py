@@ -108,6 +108,8 @@ class CodingAgent:
             tool_result_max_chars=tool_result_max_chars,
             context_target_tokens=context_target_tokens,
         )
+        if tools is None:
+            self.harness.register_tool(self.harness.make_spawn_tool())
 
     async def run(
         self,

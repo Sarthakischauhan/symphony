@@ -6,9 +6,10 @@ A workspace coding agent built on `core_harness`.
   <img src="../docs/demo.png" alt="Symphony coding agent TUI" height="400">
 </div>
 
+
 ### What it provides
 
-- Workspace tools: `read_file`, `write_file`, `generate_image`, `patch`, `search`, and `bash`
+- Workspace tools: `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, and `spawn_agent`
 
 - Incremental repository discovery through `search` + `read_file`, without a preloaded repo index
 - Persisted conversations in SQLite, resumable by `session_id` or TUI `--resume`
@@ -26,6 +27,7 @@ The agent intentionally exposes a small workspace tool surface:
 - `patch` performs unique-match exact-text edits.
 - `search` finds file names or literal/regex content with path and glob filters.
 - `bash` runs workspace-scoped shell commands with streamed, capped output, a timeout, and process-group cleanup.
+- `spawn_agent` starts a child harness run for a focused subtask. Child events stream on the same control plane with `parent_id` / `agent_id`; click the Subagent row to open a nested session screen.
 
 
 Repository context is discovered incrementally with `search` and `read_file`; the

@@ -50,6 +50,7 @@ from coding_agent.tui.modal import (
     PlanSectionCard,
     _plan_sections,
 )
+from coding_agent.tui.subagent import SubagentScreen, SubagentWidget
 from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
@@ -1528,3 +1529,104 @@ def test_display_from_content_rebuilds_clickable_markers() -> None:
 def test_half_block_preview_renders_unicode_blocks() -> None:
     preview = render_half_block(PNG_1X1, max_width=8, max_rows=4)
     assert "▀" in preview.plain
+
+
+def test_subagent_card_opens_nested_session_screen(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_thinking("Thinking…")
+            await pilot.pause()
+            thinking_before = str(app._thinking.render()) if app._thinking is not None else ""
+            app.add_tool("spawn-1", "spawn_agent")
+            app.update_tool(
+                "spawn-1",
+                arguments={
+                    "prompt": "Inspect auth.py and summarize the login flow.",
+                    "label": "inspect auth",
+                },
+                status="running",
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_spawned",
+                    {
+                        "child_id": "child-1",
+                        "agent_id": "parent-1",
+                        "label": "inspect auth",
+                        "prompt": "Inspect auth.py and summarize the login flow.",
+                        "model_id": "openai:gpt-5.6-luna",
+                    },
+                )
+            )
+            widget = app._tools["spawn-1"]
+            assert isinstance(widget, SubagentWidget)
+            assert widget.record is not None
+            assert widget.record.agent_id == "child-1"
+
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "run_started",
+                    {
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                        "model_id": "openai:gpt-5.6-luna",
+                    },
+                )
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "tool_execution_started",
+                    {
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                        "tool_name": "read_file",
+                        "arguments": {"path": "auth.py"},
+                    },
+                )
+            )
+            assert app._thinking is not None
+            assert str(app._thinking.render()) == thinking_before
+            assert widget.record.tools[0]["name"] == "read_file"
+
+            assert widget.open_screen()
+            await pilot.pause()
+            assert isinstance(app.screen, SubagentScreen)
+            assert app.screen.record.label == "inspect auth"
+            assert app.screen.record.tools[0]["name"] == "read_file"
+
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "text_delta",
+                    {
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                        "delta": "Auth uses JWT cookies.",
+                    },
+                )
+            )
+            await pilot.pause()
+            assert "JWT cookies" in app.screen.record.output_text
+
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_completed",
+                    {
+                        "child_id": "child-1",
+                        "agent_id": "parent-1",
+                        "output_text": "Auth uses JWT cookies.",
+                    },
+                )
+            )
+            await pilot.pause()
+            assert app.screen.record.status == "completed"
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, SubagentScreen)
+
+    asyncio.run(_run())

@@ -2,7 +2,7 @@
 
 An open-source agent harness. `core_ai` and `core_harness` are the harness; `coding_agent` is the first product built on it — more are coming (a browser-use agent is next).
 
-Built with a simple philosophy: keep the harness product-agnostic, keep the provider layer swappable, and drive every UI from a single control-plane event stream instead of scraping output.
+Built with a simple philosophy: keep the harness product-agnostic, keep the provider layer swappable, and drive every UI from a single control-plane event stream instead of scraping output. Parent runs can spawn child agents; those children reuse the same stream, tagged with `parent_id` and `agent_id`.
 
 ## Architecture
 

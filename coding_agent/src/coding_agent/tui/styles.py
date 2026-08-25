@@ -492,6 +492,11 @@ Screen {
     pointer: pointer;
 }
 
+.subagent-call {
+    border-left: tall #6fb3ae;
+    padding-left: 1;
+}
+
 .tool-call > CollapsibleTitle {
     width: 1;
     height: 0;
