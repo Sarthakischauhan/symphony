@@ -13,7 +13,7 @@ import httpx
 import uvicorn
 from core_ai.types import Message, StreamEvent
 from core_harness import ControlCommandType, Tool
-from core_harness.models.control_plane import ControlPlaneEvent
+from core_harness.models import ControlPlaneEvent
 from fastapi.testclient import TestClient
 
 from core_server import (

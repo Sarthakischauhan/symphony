@@ -40,11 +40,15 @@ from coding_agent.tui.images import (
     dropped_image_paths,
     render_half_block,
 )
-from coding_agent.tui.modal import ContentModal, DiffModal, ImageModal, PlanModal
-
-from coding_agent.tui.modal.diff import DiffFileCard
-from coding_agent.tui.modal.components import PlanSectionCard
-from coding_agent.tui.modal.plan import _plan_sections
+from coding_agent.tui.modal import (
+    ContentModal,
+    DiffFileCard,
+    DiffModal,
+    ImageModal,
+    PlanModal,
+    PlanSectionCard,
+    _plan_sections,
+)
 from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
@@ -420,7 +424,7 @@ def test_diff_modal_shows_file_names_and_change_stats(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "coding_agent.tui.modal.diff.read_workspace_diff",
+        "coding_agent.tui.modal.read_workspace_diff",
         lambda _workspace: (
             "diff --git a/src/app.py b/src/app.py\n"
             "--- a/src/app.py\n"
@@ -1187,8 +1191,8 @@ def test_reload_refreshes_config_without_clearing_conversation(
         built_with.update(kwargs)
         return reloaded_agent
 
-    monkeypatch.setattr("coding_agent.tui.commands.reload.load_dotenv", _load_dotenv)
-    monkeypatch.setattr("coding_agent.tui.commands.reload.build_agent", _build_agent)
+    monkeypatch.setattr("coding_agent.tui.commands.load_dotenv", _load_dotenv)
+    monkeypatch.setattr("coding_agent.tui.commands.build_agent", _build_agent)
 
     async def _run() -> None:
         async with app.run_test() as pilot:

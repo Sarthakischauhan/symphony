@@ -1,9 +1,12 @@
+import asyncio
 import json
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Callable, Dict
 
 import httpx
+
+from core_ai.types import StreamEvent
 
 
 def retry_after(response: httpx.Response, attempt: int) -> float:
@@ -24,6 +27,29 @@ def retry_after(response: httpx.Response, attempt: int) -> float:
             except (TypeError, ValueError, OverflowError):
                 pass
     return float(min(2 ** (attempt - 1), 60))
+
+
+async def stream_with_retries(
+    factory: Callable[[], AsyncGenerator[StreamEvent, None]],
+) -> AsyncGenerator[StreamEvent, None]:
+    """Yield from ``factory`` and retry the whole stream on HTTP 429."""
+    attempt = 0
+    while True:
+        try:
+            async for event in factory():
+                yield event
+            return
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 429:
+                raise
+            attempt += 1
+            delay = retry_after(exc.response, attempt)
+            yield StreamEvent(
+                type="retry",
+                retry_after=delay,
+                retry_attempt=attempt,
+            )
+            await asyncio.sleep(delay)
 
 
 async def iter_sse_json(response: httpx.Response) -> AsyncGenerator[Dict[str, Any], None]:

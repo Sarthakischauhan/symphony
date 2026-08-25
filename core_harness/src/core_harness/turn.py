@@ -14,8 +14,8 @@ from core_ai.types import Content, Message
 
 from core_harness.control_plane import ControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
-from core_harness.models.harness import UsageTotals
-from core_harness.models.tools import PendingToolCall, ToolCall, ToolResult
+from core_harness.models import UsageTotals
+from core_harness.models import PendingToolCall, ToolCall, ToolResult
 from core_harness.state import HarnessState
 from core_harness.tools import Tool
 from core_harness.utils.tokens import (

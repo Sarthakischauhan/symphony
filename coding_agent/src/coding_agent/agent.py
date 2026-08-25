@@ -204,3 +204,26 @@ class CodingAgent:
             },
         )
         return (before, len(compacted))
+
+
+def build_agent(
+    *,
+    workspace: Union[str, Path],
+    control_plane: Optional[ControlPlane] = None,
+    model_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    enable_learning: bool = True,
+) -> "CodingAgent":
+    """Build a coding agent from whatever provider credentials are available."""
+    from core_ai import build_default_registry, default_model_id
+
+    registry = build_default_registry()
+    return CodingAgent(
+        registry=registry,
+        model_id=default_model_id(registry, model_id),
+        workspace=workspace,
+        control_plane=control_plane,
+        session_id=session_id,
+        enable_learning=enable_learning,
+    )
+

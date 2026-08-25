@@ -1,24 +1,31 @@
-"""Base callable adapter that exposes a Python function as an agent tool."""
+"""Callable adapter that exposes a Python function as an agent tool."""
 
 import inspect
 from typing import Any, Callable, Dict, Optional
 
 
 class Tool:
-    """Wrap a Python callable and expose an LLM-friendly tool schema."""
+    """Wrap a Python callable and expose an LLM-friendly tool schema.
+
+    Subclasses may omit ``func`` and override :meth:`execute` instead.
+    """
 
     def __init__(
         self,
-        func: Callable[..., Any],
+        func: Optional[Callable[..., Any]] = None,
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.func = func
-        self.name = name or func.__name__
-        self.description = description or inspect.getdoc(func) or "No description provided."
-        self.signature = inspect.signature(func)
+        self.name = name or (func.__name__ if func is not None else "")
+        self.description = (
+            description
+            or (inspect.getdoc(func) if func is not None else None)
+            or "No description provided."
+        )
+        self.signature = inspect.signature(func) if func is not None else None
         self.parameters = parameters
 
     def get_schema(self) -> Dict[str, Any]:
@@ -29,6 +36,8 @@ class Tool:
         }
 
     def _infer_parameters(self) -> Dict[str, Any]:
+        if self.signature is None:
+            return {"type": "object", "properties": {}, "required": []}
         properties: Dict[str, Dict[str, Any]] = {}
         required: list[str] = []
         type_map = {
@@ -54,12 +63,14 @@ class Tool:
         return {"type": "object", "properties": properties, "required": required}
 
     async def execute(self, *, control_plane: Any, args: Dict[str, Any]) -> Any:
+        if self.func is None:
+            raise NotImplementedError(f"{type(self).__name__}.execute")
         kwargs: Dict[str, Any] = {}
         accepts_var_keyword = any(
             param.kind == inspect.Parameter.VAR_KEYWORD
-            for param in self.signature.parameters.values()
+            for param in self.signature.parameters.values()  # type: ignore[union-attr]
         )
-        for param_name, param in self.signature.parameters.items():
+        for param_name, param in self.signature.parameters.items():  # type: ignore[union-attr]
             if param_name == "control_plane":
                 kwargs[param_name] = control_plane
             elif param.kind != inspect.Parameter.VAR_KEYWORD and param_name in args:
@@ -71,3 +82,6 @@ class Tool:
         if inspect.iscoroutinefunction(self.func):
             return await self.func(**kwargs)
         return self.func(**kwargs)
+
+
+__all__ = ["Tool"]

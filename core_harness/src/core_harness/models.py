@@ -1,13 +1,48 @@
+"""Harness event, tool, and result models."""
+
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from core_ai.types import Message
+from core_ai.types import Content, Message
+
+# --- tools.py ---
+ToolResultStatus = Literal["success", "error", "timeout", "cancelled"]
 
 
+class PendingToolCall(BaseModel):
+    id: str
+    name: Optional[str] = None
+    arguments_json: str = ""
+
+
+class ToolCall(BaseModel):
+    id: str
+    name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    result_status: Optional[ToolResultStatus] = None
+
+
+class ToolResult(BaseModel):
+    """Canonical outcome for every tool invocation."""
+
+    status: ToolResultStatus
+    content: Content
+    error_type: Optional[str] = None
+
+    def for_model(self) -> Content:
+        if self.status == "success":
+            return self.content
+        text = self.content if isinstance(self.content, str) else str(self.content)
+        prefix = f"[tool:{self.status}]"
+        if self.error_type:
+            return f"{prefix} {self.error_type}: {text}"
+        return f"{prefix} {text}"
+
+# --- control_plane.py ---
 EVENT_SCHEMA_VERSION = 1
 
 
@@ -93,3 +128,42 @@ class ControlCommand(BaseModel):
         if role not in ("user", "system"):
             raise ValueError("inject_message role must be 'user' or 'system'.")
         return Message(role=role, content=str(content))
+
+# --- harness.py ---
+class UsageTotals(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    reasoning_tokens: int = 0
+    total_tokens: int = 0
+
+
+class RunLimits(BaseModel):
+    """Optional caps for a single harness run."""
+
+    max_turns: int = 8
+    max_tool_calls: Optional[int] = None
+    max_runtime_seconds: Optional[float] = None
+    max_tokens: Optional[int] = None
+
+
+class HarnessResult(BaseModel):
+    output_text: str
+    messages: List[Message]
+    tool_calls: List[ToolCall] = Field(default_factory=list)
+    usage: UsageTotals = Field(default_factory=UsageTotals)
+    context_limit: Optional[int] = None
+    context_left: Optional[int] = None
+
+__all__ = [
+    "ControlCommand",
+    "ControlCommandType",
+    "ControlPlaneEvent",
+    "ControlPlaneEventType",
+    "EVENT_SCHEMA_VERSION",
+    "HarnessResult",
+    "PendingToolCall",
+    "RunLimits",
+    "ToolCall",
+    "ToolResult",
+    "UsageTotals",
+]

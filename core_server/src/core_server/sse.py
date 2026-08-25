@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, Union
 
 from core_harness import ControlCommand
 from core_harness.control_plane import NullControlPlane
-from core_harness.models.control_plane import ControlPlaneEvent, ControlPlaneEventType
+from core_harness.models import ControlPlaneEvent, ControlPlaneEventType
 
 
 class SSEControlPlane(NullControlPlane):

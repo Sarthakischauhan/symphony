@@ -1,4 +1,3 @@
-import asyncio
 import json
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
@@ -7,7 +6,7 @@ from dotenv import load_dotenv
 
 from core_ai.content import to_anthropic_blocks
 from core_ai.providers.base import BaseProvider
-from core_ai.providers.http import iter_sse_json, retry_after
+from core_ai.providers.http import iter_sse_json, stream_with_retries
 from core_ai.types import Message, StreamEvent
 
 load_dotenv(override=True)
@@ -38,28 +37,15 @@ class AnthropicProvider(BaseProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        retry_attempt = 0
-        while True:
-            try:
-                async for event in self._stream_once(
-                    model_name,
-                    messages,
-                    tools,
-                    max_output_tokens=max_output_tokens,
-                ):
-                    yield event
-                return
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code != 429:
-                    raise
-                retry_attempt += 1
-                delay = retry_after(exc.response, retry_attempt)
-                yield StreamEvent(
-                    type="retry",
-                    retry_after=delay,
-                    retry_attempt=retry_attempt,
-                )
-                await asyncio.sleep(delay)
+        async for event in stream_with_retries(
+            lambda: self._stream_once(
+                model_name,
+                messages,
+                tools,
+                max_output_tokens=max_output_tokens,
+            )
+        ):
+            yield event
 
     async def _stream_once(
         self,

@@ -17,8 +17,8 @@ from textual.widgets import Static
 
 from core_ai.content import IMAGE_MIME_BY_SUFFIX, image_part, normalize_content
 from core_ai.types import Content
-from coding_agent.tui.modal.base import ModalBase, ModalCloseButton, ModalScroll
-from coding_agent.tui.styles.modal import IMAGE_MODAL_CSS
+from coding_agent.tui.modal import ModalBase, ModalCloseButton, ModalScroll
+from coding_agent.tui.styles import IMAGE_MODAL_CSS
 
 
 IMAGE_MARKER_RE = re.compile(r"\[Image (\d+)\]")

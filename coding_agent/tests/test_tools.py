@@ -23,8 +23,8 @@ from coding_agent.tools import (
     wrap_with_approvals,
 )
 from coding_agent.tools.approvals import approval_prompt
-from coding_agent.tui.widgets.tools.base import GenerateImageWidget
-from coding_agent.tui.widgets.tools.read_file import ReadFileWidget
+from coding_agent.tui.widgets import GenerateImageWidget
+from coding_agent.tui.widgets import ReadFileWidget
 
 
 from coding_agent.tools.bash import MAX_OUTPUT_BYTES

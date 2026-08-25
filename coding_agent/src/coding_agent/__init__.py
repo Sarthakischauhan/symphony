@@ -1,4 +1,4 @@
-from coding_agent.agent import AgentMode, CodingAgent
+from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.learning import LearningLoop, LearningReview, LearningStore, Lesson
 from coding_agent.persistence import SessionSummary, SqlitePersistence
 from coding_agent.plan import PlanStore
@@ -16,5 +16,5 @@ __all__ = [
     "LearningStore", "Lesson", "PatchArgs", "PatchTool", "ReadFileArgs",
     "ReadFileTool", "PLAN_MODE_PROMPT", "PlanStore", "SYSTEM_PROMPT", "SearchArgs", "SearchTool", "SessionSummary",
     "SqlitePersistence", "TOOL_CLASSES", "ToolArgsModel", "WorkspaceTool",
-    "WriteFileArgs", "WriteFileTool", "build_tools", "wrap_with_approvals",
+    "WriteFileArgs", "WriteFileTool", "build_agent", "build_tools", "wrap_with_approvals",
 ]
