@@ -69,6 +69,9 @@ class ControlPlaneEventType(str, Enum):
     PAUSED = "paused"
     RESUMED = "resumed"
     MESSAGE_INJECTED = "message_injected"
+    AGENT_SPAWNED = "agent_spawned"
+    AGENT_COMPLETED = "agent_completed"
+    AGENT_FAILED = "agent_failed"
 
 
 class ControlPlaneEvent(BaseModel):

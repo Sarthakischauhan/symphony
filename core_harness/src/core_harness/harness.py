@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 
@@ -22,6 +23,14 @@ from core_harness.persistence import Checkpoint, NullPersistence, Persistence
 from core_harness.state import Compactor, HarnessState, normalize_tool_protocol
 from core_harness.tools import Tool
 from core_harness.turn import TurnRunner
+
+DEFAULT_MAX_SPAWN_DEPTH = 1
+DEFAULT_SPAWN_MAX_TURNS = 8
+SUBAGENT_SYSTEM_PROMPT = (
+    "You are a subagent spawned to complete one focused task. "
+    "Use tools as needed. Do not ask the user. "
+    "Return a concise, complete answer for the parent agent."
+)
 
 
 class CoreHarness:
@@ -48,6 +57,10 @@ class CoreHarness:
         compactor: Optional[Compactor] = None,
         tool_result_max_chars: Optional[int] = 12_000,
         context_target_tokens: Optional[int] = None,
+        agent_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        spawn_depth: int = 0,
+        max_spawn_depth: int = DEFAULT_MAX_SPAWN_DEPTH,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -66,6 +79,12 @@ class CoreHarness:
             raise ValueError("tool_result_max_chars must be positive or None")
         self.tool_result_max_chars = tool_result_max_chars
         self.context_target_tokens = context_target_tokens
+        self.agent_id = agent_id or str(uuid.uuid4())
+        self.parent_id = parent_id
+        self.spawn_depth = spawn_depth
+        self.max_spawn_depth = max_spawn_depth
+        self._active_run_id: Optional[str] = None
+        self._active_session_id: Optional[str] = None
         self.state = HarnessState(
             context_limits=context_limits,
             context_warn_threshold=context_warn_threshold,
@@ -83,6 +102,178 @@ class CoreHarness:
     def tool_schemas(self) -> List[Dict[str, Any]]:
         return [tool.get_schema() for tool in self.tools.values()]
 
+    def _set_active_identity(self, run_id: str, session_id: str) -> None:
+        self._active_run_id = run_id
+        self._active_session_id = session_id
+
+    def _parent_plane(self) -> IdentifiedControlPlane:
+        return IdentifiedControlPlane(
+            self.control_plane,
+            run_id=self._active_run_id or str(uuid.uuid4()),
+            session_id=self._active_session_id or self.session_id or str(uuid.uuid4()),
+            agent_id=self.agent_id,
+            parent_id=self.parent_id,
+        )
+
+    def _child_tools(self, exclude_tools: Iterable[str]) -> List[Tool]:
+        blocked = set(exclude_tools)
+        return [tool for name, tool in self.tools.items() if name not in blocked]
+
+    def make_spawn_tool(
+        self,
+        *,
+        exclude_tools: Sequence[str] = ("spawn_agent",),
+        max_turns: Optional[int] = None,
+    ) -> Tool:
+        """Model-facing wrapper around :meth:`spawn`."""
+
+        async def spawn_agent(prompt: str, label: str = "") -> str:
+            result = await self.spawn(
+                prompt,
+                label=label,
+                exclude_tools=exclude_tools,
+                max_turns=max_turns,
+            )
+            name = label.strip() or "child"
+            return f"Subagent {name} completed.\n\n{result.output_text}"
+
+        return Tool(
+            spawn_agent,
+            name="spawn_agent",
+            description=(
+                "Spawn a child agent for a focused subtask. The child has its own "
+                "conversation and tool loop, and events stream on the same control "
+                "plane tagged with parent_id/child agent_id. Returns the child's "
+                "final answer."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The full task for the child agent to complete.",
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "Short name shown in the UI, e.g. 'inspect auth'.",
+                    },
+                },
+                "required": ["prompt"],
+                "additionalProperties": False,
+            },
+        )
+
+    async def spawn(
+        self,
+        prompt: Content,
+        *,
+        label: str = "",
+        tools: Optional[List[Tool]] = None,
+        exclude_tools: Iterable[str] = ("spawn_agent",),
+        system_prompt: Optional[str] = None,
+        model_id: Optional[str] = None,
+        max_turns: Optional[int] = None,
+    ) -> HarnessResult:
+        """Run a child harness that shares this control plane with parent/child ids."""
+        prompt_text = text_from_content(prompt)
+        child_id = str(uuid.uuid4())
+        plane = self._parent_plane()
+        if self.spawn_depth >= self.max_spawn_depth:
+            message = (
+                f"error: spawn depth {self.spawn_depth} exceeds "
+                f"max_spawn_depth={self.max_spawn_depth}"
+            )
+            await plane.emit(
+                "agent_failed",
+                {
+                    "child_id": child_id,
+                    "label": label,
+                    "prompt": prompt_text,
+                    "message": message,
+                },
+            )
+            return HarnessResult(output_text=message, messages=[], tool_calls=[])
+
+        child_tools = tools if tools is not None else self._child_tools(exclude_tools)
+        child_turns = max_turns if max_turns is not None else min(
+            self.max_turns, DEFAULT_SPAWN_MAX_TURNS
+        )
+        child = CoreHarness(
+            registry=self.registry,
+            model_id=model_id or self.model_id,
+            system_prompt=system_prompt or SUBAGENT_SYSTEM_PROMPT,
+            tools=child_tools,
+            control_plane=self.control_plane,
+            persistence=NullPersistence(),
+            session_id=str(uuid.uuid4()),
+            max_turns=child_turns,
+            max_tool_calls=self.limits.max_tool_calls,
+            max_runtime_seconds=self.limits.max_runtime_seconds,
+            max_tokens=self.limits.max_tokens,
+            context_limits=self.state.context_limits,
+            context_warn_threshold=self.state.context_warn_threshold,
+            context_compact_threshold=self.state.context_compact_threshold,
+            compactor=self.state.compactor,
+            tool_result_max_chars=self.tool_result_max_chars,
+            context_target_tokens=self.context_target_tokens,
+            agent_id=child_id,
+            parent_id=self.agent_id,
+            spawn_depth=self.spawn_depth + 1,
+            max_spawn_depth=self.max_spawn_depth,
+        )
+        await plane.emit(
+            "agent_spawned",
+            {
+                "child_id": child_id,
+                "label": label,
+                "prompt": prompt_text,
+                "model_id": child.model_id,
+                "depth": child.spawn_depth,
+            },
+        )
+        try:
+            result = await child.run(prompt)
+        except (HarnessCancelled, HarnessLimitExceeded) as exc:
+            await plane.emit(
+                "agent_failed",
+                {
+                    "child_id": child_id,
+                    "label": label,
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            return HarnessResult(
+                output_text=f"error: subagent {type(exc).__name__}: {exc}",
+                messages=[],
+                tool_calls=[],
+            )
+        except Exception as exc:  # noqa: BLE001
+            await plane.emit(
+                "agent_failed",
+                {
+                    "child_id": child_id,
+                    "label": label,
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            return HarnessResult(
+                output_text=f"error: subagent failed: {exc}",
+                messages=[],
+                tool_calls=[],
+            )
+        await plane.emit(
+            "agent_completed",
+            {
+                "child_id": child_id,
+                "label": label,
+                "output_text": result.output_text,
+                "usage": result.usage.model_dump(),
+            },
+        )
+        return result
+
     async def run(
         self,
         user_input: Content,
@@ -98,6 +289,8 @@ class CoreHarness:
             self.control_plane,
             run_id=run_id,
             session_id=active_session,
+            agent_id=self.agent_id,
+            parent_id=self.parent_id,
         )
 
         messages = await self._initial_messages(
@@ -135,6 +328,8 @@ class CoreHarness:
             max_tool_calls=self.limits.max_tool_calls,
             deadline=deadline,
             max_runtime_seconds=self.limits.max_runtime_seconds,
+            agent_id=self.agent_id,
+            parent_id=self.parent_id,
         )
 
         try:
@@ -378,4 +573,11 @@ class CoreHarness:
         return messages
 
 
-__all__ = ["CoreHarness", "HarnessCancelled", "HarnessLimitExceeded"]
+__all__ = [
+    "CoreHarness",
+    "DEFAULT_MAX_SPAWN_DEPTH",
+    "DEFAULT_SPAWN_MAX_TURNS",
+    "HarnessCancelled",
+    "HarnessLimitExceeded",
+    "SUBAGENT_SYSTEM_PROMPT",
+]

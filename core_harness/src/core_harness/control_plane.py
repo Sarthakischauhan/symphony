@@ -80,11 +80,15 @@ class IdentifiedControlPlane:
         run_id: str,
         session_id: str,
         schema_version: int = EVENT_SCHEMA_VERSION,
+        agent_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
     ) -> None:
         self.inner = inner
         self.run_id = run_id
         self.session_id = session_id
         self.schema_version = schema_version
+        self.agent_id = agent_id or run_id
+        self.parent_id = parent_id
         self._sequence = 0
 
     async def emit(
@@ -100,6 +104,8 @@ class IdentifiedControlPlane:
             "seq": self._sequence,
             "ts": time.time(),
             "schema_version": self.schema_version,
+            "agent_id": self.agent_id,
+            "parent_id": self.parent_id,
         }
         await self.inner.emit(normalize_event_type(event_type), stamped)
 

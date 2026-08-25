@@ -22,7 +22,7 @@ from core_harness import (
 from core_harness.persistence import Checkpoint
 
 
-IDENTITY_KEYS = ("run_id", "session_id", "seq", "ts", "schema_version")
+IDENTITY_KEYS = ("run_id", "session_id", "agent_id", "parent_id", "seq", "ts", "schema_version")
 
 
 class RecordingPersistence(NullPersistence):
@@ -78,6 +78,7 @@ def _assert_identity(events: list[Any]) -> None:
         assert isinstance(payload["ts"], (int, float))
         assert payload["run_id"]
         assert payload["session_id"]
+        assert payload["agent_id"]
         seqs.append(payload["seq"])
         run_ids.add(payload["run_id"])
         session_ids.add(payload["session_id"])

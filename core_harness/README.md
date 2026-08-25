@@ -146,6 +146,26 @@ result = await harness.run(
 
 By default, `NullPersistence` discards state. Pass an implementation of the `Persistence` protocol to save and load conversation messages and `Checkpoint` objects as the run progresses. `session_id` is the key used by persistence.
 
+## Subagents
+
+`CoreHarness.spawn()` starts a child run on the same control plane. The parent keeps `parent_id=None`; every child event is stamped with the child's `agent_id` and the parent's id as `parent_id`. UIs can route those events without a second event stream.
+
+```python
+parent = CoreHarness(
+    registry=registry,
+    model_id=default_model_id(registry),
+    system_prompt="You are the parent agent.",
+    tools=[Tool(read_file)],
+    control_plane=control_plane,
+    agent_id="parent",
+)
+parent.register_tool(parent.make_spawn_tool())
+
+result = await parent.run("Inspect README.md in a subagent and summarize it.")
+```
+
+Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth` (1 by default). Lifecycle events `agent_spawned`, `agent_completed`, and `agent_failed` are emitted on the parent identity so a UI can open a child transcript while the child is still running.
+
 ## Limits and cancellation
 
 Configure safeguards either with individual arguments or with a `RunLimits` object:
@@ -181,7 +201,7 @@ await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
 
 ## Events and control planes
 
-The harness emits run, turn, text-stream, tool, usage, context, compaction, pause/resume, injection, cancellation, and limit events. Event types are available as `ControlPlaneEventType` values. `NullControlPlane` records events in memory and is the default.
+The harness emits run, turn, text-stream, tool, usage, context, compaction, pause/resume, injection, cancellation, limit, and subagent lifecycle events. Event types are available as `ControlPlaneEventType` values. `NullControlPlane` records events in memory and is the default.
 
 Available control-plane adapters include:
 
@@ -189,7 +209,7 @@ Available control-plane adapters include:
 - `InteractiveControlPlane` — records events and optionally forwards them to subscribers or an event log.
 - `FanoutControlPlane` — sends events to multiple control planes in order.
 - `PersistingControlPlane` — appends events to an `EventLog`.
-- `IdentifiedControlPlane` — adds `run_id`, `session_id`, sequence, timestamp, and schema-version metadata to each event.
+- `IdentifiedControlPlane` — adds `run_id`, `session_id`, `agent_id`, `parent_id`, sequence, timestamp, and schema-version metadata to each event.
 - `InMemoryEventLog` — a simple event-log implementation for tests and local use.
 
 For custom integrations, implement the `ControlPlane` protocol's asynchronous `emit(event_type, payload)` method. Inbound implementations can additionally implement `send_command` and `drain_commands`.
