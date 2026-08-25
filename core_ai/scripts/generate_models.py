@@ -12,12 +12,19 @@ import re
 from pathlib import Path
 from typing import Callable, Iterable
 
+from dotenv import load_dotenv
+
 OUTPUT = Path(__file__).resolve().parents[1] / "src/core_ai/models/generated.py"
+
+# Load local development credentials when the script is run directly. Explicit
+# environment variables still win over values from .env.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 OPENAI_PREFIXES = ("gpt-", "o1", "o3", "o4")
 OPENAI_CHAT_COMPLETIONS_PREFIXES = ("o1", "o3", "o4")
 GEMINI_ALLOWED_PREFIXES = ("gemini-2.5-", "gemini-3")
 GEMINI_SKIP_TOKENS = ("embedding", "image", "tts", "live", "robotics", "computer")
+DEPRECATED_STATUSES = {"deprecated", "decommissioned", "retired", "disabled"}
 EXISTING_MODEL_RE = re.compile(
     r'ModelInfo\(id="([^"]+)", provider="([^"]+)", api="([^"]+)"\)'
 )
@@ -45,6 +52,17 @@ FALLBACK_MODELS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+def _is_deprecated(model: dict) -> bool:
+    """Return true only when a provider explicitly marks a model unavailable."""
+    if model.get("deprecated") is True:
+        return True
+    for field in ("status", "lifecycle", "state"):
+        value = model.get(field)
+        if isinstance(value, str) and value.strip().lower() in DEPRECATED_STATUSES:
+            return True
+    return False
+
+
 def openai_api(model_id: str) -> str:
     if model_id.startswith(OPENAI_CHAT_COMPLETIONS_PREFIXES):
         return "chat_completions"
@@ -65,6 +83,7 @@ def fetch_openai_models(api_key: str, base_url: str) -> list[tuple[str, str]]:
         (model_id, openai_api(model_id))
         for model in data
         if isinstance(model, dict)
+        and not _is_deprecated(model)
         and isinstance((model_id := model.get("id")), str)
         and model_id.startswith(OPENAI_PREFIXES)
     )
@@ -92,6 +111,8 @@ def fetch_anthropic_models(api_key: str, base_url: str) -> list[tuple[str, str]]
         payload = response.json()
         for model in payload.get("data", []):
             if not isinstance(model, dict):
+                continue
+            if _is_deprecated(model):
                 continue
             model_id = model.get("id")
             if isinstance(model_id, str) and model_id.startswith("claude-"):
@@ -126,7 +147,11 @@ def fetch_gemini_models(api_key: str, base_url: str) -> list[tuple[str, str]]:
         response.raise_for_status()
         payload = response.json()
         for model in payload.get("models", []):
-            if not isinstance(model, dict) or not _gemini_supported(model):
+            if (
+                not isinstance(model, dict)
+                or _is_deprecated(model)
+                or not _gemini_supported(model)
+            ):
                 continue
             name = model.get("name")
             if not isinstance(name, str):
@@ -205,7 +230,7 @@ def collect_catalog(*, strict: bool = False, output: Path = OUTPUT) -> dict[str,
     existing = read_existing_catalog(output)
     openai_key = os.environ.get("OPENAI_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    gemini_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY")
 
     openai_models = (
         load_provider_models(
