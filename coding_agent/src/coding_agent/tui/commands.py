@@ -8,6 +8,7 @@ from typing import Any, Iterable, Optional
 
 from dotenv import load_dotenv
 
+from core_ai import list_models
 from coding_agent.agent import build_agent
 from coding_agent.tui.modal import DiffModal, LearningModal, PlanModal
 
@@ -44,17 +45,44 @@ class PlanOption:
     description: str
 
 
-MODEL_CATALOG = (
-    ModelOption("openai:gpt-5.6-luna", "GPT-5.6 Luna", "Thinking model"),
-    ModelOption("openai:gpt-4o-mini", "GPT-4o mini", "Fast and economical"),
-    ModelOption("openai:gpt-4.1-mini", "GPT-4.1 mini", "Fast coding model"),
-    ModelOption("openai:gpt-4.1", "GPT-4.1", "Most capable OpenAI model in this catalog"),
-    ModelOption("anthropic:claude-sonnet-5", "Claude Sonnet 5", "Fast Anthropic coding model"),
-    ModelOption("anthropic:claude-opus-5", "Claude Opus 5", "Most capable Anthropic model"),
-    ModelOption("anthropic:claude-fable-5", "Claude Fable 5", "Anthropic reasoning model"),
-    ModelOption("gemini:gemini-3.7-flash", "Gemini 3.7 Flash", "Fast Gemini coding model"),
-    ModelOption("gemini:gemini-3.1-pro-preview", "Gemini 3.1 Pro", "Most capable Gemini model"),
-)
+def model_options(providers: Iterable[str] | None = None) -> tuple[ModelOption, ...]:
+    """Build TUI choices from the core_ai catalog, optionally by provider."""
+    source = list_models() if providers is None else tuple(
+        model for provider in providers for model in list_models(provider)
+    )
+    return tuple(
+        ModelOption(
+            id=model.full_id,
+            label=model.id,
+            description=f"{model.provider} · {model.api.replace('_', ' ')}",
+        )
+        for model in source
+    )
+
+
+def find_model(
+    value: str,
+    models: Iterable[ModelOption] | None = None,
+) -> Optional[ModelOption]:
+    models = model_options() if models is None else models
+    needle = value.strip().lower()
+    if not needle:
+        return None
+    matches = [
+        model for model in models
+        if needle in {model.id.lower(), model.id.split(":", 1)[-1].lower(), model.label.lower()}
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def model_matches(
+    value: str,
+    models: Iterable[ModelOption] | None = None,
+) -> tuple[ModelOption, ...]:
+    models = model_options() if models is None else models
+    needle = value.strip().lower()
+    return tuple(model for model in models if not needle or needle in model.id.lower() or needle in model.label.lower())
+
 
 MODE_CATALOG = (
     ModeOption("build", "Build", "Read, edit, and run code"),
@@ -84,21 +112,6 @@ def command_matches(value: str) -> tuple[SlashCommand, ...]:
     return tuple(command for command in SLASH_COMMANDS if command.name.startswith(prefix))
 
 
-def find_model(value: str, models: Iterable[ModelOption] = MODEL_CATALOG) -> Optional[ModelOption]:
-    needle = value.strip().lower()
-    if not needle:
-        return None
-    matches = [
-        model for model in models
-        if needle in {model.id.lower(), model.id.split(":", 1)[-1].lower(), model.label.lower()}
-    ]
-    return matches[0] if len(matches) == 1 else None
-
-
-def model_matches(value: str, models: Iterable[ModelOption] = MODEL_CATALOG) -> tuple[ModelOption, ...]:
-    needle = value.strip().lower()
-    return tuple(model for model in models if not needle or needle in model.id.lower() or needle in model.label.lower())
-
 
 def find_mode(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> Optional[ModeOption]:
     needle = value.strip().lower()
@@ -114,7 +127,7 @@ def mode_matches(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> tupl
 def select_model(app: Any, argument: str) -> None:
     agent = app._agent
     assert agent is not None
-    selected = find_model(argument)
+    selected = find_model(argument, app._model_options)
     if selected is None:
         app.add_notice(f"Unknown model: {argument}. Run /model to see available models.", "warning")
         return
@@ -133,7 +146,7 @@ def show_model_picker(app: Any) -> None:
     prompt = app.query_one("#prompt")
     prompt.value = "/model "
     prompt.cursor_position = len(prompt.value)
-    app.query_one("#slash-menu").set_models(MODEL_CATALOG, app._agent.harness.model_id)
+    app.query_one("#slash-menu").set_models(app._model_options, app._agent.harness.model_id)
 
 # --- mode_switcher.py ---
 def select_mode(app: Any, argument: str) -> None:
@@ -222,6 +235,7 @@ async def reload_project(app: Any) -> None:
         )
         reloaded_agent.set_mode(app.mode)
         app._agent = reloaded_agent
+        app._model_options = model_options(reloaded_agent.registry.namespaces())
         app.session_id = reloaded_agent.session_id
 
         if previous_agent is not None and previous_agent.learning_loop is not None:
@@ -341,8 +355,8 @@ class CommandManager:
 __all__ = [
     "CommandManager",
     "MODE_CATALOG",
-    "MODEL_CATALOG",
     "ModeOption",
+    "model_options",
     "ModelOption",
     "PlanOption",
     "SLASH_COMMANDS",
