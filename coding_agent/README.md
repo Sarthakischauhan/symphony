@@ -6,6 +6,10 @@ A workspace coding agent built on `core_harness`.
   <img src="../docs/demo.png" alt="Symphony coding agent TUI" height="400">
 </div>
 
+<div align="center">
+  <img src="../docs/subagent-spawn.gif" alt="Spawned subagent nested session" height="360">
+</div>
+
 
 ### What it provides
 
