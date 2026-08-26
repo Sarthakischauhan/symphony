@@ -164,7 +164,7 @@ parent.register_tool(parent.make_spawn_tool())
 result = await parent.run("Inspect README.md in a subagent and summarize it.")
 ```
 
-Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth` (1 by default). Lifecycle events `agent_spawned`, `agent_completed`, and `agent_failed` are emitted on the parent identity so a UI can open a child transcript while the child is still running.
+Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth` (1 by default). Multiple `spawn_agent` calls in one turn run concurrently (up to three). Lifecycle events `agent_spawned`, `agent_completed`, and `agent_failed` are emitted on the parent identity so a UI can open a child transcript while the child is still running.
 
 ## Limits and cancellation
 

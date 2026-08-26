@@ -166,3 +166,94 @@ def test_direct_spawn_uses_shared_control_plane() -> None:
     assert child_events[0].event_type == "run_started"
     assert child_events[0].payload["parent_id"] == "parent-agent"
     assert child_events[-1].event_type == "run_completed"
+
+
+def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
+    class ParallelRegistry:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.active = 0
+            self.max_active = 0
+            self._lock = asyncio.Lock()
+
+        async def stream(
+            self,
+            model_id: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]],
+        ):
+            del model_id, tools
+            async with self._lock:
+                self.calls += 1
+                call_no = self.calls
+            if call_no == 1:
+                yield StreamEvent(
+                    type="toolcall_start",
+                    content_index=0,
+                    tool_call_id="spawn-auth",
+                    tool_name="spawn_agent",
+                )
+                yield StreamEvent(
+                    type="toolcall_delta",
+                    content_index=0,
+                    delta='{"prompt": "Inspect auth.py", "label": "auth"}',
+                )
+                yield StreamEvent(
+                    type="toolcall_start",
+                    content_index=1,
+                    tool_call_id="spawn-db",
+                    tool_name="spawn_agent",
+                )
+                yield StreamEvent(
+                    type="toolcall_delta",
+                    content_index=1,
+                    delta='{"prompt": "Inspect db.py", "label": "db"}',
+                )
+                yield StreamEvent(type="done")
+                return
+            async with self._lock:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            try:
+                await asyncio.sleep(0.05)
+                user = next(message for message in reversed(messages) if message.role == "user")
+                text = str(user.content)
+                if "auth.py" in text:
+                    delta = "auth ok"
+                elif "db.py" in text:
+                    delta = "db ok"
+                else:
+                    delta = "both done"
+                yield StreamEvent(type="text_delta", delta=delta)
+                yield StreamEvent(type="done")
+            finally:
+                async with self._lock:
+                    self.active -= 1
+
+    registry = ParallelRegistry()
+    plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="parent",
+        control_plane=plane,
+        agent_id="parent-agent",
+        max_turns=4,
+    )
+    harness.register_tool(harness.make_spawn_tool())
+    result = asyncio.run(harness.run("Investigate auth and db in parallel."))
+
+    assert registry.max_active >= 2
+    spawned = [event for event in plane.events if event.event_type == "agent_spawned"]
+    completed = [event for event in plane.events if event.event_type == "agent_completed"]
+    assert len(spawned) == 2
+    assert len(completed) == 2
+    labels = {event.payload["label"] for event in spawned}
+    assert labels == {"auth", "db"}
+    child_ids = {event.payload["parent_id"] for event in plane.events if event.payload.get("parent_id")}
+    assert child_ids == {"parent-agent"}
+    tool_results = [str(message.content) for message in result.messages if message.role == "tool"]
+    assert any("auth ok" in text for text in tool_results)
+    assert any("db ok" in text for text in tool_results)
+    assert "both done" in result.output_text
+

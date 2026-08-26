@@ -26,6 +26,7 @@ from core_harness.turn import TurnRunner
 
 DEFAULT_MAX_SPAWN_DEPTH = 1
 DEFAULT_SPAWN_MAX_TURNS = 8
+DEFAULT_MAX_CONCURRENT_SPAWNS = 3
 SUBAGENT_SYSTEM_PROMPT = (
     "You are a subagent spawned to complete one focused task. "
     "Use tools as needed. Do not ask the user. "
@@ -141,10 +142,12 @@ class CoreHarness:
             spawn_agent,
             name="spawn_agent",
             description=(
-                "Spawn a child agent for a focused subtask. The child has its own "
-                "conversation and tool loop, and events stream on the same control "
-                "plane tagged with parent_id/child agent_id. Returns the child's "
-                "final answer."
+                "Spawn a child agent for a focused subtask. Call this multiple "
+                "times in one turn to run up to three independent children in "
+                "parallel. Each child has its own conversation and tool loop; "
+                "events stream on the same control plane tagged with parent_id "
+                "and agent_id. Returns the child's final answer. Children cannot "
+                "spawn further agents."
             ),
             parameters={
                 "type": "object",
@@ -161,6 +164,7 @@ class CoreHarness:
                 "required": ["prompt"],
                 "additionalProperties": False,
             },
+            parallel=True,
         )
 
     async def spawn(
@@ -575,6 +579,7 @@ class CoreHarness:
 
 __all__ = [
     "CoreHarness",
+    "DEFAULT_MAX_CONCURRENT_SPAWNS",
     "DEFAULT_MAX_SPAWN_DEPTH",
     "DEFAULT_SPAWN_MAX_TURNS",
     "HarnessCancelled",
