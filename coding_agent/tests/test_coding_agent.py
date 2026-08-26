@@ -41,6 +41,53 @@ def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> 
     assert "spawn_agent" in agent.harness.tools
     assert "read_file" in agent.harness.tools
 
+
+def test_coding_agent_clamps_child_always_allow_when_parent_asks(tmp_path: Path) -> None:
+    from coding_agent.tui.control_plane import TextualControlPlane
+
+    plane = TextualControlPlane(workspace=tmp_path)
+    plane.set_approval_mode("ask")
+    agent = CodingAgent(
+        registry=CapturingRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        control_plane=plane,
+        enable_learning=False,
+    )
+    cfg = agent._spawn_child_config(
+        prompt="x",
+        approval_mode="always_allow",
+        max_turns=99,
+        model_id=" fake:child ",
+    )
+    assert cfg.model_id == "fake:child"
+    assert cfg.max_turns == agent.harness.config.spawn_max_turns
+    assert cfg.control_plane is not None
+    assert cfg.control_plane is not plane
+    assert cfg.control_plane.approvals.mode == "ask"
+    assert cfg.control_plane.cancel_event is plane.cancel_event
+
+
+def test_coding_agent_child_may_use_always_allow_if_parent_does(tmp_path: Path) -> None:
+    from coding_agent.tui.control_plane import TextualControlPlane
+
+    plane = TextualControlPlane(workspace=tmp_path)
+    plane.set_approval_mode("always_allow")
+    agent = CodingAgent(
+        registry=CapturingRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        control_plane=plane,
+        enable_learning=False,
+        auto_approve=True,
+    )
+    cfg = agent._spawn_child_config(approval_mode="always_allow")
+    assert cfg.control_plane is not None
+    assert cfg.control_plane.approvals.mode == "always_allow"
+    stricter = agent._spawn_child_config(approval_mode="ask")
+    assert stricter.control_plane is not None
+    assert stricter.control_plane.approvals.mode == "ask"
+
 load_dotenv(override=True)
 
 

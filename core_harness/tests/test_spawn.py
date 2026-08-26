@@ -6,7 +6,7 @@ import asyncio
 from typing import Any
 
 from core_ai.types import Message, StreamEvent
-from core_harness import CoreHarness, NullControlPlane, Tool
+from core_harness import ChildConfig, CoreHarness, NullControlPlane, Tool
 from core_harness.config import DEFAULT_HARNESS_CONFIG
 
 
@@ -257,3 +257,143 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
     assert any("auth ok" in text for text in tool_results)
     assert any("db ok" in text for text in tool_results)
     assert "both done" in result.output_text
+
+
+def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
+    registry = ScriptedRegistry([_text_turn("child answer")])
+    parent_plane = NullControlPlane()
+    child_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:parent-model",
+        system_prompt="parent",
+        control_plane=parent_plane,
+        agent_id="parent-agent",
+    )
+    result = asyncio.run(
+        harness.spawn(
+            "do the work",
+            label="worker",
+            child_config=ChildConfig(
+                model_id="fake:child-model",
+                max_turns=2,
+                control_plane=child_plane,
+            ),
+        )
+    )
+    assert result.output_text == "child answer"
+    assert [event.event_type for event in parent_plane.events] == [
+        "agent_spawned",
+        "agent_completed",
+    ]
+    assert parent_plane.events[0].payload["model_id"] == "fake:child-model"
+    child_types = [event.event_type for event in child_plane.events]
+    assert "run_started" in child_types
+    assert "run_completed" in child_types
+    assert all(event.payload.get("parent_id") == "parent-agent" for event in child_plane.events)
+    assert registry.calls[0]["model_id"] == "fake:child-model"
+
+
+def test_make_spawn_tool_configure_builds_child_config() -> None:
+    registry = ScriptedRegistry([_text_turn("configured")])
+    parent_plane = NullControlPlane()
+    child_plane = NullControlPlane()
+    seen: list[dict[str, Any]] = []
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:parent-model",
+        system_prompt="parent",
+        control_plane=parent_plane,
+        agent_id="parent-agent",
+        max_turns=4,
+    )
+
+    def configure(**kwargs: Any) -> ChildConfig:
+        seen.append(kwargs)
+        return ChildConfig(
+            model_id=kwargs.get("model_id"),
+            max_turns=kwargs.get("max_turns"),
+            control_plane=child_plane,
+        )
+
+    harness.register_tool(harness.make_spawn_tool(configure=configure))
+    result = asyncio.run(
+        harness.tools["spawn_agent"].execute(
+            control_plane=parent_plane,
+            args={
+                "prompt": "inspect",
+                "label": "auth",
+                "model_id": "fake:child-model",
+                "max_turns": 3,
+                "approval_mode": "ask",
+            },
+        )
+    )
+    assert "configured" in str(result)
+    assert seen[0]["approval_mode"] == "ask"
+    assert seen[0]["model_id"] == "fake:child-model"
+    assert seen[0]["max_turns"] == 3
+    assert [event.event_type for event in parent_plane.events] == [
+        "agent_spawned",
+        "agent_completed",
+    ]
+    assert any(event.event_type == "run_started" for event in child_plane.events)
+
+
+def test_make_spawn_tool_configure_merges_partial_override() -> None:
+    registry = ScriptedRegistry([_text_turn("merged")])
+    parent_plane = NullControlPlane()
+    child_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:parent-model",
+        system_prompt="parent",
+        control_plane=parent_plane,
+        agent_id="parent-agent",
+    )
+
+    def configure(**kwargs: Any) -> ChildConfig:
+        del kwargs
+        return ChildConfig(control_plane=child_plane)
+
+    harness.register_tool(harness.make_spawn_tool(configure=configure))
+    result = asyncio.run(
+        harness.tools["spawn_agent"].execute(
+            control_plane=parent_plane,
+            args={
+                "prompt": "inspect",
+                "model_id": "fake:child-model",
+                "max_turns": 3,
+            },
+        )
+    )
+    assert "merged" in str(result)
+    assert registry.calls[0]["model_id"] == "fake:child-model"
+    assert any(event.event_type == "run_started" for event in child_plane.events)
+
+
+def test_spawn_caps_child_max_turns() -> None:
+    registry = ScriptedRegistry([_text_turn("ok")])
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="parent",
+        agent_id="parent-agent",
+    )
+    turns: list[int] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        turns.append(self.max_turns)
+
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            harness.spawn("go", child_config=ChildConfig(max_turns=10_000))
+        )
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    assert result.output_text == "ok"
+    assert harness.config.spawn_max_turns == 8
+    assert turns == [8]

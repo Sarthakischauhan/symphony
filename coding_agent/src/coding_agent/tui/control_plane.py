@@ -55,9 +55,29 @@ class TextualControlPlane:
         self._cancelled = False
         self._cancel_reason = "cancelled"
         self.cancel_event = asyncio.Event()
+        self._cancel_parent: Optional[TextualControlPlane] = None
 
     def bind(self, app: Any) -> None:
         self._app = app
+
+    def fork(self, *, approvals: Optional[ApprovalConfig] = None) -> "TextualControlPlane":
+        """Child plane: own approval policy, shared composer and parent cancel.
+
+        The TUI has one pending-question slot and answers on the parent plane.
+        Sharing the interaction lock and question futures keeps child
+        ``ask_user`` waiters reachable; isolating ``approvals`` is what prevents
+        a sibling from flipping the parent's mode.
+        """
+        child = TextualControlPlane(
+            workspace=self.workspace,
+            approvals=approvals or self.approvals.model_copy(deep=True),
+        )
+        child.bind(self._app)
+        child.cancel_event = self.cancel_event
+        child._cancel_parent = self
+        child._interaction_lock = self._interaction_lock
+        child._question_futures = self._question_futures
+        return child
 
     async def emit(
         self,
@@ -95,10 +115,18 @@ class TextualControlPlane:
 
     @property
     def cancelled(self) -> bool:
-        return self._cancelled
+        if self._cancelled:
+            return True
+        parent = self._cancel_parent
+        return bool(parent is not None and parent.cancelled)
 
     @property
     def cancel_reason(self) -> str:
+        if self._cancelled:
+            return self._cancel_reason
+        parent = self._cancel_parent
+        if parent is not None and parent.cancelled:
+            return parent.cancel_reason
         return self._cancel_reason
 
     def reset_cancel(self) -> None:

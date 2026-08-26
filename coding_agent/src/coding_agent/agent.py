@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 from core_harness import (
+    ChildConfig,
     ControlPlane,
     CoreHarness,
     HarnessResult,
@@ -135,7 +136,43 @@ class CodingAgent:
             context_target_tokens=context_target_tokens,
         )
         if tools is None:
-            self.harness.register_tool(self.harness.make_spawn_tool())
+            self.harness.register_tool(
+                self.harness.make_spawn_tool(configure=self._spawn_child_config)
+            )
+
+    def _spawn_child_config(
+        self,
+        *,
+        prompt: str = "",
+        label: str = "",
+        model_id: Optional[str] = None,
+        max_turns: Optional[int] = None,
+        approval_mode: Optional[str] = None,
+        **_: Any,
+    ) -> ChildConfig:
+        """Build per-child overrides. The model cannot loosen parent approvals."""
+        del prompt, label
+        cap = self.harness.config.spawn_max_turns
+        turns = None
+        if max_turns:
+            turns = max(1, min(int(max_turns), cap))
+        mid = str(model_id).strip() if model_id else None
+        plane = self.control_plane
+        fork = getattr(plane, "fork", None)
+        child_plane = None
+        if callable(fork):
+            parent_approvals = getattr(plane, "approvals", None)
+            parent_mode = getattr(parent_approvals, "mode", None)
+            mode = approval_mode or parent_mode or "ask"
+            if mode not in {"ask", "always_allow"}:
+                mode = parent_mode or "ask"
+            if parent_mode == "ask" and mode == "always_allow":
+                mode = "ask"
+            approvals = None
+            if parent_approvals is not None:
+                approvals = parent_approvals.model_copy(update={"mode": mode})
+            child_plane = fork(approvals=approvals)
+        return ChildConfig(model_id=mid or None, max_turns=turns, control_plane=child_plane)
 
     async def run(
         self,
