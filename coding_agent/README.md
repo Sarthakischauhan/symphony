@@ -3,8 +3,18 @@
 A workspace coding agent built on `core_harness`.
 
 <div align="center">
-  <img src="../docs/demo.png" alt="Symphony coding agent TUI" height="400">
+  <img src="../docs/demo.gif" alt="Symphony coding agent walkthrough" width="900">
 </div>
+
+<div align="center">
+  <em>One prompt: search → read → patch → write, an approval gate before <code>bash</code>, then the verified result.</em>
+</div>
+
+One take, no cuts: an agentic build task with per-tool rows, the **Allow once /
+Deny** gate before `bash`, `/diff` over the real workspace diff, read-only plan
+mode, the model catalog, and `/status`. See [`docs/demo.md`](../docs/demo.md) for
+a scene-by-scene breakdown, the full-resolution recording, and a one-command way
+to reproduce it locally without provider credentials.
 
 ### What it provides
 
@@ -46,6 +56,13 @@ uv run --package coding-agent coding-agent-tui
 uv run --package coding-agent coding-agent-tui --workspace /path/to/project
 uv run --package coding-agent coding-agent-tui --model gemini:gemini-3.7-flash
 ```
+
+The composer submits on `Ctrl+Enter` (plain `Enter` inserts a line break), which
+requires a terminal that implements the
+[kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) —
+kitty, WezTerm, foot, Ghostty, or recent Alacritty. VTE-based terminals such as
+GNOME Terminal and xfce4-terminal report `Enter` and `Ctrl+Enter` as the same
+bytes, so prompts cannot be submitted there.
 
 The TUI renders harness events as a conversation: streamed Markdown responses,
 live tool rows, reasoning summaries, muted per-turn token usage, context warnings,

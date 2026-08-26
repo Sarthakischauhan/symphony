@@ -4,6 +4,22 @@ An open-source agent harness. `core_ai` and `core_harness` are the harness; `cod
 
 Built with a simple philosophy: keep the harness product-agnostic, keep the provider layer swappable, and drive every UI from a single control-plane event stream instead of scraping output.
 
+## Demo
+
+<div align="center">
+  <img src="./docs/demo.gif" alt="Symphony coding agent walkthrough" width="900">
+</div>
+
+The coding agent taking one prompt through `search` → `read_file` → `patch` →
+`write_file`, pausing for approval before it runs `bash`, then verifying the
+change with the project's own test suite. The rest of the walkthrough covers
+`/diff` over the real workspace diff, read-only plan mode, the model catalog, and
+`/status`.
+
+[`docs/demo.md`](./docs/demo.md) breaks down each scene, links the
+full-resolution recording, and shows how to reproduce the whole walkthrough
+locally with one command and no provider credentials.
+
 ## Architecture
 
 Symphony is the harness. Agents are separate consumers that plug into it.
