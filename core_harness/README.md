@@ -148,23 +148,20 @@ By default, `NullPersistence` discards state. Pass an implementation of the `Per
 
 ## Subagents
 
-`CoreHarness.spawn()` starts a child run on the same control plane. The parent keeps `parent_id=None`; every child event is stamped with the child's `agent_id` and the parent's id as `parent_id`. UIs can route those events without a second event stream.
+`CoreHarness.spawn()` starts a child run. Lifecycle events (`agent_spawned` / `agent_completed` / `agent_failed`) stay on the parent plane. The child run itself uses `child_config.control_plane` when provided, otherwise the parent's plane. Every child event is stamped with the child's `agent_id` and the parent's id as `parent_id`.
 
 ```python
-parent = CoreHarness(
-    registry=registry,
-    model_id=default_model_id(registry),
-    system_prompt="You are the parent agent.",
-    tools=[Tool(read_file)],
-    control_plane=control_plane,
-    agent_id="parent",
-)
-parent.register_tool(parent.make_spawn_tool())
+from core_harness import ChildConfig, CoreHarness, Tool
 
-result = await parent.run("Inspect README.md in a subagent and summarize it.")
+parent.register_tool(parent.make_spawn_tool())
+result = await parent.spawn(
+    "Inspect README.md",
+    label="readme",
+    child_config=ChildConfig(model_id="openai:gpt-5.6-mini", max_turns=4),
+)
 ```
 
-Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth` (1 by default). Multiple `spawn_agent` calls in one turn run concurrently (up to three). Lifecycle events `agent_spawned`, `agent_completed`, and `agent_failed` are emitted on the parent identity so a UI can open a child transcript while the child is still running.
+`make_spawn_tool(configure=...)` lets a product map model arguments onto a `ChildConfig` — for example a forked UI control plane with its own approval lock. Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`. Multiple `spawn_agent` calls in one turn run concurrently (up to three).
 
 ## Limits and cancellation
 

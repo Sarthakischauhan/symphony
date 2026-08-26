@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -29,6 +30,16 @@ from core_harness.state import (
 )
 from core_harness.tools import Tool
 from core_harness.turn import TurnRunner
+
+
+@dataclass
+class ChildConfig:
+    """Per-child overrides for a spawn. Omitted fields inherit from the parent."""
+
+    model_id: Optional[str] = None
+    max_turns: Optional[int] = None
+    control_plane: Optional[ControlPlane] = None
+
 
 class CoreHarness:
     """Configured harness: tools, limits, persistence, and one-run execution."""
@@ -138,15 +149,44 @@ class CoreHarness:
         *,
         exclude_tools: Sequence[str] = ("spawn_agent",),
         max_turns: Optional[int] = None,
+        configure: Optional[Callable[..., Optional[ChildConfig]]] = None,
     ) -> Tool:
-        """Model-facing wrapper around :meth:`spawn`."""
+        """Model-facing wrapper around :meth:`spawn`.
 
-        async def spawn_agent(prompt: str, label: str = "") -> str:
+        ``configure`` is a product hook. It receives the model arguments and
+        may return a :class:`ChildConfig` (for example a child-specific
+        control plane). The harness itself does not interpret approval policy.
+        """
+        default_max_turns = max_turns
+
+        async def spawn_agent(
+            prompt: str,
+            label: str = "",
+            model_id: str = "",
+            max_turns: int = 0,
+            approval_mode: str = "",
+        ) -> str:
+            child_config = ChildConfig(
+                model_id=model_id or None,
+                max_turns=max_turns or None,
+            )
+            if configure is not None:
+                override = configure(
+                    prompt=prompt,
+                    label=label,
+                    model_id=model_id or None,
+                    max_turns=max_turns or None,
+                    approval_mode=approval_mode or None,
+                )
+                if override is not None:
+                    child_config = override
+            if child_config.max_turns is None:
+                child_config.max_turns = default_max_turns
             result = await self.spawn(
                 prompt,
                 label=label,
                 exclude_tools=exclude_tools,
-                max_turns=max_turns,
+                child_config=child_config,
             )
             name = label.strip() or "child"
             return f"Subagent {name} completed.\n\n{result.output_text}"
@@ -157,10 +197,10 @@ class CoreHarness:
             description=(
                 "Spawn a child agent for a focused subtask. Call this multiple "
                 "times in one turn to run up to three independent children in "
-                "parallel. Each child has its own conversation and tool loop; "
-                "events stream on the same control plane tagged with parent_id "
-                "and agent_id. Returns the child's final answer. Children cannot "
-                "spawn further agents."
+                "parallel. Optionally set model_id and max_turns for that child. "
+                "approval_mode may be ask or always_allow; always_allow is only "
+                "honored if the parent already allows it. Children cannot spawn "
+                "further agents."
             ),
             parameters={
                 "type": "object",
@@ -172,6 +212,22 @@ class CoreHarness:
                     "label": {
                         "type": "string",
                         "description": "Short name shown in the UI, e.g. 'inspect auth'.",
+                    },
+                    "model_id": {
+                        "type": "string",
+                        "description": "Optional model for the child. Defaults to the parent model.",
+                    },
+                    "max_turns": {
+                        "type": "integer",
+                        "description": "Optional turn cap for the child, limited by spawn_max_turns.",
+                    },
+                    "approval_mode": {
+                        "type": "string",
+                        "enum": ["ask", "always_allow"],
+                        "description": (
+                            "Optional child approval policy. always_allow is "
+                            "ignored unless the parent is already always_allow."
+                        ),
                     },
                 },
                 "required": ["prompt"],
@@ -190,8 +246,14 @@ class CoreHarness:
         system_prompt: Optional[str] = None,
         model_id: Optional[str] = None,
         max_turns: Optional[int] = None,
+        control_plane: Optional[ControlPlane] = None,
+        child_config: Optional[ChildConfig] = None,
     ) -> HarnessResult:
-        """Run a child harness that shares this control plane with parent/child ids."""
+        """Run a child harness. Lifecycle events stay on the parent plane."""
+        cfg = child_config or ChildConfig()
+        model_id = model_id or cfg.model_id
+        max_turns = max_turns if max_turns is not None else cfg.max_turns
+        child_plane = control_plane or cfg.control_plane or self.control_plane
         prompt_text = text_from_content(prompt)
         child_id = str(uuid.uuid4())
         plane = self._parent_plane()
@@ -215,12 +277,13 @@ class CoreHarness:
         child_turns = max_turns if max_turns is not None else min(
             self.max_turns, self.config.spawn_max_turns
         )
+        child_turns = max(1, min(child_turns, self.config.spawn_max_turns))
         child = CoreHarness(
             registry=self.registry,
             model_id=model_id or self.model_id,
             system_prompt=system_prompt or self.config.subagent_system_prompt,
             tools=child_tools,
-            control_plane=self.control_plane,
+            control_plane=child_plane,
             persistence=NullPersistence(),
             session_id=str(uuid.uuid4()),
             max_turns=child_turns,
@@ -590,6 +653,7 @@ class CoreHarness:
 
 
 __all__ = [
+    "ChildConfig",
     "CoreHarness",
     "HarnessCancelled",
     "HarnessLimitExceeded",

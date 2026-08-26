@@ -13,7 +13,7 @@ from core_harness.control_plane import (
     PersistingControlPlane,
 )
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
-from core_harness.harness import CoreHarness
+from core_harness.harness import ChildConfig, CoreHarness
 from core_harness.models import (
     ControlCommand,
     ControlCommandType,
@@ -32,6 +32,7 @@ from core_harness.tools import Tool
 
 __all__ = [
     "Checkpoint",
+    "ChildConfig",
     "Compactor",
     "ControlCommand",
     "ControlCommandType",
