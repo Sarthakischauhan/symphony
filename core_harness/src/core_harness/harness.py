@@ -332,8 +332,6 @@ class CoreHarness:
             max_tool_calls=self.limits.max_tool_calls,
             deadline=deadline,
             max_runtime_seconds=self.limits.max_runtime_seconds,
-            agent_id=self.agent_id,
-            parent_id=self.parent_id,
         )
 
         try:

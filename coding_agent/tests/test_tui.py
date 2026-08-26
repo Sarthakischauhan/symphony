@@ -1595,7 +1595,9 @@ def test_subagent_card_opens_nested_session_screen(
             assert str(app._thinking.render()) == thinking_before
             assert widget.record.tools[0]["name"] == "read_file"
 
-            assert widget.open_screen()
+            widget.scroll_visible()
+            await pilot.pause()
+            assert await pilot.click(widget.query_one(".tool-call-header"))
             await pilot.pause()
             assert isinstance(app.screen, SubagentScreen)
             assert app.screen.record.label == "inspect auth"
