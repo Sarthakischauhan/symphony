@@ -315,6 +315,31 @@ class CodingAgentApp(App[None]):
         }:
             self._plan_run_active = False
 
+    def _bind_spawn_widget(self, record: SubagentRecord) -> None:
+        candidates = [
+            item
+            for item in self._tools.values()
+            if isinstance(item, SubagentWidget) and item.record is None
+        ]
+        if not candidates:
+            return
+        match = next(
+            (
+                item
+                for item in candidates
+                if (
+                    not record.prompt
+                    or item.arguments.get("prompt") == record.prompt
+                )
+                and (
+                    not record.label
+                    or item.arguments.get("label") in {record.label, None, ""}
+                )
+            ),
+            candidates[0],
+        )
+        match.bind(record)
+
     def _on_agent_spawned(self, payload: dict[str, Any]) -> None:
         child_id = str(payload.get("child_id") or "")
         record = SubagentRecord(
@@ -326,16 +351,7 @@ class CodingAgentApp(App[None]):
         )
         if child_id:
             self._subagents[child_id] = record
-        widget = next(
-            (
-                item
-                for item in self._tools.values()
-                if isinstance(item, SubagentWidget) and item.record is None
-            ),
-            None,
-        )
-        if widget is not None:
-            widget.bind(record)
+        self._bind_spawn_widget(record)
         self._refresh_subagent_screen(record)
 
     def _on_agent_finished(self, event_type: str, payload: dict[str, Any]) -> None:
@@ -360,16 +376,7 @@ class CodingAgentApp(App[None]):
             )
             if agent_id:
                 self._subagents[agent_id] = record
-            widget = next(
-                (
-                    item
-                    for item in self._tools.values()
-                    if isinstance(item, SubagentWidget) and item.record is None
-                ),
-                None,
-            )
-            if widget is not None:
-                widget.bind(record)
+            self._bind_spawn_widget(record)
         record.ingest(event_type, payload)
         self._refresh_subagent_widgets(record)
         self._refresh_subagent_screen(record)
@@ -385,7 +392,7 @@ class CodingAgentApp(App[None]):
             screen.refresh_record()
 
     def open_subagent(self, record: SubagentRecord) -> None:
-        self.push_screen(SubagentScreen(record))
+        self.push_screen(SubagentScreen(record, workspace=self.workspace))
 
     on_control_plane_event = on_harness_event
 

@@ -62,6 +62,7 @@ from coding_agent.tui.widgets import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
+    TopBar,
     UserMessage,
 )
 
@@ -1599,6 +1600,11 @@ def test_subagent_card_opens_nested_session_screen(
             assert isinstance(app.screen, SubagentScreen)
             assert app.screen.record.label == "inspect auth"
             assert app.screen.record.tools[0]["name"] == "read_file"
+            assert app.screen.query_one(TopBar)
+            assert app.screen.query_one(UserMessage)
+            assert app.screen._tools
+            tool = next(iter(app.screen._tools.values()))
+            assert tool.tool_name == "read_file"
 
             app.on_harness_event(
                 ControlPlaneEvent(
@@ -1628,5 +1634,59 @@ def test_subagent_card_opens_nested_session_screen(
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, SubagentScreen)
+
+    asyncio.run(_run())
+
+
+def test_parallel_subagent_rows_bind_by_label(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("spawn-auth", "spawn_agent")
+            app.update_tool(
+                "spawn-auth",
+                arguments={"prompt": "Inspect auth.py", "label": "auth"},
+                status="running",
+            )
+            app.add_tool("spawn-db", "spawn_agent")
+            app.update_tool(
+                "spawn-db",
+                arguments={"prompt": "Inspect db.py", "label": "db"},
+                status="running",
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_spawned",
+                    {
+                        "child_id": "child-db",
+                        "agent_id": "parent-1",
+                        "label": "db",
+                        "prompt": "Inspect db.py",
+                    },
+                )
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_spawned",
+                    {
+                        "child_id": "child-auth",
+                        "agent_id": "parent-1",
+                        "label": "auth",
+                        "prompt": "Inspect auth.py",
+                    },
+                )
+            )
+            await pilot.pause()
+            auth = app._tools["spawn-auth"]
+            db = app._tools["spawn-db"]
+            assert isinstance(auth, SubagentWidget)
+            assert isinstance(db, SubagentWidget)
+            assert auth.record is not None and auth.record.agent_id == "child-auth"
+            assert db.record is not None and db.record.agent_id == "child-db"
 
     asyncio.run(_run())

@@ -56,7 +56,7 @@ class SubagentScreen(ModalBase[None]):
     #subagent-body { width: 100%; height: 1fr; padding: 1; }
     """
 
-    def __init__(self, record: SubagentRecord) -> None:
+    def __init__(self, record: SubagentRecord, workspace: Any = None) -> None:
         super().__init__()
         self.record = record
 
@@ -100,4 +100,3 @@ class SubagentWidget(ToolCallWidget):
         self.record = record
         self.app.push_screen(SubagentScreen(record))
         return True
-

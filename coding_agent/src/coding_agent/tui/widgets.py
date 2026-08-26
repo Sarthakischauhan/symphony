@@ -909,6 +909,10 @@ class PatchDiffWidget(ToolCallWidget):
 
 # --- factory.py ---
 def make_tool_widget(call_id: str, tool_name: str) -> ToolCallWidget:
+    if tool_name == "spawn_agent":
+        from coding_agent.tui.subagent import SubagentWidget
+
+        return SubagentWidget(call_id, tool_name)
     if tool_name == "bash":
         return BashToolWidget(call_id, tool_name)
     if tool_name == "read_file":
