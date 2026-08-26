@@ -23,8 +23,8 @@ from core_harness.models import (
     RunLimits,
     ToolCall,
     ToolResult,
+    UsageTotals,
 )
-from core_harness.models.harness import UsageTotals
 from core_harness.persistence import Checkpoint, NullPersistence, Persistence
 from core_harness.tools import Tool
 

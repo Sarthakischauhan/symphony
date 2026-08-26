@@ -8,7 +8,7 @@ from pathlib import Path
 
 from core_ai.types import Message, StreamEvent
 from core_harness import HarnessResult
-from core_harness.models.harness import UsageTotals
+from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
 from coding_agent.learning import LearningLoop, LearningStore

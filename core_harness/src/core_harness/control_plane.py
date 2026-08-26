@@ -1,23 +1,112 @@
-"""Concrete control-plane emitters for recording, fan-out, and persistence."""
+"""Control-plane protocols, event logs, and concrete emitters."""
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+import time
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Union
 
-from core_harness.control_plane.base import (
-    ControlPlane,
-    EventLog,
-    normalize_event_type,
-)
-from core_harness.models.control_plane import (
+from core_harness.models import (
+    EVENT_SCHEMA_VERSION,
     ControlCommand,
     ControlCommandType,
     ControlPlaneEvent,
     ControlPlaneEventType,
 )
 
+# --- base.py ---
+class ControlPlane(Protocol):
+    """Destination for harness lifecycle and tool execution events."""
 
+    async def emit(
+        self,
+        event_type: Union[str, ControlPlaneEventType],
+        payload: Dict[str, Any],
+    ) -> None:
+        ...
+
+
+class InboundControlPlane(ControlPlane, Protocol):
+    """Control plane that also accepts commands from a caller or UI."""
+
+    async def send_command(self, command: ControlCommand) -> None:
+        ...
+
+    async def drain_commands(self) -> List[ControlCommand]:
+        ...
+
+
+class EventLog(Protocol):
+    """Append-only adapter for control-plane events."""
+
+    async def append(self, event: ControlPlaneEvent) -> None:
+        ...
+
+    async def list_events(self) -> List[ControlPlaneEvent]:
+        ...
+
+
+def normalize_event_type(event_type: Union[str, ControlPlaneEventType]) -> str:
+    """Return the string value used by event models and subscribers."""
+    if isinstance(event_type, ControlPlaneEventType):
+        return event_type.value
+    return event_type
+
+# --- event_log.py ---
+class InMemoryEventLog:
+    """Store control-plane events in process memory."""
+
+    def __init__(self) -> None:
+        self._events: List[ControlPlaneEvent] = []
+
+    async def append(self, event: ControlPlaneEvent) -> None:
+        self._events.append(event)
+
+    async def list_events(self) -> List[ControlPlaneEvent]:
+        return list(self._events)
+
+    @property
+    def events(self) -> List[ControlPlaneEvent]:
+        return self._events
+
+# --- identity.py ---
+class IdentifiedControlPlane:
+    """Wrap an inner plane and attach run_id, session_id, seq, ts, schema_version."""
+
+    def __init__(
+        self,
+        inner: ControlPlane,
+        *,
+        run_id: str,
+        session_id: str,
+        schema_version: int = EVENT_SCHEMA_VERSION,
+    ) -> None:
+        self.inner = inner
+        self.run_id = run_id
+        self.session_id = session_id
+        self.schema_version = schema_version
+        self._sequence = 0
+
+    async def emit(
+        self,
+        event_type: Union[str, ControlPlaneEventType],
+        payload: Dict[str, Any],
+    ) -> None:
+        self._sequence += 1
+        stamped = {
+            **(payload or {}),
+            "run_id": self.run_id,
+            "session_id": self.session_id,
+            "seq": self._sequence,
+            "ts": time.time(),
+            "schema_version": self.schema_version,
+        }
+        await self.inner.emit(normalize_event_type(event_type), stamped)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+# --- emitter.py ---
 class NullControlPlane:
     """Recording default emitter that also supports inbound commands."""
 
@@ -169,3 +258,16 @@ class InteractiveControlPlane(NullControlPlane):
             await self.event_log.append(event)
         for subscriber in self._extra_subscribers:
             await subscriber.emit(normalized, payload)
+
+__all__ = [
+    "ControlPlane",
+    "EventLog",
+    "FanoutControlPlane",
+    "IdentifiedControlPlane",
+    "InboundControlPlane",
+    "InMemoryEventLog",
+    "InteractiveControlPlane",
+    "NullControlPlane",
+    "PersistingControlPlane",
+    "normalize_event_type",
+]

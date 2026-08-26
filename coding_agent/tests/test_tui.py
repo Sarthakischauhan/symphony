@@ -20,6 +20,7 @@ from core_harness import HarnessResult
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.commands import (
+    ModelOption,
     SLASH_COMMANDS,
     command_matches,
     find_mode,
@@ -40,11 +41,15 @@ from coding_agent.tui.images import (
     dropped_image_paths,
     render_half_block,
 )
-from coding_agent.tui.modal import ContentModal, DiffModal, ImageModal, PlanModal
-
-from coding_agent.tui.modal.diff import DiffFileCard
-from coding_agent.tui.modal.components import PlanSectionCard
-from coding_agent.tui.modal.plan import _plan_sections
+from coding_agent.tui.modal import (
+    ContentModal,
+    DiffFileCard,
+    DiffModal,
+    ImageModal,
+    PlanModal,
+    PlanSectionCard,
+    _plan_sections,
+)
 from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
@@ -420,7 +425,7 @@ def test_diff_modal_shows_file_names_and_change_stats(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "coding_agent.tui.modal.diff.read_workspace_diff",
+        "coding_agent.tui.modal.read_workspace_diff",
         lambda _workspace: (
             "diff --git a/src/app.py b/src/app.py\n"
             "--- a/src/app.py\n"
@@ -981,12 +986,12 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "plan" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
-    assert find_model("gpt-4.1-mini").id == "openai:gpt-4.1-mini"  # type: ignore[union-attr]
+    assert find_model("gpt-5.6-sol").id == "openai:gpt-5.6-sol"  # type: ignore[union-attr]
     assert find_model("claude-sonnet-5").id == "anthropic:claude-sonnet-5"  # type: ignore[union-attr]
     assert find_model("gemini-3.7-flash").id == "gemini:gemini-3.7-flash"  # type: ignore[union-attr]
     assert find_model("missing") is None
-    assert [model.id for model in model_matches("4.1-m")] == [
-        "openai:gpt-4.1-mini"
+    assert [model.id for model in model_matches("5.6-luna")] == [
+        "openai:gpt-5.6-luna"
     ]
     assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
@@ -1176,6 +1181,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
             model_id="openai:reloaded-model",
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
         ),
+        registry=SimpleNamespace(namespaces=lambda: ("openai",)),
         learning_loop=None,
         set_mode=lambda mode: selected_modes.append(mode),
     )
@@ -1187,8 +1193,8 @@ def test_reload_refreshes_config_without_clearing_conversation(
         built_with.update(kwargs)
         return reloaded_agent
 
-    monkeypatch.setattr("coding_agent.tui.commands.reload.load_dotenv", _load_dotenv)
-    monkeypatch.setattr("coding_agent.tui.commands.reload.build_agent", _build_agent)
+    monkeypatch.setattr("coding_agent.tui.commands.load_dotenv", _load_dotenv)
+    monkeypatch.setattr("coding_agent.tui.commands.build_agent", _build_agent)
 
     async def _run() -> None:
         async with app.run_test() as pilot:
@@ -1275,6 +1281,10 @@ def test_slash_menu_and_commands(
             await pilot.pause()
             fake = FakeAgent()
             app._agent = fake  # type: ignore[assignment]
+            app._model_options = (
+                ModelOption("openai:gpt-5.6-luna", "gpt-5.6-luna", "openai · responses"),
+                ModelOption("openai:gpt-5.6-sol", "gpt-5.6-sol", "openai · responses"),
+            )
 
             prompt = app.query_one("#prompt")
             await pilot.press("tab")
@@ -1291,11 +1301,11 @@ def test_slash_menu_and_commands(
             await pilot.press("tab")
             assert prompt.value == "/model"  # type: ignore[attr-defined]
 
-            prompt.value = "/model 4.1-m"  # type: ignore[attr-defined]
+            prompt.value = "/model 5.6-luna"  # type: ignore[attr-defined]
             await pilot.pause()
             assert app.query_one("#slash-menu", SlashMenu).display
             await pilot.press("tab")
-            assert prompt.value == "/model openai:gpt-4.1-mini"  # type: ignore[attr-defined]
+            assert prompt.value == "/model openai:gpt-5.6-luna"  # type: ignore[attr-defined]
 
             prompt.value = "/model "  # type: ignore[attr-defined]
             await pilot.pause()

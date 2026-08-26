@@ -19,7 +19,7 @@ from core_harness import (
     NullPersistence,
     Tool,
 )
-from core_harness.persistence.checkpoint import Checkpoint
+from core_harness.persistence import Checkpoint
 
 
 IDENTITY_KEYS = ("run_id", "session_id", "seq", "ts", "schema_version")

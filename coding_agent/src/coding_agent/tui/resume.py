@@ -13,7 +13,7 @@ from textual.containers import Container
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
-from coding_agent.tui.styles.resume import RESUME_CSS
+from coding_agent.tui.styles import RESUME_CSS
 from coding_agent.tui.theme import SYMPHONY_RICH_THEME
 from coding_agent.utils.text import clip_text
 

@@ -15,16 +15,16 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import OptionList, Static, TextArea
 
-from coding_agent.agent import AgentMode, CodingAgent
+from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import (
+    CommandManager,
     command_matches,
     mode_matches,
     model_matches,
     model_options,
+    toggle_mode,
 )
-from coding_agent.tui.commands.command_manager import CommandManager
-from coding_agent.tui.commands.mode_switcher import toggle_mode
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
 from coding_agent.tui.events import EventPresenter
 from coding_agent.tui.file_selector import (
@@ -32,13 +32,12 @@ from coding_agent.tui.file_selector import (
     complete_file_mention,
     file_matches,
 )
-from coding_agent.tui.agent_factory import build_agent
 from coding_agent.tui.history import load_session_history
 from coding_agent.tui.images import build_user_content
 from coding_agent.tui.slash_menu import SlashMenu
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
-from coding_agent.tui.styles.app import APP_CSS
+from coding_agent.tui.styles import APP_CSS
 from coding_agent.tui.theme import SYMPHONY_RICH_THEME
 from coding_agent.tui.widgets import (
     AssistantMessage,
@@ -102,7 +101,7 @@ class CodingAgentApp(App[None]):
         self._plan_run_active = False
         self._pending_question_id: str | None = None
         self._pending_question_default = ""
-        self._model_options = ()
+        self._model_options = model_options()
         self._command_manager = CommandManager(self)
 
     def compose(self) -> ComposeResult:

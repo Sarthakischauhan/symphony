@@ -12,8 +12,8 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from core_harness import Tool
 
 
-class WorkspaceTool(ABC):
-    """Base class for tools scoped to a workspace root."""
+class WorkspaceTool(Tool, ABC):
+    """Workspace-scoped tool. Instances are harness tools; no extra wrapper."""
 
     name: str
     description: str
@@ -22,6 +22,11 @@ class WorkspaceTool(ABC):
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
+        super().__init__(
+            name=type(self).name,
+            description=type(self).description,
+            parameters=self.parameters_schema(),
+        )
 
     def resolve_path(self, path: str) -> Path:
         """Resolve a workspace-relative path; reject escapes and bad types."""
@@ -54,58 +59,21 @@ class WorkspaceTool(ABC):
     def run(self, *args: Any, **kwargs: Any) -> str | list[dict[str, Any]]:
         """Execute the tool and return a string or multimodal content for the model."""
 
-    def as_harness_tool(self) -> Tool:
-        """Wrap ``run`` as a ``core_harness.Tool`` with explicit JSON schema."""
-        tool = self
+    async def execute(self, *, control_plane: Any, args: Dict[str, Any]) -> Any:
         run_signature = inspect.signature(self.run)
         accepts_control_plane = "control_plane" in run_signature.parameters
-
-        async def invoke(**kwargs: Any) -> str | list[dict[str, Any]]:
-            control_plane = kwargs.pop("control_plane", None) if accepts_control_plane else None
-            validated = tool.validate_args(**kwargs)
-            result = tool.run(
-                **validated.model_dump(),
-                **({"control_plane": control_plane} if accepts_control_plane else {}),
-            )
-            if inspect.isawaitable(result):
-                result = await result
-            return result
-
-        params = []
-        for field_name, field in self.args_model.model_fields.items():
-            default = (
-                inspect.Parameter.empty
-                if field.is_required()
-                else field.default
-            )
-            annotation = field.annotation if field.annotation is not None else Any
-            params.append(
-                inspect.Parameter(
-                    field_name,
-                    kind=inspect.Parameter.KEYWORD_ONLY,
-                    default=default,
-                    annotation=annotation,
-                )
-            )
-        if accepts_control_plane:
-            params.append(
-                inspect.Parameter(
-                    "control_plane",
-                    kind=inspect.Parameter.KEYWORD_ONLY,
-                    default=None,
-                    annotation=Any,
-                )
-            )
-        invoke.__signature__ = inspect.Signature(params)
-        invoke.__name__ = self.name
-        invoke.__doc__ = self.description
-
-        return Tool(
-            invoke,
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters_schema(),
+        validated = self.validate_args(**args)
+        result = self.run(
+            **validated.model_dump(),
+            **({"control_plane": control_plane} if accepts_control_plane else {}),
         )
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    def as_harness_tool(self) -> Tool:
+        """Return ``self`` — workspace tools already are harness tools."""
+        return self
 
 
 class ToolArgsModel(BaseModel):

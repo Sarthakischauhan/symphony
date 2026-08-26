@@ -208,13 +208,14 @@ persistence. These are the seams for the refactor.
 
 | Target | Responsibility |
 |---|---|
-| `core_harness/state/state.py` | `HarnessState`: context policy and valid message transitions |
+| `core_harness/state.py` | `HarnessState`: context policy, compaction, and valid message transitions |
 | `core_harness/turn.py` | `TurnRunner`: streamed provider events, usage/context events, tool-call decoding, and tool execution for one turn |
-| `core_harness/run.py` | `HarnessRun`: session setup, turn iteration, commands, persistence, and terminal outcomes |
-| `core_harness/harness.py` | Public façade and configuration wiring |
+| `core_harness/harness.py` | `CoreHarness`: configuration plus run loop (session setup, turn iteration, commands, persistence, outcomes) |
+| `core_harness/control_plane.py` | Emitters, identity stamp, event log |
+| `core_harness/tools.py` | `Tool` adapter (subclasses may override `execute`) |
 
 Do not introduce a `ToolManager`; `Tool` remains responsible for schema
-generation and invocation, while `HarnessRun` owns the ordered name lookup for
+generation and invocation. `CoreHarness` owns the ordered name lookup for
 the duration of a run.
 
 ### Migration phases
@@ -228,10 +229,10 @@ the duration of a run.
    and event emission in the run lifecycle.
 3. **Move turn processing into `TurnRunner`.** Keep the event-driven model
    turn and its control-plane emissions together, including tool execution.
-4. **Keep `HarnessRun` focused.** It should coordinate turns, persistence,
+4. **Keep `CoreHarness.run` focused.** It should coordinate turns, persistence,
    commands, and terminal outcomes without interpreting provider events.
-5. **Keep `CoreHarness` thin.** It should configure dependencies, register
-   `Tool` instances, create `HarnessRun`, and expose the existing public API.
+5. **Keep `CoreHarness` as the public type.** It should configure dependencies,
+   register `Tool` instances, and expose the existing public API.
 6. **Verify.** Run the existing suite and preserve event order, persistence
    metadata, cancellation behavior, and the public constructor/run signature.
 

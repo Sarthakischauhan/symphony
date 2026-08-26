@@ -56,6 +56,49 @@ flowchart TD
 
 The harness (Symphony) is standalone and product-agnostic. Agents are separate consumers that plug into the harness's tool and control-plane interfaces — `coding_agent` today, a browser-use agent next. `core_harness` builds on `core_ai`; agents do not extend the harness.
 
+### Source layout
+
+Each package is a small set of modules, one concept per file. Leaf packages of 20-line files are avoided.
+
+```
+core_ai/src/core_ai/
+  content.py          # multimodal parts
+  types.py            # Message, StreamEvent
+  registry.py         # provider:model routing
+  models/             # generated catalog (script-owned)
+  providers/
+    openai.py         # chat + responses + images
+    anthropic.py
+    gemini.py
+    http.py           # SSE + 429 retry
+    defaults.py
+
+core_harness/src/core_harness/
+  harness.py          # CoreHarness config + run loop
+  turn.py             # one model turn
+  tools.py            # Tool adapter
+  control_plane.py    # emit / pause / cancel
+  state.py            # context + compaction
+  models.py           # events, tools, result
+  persistence.py      # protocol + checkpoint
+  errors.py
+
+coding_agent/src/coding_agent/
+  agent.py            # CodingAgent + build_agent
+  tools/              # one file per workspace tool
+  tui/
+    app.py            # Textual app
+    commands.py       # slash catalogs + handlers
+    widgets.py        # transcript, composer, tool cards
+    modal.py          # every modal
+    styles.py         # CSS
+    events.py         # harness event → UI
+    images.py         # drop + image modal
+    ...
+```
+
+A turn is `CodingAgent.run` → `CoreHarness.run` → `TurnRunner` → `ModelRegistry.stream` → `WorkspaceTool.execute`. No façade objects in between.
+
 ## Features
 
 - **Streaming provider layer** — OpenAI Responses / Chat Completions, Anthropic Messages, and Gemini generateContent all stream through the same `Message` / `StreamEvent` contract. Available credentials can be registered automatically and models are addressed as `provider:model`.

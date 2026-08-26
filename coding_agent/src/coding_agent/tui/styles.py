@@ -1,7 +1,321 @@
-"""Textual CSS for the main Symphony application."""
+"""Textual CSS for the coding-agent TUI."""
 
 from __future__ import annotations
 
+# --- modal.py ---
+MODAL_BASE_CSS = """
+#modal-close {
+    dock: right;
+    width: 3;
+    height: 3;
+    color: #a0a0a0;
+    content-align: center middle;
+    background: #101010;
+    border: round #343434;
+}
+
+#modal-close:hover,
+#modal-close:focus {
+    color: #f2d675;
+    background: #303030;
+}
+
+.modal-pane {
+    width: 86%;
+    max-width: 132;
+    height: 84%;
+    padding: 2 3;
+    background: #101010;
+    border: round #383838;
+}
+
+.modal-body {
+    width: 100%;
+    height: 1fr;
+    padding: 1 1 2 1;
+    scrollbar-size: 1 1;
+    scrollbar-color: #343434;
+    scrollbar-color-active: #525252;
+    scrollbar-color-hover: #484848;
+    scrollbar-background: #101010;
+    scrollbar-background-active: #101010;
+    scrollbar-background-hover: #101010;
+}
+
+.content-card {
+    width: 100%;
+    height: auto;
+    margin-bottom: 2;
+    padding: 1 2 2 2;
+    color: #bdbdbd;
+    background: #121212;
+    border-top: solid #303030;
+}
+
+.empty-state {
+    width: 100%;
+    height: auto;
+    padding: 4 5;
+    margin: 2 0;
+    content-align: center middle;
+    text-align: center;
+    background: #121212;
+}
+
+.modal-footer {
+    width: 100%;
+    height: 2;
+    padding: 1 1 0 1;
+    color: #686868;
+    background: #101010;
+}
+"""
+
+
+CONTENT_MODAL_CSS = MODAL_BASE_CSS + """
+ContentModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#content-pane {
+    border: round #38474a;
+}
+
+#content-text {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    color: #d0d0d0;
+    background: #0d0d0d;
+}
+"""
+
+
+IMAGE_MODAL_CSS = MODAL_BASE_CSS + """
+ImageModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#content-pane {
+    border: round #38474a;
+}
+
+#image-title {
+    width: 100%;
+    height: auto;
+    padding: 0 1 1 1;
+    color: #d0d0d0;
+    background: #101010;
+}
+
+#image-preview {
+    width: 100%;
+    height: auto;
+    padding: 1 1;
+    background: #0d0d0d;
+}
+"""
+
+# --- diff.py ---
+DIFF_MODAL_CSS = MODAL_BASE_CSS + """
+DiffModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#diff-pane {
+    width: 92%;
+    max-width: 150;
+    height: 88%;
+    padding: 1 2;
+    background: #101010;
+    border: round #3d3d3d;
+}
+
+#diff-pane #modal-close {
+    background: #101010;
+}
+
+#diff-body {
+    padding: 0 1;
+    background: #101010;
+    scrollbar-color: #343434;
+    scrollbar-color-active: #525252;
+    scrollbar-color-hover: #484848;
+    scrollbar-background: #101010;
+    scrollbar-background-active: #101010;
+    scrollbar-background-hover: #101010;
+}
+
+#diff-hint {
+    text-align: right;
+    background: #101010;
+}
+
+.diff-file-card {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 1 0 0 0;
+    background: #0d0d0d;
+    border-top: solid #333333;
+}
+
+.diff-file-header {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    background: #0d0d0d;
+}
+
+.diff-file-path {
+    width: 1fr;
+    height: 1;
+    color: #d0d0d0;
+    background: #0d0d0d;
+}
+
+.diff-file-stats {
+    width: auto;
+    height: 1;
+    color: #737373;
+    background: #0d0d0d;
+}
+
+.diff-patch {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    padding: 0 1 1 1;
+    background: #0a0a0a;
+}
+"""
+
+# --- learning.py ---
+LEARNING_MODAL_CSS = MODAL_BASE_CSS + """
+LearningModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#learning-pane {
+    border: round #38454b;
+}
+
+#learning-hint {
+    text-align: right;
+}
+
+"""
+
+# --- plan.py ---
+PLAN_MODAL_CSS = MODAL_BASE_CSS + """
+PlanModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#plan-pane {
+    border: round #4a4532;
+}
+
+#plan-body {
+    padding-top: 0;
+}
+
+#plan-hint {
+    width: 1fr;
+    height: 2;
+    padding: 1 0 0 1;
+    color: #686868;
+}
+
+#plan-actions {
+    width: 100%;
+    height: 3;
+    background: #101010;
+}
+
+#plan-build {
+    width: 16;
+    height: 3;
+    padding: 0 1;
+    color: #c7b66e;
+    content-align: center middle;
+    background: #181712;
+    border: round #4a4532;
+}
+
+#plan-build:hover,
+#plan-build:focus {
+    color: #f2d675;
+    background: #302c20;
+}
+
+"""
+
+# --- resume.py ---
+RESUME_CSS = """
+ResumeApp {
+    background: #0a0a0a;
+    color: #d0d0d0;
+}
+
+#resume-page {
+    width: 100%;
+    height: 100%;
+    padding: 1 2 0 2;
+    background: #0a0a0a;
+}
+
+#resume-title {
+    height: 1;
+    color: #ededed;
+    text-style: bold;
+}
+
+#resume-subtitle {
+    height: 2;
+    padding-top: 1;
+    color: #737373;
+}
+
+#resume-list {
+    width: 100%;
+    height: 1fr;
+    margin-top: 1;
+    background: #0a0a0a;
+    border: none;
+    scrollbar-size: 1 1;
+    scrollbar-color: #484848;
+    scrollbar-background: #0a0a0a;
+}
+
+#resume-list:focus {
+    border: none;
+}
+
+#resume-list > .option-list--option {
+    height: 3;
+    padding: 0 2;
+    background: #0a0a0a;
+}
+
+#resume-list > .option-list--option-highlighted {
+    background: #1c1b17;
+    color: #e1c16e;
+}
+
+#resume-hint {
+    height: 1;
+    color: #656565;
+    text-align: right;
+}
+"""
+
+# --- app.py ---
 APP_CSS = """
 $background: #0A0A0A;
 $panel: #171717;
