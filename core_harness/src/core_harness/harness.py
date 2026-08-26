@@ -179,7 +179,15 @@ class CoreHarness:
                     approval_mode=approval_mode or None,
                 )
                 if override is not None:
-                    child_config = override
+                    child_config = ChildConfig(
+                        model_id=override.model_id or child_config.model_id,
+                        max_turns=(
+                            override.max_turns
+                            if override.max_turns is not None
+                            else child_config.max_turns
+                        ),
+                        control_plane=override.control_plane or child_config.control_plane,
+                    )
             if child_config.max_turns is None:
                 child_config.max_turns = default_max_turns
             result = await self.spawn(
@@ -246,14 +254,13 @@ class CoreHarness:
         system_prompt: Optional[str] = None,
         model_id: Optional[str] = None,
         max_turns: Optional[int] = None,
-        control_plane: Optional[ControlPlane] = None,
         child_config: Optional[ChildConfig] = None,
     ) -> HarnessResult:
         """Run a child harness. Lifecycle events stay on the parent plane."""
         cfg = child_config or ChildConfig()
         model_id = model_id or cfg.model_id
         max_turns = max_turns if max_turns is not None else cfg.max_turns
-        child_plane = control_plane or cfg.control_plane or self.control_plane
+        child_plane = cfg.control_plane or self.control_plane
         prompt_text = text_from_content(prompt)
         child_id = str(uuid.uuid4())
         plane = self._parent_plane()

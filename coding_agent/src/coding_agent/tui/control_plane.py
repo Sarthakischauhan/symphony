@@ -61,7 +61,13 @@ class TextualControlPlane:
         self._app = app
 
     def fork(self, *, approvals: Optional[ApprovalConfig] = None) -> "TextualControlPlane":
-        """Child plane: own approval state, same UI sink and parent cancel."""
+        """Child plane: own approval policy, shared composer and parent cancel.
+
+        The TUI has one pending-question slot and answers on the parent plane.
+        Sharing the interaction lock and question futures keeps child
+        ``ask_user`` waiters reachable; isolating ``approvals`` is what prevents
+        a sibling from flipping the parent's mode.
+        """
         child = TextualControlPlane(
             workspace=self.workspace,
             approvals=approvals or self.approvals.model_copy(deep=True),
@@ -69,6 +75,8 @@ class TextualControlPlane:
         child.bind(self._app)
         child.cancel_event = self.cancel_event
         child._cancel_parent = self
+        child._interaction_lock = self._interaction_lock
+        child._question_futures = self._question_futures
         return child
 
     async def emit(

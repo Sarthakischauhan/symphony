@@ -340,6 +340,38 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
     assert any(event.event_type == "run_started" for event in child_plane.events)
 
 
+def test_make_spawn_tool_configure_merges_partial_override() -> None:
+    registry = ScriptedRegistry([_text_turn("merged")])
+    parent_plane = NullControlPlane()
+    child_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:parent-model",
+        system_prompt="parent",
+        control_plane=parent_plane,
+        agent_id="parent-agent",
+    )
+
+    def configure(**kwargs: Any) -> ChildConfig:
+        del kwargs
+        return ChildConfig(control_plane=child_plane)
+
+    harness.register_tool(harness.make_spawn_tool(configure=configure))
+    result = asyncio.run(
+        harness.tools["spawn_agent"].execute(
+            control_plane=parent_plane,
+            args={
+                "prompt": "inspect",
+                "model_id": "fake:child-model",
+                "max_turns": 3,
+            },
+        )
+    )
+    assert "merged" in str(result)
+    assert registry.calls[0]["model_id"] == "fake:child-model"
+    assert any(event.event_type == "run_started" for event in child_plane.events)
+
+
 def test_spawn_caps_child_max_turns() -> None:
     registry = ScriptedRegistry([_text_turn("ok")])
     harness = CoreHarness(
@@ -348,9 +380,20 @@ def test_spawn_caps_child_max_turns() -> None:
         system_prompt="parent",
         agent_id="parent-agent",
     )
-    result = asyncio.run(
-        harness.spawn("go", child_config=ChildConfig(max_turns=10_000))
-    )
+    turns: list[int] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        turns.append(self.max_turns)
+
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            harness.spawn("go", child_config=ChildConfig(max_turns=10_000))
+        )
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
     assert result.output_text == "ok"
-    # spawn_max_turns default is 8; a huge request must not raise, just cap.
     assert harness.config.spawn_max_turns == 8
+    assert turns == [8]

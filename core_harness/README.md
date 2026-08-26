@@ -242,7 +242,7 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`CoreHarness`, `Tool`, `HarnessResult`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, and `HarnessLimitExceeded`.
+`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, and `HarnessLimitExceeded`.
 
 ## Development
 

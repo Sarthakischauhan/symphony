@@ -536,12 +536,25 @@ def test_textual_control_plane_fork_isolates_approvals_and_shares_cancel() -> No
     assert child_ask.approvals.mode == "ask"
     assert child_allow.cancel_event is parent.cancel_event
     assert child_ask.cancel_event is parent.cancel_event
+    assert child_allow._interaction_lock is parent._interaction_lock
+    assert child_ask._question_futures is parent._question_futures
     parent.request_cancel("user_cancel")
     assert parent.cancelled
     assert child_allow.cancelled
     assert child_ask.cancelled
     assert child_allow.cancel_reason == "user_cancel"
 
+
+def test_textual_control_plane_parent_answers_child_question() -> None:
+    parent = TextualControlPlane()
+    child = parent.fork()
+
+    async def _run() -> str:
+        future = child._get_question_future("child-q")
+        await parent.answer_user("child-q", "Allow once")
+        return future.result()
+
+    assert asyncio.run(_run()) == "Allow once"
 
 
 def test_tui_run_agent_turn_delegates_to_agent(tmp_path: Path) -> None:
