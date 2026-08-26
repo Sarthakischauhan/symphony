@@ -25,9 +25,6 @@ from core_harness.utils.tokens import (
 )
 
 
-MAX_PARALLEL_TOOL_CALLS = 3
-
-
 @dataclass
 class TurnResult:
     """Output produced after one model/tool turn completes."""
@@ -60,6 +57,7 @@ class TurnRunner:
         tool_calls_so_far: int = 0,
         deadline: Optional[float] = None,
         max_runtime_seconds: Optional[float] = None,
+        max_parallel_tool_calls: int = 1,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -75,6 +73,7 @@ class TurnRunner:
         self.tool_calls_so_far = tool_calls_so_far
         self.deadline = deadline
         self.max_runtime_seconds = max_runtime_seconds
+        self.max_parallel_tool_calls = max_parallel_tool_calls
 
     def _cancelled(self) -> bool:
         return bool(getattr(self.control_plane, "cancelled", False))
@@ -365,8 +364,8 @@ class TurnRunner:
                 while index < len(tool_calls) and self._tool_is_parallel(tool_calls[index]):
                     batch.append(tool_calls[index])
                     index += 1
-                for offset in range(0, len(batch), MAX_PARALLEL_TOOL_CALLS):
-                    chunk = batch[offset : offset + MAX_PARALLEL_TOOL_CALLS]
+                for offset in range(0, len(batch), self.max_parallel_tool_calls):
+                    chunk = batch[offset : offset + self.max_parallel_tool_calls]
                     results = await asyncio.gather(*[run_one(call) for call in chunk])
                     for call, result in zip(chunk, results):
                         await commit(call, result)
@@ -545,6 +544,21 @@ class TurnRunner:
             )
             await self._emit_tool_result(tool_call, result)
             return result
+
+        approve = getattr(self.control_plane, "approve_tool_call", None)
+        if callable(approve):
+            allowed = await approve(
+                tool_name=tool_call.name,
+                arguments=dict(tool_call.arguments),
+            )
+            if not allowed:
+                result = ToolResult(
+                    status="error",
+                    content="tool call denied by user",
+                    error_type="PermissionError",
+                )
+                await self._emit_tool_result(tool_call, result)
+                return result
 
         await self.control_plane.emit(
             "tool_execution_started",

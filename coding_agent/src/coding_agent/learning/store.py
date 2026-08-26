@@ -9,10 +9,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
 from coding_agent.learning.sanitize import sanitize_task, sanitize_text
-
-MAX_LESSONS = 200
-
 
 @dataclass
 class Lesson:
@@ -29,8 +27,14 @@ class Lesson:
 
 
 class LearningStore:
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(
+        self,
+        workspace: str | Path,
+        *,
+        max_lessons: int = DEFAULT_CODING_AGENT_CONFIG.learning.max_lessons,
+    ) -> None:
         self.path = Path(workspace).resolve() / ".symphony" / "learning" / "lessons.jsonl"
+        self.max_lessons = max_lessons
         self._lock = threading.RLock()
 
     def append(self, lesson: Lesson) -> None:
@@ -48,7 +52,7 @@ class LearningStore:
             key = clean.summary.casefold()
             lessons = [item for item in lessons if item.summary.casefold() != key]
             lessons.append(clean)
-            self._rewrite(lessons[-MAX_LESSONS:])
+            self._rewrite(lessons[-self.max_lessons :])
 
     def load(self) -> list[Lesson]:
         if not self.path.exists():

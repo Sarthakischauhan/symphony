@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Union
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Union
 
 from core_harness.models import (
     EVENT_SCHEMA_VERSION,
@@ -16,7 +16,7 @@ from core_harness.models import (
 
 # --- base.py ---
 class ControlPlane(Protocol):
-    """Destination for harness lifecycle and tool execution events."""
+    """Runtime orchestration boundary; ``emit`` is its minimum capability."""
 
     async def emit(
         self,
@@ -30,6 +30,34 @@ class InboundControlPlane(ControlPlane, Protocol):
     """Control plane that also accepts commands from a caller or UI."""
 
     async def send_command(self, command: ControlCommand) -> None:
+        ...
+
+
+Emit = Callable[[str, Dict[str, Any]], Awaitable[None]]
+
+
+class InteractiveControlPlaneProtocol(ControlPlane, Protocol):
+    """Control plane that owns user interaction and tool authorization."""
+
+    async def request_user_input(
+        self,
+        *,
+        question: str,
+        choices: Sequence[str] = (),
+        default: str = "",
+        kind: str = "question",
+        metadata: Optional[Dict[str, Any]] = None,
+        emit: Optional[Emit] = None,
+    ) -> str:
+        ...
+
+    async def approve_tool_call(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        emit: Optional[Emit] = None,
+    ) -> bool:
         ...
 
     async def drain_commands(self) -> List[ControlCommand]:
@@ -109,6 +137,49 @@ class IdentifiedControlPlane:
         }
         await self.inner.emit(normalize_event_type(event_type), stamped)
 
+    async def request_user_input(
+        self,
+        *,
+        question: str,
+        choices: Sequence[str] = (),
+        default: str = "",
+        kind: str = "question",
+        metadata: Optional[Dict[str, Any]] = None,
+        emit: Optional[Emit] = None,
+    ) -> str:
+        request = getattr(self.inner, "request_user_input", None)
+        if not callable(request):
+            return default
+        return str(
+            await request(
+                question=question,
+                choices=choices,
+                default=default,
+                kind=kind,
+                metadata=metadata,
+                emit=emit or self.emit,
+            )
+            or ""
+        )
+
+    async def approve_tool_call(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        emit: Optional[Emit] = None,
+    ) -> bool:
+        approve = getattr(self.inner, "approve_tool_call", None)
+        if not callable(approve):
+            return True
+        return bool(
+            await approve(
+                tool_name=tool_name,
+                arguments=arguments,
+                emit=emit or self.emit,
+            )
+        )
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)
 
@@ -168,6 +239,29 @@ class NullControlPlane:
         self.events.append(
             ControlPlaneEvent.typed(normalize_event_type(event_type), payload)
         )
+
+    async def request_user_input(
+        self,
+        *,
+        question: str,
+        choices: Sequence[str] = (),
+        default: str = "",
+        kind: str = "question",
+        metadata: Optional[Dict[str, Any]] = None,
+        emit: Optional[Emit] = None,
+    ) -> str:
+        del question, choices, kind, metadata, emit
+        return default
+
+    async def approve_tool_call(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        emit: Optional[Emit] = None,
+    ) -> bool:
+        del tool_name, arguments, emit
+        return True
 
     async def send_command(self, command: ControlCommand) -> None:
         if command.type == ControlCommandType.RESUME:
@@ -273,6 +367,7 @@ __all__ = [
     "InboundControlPlane",
     "InMemoryEventLog",
     "InteractiveControlPlane",
+    "InteractiveControlPlaneProtocol",
     "NullControlPlane",
     "PersistingControlPlane",
     "normalize_event_type",

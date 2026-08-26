@@ -41,7 +41,7 @@ def main() -> None:
         action="store_false",
         help="Disable post-run learning / reflection",
     )
-    parser.set_defaults(enable_learning=True)
+    parser.set_defaults(enable_learning=None)
     args = parser.parse_args()
     workspace = Path(args.workspace or ".").resolve()
     session_id = None

@@ -14,10 +14,10 @@ flowchart TD
         direction TB
         U["user message"] --> M["model (stream)"]
         M --> TC["tool calls"]
-        TC --> RT["run tools"]
+        TC --> CP["control plane"]
+        CP --> RT["authorize + run tools"]
         RT --> M
         TC --> FR["final reply"]
-        M -. "emits events" .-> CP["control plane"]
         CP --> CTX["context mgmt"]
         CP --> PER["persistence"]
     end
@@ -104,7 +104,7 @@ A turn is `CodingAgent.run` → `CoreHarness.run` → `TurnRunner` → `ModelReg
 - **Streaming provider layer** — OpenAI Responses / Chat Completions, Anthropic Messages, and Gemini generateContent all stream through the same `Message` / `StreamEvent` contract. Available credentials can be registered automatically and models are addressed as `provider:model`.
 - **Model catalog** — a generated, package-shipped catalog records each model's provider and API family. Builds refresh it from provider model endpoints when credentials are available and retain the checked-in snapshot otherwise.
 - **Turn-based harness** — multi-turn tool calls, tool schema generation, and a typed control-plane event stream (thinking, `text_delta`, tool calls, usage, context). Every event carries `run_id`, `session_id`, a sequence number, timestamp, and schema version. Runs can cap turns, tool calls, runtime, and tokens.
-- **Control plane** — every UI subscribes to the same emit stream; supports fan-out, event logs, and inbound pause/cancel commands. Cancel stops the active model stream and tool execution, then persists `run_cancelled`.
+- **Control plane** — owns runtime interaction policy as well as the event stream: tool authorization, user questions, always-allow mode, fan-out, event logs, and inbound pause/cancel commands. Cancel stops the active model stream and tool execution, then persists `run_cancelled`.
 - **Coding agent** — workspace tools (`read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`), `@file` composer search, streamed/capped bash, approval prompts before bash/overwrite/broad patch, a Textual TUI (Esc cancels), safer run limits, and 900-token-capped learning.
 
 - **Context management** — warn thresholds, token estimation, and pluggable compaction.

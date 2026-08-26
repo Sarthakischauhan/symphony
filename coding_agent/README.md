@@ -109,6 +109,18 @@ Runs default to 24 turns, 40 tool calls, and 10 minutes, with no aggregate token
 failure limit. Provider 429 responses remain in a live Working state and retry after
 the server-requested delay.
 
+### Configuration
+
+Runtime policy is loaded from `<workspace>/.symphony/config.json`. The file is a
+partial overlay: omitted values retain the packaged defaults. See
+[`config.example.json`](./config.example.json) for the complete user-facing shape.
+
+Approval is owned by the control plane, not by wrapped tools. Set
+`approvals.mode` to `"ask"` for interactive gates or `"always_allow"` to let the
+control plane authorize every tool call without showing a prompt. Harness limits,
+spawn depth/concurrency, tool I/O bounds, approval thresholds, and learning bounds
+are configurable in the same file.
+
 ### Learning
 
 Learning is enabled by default. After a successful run returns, a background

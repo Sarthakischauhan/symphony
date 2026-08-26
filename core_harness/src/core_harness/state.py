@@ -6,6 +6,7 @@ import json
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
 
 from core_ai.types import Content, Message
+from core_harness.config import DEFAULT_HARNESS_CONFIG
 from core_harness.models import ToolCall
 from core_harness.utils.tokens import estimate_prompt_tokens
 
@@ -112,23 +113,7 @@ class KeepSystemRecentCompactor:
         return ([system] if system is not None else []) + recent
 
 # --- state.py ---
-DEFAULT_CONTEXT_LIMITS = {
-    "gpt-5.6-luna": 400000,
-    "gpt-5.4-mini": 400000,
-    "gpt-4o": 128000,
-    "gpt-4o-mini": 128000,
-    "gpt-4.1": 1047576,
-    "gpt-4.1-mini": 1047576,
-    "gpt-4.1-nano": 1047576,
-    "claude-fable-5": 200000,
-    "claude-haiku-4-5": 200000,
-    "claude-opus-5": 200000,
-    "claude-sonnet-5": 200000,
-    "gemini-3.1-pro-preview": 1048576,
-    "gemini-3.5-flash": 1048576,
-    "gemini-3.6-flash": 1048576,
-    "gemini-3.7-flash": 1048576,
-}
+DEFAULT_CONTEXT_LIMITS = DEFAULT_HARNESS_CONFIG.context_limits
 
 
 EmitEvent = Callable[[str, Dict[str, Any]], Awaitable[None]]

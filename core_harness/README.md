@@ -168,6 +168,11 @@ Children get a fresh conversation, `NullPersistence`, and the parent tool set mi
 
 ## Limits and cancellation
 
+Engine-owned defaults are loaded from `core_harness/defaults.json`. Applications
+can load an override with `load_harness_config(path)` and pass the resulting
+`HarnessConfig` to `CoreHarness(config=...)`. Shared product config files may put
+these values under a top-level `harness` object.
+
 Configure safeguards either with individual arguments or with a `RunLimits` object:
 
 ```python
@@ -212,7 +217,11 @@ Available control-plane adapters include:
 - `IdentifiedControlPlane` — adds `run_id`, `session_id`, `agent_id`, `parent_id`, sequence, timestamp, and schema-version metadata to each event.
 - `InMemoryEventLog` — a simple event-log implementation for tests and local use.
 
-For custom integrations, implement the `ControlPlane` protocol's asynchronous `emit(event_type, payload)` method. Inbound implementations can additionally implement `send_command` and `drain_commands`.
+For observation-only integrations, implement the `ControlPlane` protocol's
+asynchronous `emit(event_type, payload)` method. Interactive control planes can
+also implement `request_user_input(...)` and `approve_tool_call(...)`; the harness
+calls the approval gate before invoking a registered tool. Inbound implementations
+can additionally implement `send_command` and `drain_commands`.
 
 ## Context management
 

@@ -13,14 +13,12 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 from core_harness import HarnessResult
 
+from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
 from coding_agent.learning.prompts import REVIEWER_SYSTEM_PROMPT
 from coding_agent.learning.sanitize import sanitize_task, sanitize_text
 from coding_agent.learning.store import LearningStore, Lesson
 
 logger = logging.getLogger(__name__)
-LEARNING_MAX_OUTPUT_TOKENS = 900
-
-
 class LearningReview(BaseModel):
     should_save: bool = False
     summary: str = ""
@@ -37,7 +35,7 @@ class LearningLoop:
         *,
         registry: ModelRegistry,
         model_id: str,
-        max_output_tokens: int = LEARNING_MAX_OUTPUT_TOKENS,
+        max_output_tokens: int = DEFAULT_CODING_AGENT_CONFIG.learning.max_output_tokens,
     ) -> None:
         self.store = store
         self.registry = registry

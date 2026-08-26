@@ -8,11 +8,14 @@ emits through ``CoreHarness``.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional, Union
+import uuid
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
 from textual.message import Message
 
 from core_harness import ControlCommand, ControlCommandType, ControlPlaneEventType
+from coding_agent.config import ApprovalConfig, DEFAULT_CODING_AGENT_CONFIG
 
 
 class HarnessEvent(Message):
@@ -36,10 +39,18 @@ ControlPlaneEvent = HarnessEvent
 
 
 class TextualControlPlane:
-    """Harness ``ControlPlane`` adapter that posts events into Textual."""
+    """Interactive control plane for events, questions, and tool authorization."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        workspace: str | Path = ".",
+        approvals: Optional[ApprovalConfig] = None,
+    ) -> None:
         self._app: Any = None
+        self.workspace = Path(workspace).resolve()
+        self.approvals = approvals or DEFAULT_CODING_AGENT_CONFIG.approvals
+        self._interaction_lock = asyncio.Lock()
         self._question_futures: dict[str, asyncio.Future[str]] = {}
         self._cancelled = False
         self._cancel_reason = "cancelled"
@@ -103,6 +114,93 @@ class TextualControlPlane:
             return await future
         finally:
             self._question_futures.pop(request_id, None)
+
+    async def request_user_input(
+        self,
+        *,
+        question: str,
+        choices: Sequence[str] = (),
+        default: str = "",
+        kind: str = "question",
+        metadata: Optional[Dict[str, Any]] = None,
+        emit: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> str:
+        """Publish a question and wait for the UI answer on the same plane."""
+        if self._app is None:
+            return default
+        async with self._interaction_lock:
+            request_id = uuid.uuid4().hex
+            publish = emit or self.emit
+            await publish(
+                "question_asked",
+                {
+                    "request_id": request_id,
+                    "question": question,
+                    "choices": list(choices),
+                    "default": default,
+                    "kind": kind,
+                    **(metadata or {}),
+                },
+            )
+            return await self.ask_user(request_id)
+
+    def set_approval_mode(self, mode: str) -> None:
+        """Change approval policy without changing or wrapping any tools."""
+        self.approvals = ApprovalConfig.model_validate(
+            {**self.approvals.model_dump(), "mode": mode}
+        )
+
+    async def approve_tool_call(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        emit: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> bool:
+        """Apply product policy and, when needed, ask through this control plane."""
+        if self.approvals.mode == "always_allow":
+            return True
+        prompt = self._approval_prompt(tool_name, arguments)
+        if not prompt:
+            return True
+        answer = await self.request_user_input(
+            question=prompt,
+            choices=("Allow once", "Deny"),
+            default="Allow once",
+            kind="approval",
+            metadata={"tool_name": tool_name},
+            emit=emit,
+        )
+        return answer.strip().lower() in self.approvals.allow_answers
+
+    def _approval_prompt(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        if tool_name == "bash" and self.approvals.require_for_bash:
+            command = str(arguments.get("command") or "").strip()
+            return f"Allow bash command once?\n`{command}`"
+        if tool_name in {"write_file", "generate_image"}:
+            path = str(arguments.get("path") or "").strip()
+            if (
+                self.approvals.require_for_overwrite
+                and path
+                and self._exists_in_workspace(path)
+            ):
+                return f"Overwrite existing file `{path}`?"
+            return ""
+        if tool_name == "patch" and self.approvals.require_for_broad_patch:
+            path = str(arguments.get("path") or "").strip()
+            old = str(arguments.get("old_str") or arguments.get("old_string") or "")
+            replace_all = bool(arguments.get("replace_all"))
+            if replace_all or len(old) > self.approvals.broad_patch_chars:
+                kind = "global" if replace_all else "large"
+                return f"Apply a {kind} patch to `{path}`?"
+        return ""
+
+    def _exists_in_workspace(self, path: str) -> bool:
+        try:
+            target = (self.workspace / path).resolve()
+            return target.is_relative_to(self.workspace) and target.exists()
+        except OSError:
+            return False
 
     def _get_question_future(self, request_id: str) -> asyncio.Future[str]:
         future = self._question_futures.get(request_id)

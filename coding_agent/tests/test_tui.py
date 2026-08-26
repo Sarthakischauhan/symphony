@@ -50,7 +50,7 @@ from coding_agent.tui.modal import (
     PlanSectionCard,
     _plan_sections,
 )
-from coding_agent.tui.subagent import SubagentScreen, SubagentWidget
+from coding_agent.tui.subagent import SubagentRecord, SubagentScreen, SubagentWidget
 from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
@@ -1164,6 +1164,93 @@ def test_permission_question_has_distinct_secure_design(
             await pilot.pause()
             assert answer.result() == "Allow once"
             assert app.query_one("#prompt").value == ""
+
+    asyncio.run(_run())
+
+
+def test_subagent_approval_question_uses_parent_approval_menu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            answer = app.control_plane._get_question_future("child-approval-1")
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "question_asked",
+                    {
+                        "request_id": "child-approval-1",
+                        "question": "Allow bash command once?\n`uv run pytest`",
+                        "choices": ["Allow once", "Deny"],
+                        "default": "Allow once",
+                        "kind": "approval",
+                        "tool_name": "bash",
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                    },
+                )
+            )
+            await pilot.pause()
+
+            menu = app.query_one("#approval-menu", SlashMenu)
+            assert menu.display
+            assert app._pending_question_id == "child-approval-1"
+            assert app._subagents["child-1"].events[-1][0] == "question_asked"
+
+            assert await pilot.click(menu, offset=(4, 4))
+            await pilot.pause()
+            assert answer.result() == "Allow once"
+
+    asyncio.run(_run())
+
+
+def test_subagent_approval_closes_nested_screen_before_prompting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            record = SubagentRecord(
+                agent_id="child-1",
+                parent_id="parent-1",
+                label="run tests",
+                prompt="Run the test suite.",
+            )
+            app._subagents[record.agent_id] = record
+            app.open_subagent(record)
+            await pilot.pause()
+            assert isinstance(app.screen, SubagentScreen)
+
+            answer = app.control_plane._get_question_future("child-approval-2")
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "question_asked",
+                    {
+                        "request_id": "child-approval-2",
+                        "question": "Allow bash command once?\n`pytest`",
+                        "choices": ["Allow once", "Deny"],
+                        "default": "Allow once",
+                        "kind": "approval",
+                        "tool_name": "bash",
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                    },
+                )
+            )
+            await pilot.pause()
+
+            assert not isinstance(app.screen, SubagentScreen)
+            assert app.query_one("#approval-menu", SlashMenu).display
+            assert app._pending_question_id == "child-approval-2"
+
+            await app._answer_question("Deny")
+            assert answer.result() == "Deny"
 
     asyncio.run(_run())
 

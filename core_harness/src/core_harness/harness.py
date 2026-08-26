@@ -10,6 +10,7 @@ from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 
+from core_harness.config import DEFAULT_HARNESS_CONFIG, HarnessConfig
 from core_harness.control_plane import ControlPlane, IdentifiedControlPlane, NullControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import (
@@ -20,19 +21,14 @@ from core_harness.models import (
     UsageTotals,
 )
 from core_harness.persistence import Checkpoint, NullPersistence, Persistence
-from core_harness.state import Compactor, HarnessState, normalize_tool_protocol
+from core_harness.state import (
+    Compactor,
+    HarnessState,
+    KeepSystemRecentCompactor,
+    normalize_tool_protocol,
+)
 from core_harness.tools import Tool
 from core_harness.turn import TurnRunner
-
-DEFAULT_MAX_SPAWN_DEPTH = 1
-DEFAULT_SPAWN_MAX_TURNS = 8
-DEFAULT_MAX_CONCURRENT_SPAWNS = 3
-SUBAGENT_SYSTEM_PROMPT = (
-    "You are a subagent spawned to complete one focused task. "
-    "Use tools as needed. Do not ask the user. "
-    "Return a concise, complete answer for the parent agent."
-)
-
 
 class CoreHarness:
     """Configured harness: tools, limits, persistence, and one-run execution."""
@@ -47,22 +43,39 @@ class CoreHarness:
         control_plane: Optional[ControlPlane] = None,
         persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
-        max_turns: int = 8,
-        max_tool_calls: Optional[int] = None,
-        max_runtime_seconds: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        config: Optional[HarnessConfig] = None,
+        max_turns: int = DEFAULT_HARNESS_CONFIG.max_turns,
+        max_tool_calls: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tool_calls,
+        max_runtime_seconds: Optional[float] = DEFAULT_HARNESS_CONFIG.max_runtime_seconds,
+        max_tokens: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tokens,
         limits: Optional[RunLimits] = None,
         context_limits: Optional[Dict[str, int]] = None,
         context_warn_threshold: Optional[int] = None,
         context_compact_threshold: Optional[int] = None,
         compactor: Optional[Compactor] = None,
-        tool_result_max_chars: Optional[int] = 12_000,
+        tool_result_max_chars: Optional[int] = DEFAULT_HARNESS_CONFIG.tool_result_max_chars,
         context_target_tokens: Optional[int] = None,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
         spawn_depth: int = 0,
-        max_spawn_depth: int = DEFAULT_MAX_SPAWN_DEPTH,
+        max_spawn_depth: int = DEFAULT_HARNESS_CONFIG.max_spawn_depth,
     ) -> None:
+        self.config = config or DEFAULT_HARNESS_CONFIG
+        if config is not None:
+            max_turns = config.max_turns
+            max_tool_calls = config.max_tool_calls
+            max_runtime_seconds = config.max_runtime_seconds
+            max_tokens = config.max_tokens
+            context_limits = config.context_limits
+            context_warn_threshold = config.context_warn_threshold
+            context_compact_threshold = config.context_compact_threshold
+            tool_result_max_chars = config.tool_result_max_chars
+            context_target_tokens = config.context_target_tokens
+            max_spawn_depth = config.max_spawn_depth
+            if compactor is None and context_compact_threshold is not None:
+                compactor = KeepSystemRecentCompactor(
+                    keep_recent=config.compaction_keep_recent
+                )
         self.registry = registry
         self.model_id = model_id
         self.system_prompt = system_prompt
@@ -200,12 +213,12 @@ class CoreHarness:
 
         child_tools = tools if tools is not None else self._child_tools(exclude_tools)
         child_turns = max_turns if max_turns is not None else min(
-            self.max_turns, DEFAULT_SPAWN_MAX_TURNS
+            self.max_turns, self.config.spawn_max_turns
         )
         child = CoreHarness(
             registry=self.registry,
             model_id=model_id or self.model_id,
-            system_prompt=system_prompt or SUBAGENT_SYSTEM_PROMPT,
+            system_prompt=system_prompt or self.config.subagent_system_prompt,
             tools=child_tools,
             control_plane=self.control_plane,
             persistence=NullPersistence(),
@@ -332,6 +345,7 @@ class CoreHarness:
             max_tool_calls=self.limits.max_tool_calls,
             deadline=deadline,
             max_runtime_seconds=self.limits.max_runtime_seconds,
+            max_parallel_tool_calls=self.config.max_parallel_tool_calls,
         )
 
         try:
@@ -577,10 +591,6 @@ class CoreHarness:
 
 __all__ = [
     "CoreHarness",
-    "DEFAULT_MAX_CONCURRENT_SPAWNS",
-    "DEFAULT_MAX_SPAWN_DEPTH",
-    "DEFAULT_SPAWN_MAX_TURNS",
     "HarnessCancelled",
     "HarnessLimitExceeded",
-    "SUBAGENT_SYSTEM_PROMPT",
 ]

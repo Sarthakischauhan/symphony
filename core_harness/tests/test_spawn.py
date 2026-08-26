@@ -7,7 +7,7 @@ from typing import Any
 
 from core_ai.types import Message, StreamEvent
 from core_harness import CoreHarness, NullControlPlane, Tool
-from core_harness.harness import SUBAGENT_SYSTEM_PROMPT
+from core_harness.config import DEFAULT_HARNESS_CONFIG
 
 
 class ScriptedRegistry:
@@ -112,7 +112,8 @@ def test_spawn_emits_parent_and_child_identity() -> None:
     )
 
     child_calls = [call for call in registry.calls if any(
-        message.role == "system" and SUBAGENT_SYSTEM_PROMPT in str(message.content)
+        message.role == "system"
+        and DEFAULT_HARNESS_CONFIG.subagent_system_prompt in str(message.content)
         for message in call["messages"]
     )]
     assert child_calls
@@ -256,4 +257,3 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
     assert any("auth ok" in text for text in tool_results)
     assert any("db ok" in text for text in tool_results)
     assert "both done" in result.output_text
-
