@@ -161,7 +161,7 @@ result = await parent.spawn(
 )
 ```
 
-`make_spawn_tool(configure=...)` lets a product map model arguments onto a `ChildConfig` — for example a forked UI control plane with its own approval lock. Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`. Multiple `spawn_agent` calls in one turn run concurrently (up to three).
+`make_spawn_tool(configure=...)` lets a product map model arguments onto a `ChildConfig` — for example a forked UI control plane that auto-approves child tools. Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`. Multiple `spawn_agent` calls in one turn run concurrently (up to three).
 
 ## Limits and cancellation
 

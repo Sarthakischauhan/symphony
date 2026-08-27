@@ -325,12 +325,10 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
                 "label": "auth",
                 "model_id": "fake:child-model",
                 "max_turns": 3,
-                "approval_mode": "ask",
             },
         )
     )
     assert "configured" in str(result)
-    assert seen[0]["approval_mode"] == "ask"
     assert seen[0]["model_id"] == "fake:child-model"
     assert seen[0]["max_turns"] == 3
     assert [event.event_type for event in parent_plane.events] == [
