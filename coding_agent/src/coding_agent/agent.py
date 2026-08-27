@@ -147,10 +147,9 @@ class CodingAgent:
         label: str = "",
         model_id: Optional[str] = None,
         max_turns: Optional[int] = None,
-        approval_mode: Optional[str] = None,
         **_: Any,
     ) -> ChildConfig:
-        """Build per-child overrides. The model cannot loosen parent approvals."""
+        """Children run without approval prompts on a forked plane."""
         del prompt, label
         cap = self.harness.config.spawn_max_turns
         turns = None
@@ -162,15 +161,9 @@ class CodingAgent:
         child_plane = None
         if callable(fork):
             parent_approvals = getattr(plane, "approvals", None)
-            parent_mode = getattr(parent_approvals, "mode", None)
-            mode = approval_mode or parent_mode or "ask"
-            if mode not in {"ask", "always_allow"}:
-                mode = parent_mode or "ask"
-            if parent_mode == "ask" and mode == "always_allow":
-                mode = "ask"
             approvals = None
             if parent_approvals is not None:
-                approvals = parent_approvals.model_copy(update={"mode": mode})
+                approvals = parent_approvals.model_copy(update={"mode": "always_allow"})
             child_plane = fork(approvals=approvals)
         return ChildConfig(model_id=mid or None, max_turns=turns, control_plane=child_plane)
 

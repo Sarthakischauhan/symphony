@@ -31,7 +31,7 @@ The agent intentionally exposes a small workspace tool surface:
 - `patch` performs unique-match exact-text edits.
 - `search` finds file names or literal/regex content with path and glob filters.
 - `bash` runs workspace-scoped shell commands with streamed, capped output, a timeout, and process-group cleanup.
-- `spawn_agent` starts a child harness run for a focused subtask. Call it more than once in the same turn to run up to three children in parallel. Optional `model_id`, `max_turns`, and `approval_mode` apply to that child only. `always_allow` is ignored unless the parent already allows it. Click the Subagent row to open a nested session that uses the same transcript chrome as the parent.
+- `spawn_agent` starts a child harness run for a focused subtask. Call it more than once in the same turn to run up to three children in parallel. Optional `model_id` and `max_turns` apply to that child only. Children run without approval prompts; the parent approval mode is unchanged. Click the Subagent row to open a nested session that uses the same transcript chrome as the parent.
 
 
 Repository context is discovered incrementally with `search` and `read_file`; the

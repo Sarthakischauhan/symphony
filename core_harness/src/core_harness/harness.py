@@ -164,7 +164,6 @@ class CoreHarness:
             label: str = "",
             model_id: str = "",
             max_turns: int = 0,
-            approval_mode: str = "",
         ) -> str:
             child_config = ChildConfig(
                 model_id=model_id or None,
@@ -176,7 +175,6 @@ class CoreHarness:
                     label=label,
                     model_id=model_id or None,
                     max_turns=max_turns or None,
-                    approval_mode=approval_mode or None,
                 )
                 if override is not None:
                     child_config = ChildConfig(
@@ -206,9 +204,8 @@ class CoreHarness:
                 "Spawn a child agent for a focused subtask. Call this multiple "
                 "times in one turn to run up to three independent children in "
                 "parallel. Optionally set model_id and max_turns for that child. "
-                "approval_mode may be ask or always_allow; always_allow is only "
-                "honored if the parent already allows it. Children cannot spawn "
-                "further agents."
+                "Children run without approval prompts and cannot spawn further "
+                "agents."
             ),
             parameters={
                 "type": "object",
@@ -228,14 +225,6 @@ class CoreHarness:
                     "max_turns": {
                         "type": "integer",
                         "description": "Optional turn cap for the child, limited by spawn_max_turns.",
-                    },
-                    "approval_mode": {
-                        "type": "string",
-                        "enum": ["ask", "always_allow"],
-                        "description": (
-                            "Optional child approval policy. always_allow is "
-                            "ignored unless the parent is already always_allow."
-                        ),
                     },
                 },
                 "required": ["prompt"],

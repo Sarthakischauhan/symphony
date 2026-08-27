@@ -42,7 +42,7 @@ def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> 
     assert "read_file" in agent.harness.tools
 
 
-def test_coding_agent_clamps_child_always_allow_when_parent_asks(tmp_path: Path) -> None:
+def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
     from coding_agent.tui.control_plane import TextualControlPlane
 
     plane = TextualControlPlane(workspace=tmp_path)
@@ -56,7 +56,6 @@ def test_coding_agent_clamps_child_always_allow_when_parent_asks(tmp_path: Path)
     )
     cfg = agent._spawn_child_config(
         prompt="x",
-        approval_mode="always_allow",
         max_turns=99,
         model_id=" fake:child ",
     )
@@ -64,11 +63,19 @@ def test_coding_agent_clamps_child_always_allow_when_parent_asks(tmp_path: Path)
     assert cfg.max_turns == agent.harness.config.spawn_max_turns
     assert cfg.control_plane is not None
     assert cfg.control_plane is not plane
-    assert cfg.control_plane.approvals.mode == "ask"
+    assert cfg.control_plane.approvals.mode == "always_allow"
+    assert plane.approvals.mode == "ask"
     assert cfg.control_plane.cancel_event is plane.cancel_event
+    allowed = asyncio.run(
+        cfg.control_plane.approve_tool_call(
+            tool_name="bash",
+            arguments={"command": "ls"},
+        )
+    )
+    assert allowed is True
 
 
-def test_coding_agent_child_may_use_always_allow_if_parent_does(tmp_path: Path) -> None:
+def test_coding_agent_child_stays_autonomous_if_parent_already_allows(tmp_path: Path) -> None:
     from coding_agent.tui.control_plane import TextualControlPlane
 
     plane = TextualControlPlane(workspace=tmp_path)
@@ -81,12 +88,10 @@ def test_coding_agent_child_may_use_always_allow_if_parent_does(tmp_path: Path) 
         enable_learning=False,
         auto_approve=True,
     )
-    cfg = agent._spawn_child_config(approval_mode="always_allow")
+    cfg = agent._spawn_child_config()
     assert cfg.control_plane is not None
     assert cfg.control_plane.approvals.mode == "always_allow"
-    stricter = agent._spawn_child_config(approval_mode="ask")
-    assert stricter.control_plane is not None
-    assert stricter.control_plane.approvals.mode == "ask"
+    assert plane.approvals.mode == "always_allow"
 
 load_dotenv(override=True)
 
