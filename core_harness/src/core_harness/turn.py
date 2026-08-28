@@ -57,6 +57,7 @@ class TurnRunner:
         tool_calls_so_far: int = 0,
         deadline: Optional[float] = None,
         max_runtime_seconds: Optional[float] = None,
+        max_parallel_tool_calls: int = 1,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -72,6 +73,7 @@ class TurnRunner:
         self.tool_calls_so_far = tool_calls_so_far
         self.deadline = deadline
         self.max_runtime_seconds = max_runtime_seconds
+        self.max_parallel_tool_calls = max_parallel_tool_calls
 
     def _cancelled(self) -> bool:
         return bool(getattr(self.control_plane, "cancelled", False))
@@ -283,54 +285,7 @@ class TurnRunner:
         tool_calls = self._build_tool_calls(pending_calls)
         if tool_calls:
             self.state.add_assistant_message(messages, assistant_text, tool_calls)
-            cancelled_rest = False
-            limit_error: Optional[HarnessLimitExceeded] = None
-            for tool_call in tool_calls:
-                if limit_error is not None:
-                    result = ToolResult(
-                        status="error",
-                        content=f"max_tool_calls={self.max_tool_calls} exceeded",
-                        error_type="HarnessLimitExceeded",
-                    )
-                    await self._emit_tool_result(tool_call, result)
-                elif cancelled_rest or self._cancelled():
-                    result = ToolResult(status="cancelled", content=self._cancel_reason())
-                    cancelled_rest = True
-                    await self._emit_tool_result(tool_call, result)
-                elif (
-                    self.max_tool_calls is not None
-                    and self.tool_calls_so_far >= self.max_tool_calls
-                ):
-                    result = ToolResult(
-                        status="error",
-                        content=f"max_tool_calls={self.max_tool_calls} exceeded",
-                        error_type="HarnessLimitExceeded",
-                    )
-                    limit_error = HarnessLimitExceeded(
-                        "max_tool_calls",
-                        float(self.tool_calls_so_far + 1),
-                        float(self.max_tool_calls),
-                        f"Harness exceeded max_tool_calls={self.max_tool_calls}",
-                    )
-                    await self._emit_tool_result(tool_call, result)
-                else:
-                    result = await self._execute_tool(tool_call)
-                    self.tool_calls_so_far += 1
-                    if result.status == "cancelled":
-                        cancelled_rest = True
-                    elif (
-                        result.status == "timeout"
-                        and self.deadline is not None
-                        and time.monotonic() >= self.deadline
-                    ):
-                        limit_error = self._runtime_exceeded_error()
-                tool_call.result_status = result.status
-                bounded = self._limit_tool_output(result.for_model())
-                self.state.add_tool_message(messages, tool_call, bounded)
-            if limit_error is not None:
-                raise limit_error
-            if cancelled_rest:
-                raise HarnessCancelled(self._cancel_reason())
+            await self._run_tool_calls(messages, tool_calls)
         else:
             self.state.add_assistant_message(messages, assistant_text)
 
@@ -342,6 +297,88 @@ class TurnRunner:
             context_left=context_left,
             message_sizes=message_sizes,
         )
+
+    def _tool_is_parallel(self, tool_call: ToolCall) -> bool:
+        tool = self.tools.get(tool_call.name)
+        return bool(getattr(tool, "parallel", False))
+
+    async def _run_tool_calls(
+        self,
+        messages: List[Message],
+        tool_calls: List[ToolCall],
+    ) -> None:
+        cancelled_rest = False
+        limit_error: Optional[HarnessLimitExceeded] = None
+
+        async def run_one(tool_call: ToolCall) -> ToolResult:
+            nonlocal cancelled_rest, limit_error
+            if limit_error is not None:
+                result = ToolResult(
+                    status="error",
+                    content=f"max_tool_calls={self.max_tool_calls} exceeded",
+                    error_type="HarnessLimitExceeded",
+                )
+                await self._emit_tool_result(tool_call, result)
+            elif cancelled_rest or self._cancelled():
+                result = ToolResult(status="cancelled", content=self._cancel_reason())
+                cancelled_rest = True
+                await self._emit_tool_result(tool_call, result)
+            elif (
+                self.max_tool_calls is not None
+                and self.tool_calls_so_far >= self.max_tool_calls
+            ):
+                result = ToolResult(
+                    status="error",
+                    content=f"max_tool_calls={self.max_tool_calls} exceeded",
+                    error_type="HarnessLimitExceeded",
+                )
+                limit_error = HarnessLimitExceeded(
+                    "max_tool_calls",
+                    float(self.tool_calls_so_far + 1),
+                    float(self.max_tool_calls),
+                    f"Harness exceeded max_tool_calls={self.max_tool_calls}",
+                )
+                await self._emit_tool_result(tool_call, result)
+            else:
+                result = await self._execute_tool(tool_call)
+                self.tool_calls_so_far += 1
+                if result.status == "cancelled":
+                    cancelled_rest = True
+                elif (
+                    result.status == "timeout"
+                    and self.deadline is not None
+                    and time.monotonic() >= self.deadline
+                ):
+                    limit_error = self._runtime_exceeded_error()
+            tool_call.result_status = result.status
+            return result
+
+        async def commit(tool_call: ToolCall, result: ToolResult) -> None:
+            bounded = self._limit_tool_output(result.for_model())
+            self.state.add_tool_message(messages, tool_call, bounded)
+
+        index = 0
+        while index < len(tool_calls):
+            if self._tool_is_parallel(tool_calls[index]):
+                batch: List[ToolCall] = []
+                while index < len(tool_calls) and self._tool_is_parallel(tool_calls[index]):
+                    batch.append(tool_calls[index])
+                    index += 1
+                for offset in range(0, len(batch), self.max_parallel_tool_calls):
+                    chunk = batch[offset : offset + self.max_parallel_tool_calls]
+                    results = await asyncio.gather(*[run_one(call) for call in chunk])
+                    for call, result in zip(chunk, results):
+                        await commit(call, result)
+            else:
+                call = tool_calls[index]
+                result = await run_one(call)
+                await commit(call, result)
+                index += 1
+
+        if limit_error is not None:
+            raise limit_error
+        if cancelled_rest:
+            raise HarnessCancelled(self._cancel_reason())
 
     async def _stream_events(self, messages: List[Message]):
         agen = self.registry.stream(self.model_id, messages, self.tool_schemas)
@@ -507,6 +544,21 @@ class TurnRunner:
             )
             await self._emit_tool_result(tool_call, result)
             return result
+
+        approve = getattr(self.control_plane, "approve_tool_call", None)
+        if callable(approve):
+            allowed = await approve(
+                tool_name=tool_call.name,
+                arguments=dict(tool_call.arguments),
+            )
+            if not allowed:
+                result = ToolResult(
+                    status="error",
+                    content="tool call denied by user",
+                    error_type="PermissionError",
+                )
+                await self._emit_tool_result(tool_call, result)
+                return result
 
         await self.control_plane.emit(
             "tool_execution_started",

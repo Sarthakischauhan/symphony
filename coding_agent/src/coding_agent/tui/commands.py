@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from core_ai import list_models
 from coding_agent.agent import build_agent
+from coding_agent.config import load_coding_agent_config
 from coding_agent.tui.modal import DiffModal, LearningModal, PlanModal
 
 # --- __init__.py ---
@@ -226,15 +227,19 @@ async def reload_project(app: Any) -> None:
     session_id = previous_agent.session_id if previous_agent is not None else app.session_id
     try:
         load_dotenv(override=True)
+        reloaded_config = load_coding_agent_config(app.workspace)
         reloaded_agent = build_agent(
             workspace=app.workspace,
             control_plane=app.control_plane,
             model_id=app.model_id,
             session_id=session_id,
             enable_learning=app.enable_learning,
+            config=reloaded_config,
         )
         reloaded_agent.set_mode(app.mode)
         app._agent = reloaded_agent
+        app.config = reloaded_config
+        app.control_plane.approvals = reloaded_config.approvals
         app._model_options = model_options(reloaded_agent.registry.namespaces())
         app.session_id = reloaded_agent.session_id
 
@@ -285,6 +290,7 @@ def show_status(app: Any) -> None:
         "Status\n"
         f"model     {app._agent.harness.model_id}\n"
         f"mode      {app.mode}\n"
+        f"approval  {app.control_plane.approvals.mode}\n"
         f"session   {app._agent.session_id}\n"
         f"context   {context}\n"
         f"current   {metrics.tokens_used:,} tokens\n"

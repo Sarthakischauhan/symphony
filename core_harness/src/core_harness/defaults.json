@@ -1,0 +1,32 @@
+{
+  "max_turns": 8,
+  "max_tool_calls": null,
+  "max_runtime_seconds": null,
+  "max_tokens": null,
+  "tool_result_max_chars": 12000,
+  "context_warn_threshold": null,
+  "context_compact_threshold": null,
+  "context_target_tokens": null,
+  "compaction_keep_recent": 4,
+  "max_spawn_depth": 1,
+  "spawn_max_turns": 8,
+  "max_parallel_tool_calls": 3,
+  "subagent_system_prompt": "You are a subagent spawned to complete one focused task. Use tools as needed. Do not ask the user. Return a concise, complete answer for the parent agent.",
+  "context_limits": {
+    "gpt-5.6-luna": 400000,
+    "gpt-5.4-mini": 400000,
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 128000,
+    "gpt-4.1": 1047576,
+    "gpt-4.1-mini": 1047576,
+    "gpt-4.1-nano": 1047576,
+    "claude-fable-5": 200000,
+    "claude-haiku-4-5": 200000,
+    "claude-opus-5": 200000,
+    "claude-sonnet-5": 200000,
+    "gemini-3.1-pro-preview": 1048576,
+    "gemini-3.5-flash": 1048576,
+    "gemini-3.6-flash": 1048576,
+    "gemini-3.7-flash": 1048576
+  }
+}

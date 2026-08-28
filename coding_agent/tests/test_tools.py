@@ -20,15 +20,13 @@ from coding_agent.tools import (
     WriteFileArgs,
     WriteFileTool,
     build_tools,
-    wrap_with_approvals,
 )
-from coding_agent.tools.approvals import approval_prompt
+from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.tui.control_plane import TextualControlPlane
 from coding_agent.tui.widgets import GenerateImageWidget
 from coding_agent.tui.widgets import ReadFileWidget
 
 
-from coding_agent.tools.bash import MAX_OUTPUT_BYTES
-from core_harness import NullControlPlane
 
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -87,8 +85,10 @@ def test_read_file_rejects_oversized_images(
 ) -> None:
     image = tmp_path / "huge.png"
     image.write_bytes(PNG_1X1)
-    monkeypatch.setattr("coding_agent.tools.read_file.MAX_IMAGE_BYTES", 1)
-    result = ReadFileTool(tmp_path).run("huge.png")
+    config = DEFAULT_CODING_AGENT_CONFIG.tools.read_file.model_copy(
+        update={"max_image_bytes": 1}
+    )
+    result = ReadFileTool(tmp_path, config=config).run("huge.png")
     assert result.startswith("error: image exceeds")
 
 
@@ -173,15 +173,15 @@ def test_generate_image_widget_summarizes_and_opens_preview(tmp_path: Path) -> N
 
 def test_generate_image_overwrite_asks_for_approval(tmp_path: Path) -> None:
     (tmp_path / "icon.png").write_bytes(PNG_1X1)
-    needed, prompt = approval_prompt(
-        "generate_image", {"path": "icon.png", "prompt": "a cat"}, tmp_path
+    plane = TextualControlPlane(workspace=tmp_path)
+    prompt = plane._approval_prompt(
+        "generate_image", {"path": "icon.png", "prompt": "a cat"}
     )
-    assert needed
     assert "Overwrite" in prompt
-    fresh, _ = approval_prompt(
-        "generate_image", {"path": "new.png", "prompt": "a cat"}, tmp_path
+    fresh = plane._approval_prompt(
+        "generate_image", {"path": "new.png", "prompt": "a cat"}
     )
-    assert not fresh
+    assert fresh == ""
 
 
 
@@ -234,7 +234,7 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
             args={"command": "python3 -c \"print('x' * 80_000)\""},
         )
         assert "truncated" in capped
-        assert len(capped.encode("utf-8")) < MAX_OUTPUT_BYTES + 200
+        assert len(capped.encode("utf-8")) < tool.config.max_output_bytes + 200
 
         started = time.monotonic()
         timed_out = await tool.execute(
@@ -269,55 +269,26 @@ def test_bash_cancel_kills_process_group(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_approvals_allow_once_and_deny(tmp_path: Path) -> None:
+def test_control_plane_approval_policy_and_always_allow(tmp_path: Path) -> None:
     (tmp_path / "existing.txt").write_text("old", encoding="utf-8")
-    needed, prompt = approval_prompt("bash", {"command": "ls"}, tmp_path)
-    assert needed
+    plane = TextualControlPlane(workspace=tmp_path)
+    prompt = plane._approval_prompt("bash", {"command": "ls"})
     assert "ls" in prompt
-    overwrite, overwrite_prompt = approval_prompt(
-        "write_file", {"path": "existing.txt"}, tmp_path
+    overwrite_prompt = plane._approval_prompt(
+        "write_file", {"path": "existing.txt"}
     )
-    assert overwrite
     assert "Overwrite" in overwrite_prompt
-    broad, _ = approval_prompt(
+    broad = plane._approval_prompt(
         "patch",
         {"path": "existing.txt", "old_str": "x" * 500, "new_str": "y", "replace_all": False},
-        tmp_path,
     )
     assert broad
-    surgical, _ = approval_prompt(
+    surgical = plane._approval_prompt(
         "patch",
         {"path": "existing.txt", "old_str": "old", "new_str": "new", "replace_all": False},
-        tmp_path,
     )
     assert not surgical
-
-    class AskingPlane(NullControlPlane):
-        def __init__(self, answer: str) -> None:
-            super().__init__()
-            self.answer = answer
-
-        async def ask_user(self, request_id: str) -> str:
-            del request_id
-            return self.answer
-
-    wrapped = wrap_with_approvals([BashTool(tmp_path).as_harness_tool()], tmp_path)
-
-    async def _run() -> None:
-        denied = await wrapped[0].execute(
-            control_plane=AskingPlane("Deny"),
-            args={"command": "echo hi"},
-        )
-        allowed = await wrapped[0].execute(
-            control_plane=AskingPlane("Allow once"),
-            args={"command": "echo hi"},
-        )
-        skipped = await wrapped[0].execute(
-            control_plane=NullControlPlane(),
-            args={"command": "echo hi"},
-        )
-        assert denied.startswith("error: tool call denied")
-        assert "hi" in allowed
-        assert "hi" in skipped
-
-    asyncio.run(_run())
+    plane.set_approval_mode("always_allow")
+    assert asyncio.run(
+        plane.approve_tool_call(tool_name="bash", arguments={"command": "echo hi"})
+    )

@@ -17,6 +17,7 @@ class Tool:
         name: Optional[str] = None,
         description: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
+        parallel: bool = False,
     ) -> None:
         self.func = func
         self.name = name or (func.__name__ if func is not None else "")
@@ -27,6 +28,7 @@ class Tool:
         )
         self.signature = inspect.signature(func) if func is not None else None
         self.parameters = parameters
+        self.parallel = parallel
 
     def get_schema(self) -> Dict[str, Any]:
         return {

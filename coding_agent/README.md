@@ -6,9 +6,14 @@ A workspace coding agent built on `core_harness`.
   <img src="../docs/demo.png" alt="Symphony coding agent TUI" height="400">
 </div>
 
+<div align="center">
+  <img src="../docs/subagent-spawn.gif" alt="Spawned subagent nested session" height="360">
+</div>
+
+
 ### What it provides
 
-- Workspace tools: `read_file`, `write_file`, `generate_image`, `patch`, `search`, and `bash`
+- Workspace tools: `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, and `spawn_agent`
 
 - Incremental repository discovery through `search` + `read_file`, without a preloaded repo index
 - Persisted conversations in SQLite, resumable by `session_id` or TUI `--resume`
@@ -26,6 +31,7 @@ The agent intentionally exposes a small workspace tool surface:
 - `patch` performs unique-match exact-text edits.
 - `search` finds file names or literal/regex content with path and glob filters.
 - `bash` runs workspace-scoped shell commands with streamed, capped output, a timeout, and process-group cleanup.
+- `spawn_agent` starts a child harness run for a focused subtask. Call it more than once in the same turn to run up to three children in parallel. Optional `model_id` and `max_turns` apply to that child only. Children run without approval prompts; the parent approval mode is unchanged. Click the Subagent row to open a nested session that uses the same transcript chrome as the parent.
 
 
 Repository context is discovered incrementally with `search` and `read_file`; the
@@ -102,6 +108,18 @@ broad patch. Answer **Allow once** or **Deny**. Plan-mode reads stay unprompted.
 Runs default to 24 turns, 40 tool calls, and 10 minutes, with no aggregate token
 failure limit. Provider 429 responses remain in a live Working state and retry after
 the server-requested delay.
+
+### Configuration
+
+Runtime policy is loaded from `<workspace>/.symphony/config.json`. The file is a
+partial overlay: omitted values retain the packaged defaults. See
+[`config.example.json`](./config.example.json) for the complete user-facing shape.
+
+Approval is owned by the control plane, not by wrapped tools. Set
+`approvals.mode` to `"ask"` for interactive gates or `"always_allow"` to let the
+control plane authorize every tool call without showing a prompt. Harness limits,
+spawn depth/concurrency, tool I/O bounds, approval thresholds, and learning bounds
+are configurable in the same file.
 
 ### Learning
 

@@ -1,4 +1,5 @@
 from core_harness.state import Compactor, KeepSystemRecentCompactor
+from core_harness.config import HarnessConfig, load_harness_config
 from core_harness.control_plane import (
     ControlPlane,
     EventLog,
@@ -7,11 +8,12 @@ from core_harness.control_plane import (
     InboundControlPlane,
     InMemoryEventLog,
     InteractiveControlPlane,
+    InteractiveControlPlaneProtocol,
     NullControlPlane,
     PersistingControlPlane,
 )
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
-from core_harness.harness import CoreHarness
+from core_harness.harness import ChildConfig, CoreHarness
 from core_harness.models import (
     ControlCommand,
     ControlCommandType,
@@ -30,6 +32,7 @@ from core_harness.tools import Tool
 
 __all__ = [
     "Checkpoint",
+    "ChildConfig",
     "Compactor",
     "ControlCommand",
     "ControlCommandType",
@@ -43,10 +46,12 @@ __all__ = [
     "HarnessCancelled",
     "HarnessLimitExceeded",
     "HarnessResult",
+    "HarnessConfig",
     "IdentifiedControlPlane",
     "InboundControlPlane",
     "InMemoryEventLog",
     "InteractiveControlPlane",
+    "InteractiveControlPlaneProtocol",
     "KeepSystemRecentCompactor",
     "NullControlPlane",
     "NullPersistence",
@@ -58,4 +63,5 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "UsageTotals",
+    "load_harness_config",
 ]

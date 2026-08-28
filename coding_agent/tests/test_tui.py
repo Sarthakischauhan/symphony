@@ -50,6 +50,7 @@ from coding_agent.tui.modal import (
     PlanSectionCard,
     _plan_sections,
 )
+from coding_agent.tui.subagent import SubagentRecord, SubagentScreen, SubagentWidget
 from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.widgets import (
@@ -61,6 +62,7 @@ from coding_agent.tui.widgets import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
+    TopBar,
     UserMessage,
 )
 
@@ -522,6 +524,37 @@ def test_textual_control_plane_posts_message() -> None:
     assert len(posted) == 1
     assert posted[0].event_type == "run_started"
     assert posted[0].payload["model_id"] == "openai:test"
+
+
+def test_textual_control_plane_fork_isolates_approvals_and_shares_cancel() -> None:
+    parent = TextualControlPlane()
+    parent.set_approval_mode("ask")
+    child_allow = parent.fork(approvals=parent.approvals.model_copy(update={"mode": "always_allow"}))
+    child_ask = parent.fork()
+    assert parent.approvals.mode == "ask"
+    assert child_allow.approvals.mode == "always_allow"
+    assert child_ask.approvals.mode == "ask"
+    assert child_allow.cancel_event is parent.cancel_event
+    assert child_ask.cancel_event is parent.cancel_event
+    assert child_allow._interaction_lock is parent._interaction_lock
+    assert child_ask._question_futures is parent._question_futures
+    parent.request_cancel("user_cancel")
+    assert parent.cancelled
+    assert child_allow.cancelled
+    assert child_ask.cancelled
+    assert child_allow.cancel_reason == "user_cancel"
+
+
+def test_textual_control_plane_parent_answers_child_question() -> None:
+    parent = TextualControlPlane()
+    child = parent.fork()
+
+    async def _run() -> str:
+        future = child._get_question_future("child-q")
+        await parent.answer_user("child-q", "Allow once")
+        return future.result()
+
+    assert asyncio.run(_run()) == "Allow once"
 
 
 def test_tui_run_agent_turn_delegates_to_agent(tmp_path: Path) -> None:
@@ -1166,6 +1199,93 @@ def test_permission_question_has_distinct_secure_design(
     asyncio.run(_run())
 
 
+def test_subagent_approval_question_uses_parent_approval_menu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            answer = app.control_plane._get_question_future("child-approval-1")
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "question_asked",
+                    {
+                        "request_id": "child-approval-1",
+                        "question": "Allow bash command once?\n`uv run pytest`",
+                        "choices": ["Allow once", "Deny"],
+                        "default": "Allow once",
+                        "kind": "approval",
+                        "tool_name": "bash",
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                    },
+                )
+            )
+            await pilot.pause()
+
+            menu = app.query_one("#approval-menu", SlashMenu)
+            assert menu.display
+            assert app._pending_question_id == "child-approval-1"
+            assert app._subagents["child-1"].events[-1][0] == "question_asked"
+
+            assert await pilot.click(menu, offset=(4, 4))
+            await pilot.pause()
+            assert answer.result() == "Allow once"
+
+    asyncio.run(_run())
+
+
+def test_subagent_approval_closes_nested_screen_before_prompting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            record = SubagentRecord(
+                agent_id="child-1",
+                parent_id="parent-1",
+                label="run tests",
+                prompt="Run the test suite.",
+            )
+            app._subagents[record.agent_id] = record
+            app.open_subagent(record)
+            await pilot.pause()
+            assert isinstance(app.screen, SubagentScreen)
+
+            answer = app.control_plane._get_question_future("child-approval-2")
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "question_asked",
+                    {
+                        "request_id": "child-approval-2",
+                        "question": "Allow bash command once?\n`pytest`",
+                        "choices": ["Allow once", "Deny"],
+                        "default": "Allow once",
+                        "kind": "approval",
+                        "tool_name": "bash",
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                    },
+                )
+            )
+            await pilot.pause()
+
+            assert not isinstance(app.screen, SubagentScreen)
+            assert app.query_one("#approval-menu", SlashMenu).display
+            assert app._pending_question_id == "child-approval-2"
+
+            await app._answer_question("Deny")
+            assert answer.result() == "Deny"
+
+    asyncio.run(_run())
+
+
 def test_reload_refreshes_config_without_clearing_conversation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1528,3 +1648,165 @@ def test_display_from_content_rebuilds_clickable_markers() -> None:
 def test_half_block_preview_renders_unicode_blocks() -> None:
     preview = render_half_block(PNG_1X1, max_width=8, max_rows=4)
     assert "▀" in preview.plain
+
+
+def test_subagent_card_opens_nested_session_screen(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_thinking("Thinking…")
+            await pilot.pause()
+            thinking_before = str(app._thinking.render()) if app._thinking is not None else ""
+            app.add_tool("spawn-1", "spawn_agent")
+            app.update_tool(
+                "spawn-1",
+                arguments={
+                    "prompt": "Inspect auth.py and summarize the login flow.",
+                    "label": "inspect auth",
+                },
+                status="running",
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_spawned",
+                    {
+                        "child_id": "child-1",
+                        "agent_id": "parent-1",
+                        "label": "inspect auth",
+                        "prompt": "Inspect auth.py and summarize the login flow.",
+                        "model_id": "openai:gpt-5.6-luna",
+                    },
+                )
+            )
+            widget = app._tools["spawn-1"]
+            assert isinstance(widget, SubagentWidget)
+            assert widget.record is not None
+            assert widget.record.agent_id == "child-1"
+
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "run_started",
+                    {
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                        "model_id": "openai:gpt-5.6-luna",
+                    },
+                )
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "tool_execution_started",
+                    {
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                        "tool_name": "read_file",
+                        "arguments": {"path": "auth.py"},
+                    },
+                )
+            )
+            assert app._thinking is not None
+            assert str(app._thinking.render()) == thinking_before
+            assert widget.record.tools[0]["name"] == "read_file"
+
+            widget.scroll_visible()
+            await pilot.pause()
+            assert await pilot.click(widget.query_one(".tool-call-header"))
+            await pilot.pause()
+            assert isinstance(app.screen, SubagentScreen)
+            assert app.screen.record.label == "inspect auth"
+            assert app.screen.record.tools[0]["name"] == "read_file"
+            assert app.screen.query_one(TopBar)
+            assert app.screen.query_one(UserMessage)
+            assert app.screen._tools
+            tool = next(iter(app.screen._tools.values()))
+            assert tool.tool_name == "read_file"
+
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "text_delta",
+                    {
+                        "agent_id": "child-1",
+                        "parent_id": "parent-1",
+                        "delta": "Auth uses JWT cookies.",
+                    },
+                )
+            )
+            await pilot.pause()
+            assert "JWT cookies" in app.screen.record.output_text
+
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_completed",
+                    {
+                        "child_id": "child-1",
+                        "agent_id": "parent-1",
+                        "output_text": "Auth uses JWT cookies.",
+                    },
+                )
+            )
+            await pilot.pause()
+            assert app.screen.record.status == "completed"
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, SubagentScreen)
+
+    asyncio.run(_run())
+
+
+def test_parallel_subagent_rows_bind_by_label(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("spawn-auth", "spawn_agent")
+            app.update_tool(
+                "spawn-auth",
+                arguments={"prompt": "Inspect auth.py", "label": "auth"},
+                status="running",
+            )
+            app.add_tool("spawn-db", "spawn_agent")
+            app.update_tool(
+                "spawn-db",
+                arguments={"prompt": "Inspect db.py", "label": "db"},
+                status="running",
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_spawned",
+                    {
+                        "child_id": "child-db",
+                        "agent_id": "parent-1",
+                        "label": "db",
+                        "prompt": "Inspect db.py",
+                    },
+                )
+            )
+            app.on_harness_event(
+                ControlPlaneEvent(
+                    "agent_spawned",
+                    {
+                        "child_id": "child-auth",
+                        "agent_id": "parent-1",
+                        "label": "auth",
+                        "prompt": "Inspect auth.py",
+                    },
+                )
+            )
+            await pilot.pause()
+            auth = app._tools["spawn-auth"]
+            db = app._tools["spawn-db"]
+            assert isinstance(auth, SubagentWidget)
+            assert isinstance(db, SubagentWidget)
+            assert auth.record is not None and auth.record.agent_id == "child-auth"
+            assert db.record is not None and db.record.agent_id == "child-db"
+
+    asyncio.run(_run())

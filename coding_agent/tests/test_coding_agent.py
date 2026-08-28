@@ -12,7 +12,7 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
 from core_harness import NullControlPlane
 from coding_agent import CodingAgent
-from coding_agent.agent import DEFAULT_MAX_TURNS, DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOOL_CALLS
+from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
 
 
 def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path) -> None:
@@ -23,10 +23,75 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
         tools=[],
     )
     assert agent.learning_loop is not None
-    assert agent.harness.max_turns == DEFAULT_MAX_TURNS == 24
-    assert agent.harness.limits.max_tool_calls == DEFAULT_MAX_TOOL_CALLS
-    assert agent.harness.limits.max_tokens == DEFAULT_MAX_TOKENS
+    defaults = DEFAULT_CODING_AGENT_CONFIG.harness
+    assert agent.harness.max_turns == defaults.max_turns == 24
+    assert agent.harness.limits.max_tool_calls == defaults.max_tool_calls
+    assert agent.harness.limits.max_tokens == defaults.max_tokens
     assert agent.harness.limits.max_runtime_seconds == 600.0
+
+
+def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> None:
+    agent = CodingAgent(
+        registry=CapturingRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        enable_learning=False,
+        auto_approve=True,
+    )
+    assert "spawn_agent" in agent.harness.tools
+    assert "read_file" in agent.harness.tools
+
+
+def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
+    from coding_agent.tui.control_plane import TextualControlPlane
+
+    plane = TextualControlPlane(workspace=tmp_path)
+    plane.set_approval_mode("ask")
+    agent = CodingAgent(
+        registry=CapturingRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        control_plane=plane,
+        enable_learning=False,
+    )
+    cfg = agent._spawn_child_config(
+        prompt="x",
+        max_turns=99,
+        model_id=" fake:child ",
+    )
+    assert cfg.model_id == "fake:child"
+    assert cfg.max_turns == agent.harness.config.spawn_max_turns
+    assert cfg.control_plane is not None
+    assert cfg.control_plane is not plane
+    assert cfg.control_plane.approvals.mode == "always_allow"
+    assert plane.approvals.mode == "ask"
+    assert cfg.control_plane.cancel_event is plane.cancel_event
+    allowed = asyncio.run(
+        cfg.control_plane.approve_tool_call(
+            tool_name="bash",
+            arguments={"command": "ls"},
+        )
+    )
+    assert allowed is True
+
+
+def test_coding_agent_child_stays_autonomous_if_parent_already_allows(tmp_path: Path) -> None:
+    from coding_agent.tui.control_plane import TextualControlPlane
+
+    plane = TextualControlPlane(workspace=tmp_path)
+    plane.set_approval_mode("always_allow")
+    agent = CodingAgent(
+        registry=CapturingRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        control_plane=plane,
+        enable_learning=False,
+        auto_approve=True,
+    )
+    cfg = agent._spawn_child_config()
+    assert cfg.control_plane is not None
+    assert cfg.control_plane.approvals.mode == "always_allow"
+    assert plane.approvals.mode == "always_allow"
 
 load_dotenv(override=True)
 

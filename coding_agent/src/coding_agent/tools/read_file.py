@@ -6,14 +6,11 @@ from pathlib import Path
 
 from pydantic import Field
 
+from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG, ReadFileConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from core_ai.content import image_part_from_bytes, sniff_image_media_type
 
-MAX_READ_BYTES = 32_000
-"""Hard cap on returned text so a huge file can't flood model context."""
-
-MAX_IMAGE_BYTES = 8_000_000
-"""Hard cap on image files returned as visual tool content."""
+DEFAULT_READ_FILE_CONFIG = DEFAULT_CODING_AGENT_CONFIG.tools.read_file
 
 
 class ReadFileArgs(ToolArgsModel):
@@ -54,6 +51,16 @@ class ReadFileTool(WorkspaceTool):
     )
     args_model = ReadFileArgs
 
+    def __init__(
+        self,
+        workspace: str | Path,
+        *,
+        config: ReadFileConfig = DEFAULT_READ_FILE_CONFIG,
+    ) -> None:
+        self.config = config
+        super().__init__(workspace)
+        self.description = ReadFileTool.description 
+
     def run(
         self, path: str, offset: int = 1, limit: int = 0
     ) -> str | list[dict[str, object]]:
@@ -91,9 +98,9 @@ class ReadFileTool(WorkspaceTool):
         media_type: str,
         size: int,
     ) -> str | list[dict[str, object]]:
-        if size > MAX_IMAGE_BYTES:
+        if size > self.config.max_image_bytes:
             return (
-                f"error: image exceeds {MAX_IMAGE_BYTES:,} bytes: {path} "
+                f"error: image exceeds {self.config.max_image_bytes:,} bytes: {path} "
                 f"({size:,} bytes)"
             )
         try:
@@ -126,7 +133,7 @@ class ReadFileTool(WorkspaceTool):
                     if limit and collected >= limit:
                         break
                     encoded = line.encode("utf-8")
-                    if bytes_read + len(encoded) > MAX_READ_BYTES:
+                    if bytes_read + len(encoded) > self.config.max_text_bytes:
                         truncated = True
                         break
                     lines.append(line)

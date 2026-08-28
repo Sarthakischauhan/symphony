@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Dict, Optional, Union
+import uuid
+from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
 from core_harness import ControlCommand
 from core_harness.control_plane import NullControlPlane
@@ -32,6 +33,33 @@ class SSEControlPlane(NullControlPlane):
         if self._consumer_closed:
             return
         await self.queue.put(ControlPlaneEvent.typed(event_type, payload))
+
+    async def request_user_input(
+        self,
+        *,
+        question: str,
+        choices: Sequence[str] = (),
+        default: str = "",
+        kind: str = "question",
+        metadata: Optional[Dict[str, Any]] = None,
+        emit: Optional[
+            Callable[[str, Dict[str, Any]], Awaitable[None]]
+        ] = None,
+    ) -> str:
+        """Publish a question; its answer arrives in a later HTTP request."""
+        publish = emit or self.emit
+        await publish(
+            "question_asked",
+            {
+                "request_id": uuid.uuid4().hex,
+                "question": question,
+                "choices": list(choices),
+                "default": default,
+                "kind": kind,
+                **(metadata or {}),
+            },
+        )
+        return ""
 
     async def close(self) -> None:
         if self._closed or self._consumer_closed:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from core_harness import Tool
@@ -44,15 +43,13 @@ async def ask_user(
     if control_plane is None:
         return "error: ask_user requires a control plane"
 
-    request_id = uuid.uuid4().hex
-    await control_plane.emit(
-        "question_asked",
-        {
-            "request_id": request_id,
-            "question": question,
-            "choices": list(choices or ()),
-            "default": default,
-        },
+    request = getattr(control_plane, "request_user_input", None)
+    if not callable(request):
+        return "error: ask_user requires an interactive control plane"
+    await request(
+        question=question,
+        choices=list(choices or ()),
+        default=default,
     )
     return "Question sent to the user. Wait for their next message before continuing."
 

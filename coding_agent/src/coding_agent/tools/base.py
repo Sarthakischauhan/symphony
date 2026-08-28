@@ -55,6 +55,10 @@ class WorkspaceTool(Tool, ABC):
         except ValidationError as exc:
             raise ValueError(f"invalid {self.name} arguments: {exc}") from exc
 
+    def prepare_args(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply instance configuration before schema validation."""
+        return dict(args)
+
     @abstractmethod
     def run(self, *args: Any, **kwargs: Any) -> str | list[dict[str, Any]]:
         """Execute the tool and return a string or multimodal content for the model."""
@@ -62,7 +66,7 @@ class WorkspaceTool(Tool, ABC):
     async def execute(self, *, control_plane: Any, args: Dict[str, Any]) -> Any:
         run_signature = inspect.signature(self.run)
         accepts_control_plane = "control_plane" in run_signature.parameters
-        validated = self.validate_args(**args)
+        validated = self.validate_args(**self.prepare_args(args))
         result = self.run(
             **validated.model_dump(),
             **({"control_plane": control_plane} if accepts_control_plane else {}),

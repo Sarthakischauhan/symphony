@@ -8,12 +8,11 @@ from pathlib import Path
 
 from pydantic import Field
 
+from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG, SearchConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from coding_agent.utils.ignore_file import DEFAULT_SKIP_DIRS, is_ignored
 
-DEFAULT_MAX_RESULTS = 100
-DEFAULT_MAX_LINE_CHARS = 240
-BINARY_SNIFF_BYTES = 8192
+DEFAULT_SEARCH_CONFIG = DEFAULT_CODING_AGENT_CONFIG.tools.search
 
 
 class SearchArgs(ToolArgsModel):
@@ -23,8 +22,8 @@ class SearchArgs(ToolArgsModel):
     glob: str = Field(default="", description="Optional file glob, for example '*.py'.")
     regex: bool = Field(default=False, description="Interpret query as a regular expression.")
     case_insensitive: bool = Field(default=False, description="Match without regard to case.")
-    max_results: int = Field(default=DEFAULT_MAX_RESULTS, ge=1, le=500)
-    max_line_chars: int = Field(default=DEFAULT_MAX_LINE_CHARS, ge=1, le=1000)
+    max_results: int = Field(default=DEFAULT_SEARCH_CONFIG.default_max_results, ge=1)
+    max_line_chars: int = Field(default=DEFAULT_SEARCH_CONFIG.default_max_line_chars, ge=1)
 
 
 class SearchTool(WorkspaceTool):
@@ -36,6 +35,24 @@ class SearchTool(WorkspaceTool):
     )
     args_model = SearchArgs
 
+    def __init__(
+        self,
+        workspace: str | Path,
+        *,
+        config: SearchConfig = DEFAULT_SEARCH_CONFIG,
+    ) -> None:
+        self.config = config
+        super().__init__(workspace)
+        properties = self.parameters["properties"]
+        properties["max_results"]["default"] = config.default_max_results
+        properties["max_line_chars"]["default"] = config.default_max_line_chars
+
+    def prepare_args(self, args: dict[str, object]) -> dict[str, object]:
+        prepared = dict(args)
+        prepared.setdefault("max_results", self.config.default_max_results)
+        prepared.setdefault("max_line_chars", self.config.default_max_line_chars)
+        return prepared
+
     def run(
         self,
         query: str,
@@ -44,8 +61,8 @@ class SearchTool(WorkspaceTool):
         glob: str = "",
         regex: bool = False,
         case_insensitive: bool = False,
-        max_results: int = DEFAULT_MAX_RESULTS,
-        max_line_chars: int = DEFAULT_MAX_LINE_CHARS,
+        max_results: int = DEFAULT_SEARCH_CONFIG.default_max_results,
+        max_line_chars: int = DEFAULT_SEARCH_CONFIG.default_max_line_chars,
     ) -> str:
         mode = mode.strip().lower()
         if mode not in {"content", "files"}:
@@ -63,8 +80,8 @@ class SearchTool(WorkspaceTool):
         except re.error as exc:
             return f"error: invalid regex: {exc}"
 
-        limit = max(1, min(max_results, 500))
-        line_cap = max(1, min(max_line_chars, 1000))
+        limit = max(1, max_results)
+        line_cap = max(1, max_line_chars)
         results: list[str] = []
         files = list(self._iter_files(root, glob))
 
@@ -118,7 +135,7 @@ class SearchTool(WorkspaceTool):
 
     def _iter_text_lines(self, path: Path):
         try:
-            sample = path.read_bytes()[:BINARY_SNIFF_BYTES]
+            sample = path.read_bytes()[: self.config.binary_sniff_bytes]
             if b"\x00" in sample:
                 return
             text = path.read_text(encoding="utf-8")

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 
 from core_ai.types import Content, Message
+from core_harness.config import DEFAULT_HARNESS_CONFIG
 
 # --- tools.py ---
 ToolResultStatus = Literal["success", "error", "timeout", "cancelled"]
@@ -69,6 +70,9 @@ class ControlPlaneEventType(str, Enum):
     PAUSED = "paused"
     RESUMED = "resumed"
     MESSAGE_INJECTED = "message_injected"
+    AGENT_SPAWNED = "agent_spawned"
+    AGENT_COMPLETED = "agent_completed"
+    AGENT_FAILED = "agent_failed"
 
 
 class ControlPlaneEvent(BaseModel):
@@ -140,10 +144,10 @@ class UsageTotals(BaseModel):
 class RunLimits(BaseModel):
     """Optional caps for a single harness run."""
 
-    max_turns: int = 8
-    max_tool_calls: Optional[int] = None
-    max_runtime_seconds: Optional[float] = None
-    max_tokens: Optional[int] = None
+    max_turns: int = DEFAULT_HARNESS_CONFIG.max_turns
+    max_tool_calls: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tool_calls
+    max_runtime_seconds: Optional[float] = DEFAULT_HARNESS_CONFIG.max_runtime_seconds
+    max_tokens: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tokens
 
 
 class HarnessResult(BaseModel):

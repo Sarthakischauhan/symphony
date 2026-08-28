@@ -22,7 +22,7 @@ from core_harness import (
 from core_harness.persistence import Checkpoint
 
 
-IDENTITY_KEYS = ("run_id", "session_id", "seq", "ts", "schema_version")
+IDENTITY_KEYS = ("run_id", "session_id", "agent_id", "parent_id", "seq", "ts", "schema_version")
 
 
 class RecordingPersistence(NullPersistence):
@@ -78,6 +78,7 @@ def _assert_identity(events: list[Any]) -> None:
         assert isinstance(payload["ts"], (int, float))
         assert payload["run_id"]
         assert payload["session_id"]
+        assert payload["agent_id"]
         seqs.append(payload["seq"])
         run_ids.add(payload["run_id"])
         session_ids.add(payload["session_id"])
@@ -158,6 +159,32 @@ def test_tool_exception_returns_error_result() -> None:
     assert completed[0].payload["status"] == "error"
     assert "nope" in completed[0].payload["result"]
     assert plane.events[-1].event_type == "run_completed"
+
+
+def test_control_plane_can_deny_tool_before_execution() -> None:
+    registry = ScriptedRegistry([_tool_turn("mutate"), _text_turn("denied")])
+    executed: list[bool] = []
+
+    def mutate() -> str:
+        executed.append(True)
+        return "changed"
+
+    class DenyingPlane(NullControlPlane):
+        async def approve_tool_call(self, **_: Any) -> bool:
+            return False
+
+    _, plane, harness = _harness(
+        registry,
+        tools=[Tool(mutate)],
+        control_plane=DenyingPlane(),
+    )
+    result = asyncio.run(harness.run("go"))
+
+    assert executed == []
+    assert result.output_text == "denied"
+    assert result.tool_calls[0].result_status == "error"
+    completed = [e for e in plane.events if e.event_type == "tool_execution_completed"]
+    assert "PermissionError" in completed[0].payload["result"]
 
 
 def test_every_parallel_tool_call_gets_a_result_on_cancel() -> None:

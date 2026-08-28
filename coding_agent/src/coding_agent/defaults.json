@@ -1,0 +1,47 @@
+{
+  "harness": {
+    "max_turns": 24,
+    "max_tool_calls": 40,
+    "max_runtime_seconds": 600.0,
+    "max_tokens": null,
+    "tool_result_max_chars": 12000,
+    "context_warn_threshold": 32000,
+    "context_compact_threshold": 16000,
+    "context_target_tokens": 80000,
+    "compaction_keep_recent": 8,
+    "max_spawn_depth": 1,
+    "spawn_max_turns": 8,
+    "max_parallel_tool_calls": 3
+  },
+  "approvals": {
+    "mode": "ask",
+    "allow_answers": ["y", "yes", "allow", "allow once", "a"],
+    "broad_patch_chars": 400,
+    "require_for_bash": true,
+    "require_for_overwrite": true,
+    "require_for_broad_patch": true
+  },
+  "tools": {
+    "bash": {
+      "default_timeout_seconds": 30,
+      "max_timeout_seconds": 120,
+      "max_output_bytes": 32000
+    },
+    "read_file": {
+      "max_text_bytes": 32000,
+      "max_image_bytes": 8000000
+    },
+    "search": {
+      "default_max_results": 100,
+      "default_max_line_chars": 240,
+      "binary_sniff_bytes": 8192
+    }
+  },
+  "learning": {
+    "enabled": true,
+    "max_output_tokens": 900,
+    "max_lessons": 200,
+    "context_limit": 6,
+    "context_max_chars": 1400
+  }
+}

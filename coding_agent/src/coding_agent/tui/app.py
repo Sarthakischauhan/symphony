@@ -16,6 +16,7 @@ from textual.widget import Widget
 from textual.widgets import OptionList, Static, TextArea
 
 from coding_agent.agent import AgentMode, CodingAgent, build_agent
+from coding_agent.config import load_coding_agent_config
 from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import (
     CommandManager,
@@ -34,6 +35,7 @@ from coding_agent.tui.file_selector import (
 )
 from coding_agent.tui.history import load_session_history
 from coding_agent.tui.images import build_user_content
+from coding_agent.tui.subagent import SubagentRecord, SubagentScreen
 from coding_agent.tui.slash_menu import SlashMenu
 from coding_agent.tui.state import UiRunState
 from coding_agent.tui.status import render_status
@@ -53,6 +55,7 @@ from coding_agent.tui.widgets import (
     Welcome,
     make_tool_widget,
 )
+from coding_agent.tui.subagent import SubagentWidget
 from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
@@ -79,15 +82,19 @@ class CodingAgentApp(App[None]):
         workspace: str | Path = ".",
         model_id: Optional[str] = None,
         session_id: Optional[str] = None,
-        enable_learning: bool = True,
+        enable_learning: Optional[bool] = None,
     ) -> None:
         super().__init__()
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
         self.enable_learning = enable_learning
+        self.config = load_coding_agent_config(self.workspace)
         self.mode: AgentMode = "build"
-        self.control_plane = TextualControlPlane()
+        self.control_plane = TextualControlPlane(
+            workspace=self.workspace,
+            approvals=self.config.approvals,
+        )
         self._agent: Optional[CodingAgent] = None
         self._busy = False
         self._ui_state = UiRunState()
@@ -97,6 +104,7 @@ class CodingAgentApp(App[None]):
         self._reasoning: Optional[ReasoningWidget] = None
         self._process: Optional[RunProcess] = None
         self._tools: dict[str, ToolCallWidget] = {}
+        self._subagents: dict[str, SubagentRecord] = {}
         self._plan_store = PlanStore(self.workspace)
         self._plan_run_active = False
         self._pending_question_id: str | None = None
@@ -133,9 +141,10 @@ class CodingAgentApp(App[None]):
                 model_id=self.model_id,
                 session_id=self.session_id,
                 enable_learning=self.enable_learning,
+                config=self.config,
             )
             self._agent.set_mode(self.mode)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._set_status("")
             self.add_notice(f"Offline · {exc}. Add it to .env and restart.", "error")
             self.query_one("#prompt", PromptInput).focus()
@@ -287,20 +296,119 @@ class CodingAgentApp(App[None]):
         self._mount_transcript(widget)
 
     def on_harness_event(self, message: HarnessEvent) -> None:
+        payload = message.payload or {}
+        if message.event_type == "agent_spawned":
+            self._on_agent_spawned(payload)
+            return
+        if message.event_type in {"agent_completed", "agent_failed"}:
+            self._on_agent_finished(message.event_type, payload)
+            return
+        if payload.get("parent_id"):
+            self._on_child_event(message.event_type, payload)
+            if message.event_type == "question_asked":
+                self._show_child_question(payload)
+            return
         if self._plan_run_active and message.event_type == "text_delta":
-            self._plan_store.append(str(message.payload.get("delta") or ""))
+            self._plan_store.append(str(payload.get("delta") or ""))
             return
         if message.event_type == "question_asked":
-            self._show_question(message.payload)
+            self._show_question(payload)
             return
         if self._presenter is not None:
-            self._presenter.handle(message.event_type, message.payload)
+            self._presenter.handle(message.event_type, payload)
         if self._plan_run_active and message.event_type in {
             "run_completed",
             "run_failed",
             "run_cancelled",
         }:
             self._plan_run_active = False
+
+    def _bind_spawn_widget(self, record: SubagentRecord) -> None:
+        candidates = [
+            item
+            for item in self._tools.values()
+            if isinstance(item, SubagentWidget) and item.record is None
+        ]
+        if not candidates:
+            return
+        match = next(
+            (
+                item
+                for item in candidates
+                if (
+                    not record.prompt
+                    or item.arguments.get("prompt") == record.prompt
+                )
+                and (
+                    not record.label
+                    or item.arguments.get("label") in {record.label, None, ""}
+                )
+            ),
+            candidates[0],
+        )
+        match.bind(record)
+
+    def _on_agent_spawned(self, payload: dict[str, Any]) -> None:
+        child_id = str(payload.get("child_id") or "")
+        record = SubagentRecord(
+            agent_id=child_id,
+            parent_id=str(payload.get("agent_id") or ""),
+            label=str(payload.get("label") or "subagent"),
+            prompt=str(payload.get("prompt") or ""),
+            model_id=str(payload.get("model_id") or ""),
+        )
+        if child_id:
+            self._subagents[child_id] = record
+        self._bind_spawn_widget(record)
+        self._refresh_subagent_screen(record)
+
+    def _on_agent_finished(self, event_type: str, payload: dict[str, Any]) -> None:
+        child_id = str(payload.get("child_id") or "")
+        record = self._subagents.get(child_id)
+        if record is None:
+            return
+        record.ingest(event_type, payload)
+        self._refresh_subagent_widgets(record)
+        self._refresh_subagent_screen(record)
+
+    def _on_child_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        agent_id = str(payload.get("agent_id") or "")
+        record = self._subagents.get(agent_id)
+        if record is None:
+            record = SubagentRecord(
+                agent_id=agent_id,
+                parent_id=str(payload.get("parent_id") or ""),
+                label="subagent",
+                prompt="",
+                model_id=str(payload.get("model_id") or ""),
+            )
+            if agent_id:
+                self._subagents[agent_id] = record
+            self._bind_spawn_widget(record)
+        record.ingest(event_type, payload)
+        self._refresh_subagent_widgets(record)
+        self._refresh_subagent_screen(record)
+
+    def _show_child_question(self, payload: Mapping[str, Any]) -> None:
+        """Surface child questions through the parent's interactive composer."""
+        if isinstance(self.screen, SubagentScreen):
+            self.screen.dismiss(None)
+            self.call_after_refresh(self._show_question, dict(payload))
+            return
+        self._show_question(payload)
+
+    def _refresh_subagent_widgets(self, record: SubagentRecord) -> None:
+        for widget in self._tools.values():
+            if isinstance(widget, SubagentWidget) and widget.record is record:
+                widget.refresh_content()
+
+    def _refresh_subagent_screen(self, record: SubagentRecord) -> None:
+        screen = self.screen
+        if isinstance(screen, SubagentScreen) and screen.record.agent_id == record.agent_id:
+            screen.refresh_record()
+
+    def open_subagent(self, record: SubagentRecord) -> None:
+        self.push_screen(SubagentScreen(record, workspace=self.workspace))
 
     on_control_plane_event = on_harness_event
 
@@ -510,6 +618,7 @@ class CodingAgentApp(App[None]):
         self._reasoning = None
         self._process = None
         self._tools.clear()
+        self._subagents.clear()
 
     def action_cancel_run(self) -> None:
         if isinstance(self.screen, ModalScreen):
@@ -600,7 +709,7 @@ def run_tui(
     workspace: str | Path = ".",
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
-    enable_learning: bool = True,
+    enable_learning: Optional[bool] = None,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
     load_dotenv(override=True)
