@@ -71,8 +71,10 @@ def test_patch_duplicate_matches_require_replace_all(tmp_path: Path) -> None:
     tool = PatchTool(tmp_path).as_harness_tool()
 
     err = asyncio.run(_invoke(tool, path="a.txt", old_str="x", new_str="y"))
-    assert err.startswith("error:")
+    assert not err.startswith("error:")
     assert "2 times" in err
+    assert "line 1" in err and "line 2" in err
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "x\nx\n"
 
     ok = asyncio.run(
         _invoke(tool, path="a.txt", old_str="x", new_str="y", replace_all=True)
@@ -123,6 +125,37 @@ def test_patch_write_failure(tmp_path: Path) -> None:
     os.chmod(target, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     try:
         result = asyncio.run(_invoke(tool, path="ro.txt", old_str="hello", new_str="bye"))
+        if os.geteuid() == 0:
+            pytest.skip("root can write read-only files")
         assert result.startswith("error: failed to write")
     finally:
         os.chmod(target, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def test_patch_identical_strings_are_noop(tmp_path: Path) -> None:
+    target = tmp_path / "a.py"
+    target.write_text("    return x\n", encoding="utf-8")
+    tool = PatchTool(tmp_path)
+    result = tool.run("a.py", "    return x\n", "    return x\n")
+    assert result.startswith("noop:")
+    assert "error:" not in result
+    assert target.read_text(encoding="utf-8") == "    return x\n"
+
+
+def test_patch_miss_shows_whitespace_hint(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("    return x\n", encoding="utf-8")
+    tool = PatchTool(tmp_path)
+    result = tool.run("a.py", "        return x\n", "        return y\n")
+    assert result.startswith("old_str not found")
+    assert "error:" not in result
+    assert "whitespace differs" in result
+    assert "1|" in result
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "    return x\n"
+
+
+def test_patch_miss_notes_already_applied(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("    return y\n", encoding="utf-8")
+    result = PatchTool(tmp_path).run("a.py", "    return x\n", "    return y\n")
+    assert "already contains new_str" in result
+    assert "error:" not in result
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "    return y\n"

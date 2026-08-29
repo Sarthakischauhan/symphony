@@ -44,10 +44,10 @@ class ReadFileArgs(ToolArgsModel):
 class ReadFileTool(WorkspaceTool):
     name = "read_file"
     description = (
-        "Read a workspace file. UTF-8 text is returned as text (capped at ~32KB; "
-        "pass offset to page). Images (png, jpeg, gif, webp, bmp, tiff) are returned "
-        "as visual content the model can see. Paths are relative to the workspace "
-        "root and cannot escape it."
+        "Read a workspace file. UTF-8 text is returned with line numbers "
+        "(`   12|code`, capped at ~32KB; pass offset to page). Images (png, jpeg, "
+        "gif, webp, bmp, tiff) are returned as visual content the model can see. "
+        "Paths are relative to the workspace root and cannot escape it."
     )
     args_model = ReadFileArgs
 
@@ -144,10 +144,25 @@ class ReadFileTool(WorkspaceTool):
         except OSError as exc:
             return f"error: failed to read {path}: {exc}"
 
-        text = "".join(lines)
+        text = _numbered_text(lines, offset)
         if truncated:
             text += (
                 f"\n<output truncated at {bytes_read} bytes; "
                 f"read again with offset={offset + collected} to continue>"
             )
         return text
+
+
+def _numbered_text(lines: list[str], start: int) -> str:
+    if not lines:
+        return ""
+    last = start + len(lines) - 1
+    width = max(4, len(str(last)))
+    rendered: list[str] = []
+    for index, line in enumerate(lines):
+        body = line[:-1] if line.endswith("\n") else line
+        rendered.append(f"{start + index:>{width}}|{body}")
+    text = "\n".join(rendered)
+    if lines[-1].endswith("\n"):
+        text += "\n"
+    return text
