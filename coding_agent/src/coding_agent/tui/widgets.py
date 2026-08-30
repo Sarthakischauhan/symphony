@@ -620,7 +620,7 @@ class ToolCallWidget(Collapsible):
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
-        self.status = "failed" if str(result).startswith(("error:", "exit=")) else "done"
+        self.status = "failed" if str(result).startswith("error:") else "done"
         self.result = str(result or "")
         self.refresh_content()
 

@@ -25,6 +25,7 @@ from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
 from coding_agent.tui.control_plane import TextualControlPlane
 from coding_agent.tui.widgets import GenerateImageWidget
 from coding_agent.tui.widgets import ReadFileWidget
+from coding_agent.tui.widgets import ToolCallWidget
 
 
 
@@ -71,7 +72,7 @@ def test_read_file_returns_image_parts_by_type(tmp_path: Path) -> None:
     sniffed = tool.run("screenshot")
     assert sniffed[1]["media_type"] == "image/png"
 
-    assert tool.run("notes.py") == "print(1)\n"
+    assert tool.run("notes.py") == "   1|print(1)\n"
     assert tool.run("data.bin").startswith("error: file is not valid UTF-8 text")
 
     wrapped = tool.as_harness_tool()
@@ -239,10 +240,36 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
         started = time.monotonic()
         timed_out = await tool.execute(
             control_plane=None,
-            args={"command": "sleep 30", "timeout": 1},
+            args={
+                "command": (
+                    "python3 -c \"import sys,time; print('HELLO_BEFORE_SLEEP', "
+                    "flush=True); time.sleep(30)\""
+                ),
+                "timeout": 1,
+            },
         )
         assert "timed out" in timed_out
+        assert "HELLO_BEFORE_SLEEP" in timed_out
+        assert not timed_out.startswith("error:")
         assert time.monotonic() - started < 5
+
+        failed = await tool.execute(
+            control_plane=None,
+            args={"command": "python3 -c \"import sys; sys.exit(7)\""},
+        )
+        assert failed.startswith("exit=7")
+
+        tail = await tool.execute(
+            control_plane=None,
+            args={
+                "command": (
+                    "python3 -c \"print('HEAD_MARKER'); print('y' * 80_000); "
+                    "print('TAIL_MARKER')\""
+                )
+            },
+        )
+        assert "TAIL_MARKER" in tail
+        assert "truncated" in tail
 
     asyncio.run(_run())
 
@@ -292,3 +319,17 @@ def test_control_plane_approval_policy_and_always_allow(tmp_path: Path) -> None:
     assert asyncio.run(
         plane.approve_tool_call(tool_name="bash", arguments={"command": "echo hi"})
     )
+
+
+def test_tool_widget_only_treats_error_prefix_as_failed() -> None:
+    widget = ToolCallWidget("call-1", "bash")
+    widget.set_result("exit=1\nFAILED tests/test_foo.py")
+    assert widget.status == "done"
+    widget.set_result("timed out after 1s\nHELLO_BEFORE_SLEEP")
+    assert widget.status == "done"
+    widget.set_result("noop: old_str and new_str are identical in a.py; no change")
+    assert widget.status == "done"
+    widget.set_result("old_str not found in a.py\nclosest lines")
+    assert widget.status == "done"
+    widget.set_result("error: failed to run command: boom")
+    assert widget.status == "failed"

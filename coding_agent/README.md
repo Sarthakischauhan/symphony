@@ -24,13 +24,13 @@ A workspace coding agent built on `core_harness`.
 
 The agent intentionally exposes a small workspace tool surface:
 
-- `read_file` reads bounded UTF-8 text, or image files (png/jpeg/gif/webp/…) as visual content the model can see.
+- `read_file` reads bounded UTF-8 text with line numbers, or image files (png/jpeg/gif/webp/…) as visual content the model can see.
 - `write_file` creates or replaces a complete file without stripping whitespace.
-- `generate_image` generates a png/jpeg/webp from a prompt via the current OpenAI or Gemini provider, writes it to a workspace path, and shows a clickable `[Image 1]` preview.
+- `generate_image` generates a png/jpeg/webp from a prompt via the current OpenAI or Gemini provider, writes it to the requested path, and shows a clickable `[Image 1]` preview.
 
-- `patch` performs unique-match exact-text edits.
+- `patch` performs unique-match exact-text edits. CRLF, trailing whitespace, and curly quotes are folded for matching; a miss lists nearby lines (whitespace made visible); identical old/new is a no-op, not an error.
 - `search` finds file names or literal/regex content with path and glob filters.
-- `bash` runs workspace-scoped shell commands with streamed, capped output, a timeout, and process-group cleanup.
+- `bash` runs workspace-scoped shell commands with streamed, capped output, a timeout, and process-group cleanup. Non-zero exits and timeouts return the captured output; they are not tool failures.
 - `spawn_agent` starts a child harness run for a focused subtask. Call it more than once in the same turn to run up to three children in parallel. Optional `model_id` and `max_turns` apply to that child only. Children run without approval prompts; the parent approval mode is unchanged. Click the Subagent row to open a nested session that uses the same transcript chrome as the parent.
 
 
