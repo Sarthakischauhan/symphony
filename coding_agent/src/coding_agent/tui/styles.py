@@ -256,6 +256,99 @@ PlanModal {
 
 """
 
+# --- context.py ---
+CONTEXT_MODAL_CSS = MODAL_BASE_CSS + """
+ContextModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#context-pane {
+    width: 72%;
+    max-width: 104;
+    height: 72%;
+    max-height: 38;
+    padding: 1 2 1 2;
+    background: #101010;
+    border: round #38474a;
+}
+
+#context-title {
+    width: 1fr;
+    height: 1;
+    color: #d0d0d0;
+    text-style: bold;
+    background: #101010;
+}
+
+#context-meters {
+    width: 100%;
+    height: auto;
+    margin: 1 0 1 0;
+    padding: 1 1;
+    background: #0d0d0d;
+    border-top: solid #2a2a2a;
+}
+
+#context-buckets {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    background: #101010;
+}
+
+.context-chip {
+    width: auto;
+    height: 3;
+    margin: 0 1 0 0;
+    padding: 0 1;
+    color: #9a9a9a;
+    content-align: center middle;
+    background: #161616;
+    border: round #2e2e2e;
+}
+
+.context-chip:hover,
+.context-chip:focus {
+    color: #e6e6e6;
+    border: round #4a4a4a;
+}
+
+.context-chip-active {
+    color: #f2d675;
+    background: #1c1b17;
+    border: round #4a4532;
+}
+
+#context-meta {
+    width: 100%;
+    height: 1;
+    color: #686868;
+    background: #101010;
+}
+
+#context-body {
+    padding: 0 0 1 0;
+    background: #101010;
+}
+
+#context-list {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: #0d0d0d;
+}
+
+.context-row {
+    width: 100%;
+    height: auto;
+}
+
+#context-hint {
+    text-align: right;
+}
+"""
+
 # --- resume.py ---
 RESUME_CSS = """
 ResumeApp {
