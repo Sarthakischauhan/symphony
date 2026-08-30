@@ -59,7 +59,7 @@ class ReadFileTool(WorkspaceTool):
     ) -> None:
         self.config = config
         super().__init__(workspace)
-        self.description = ReadFileTool.description 
+        self.description = ReadFileTool.description
 
     def run(
         self, path: str, offset: int = 1, limit: int = 0
@@ -88,10 +88,10 @@ class ReadFileTool(WorkspaceTool):
 
         media_type = sniff_image_media_type(header, filename=target.name)
         if media_type:
-            return self._read_image(target, path, media_type, size)
-        return self._read_text(target, path, offset, limit)
+            return self.read_image(target, path, media_type, size)
+        return self.read_text(target, path, offset, limit)
 
-    def _read_image(
+    def read_image(
         self,
         target: Path,
         path: str,
@@ -120,7 +120,7 @@ class ReadFileTool(WorkspaceTool):
             ),
         ]
 
-    def _read_text(self, target: Path, path: str, offset: int, limit: int) -> str:
+    def read_text(self, target: Path, path: str, offset: int, limit: int) -> str:
         try:
             with target.open("r", encoding="utf-8") as fh:
                 lines: list[str] = []
@@ -144,7 +144,7 @@ class ReadFileTool(WorkspaceTool):
         except OSError as exc:
             return f"error: failed to read {path}: {exc}"
 
-        text = _numbered_text(lines, offset)
+        text = numbered_text(lines, offset)
         if truncated:
             text += (
                 f"\n<output truncated at {bytes_read} bytes; "
@@ -153,7 +153,7 @@ class ReadFileTool(WorkspaceTool):
         return text
 
 
-def _numbered_text(lines: list[str], start: int) -> str:
+def numbered_text(lines: list[str], start: int) -> str:
     if not lines:
         return ""
     last = start + len(lines) - 1

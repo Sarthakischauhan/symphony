@@ -12,7 +12,7 @@ import pytest
 from coding_agent.tools import PatchArgs, PatchTool
 
 
-async def _invoke(tool, **kwargs):
+async def invoke(tool, **kwargs):
     return await tool.execute(control_plane=None, args=kwargs)
 
 
@@ -36,7 +36,7 @@ def test_patch_via_harness_preserves_indentation_and_trailing_newline(tmp_path: 
     tool = PatchTool(tmp_path).as_harness_tool()
 
     result = asyncio.run(
-        _invoke(
+        invoke(
             tool,
             path="app.py",
             old_str="        return 1\n",
@@ -55,7 +55,7 @@ def test_patch_via_harness_blank_lines_and_deletion(tmp_path: Path) -> None:
     tool = PatchTool(tmp_path).as_harness_tool()
 
     result = asyncio.run(
-        _invoke(
+        invoke(
             tool,
             path="notes.txt",
             old_str="\n\nb\n",
@@ -70,14 +70,14 @@ def test_patch_duplicate_matches_require_replace_all(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("x\nx\n", encoding="utf-8")
     tool = PatchTool(tmp_path).as_harness_tool()
 
-    err = asyncio.run(_invoke(tool, path="a.txt", old_str="x", new_str="y"))
+    err = asyncio.run(invoke(tool, path="a.txt", old_str="x", new_str="y"))
     assert not err.startswith("error:")
     assert "2 times" in err
     assert "line 1" in err and "line 2" in err
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "x\nx\n"
 
     ok = asyncio.run(
-        _invoke(tool, path="a.txt", old_str="x", new_str="y", replace_all=True)
+        invoke(tool, path="a.txt", old_str="x", new_str="y", replace_all=True)
     )
     assert ok.startswith("patched a.txt (2 replacement")
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "y\ny\n"
@@ -86,7 +86,7 @@ def test_patch_duplicate_matches_require_replace_all(tmp_path: Path) -> None:
 def test_patch_utf8_content(tmp_path: Path) -> None:
     (tmp_path / "u.txt").write_text("café\n", encoding="utf-8")
     tool = PatchTool(tmp_path).as_harness_tool()
-    result = asyncio.run(_invoke(tool, path="u.txt", old_str="café", new_str="☕"))
+    result = asyncio.run(invoke(tool, path="u.txt", old_str="café", new_str="☕"))
     assert result.startswith("patched u.txt")
     assert (tmp_path / "u.txt").read_text(encoding="utf-8") == "☕\n"
 
@@ -94,7 +94,7 @@ def test_patch_utf8_content(tmp_path: Path) -> None:
 def test_patch_path_escape_rejected(tmp_path: Path) -> None:
     tool = PatchTool(tmp_path).as_harness_tool()
     result = asyncio.run(
-        _invoke(tool, path="../outside.txt", old_str="a", new_str="b")
+        invoke(tool, path="../outside.txt", old_str="a", new_str="b")
     )
     assert "escapes workspace" in result
 
@@ -111,8 +111,7 @@ def test_patch_symlink_escape_rejected(tmp_path: Path) -> None:
     link.symlink_to(victim)
 
     tool = PatchTool(workspace).as_harness_tool()
-    # resolve() follows the symlink; path must be rejected as escaping.
-    result = asyncio.run(_invoke(tool, path="link.txt", old_str="secret", new_str="x"))
+    result = asyncio.run(invoke(tool, path="link.txt", old_str="secret", new_str="x"))
     assert "escapes workspace" in result or "error:" in result
     assert victim.read_text(encoding="utf-8") == "secret\n"
 
@@ -124,7 +123,7 @@ def test_patch_write_failure(tmp_path: Path) -> None:
 
     os.chmod(target, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     try:
-        result = asyncio.run(_invoke(tool, path="ro.txt", old_str="hello", new_str="bye"))
+        result = asyncio.run(invoke(tool, path="ro.txt", old_str="hello", new_str="bye"))
         if os.geteuid() == 0:
             pytest.skip("root can write read-only files")
         assert result.startswith("error: failed to write")
@@ -159,3 +158,35 @@ def test_patch_miss_notes_already_applied(tmp_path: Path) -> None:
     assert "already contains new_str" in result
     assert "error:" not in result
     assert (tmp_path / "a.py").read_text(encoding="utf-8") == "    return y\n"
+
+
+def test_patch_crlf_file_accepts_lf_needle(tmp_path: Path) -> None:
+    target = tmp_path / "win.py"
+    target.write_bytes(b"def f():\r\n    return 1\r\n")
+    result = PatchTool(tmp_path).run("win.py", "    return 1\n", "    return 2\n")
+    assert result.startswith("patched")
+    assert target.read_bytes() == b"def f():\r\n    return 2\r\n"
+
+
+def test_patch_unique_trailing_whitespace_still_applies(tmp_path: Path) -> None:
+    target = tmp_path / "a.py"
+    target.write_text("    return x  \n", encoding="utf-8")
+    result = PatchTool(tmp_path).run("a.py", "    return x\n", "    return y\n")
+    assert result.startswith("patched")
+    assert target.read_text(encoding="utf-8") == "    return y\n"
+
+
+def test_patch_unique_curly_quotes_still_apply(tmp_path: Path) -> None:
+    target = tmp_path / "a.py"
+    target.write_text("msg = \u201chello\u201d\n", encoding="utf-8")
+    result = PatchTool(tmp_path).run("a.py", 'msg = "hello"\n', 'msg = "bye"\n')
+    assert result.startswith("patched")
+    assert target.read_text(encoding="utf-8") == 'msg = "bye"\n'
+
+
+def test_patch_strips_bom_for_matching(tmp_path: Path) -> None:
+    target = tmp_path / "a.py"
+    target.write_text("\ufeffhello\n", encoding="utf-8")
+    result = PatchTool(tmp_path).run("a.py", "hello\n", "world\n")
+    assert result.startswith("patched")
+    assert target.read_text(encoding="utf-8") == "\ufeffworld\n"

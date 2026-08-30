@@ -70,16 +70,16 @@ class BashTool(WorkspaceTool):
             return f"error: failed to run command: {exc}"
 
         try:
-            output, truncated, timed_out = await _stream_output(
+            output, truncated, timed_out = await stream_output(
                 proc,
                 timeout,
                 max_output_bytes=self.config.max_output_bytes,
             )
         except asyncio.CancelledError:
-            await _stop_process_group(proc)
+            await stop_process_group(proc)
             raise
 
-        text = _decode_capped(output, truncated, self.config.max_output_bytes)
+        text = decode_capped(output, truncated, self.config.max_output_bytes)
         if timed_out:
             prefix = f"timed out after {timeout}s"
             return f"{prefix}\n{text}".rstrip() if text else prefix
@@ -88,7 +88,12 @@ class BashTool(WorkspaceTool):
         return text or "(no output)"
 
 
-def _decode_capped(output: bytes, truncated: bool, cap: int) -> str:
+def decode_capped(output: bytes, truncated: bool, cap: int) -> str:
+    if truncated:
+        index = 0
+        while index < len(output) and output[index] & 0xC0 == 0x80:
+            index += 1
+        output = output[index:]
     text = output.decode("utf-8", errors="replace").rstrip()
     if not truncated:
         return text
@@ -96,7 +101,7 @@ def _decode_capped(output: bytes, truncated: bool, cap: int) -> str:
     return f"{notice}\n{text}" if text else notice
 
 
-async def _stream_output(
+async def stream_output(
     proc: asyncio.subprocess.Process,
     timeout: float,
     *,
@@ -113,12 +118,12 @@ async def _stream_output(
     while True:
         remaining = deadline - loop.time()
         if remaining <= 0:
-            await _stop_process_group(proc)
+            await stop_process_group(proc)
             return bytes(buf), truncated, True
         try:
             chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=remaining)
         except TimeoutError:
-            await _stop_process_group(proc)
+            await stop_process_group(proc)
             return bytes(buf), truncated, True
         if not chunk:
             break
@@ -131,12 +136,12 @@ async def _stream_output(
     try:
         await asyncio.wait_for(proc.wait(), timeout=max(remaining, 0.01))
     except TimeoutError:
-        await _stop_process_group(proc)
+        await stop_process_group(proc)
         return bytes(buf), truncated, True
     return bytes(buf), truncated, False
 
 
-async def _stop_process_group(proc: asyncio.subprocess.Process) -> None:
+async def stop_process_group(proc: asyncio.subprocess.Process) -> None:
     if proc.returncode is not None:
         return
     for sig in (signal.SIGTERM, signal.SIGKILL):

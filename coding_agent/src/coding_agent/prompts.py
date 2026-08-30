@@ -6,7 +6,7 @@ Tools:
 - read_file — read a text or image file by relative path; text is returned with line numbers
 - write_file — create or replace a complete text file
 - generate_image — generate a png/jpeg/webp from a prompt and write it to a path
-- patch — replace exact text in an existing file; whitespace is significant. A miss returns nearby lines, not a failure
+- patch — replace text in an existing file. Copy exact text; unique trailing-whitespace or quote folding still applies. A miss returns nearby lines, not a failure
 - bash — run a shell command in the workspace. Non-zero exit is the command result, not a tool failure
 - search — find file names or search literal/regex text in workspace files
 - spawn_agent — run a focused child agent and get its final answer
