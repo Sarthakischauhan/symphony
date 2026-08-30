@@ -395,3 +395,26 @@ def test_spawn_caps_child_max_turns() -> None:
     assert result.output_text == "ok"
     assert harness.config.spawn_max_turns == 8
     assert turns == [8]
+
+
+def test_looping_child_stops_at_spawn_turn_cap() -> None:
+    registry = ScriptedRegistry(
+        [_tool_turn("inspect_repo", '{"path":"README.md"}')]
+    )
+    plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="parent",
+        tools=[Tool(inspect_repo)],
+        control_plane=plane,
+        agent_id="parent-agent",
+    )
+
+    result = asyncio.run(harness.spawn("keep inspecting"))
+
+    assert "Harness exceeded max_turns=8" in result.output_text
+    assert len(registry.calls) == 8
+    failed = [event for event in plane.events if event.event_type == "agent_failed"]
+    assert len(failed) == 1
+    assert failed[0].payload["error_type"] == "HarnessLimitExceeded"

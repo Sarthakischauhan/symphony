@@ -50,6 +50,7 @@ class CoreHarness:
         registry: ModelRegistry,
         model_id: str,
         system_prompt: str,
+        reasoning_effort: Optional[str] = None,
         tools: Optional[List[Tool]] = None,
         control_plane: Optional[ControlPlane] = None,
         persistence: Optional[Persistence] = None,
@@ -89,6 +90,7 @@ class CoreHarness:
                 )
         self.registry = registry
         self.model_id = model_id
+        self.reasoning_effort = reasoning_effort
         self.system_prompt = system_prompt
         self.control_plane = control_plane or NullControlPlane()
         self.persistence = persistence or NullPersistence()
@@ -278,6 +280,7 @@ class CoreHarness:
             registry=self.registry,
             model_id=model_id or self.model_id,
             system_prompt=system_prompt or self.config.subagent_system_prompt,
+            reasoning_effort=self.reasoning_effort,
             tools=child_tools,
             control_plane=child_plane,
             persistence=NullPersistence(),
@@ -394,6 +397,7 @@ class CoreHarness:
         turn_runner = TurnRunner(
             registry=self.registry,
             model_id=self.model_id,
+            reasoning_effort=self.reasoning_effort,
             tool_schemas=self.tool_schemas(),
             tools=self.tools,
             control_plane=plane,

@@ -21,6 +21,7 @@ from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import (
     CommandManager,
     command_matches,
+    effort_matches,
     mode_matches,
     model_matches,
     model_options,
@@ -476,6 +477,14 @@ class CodingAgentApp(App[None]):
                     event.text_area.text.removeprefix("/model "),
                     self._model_options,
                 ),
+                current,
+            )
+        elif event.text_area.text.startswith("/effort "):
+            current = "default"
+            if self._agent is not None:
+                current = self._agent.harness.reasoning_effort or "default"
+            menu.set_efforts(
+                effort_matches(event.text_area.text.removeprefix("/effort ")),
                 current,
             )
         elif event.text_area.text.startswith("/mode "):

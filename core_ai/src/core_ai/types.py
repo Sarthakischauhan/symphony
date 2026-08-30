@@ -36,3 +36,5 @@ class StreamEvent(BaseModel):
     total_tokens: Optional[int] = None
     retry_after: Optional[float] = None
     retry_attempt: Optional[int] = None
+    retry_reason: Optional[str] = None
+    retry_resets_stream: bool = False

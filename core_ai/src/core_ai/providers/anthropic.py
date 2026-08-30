@@ -36,7 +36,9 @@ class AnthropicProvider(BaseProvider):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
+        del reasoning_effort
         async for event in stream_with_retries(
             lambda: self._stream_once(
                 model_name,
@@ -140,9 +142,6 @@ class AnthropicProvider(BaseProvider):
                     prompt_tokens=usage.get("input_tokens"),
                 )
             return None
-        if event_type == "error":
-            error = data.get("error") or {}
-            raise RuntimeError(str(error.get("message") or data.get("message") or "Anthropic stream error"))
         return None
 
     @property

@@ -40,6 +40,13 @@ class ModeOption:
 
 
 @dataclass(frozen=True)
+class EffortOption:
+    id: str
+    label: str
+    description: str
+
+
+@dataclass(frozen=True)
 class PlanOption:
     id: str
     label: str
@@ -85,6 +92,17 @@ def model_matches(
     return tuple(model for model in models if not needle or needle in model.id.lower() or needle in model.label.lower())
 
 
+EFFORT_CATALOG = (
+    EffortOption("default", "Default", "Use Symphony's balanced default"),
+    EffortOption("none", "None", "Fastest · no deliberate reasoning"),
+    EffortOption("low", "Low", "Fast · lightweight reasoning"),
+    EffortOption("medium", "Medium", "Balanced speed and depth"),
+    EffortOption("high", "High", "Deeper reasoning"),
+    EffortOption("xhigh", "Extra high", "Extended reasoning"),
+    EffortOption("max", "Maximum", "Deepest reasoning · GPT-5.6"),
+)
+EFFORTS = tuple(option.id for option in EFFORT_CATALOG)
+
 MODE_CATALOG = (
     ModeOption("build", "Build", "Read, edit, and run code"),
     ModeOption("plan", "Plan", "Inspect and write a plan only"),
@@ -93,6 +111,7 @@ MODE_CATALOG = (
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
     SlashCommand("mode", "View or switch between build and plan", "[mode]"),
+    SlashCommand("effort", "Set model reasoning effort", "[level]"),
     SlashCommand("plan", "Choose and open a workspace plan", "[plan]"),
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("reload", "Reload configuration from .env"),
@@ -150,6 +169,38 @@ def show_model_picker(app: Any) -> None:
     app.query_one("#slash-menu").set_models(app._model_options, app._agent.harness.model_id)
 
 # --- mode_switcher.py ---
+def effort_matches(
+    value: str,
+    efforts: Iterable[EffortOption] = EFFORT_CATALOG,
+) -> tuple[EffortOption, ...]:
+    needle = value.strip().lower()
+    return tuple(
+        effort
+        for effort in efforts
+        if not needle
+        or needle in effort.id.lower()
+        or needle in effort.label.lower()
+    )
+
+
+def select_effort(app: Any, argument: str) -> None:
+    value = argument.strip().lower()
+    if value not in EFFORTS:
+        app.add_notice(f"Unknown effort: {argument}. Choose: {', '.join(EFFORTS)}", "warning")
+        return
+    app._agent.harness.reasoning_effort = None if value == "default" else value
+    label = next(option.label for option in EFFORT_CATALOG if option.id == value)
+    app.add_notice(f"Reasoning effort set to {label}", "success")
+
+
+def show_effort_picker(app: Any) -> None:
+    prompt = app.query_one("#prompt")
+    prompt.value = "/effort "
+    prompt.cursor_position = len(prompt.value)
+    current = app._agent.harness.reasoning_effort or "default"
+    app.query_one("#slash-menu").set_efforts(EFFORT_CATALOG, current)
+
+
 def select_mode(app: Any, argument: str) -> None:
     selected = find_mode(argument)
     if selected is None:
@@ -224,6 +275,11 @@ def on_plan_action(app: Any, action: str | None) -> None:
 async def reload_project(app: Any) -> None:
     """Reload environment-backed agent configuration in the current session."""
     previous_agent = app._agent
+    previous_effort = getattr(
+        getattr(previous_agent, "harness", None),
+        "reasoning_effort",
+        None,
+    )
     session_id = previous_agent.session_id if previous_agent is not None else app.session_id
     try:
         load_dotenv(override=True)
@@ -237,6 +293,7 @@ async def reload_project(app: Any) -> None:
             config=reloaded_config,
         )
         reloaded_agent.set_mode(app.mode)
+        reloaded_agent.harness.reasoning_effort = previous_effort
         app._agent = reloaded_agent
         app.config = reloaded_config
         app.control_plane.approvals = reloaded_config.approvals
@@ -289,6 +346,7 @@ def show_status(app: Any) -> None:
     app.add_notice(
         "Status\n"
         f"model     {app._agent.harness.model_id}\n"
+        f"effort    {app._agent.harness.reasoning_effort or 'default'}\n"
         f"mode      {app.mode}\n"
         f"approval  {app.control_plane.approvals.mode}\n"
         f"session   {app._agent.session_id}\n"
@@ -326,6 +384,15 @@ class CommandManager:
             app.push_screen(LearningModal(app.workspace))
         elif command == "plan":
             open_plan_modal(app, argument) if argument else show_plan_picker(app)
+        elif command == "effort":
+            if app._busy:
+                app.add_notice("/effort is unavailable while a turn is running.", "warning")
+            elif app._agent is None:
+                app.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
+            elif argument:
+                select_effort(app, argument)
+            else:
+                show_effort_picker(app)
         elif command == "mode":
             if app._busy:
                 app.add_notice("/mode is unavailable while a turn is running.", "warning")
@@ -360,7 +427,10 @@ class CommandManager:
 
 __all__ = [
     "CommandManager",
+    "EFFORT_CATALOG",
     "MODE_CATALOG",
+    "EFFORTS",
+    "EffortOption",
     "ModeOption",
     "model_options",
     "ModelOption",
@@ -368,6 +438,7 @@ __all__ = [
     "SLASH_COMMANDS",
     "SlashCommand",
     "command_matches",
+    "effort_matches",
     "find_mode",
     "find_model",
     "mode_matches",

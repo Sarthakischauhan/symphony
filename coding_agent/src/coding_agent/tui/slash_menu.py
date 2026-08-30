@@ -10,7 +10,13 @@ from textual import events
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
-from coding_agent.tui.commands import ModeOption, ModelOption, PlanOption, SlashCommand
+from coding_agent.tui.commands import (
+    EffortOption,
+    ModeOption,
+    ModelOption,
+    PlanOption,
+    SlashCommand,
+)
 from coding_agent.tui.file_selector import FileOption
 
 
@@ -23,6 +29,7 @@ class SlashMenu(OptionList):
         self._option_offset = 0
         self._commands: tuple[SlashCommand, ...] = ()
         self._models: tuple[ModelOption, ...] = ()
+        self._efforts: tuple[EffortOption, ...] = ()
         self._modes: tuple[ModeOption, ...] = ()
         self._plans: tuple[PlanOption, ...] = ()
         self._files: tuple[FileOption, ...] = ()
@@ -30,6 +37,7 @@ class SlashMenu(OptionList):
         self._question_text = ""
         self._question_kind = ""
         self._current_model = ""
+        self._current_effort = ""
         self._current_mode = ""
         self._current_plan = ""
 
@@ -39,6 +47,8 @@ class SlashMenu(OptionList):
             return f"@{self._files[self.selected_index].path}"
         if self._models:
             return f"/model {self._models[self.selected_index].id}"
+        if self._efforts:
+            return f"/effort {self._efforts[self.selected_index].id}"
         if self._modes:
             return f"/mode {self._modes[self.selected_index].id}"
         if self._plans:
@@ -58,6 +68,7 @@ class SlashMenu(OptionList):
         return (
             len(self._files)
             or len(self._models)
+            or len(self._efforts)
             or len(self._modes)
             or len(self._plans)
             or len(self._questions)
@@ -114,6 +125,7 @@ class SlashMenu(OptionList):
         *,
         commands: tuple[SlashCommand, ...] = (),
         models: tuple[ModelOption, ...] = (),
+        efforts: tuple[EffortOption, ...] = (),
         modes: tuple[ModeOption, ...] = (),
         plans: tuple[PlanOption, ...] = (),
         files: tuple[FileOption, ...] = (),
@@ -124,6 +136,7 @@ class SlashMenu(OptionList):
     ) -> None:
         self._commands = commands
         self._models = models
+        self._efforts = efforts
         self._modes = modes
         self._plans = plans
         self._files = files
@@ -152,6 +165,14 @@ class SlashMenu(OptionList):
     def set_models(self, models: tuple[ModelOption, ...], current: str = "") -> None:
         self._current_model = current
         self._replace_choices(models=models)
+
+    def set_efforts(self, efforts: tuple[EffortOption, ...], current: str = "") -> None:
+        self._current_effort = current
+        selected_index = next(
+            (index for index, effort in enumerate(efforts) if effort.id == current),
+            0,
+        )
+        self._replace_choices(efforts=efforts, selected_index=selected_index)
 
     def set_modes(self, modes: tuple[ModeOption, ...], current: str = "") -> None:
         self._current_mode = current
@@ -230,6 +251,14 @@ class SlashMenu(OptionList):
                     model.description,
                 )
                 for model in self._models
+            ]
+        if self._efforts:
+            return [
+                self._described_row(
+                    f"{'●' if effort.id == self._current_effort else '○'} {effort.label:<27}",
+                    effort.description,
+                )
+                for effort in self._efforts
             ]
         if self._modes:
             return [

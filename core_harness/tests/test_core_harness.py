@@ -204,6 +204,38 @@ class TwoToolLoopRegistry:
         yield StreamEvent(type="done", content_index=0)
 
 
+def test_core_harness_forwards_reasoning_effort() -> None:
+    class EffortRegistry:
+        def __init__(self) -> None:
+            self.efforts: list[Optional[str]] = []
+
+        async def stream(
+            self,
+            model_id: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]],
+            reasoning_effort: Optional[str] = None,
+        ):
+            del model_id, messages, tools
+            self.efforts.append(reasoning_effort)
+            yield StreamEvent(type="text_delta", content_index=0, delta="done")
+            yield StreamEvent(type="done", content_index=0)
+
+    registry = EffortRegistry()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="openai:gpt-5.6-luna",
+        system_prompt="Be useful.",
+        reasoning_effort="high",
+        max_turns=1,
+    )
+
+    result = asyncio.run(harness.run("Do it"))
+
+    assert result.output_text == "done"
+    assert registry.efforts == ["high"]
+
+
 def call_fake_harness(
     *,
     emit_usage: bool = True,

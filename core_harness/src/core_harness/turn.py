@@ -45,6 +45,7 @@ class TurnRunner:
         *,
         registry: ModelRegistry,
         model_id: str,
+        reasoning_effort: Optional[str] = None,
         tool_schemas: List[Dict[str, Any]],
         tools: Dict[str, Tool],
         control_plane: ControlPlane,
@@ -61,6 +62,7 @@ class TurnRunner:
     ) -> None:
         self.registry = registry
         self.model_id = model_id
+        self.reasoning_effort = reasoning_effort
         self.tool_schemas = tool_schemas
         self.tools = tools
         self.control_plane = control_plane
@@ -148,6 +150,7 @@ class TurnRunner:
         reasoning_texts: Dict[int, str] = {}
         pending_calls: Dict[int, PendingToolCall] = {}
         saw_usage = False
+        attempt_usage = UsageTotals()
         async for event in self._stream_events(messages):
             if event.type == "text_delta" and event.delta:
                 assistant_text += event.delta
@@ -197,13 +200,25 @@ class TurnRunner:
                     },
                 )
             elif event.type == "retry":
+                if event.retry_resets_stream:
+                    assistant_text = ""
+                    reasoning_texts.clear()
+                    pending_calls.clear()
+                    usage.prompt_tokens -= attempt_usage.prompt_tokens
+                    usage.completion_tokens -= attempt_usage.completion_tokens
+                    usage.reasoning_tokens -= attempt_usage.reasoning_tokens
+                    usage.total_tokens -= attempt_usage.total_tokens
+                    attempt_usage = UsageTotals()
+                    saw_usage = False
+                    budget_tokens = estimated_message_tokens
                 await self.control_plane.emit(
                     "model_retry_scheduled",
                     {
                         "turn": turn,
                         "retry_after": event.retry_after or 0.0,
                         "attempt": event.retry_attempt or 1,
-                        "reason": "rate_limit",
+                        "reason": event.retry_reason or "rate_limit",
+                        "resets_stream": event.retry_resets_stream,
                     },
                 )
             elif event.type == "usage":
@@ -212,6 +227,10 @@ class TurnRunner:
                 usage.completion_tokens += event.completion_tokens or 0
                 usage.reasoning_tokens += event.reasoning_tokens or 0
                 usage.total_tokens += event.total_tokens or 0
+                attempt_usage.prompt_tokens += event.prompt_tokens or 0
+                attempt_usage.completion_tokens += event.completion_tokens or 0
+                attempt_usage.reasoning_tokens += event.reasoning_tokens or 0
+                attempt_usage.total_tokens += event.total_tokens or 0
                 budget_tokens = event.prompt_tokens or usage.total_tokens
                 await self.control_plane.emit(
                     "usage",
@@ -381,7 +400,15 @@ class TurnRunner:
             raise HarnessCancelled(self._cancel_reason())
 
     async def _stream_events(self, messages: List[Message]):
-        agen = self.registry.stream(self.model_id, messages, self.tool_schemas)
+        stream_options: Dict[str, Any] = {}
+        if self.reasoning_effort is not None:
+            stream_options["reasoning_effort"] = self.reasoning_effort
+        agen = self.registry.stream(
+            self.model_id,
+            messages,
+            self.tool_schemas,
+            **stream_options,
+        )
         closed = False
 
         async def close_stream() -> None:

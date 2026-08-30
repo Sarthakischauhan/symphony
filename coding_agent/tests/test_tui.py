@@ -20,9 +20,11 @@ from core_harness import HarnessResult
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.commands import (
+    EFFORT_CATALOG,
     ModelOption,
     SLASH_COMMANDS,
     command_matches,
+    effort_matches,
     find_mode,
     find_model,
     mode_matches,
@@ -735,6 +737,38 @@ def test_tui_animates_working_gradient_while_rate_limit_retries(
     asyncio.run(_run())
 
 
+def test_tui_labels_stream_error_retry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:test"})
+            app._presenter.handle("turn_started", {"turn": 0, "message_count": 2})
+            app._presenter.handle(
+                "model_retry_scheduled",
+                {
+                    "turn": 0,
+                    "retry_after": 1,
+                    "attempt": 1,
+                    "reason": "stream_error",
+                    "resets_stream": True,
+                },
+            )
+            await pilot.pause()
+
+            thinking = app.query_one(ThinkingStatus).render()
+            assert "Stream error" in thinking.plain
+            assert "retrying in 1s" in thinking.plain
+            assert app._ui_state.detail == "stream error; retrying in 1s"
+
+    asyncio.run(_run())
+
+
 def test_bash_tool_uses_timeline_header_with_right_aligned_status(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1017,6 +1051,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
     assert "plan" in [command.name for command in SLASH_COMMANDS]
+    assert "effort" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
     assert find_model("gpt-5.6-sol").id == "openai:gpt-5.6-sol"  # type: ignore[union-attr]
@@ -1028,6 +1063,16 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     ]
     assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
+    assert [effort.id for effort in effort_matches("xh")] == ["xhigh"]
+    assert [effort.id for effort in EFFORT_CATALOG] == [
+        "default",
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
 
 
 def test_file_mentions_are_ranked_and_preserve_prompt_text(tmp_path: Path) -> None:
@@ -1299,6 +1344,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
         session_id="current-session",
         harness=SimpleNamespace(
             model_id="openai:reloaded-model",
+            reasoning_effort=None,
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
@@ -1322,7 +1368,9 @@ def test_reload_refreshes_config_without_clearing_conversation(
             selected_modes.clear()
             built_with.clear()
             app._agent = SimpleNamespace(
-                session_id="current-session", learning_loop=None
+                session_id="current-session",
+                learning_loop=None,
+                harness=SimpleNamespace(reasoning_effort="high"),
             )
             app._mount_transcript(UserMessage("Keep this conversation"))
             await pilot.pause()
@@ -1334,6 +1382,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
             assert built_with["session_id"] == "current-session"
             assert selected_modes == ["build"]
             assert app._agent is reloaded_agent
+            assert app._agent.harness.reasoning_effort == "high"
             assert len(app.query(".user-message")) == 1
             assert app._ui_state.model_id == "openai:reloaded-model"
 
@@ -1382,6 +1431,7 @@ def test_slash_menu_and_commands(
             self.session_id = "old-session"
             self.harness = SimpleNamespace(
                 model_id="openai:gpt-4o-mini",
+                reasoning_effort=None,
                 session_id="old-session",
                 state=FakeState(),
             )
@@ -1449,6 +1499,30 @@ def test_slash_menu_and_commands(
             assert app.mode == "plan"
             assert fake.mode == "plan"
             assert "PLAN" in str(app.query_one("#composer-mode").render())
+
+            prompt.value = "/effort "  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.display
+            assert menu.selected_value == "/effort default"
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert fake.harness.reasoning_effort == "none"
+
+            prompt.value = "/effort xh"  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.selected_value == "/effort xhigh"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert fake.harness.reasoning_effort == "xhigh"
+
+            await app._run_slash_command("/effort")
+            await pilot.pause()
+            assert prompt.value == "/effort "  # type: ignore[attr-defined]
+            assert menu.selected_value == "/effort xhigh"
+
+            await app._run_slash_command("/effort default")
+            assert fake.harness.reasoning_effort is None
 
             await app._run_slash_command("/compact")
             assert fake.compacted

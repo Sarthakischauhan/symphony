@@ -329,6 +329,31 @@ def test_model_retry_event_keeps_run_alive() -> None:
     assert plane.events[-1].event_type == "run_completed"
 
 
+def test_model_retry_discards_partial_stream_attempt() -> None:
+    events = [
+        StreamEvent(type="text_delta", delta="discard me"),
+        StreamEvent(
+            type="retry",
+            retry_after=0,
+            retry_attempt=1,
+            retry_reason="stream_error",
+            retry_resets_stream=True,
+        ),
+        *_text_turn("recovered"),
+    ]
+    registry = ScriptedRegistry([events])
+    _, plane, harness = _harness(registry)
+
+    result = asyncio.run(harness.run("go"))
+
+    assert result.output_text == "recovered"
+    retry = next(
+        event for event in plane.events if event.event_type == "model_retry_scheduled"
+    )
+    assert retry.payload["reason"] == "stream_error"
+    assert retry.payload["resets_stream"] is True
+
+
 def test_max_runtime_stops_stream() -> None:
     class SlowRegistry:
         async def stream(self, model_id, messages, tools):

@@ -15,7 +15,7 @@ def test_gpt_5_6_uses_responses_reasoning_stream() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/responses"
         payload = json.loads(request.content)
-        assert payload["reasoning"] == {"effort": "medium", "summary": "auto"}
+        assert payload["reasoning"] == {"effort": "xhigh", "summary": "auto"}
         assert payload["max_output_tokens"] == 900
         body = "\n\n".join(
             f"data: {event}"
@@ -39,6 +39,7 @@ def test_gpt_5_6_uses_responses_reasoning_stream() -> None:
                 "gpt-5.6-luna",
                 [Message(role="user", content="Inspect it")],
                 max_output_tokens=900,
+                reasoning_effort="xhigh",
             )
         ]
 
@@ -143,6 +144,106 @@ def test_rate_limit_retries_using_retry_after_header() -> None:
     assert events[0].retry_after == 0
     assert events[0].retry_attempt == 1
     assert events[1].delta == "Done"
+
+
+def test_retryable_in_stream_error_restarts_openai_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = 0
+
+    async def no_sleep(_delay: float) -> None:
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(
+                200,
+                text=(
+                    'data: {"type":"response.output_text.delta",'
+                    '"content_index":0,"delta":"Discarded"}\n\n'
+                    + "data: "
+                    + json.dumps(
+                        {
+                            "type": "error",
+                            "error": {
+                                "type": "server_error",
+                                "code": "server_error",
+                                "message": "The stream was interrupted",
+                            },
+                        }
+                    )
+                    + "\n\n"
+                ),
+            )
+        return httpx.Response(
+            200,
+            text=(
+                'data: {"type":"response.output_text.delta",'
+                '"content_index":0,"delta":"Recovered"}\n\n'
+                "data: [DONE]\n\n"
+            ),
+        )
+
+    monkeypatch.setattr("core_ai.providers.http.asyncio.sleep", no_sleep)
+
+    async def collect() -> list[StreamEvent]:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "gpt-5.6-luna", [Message(role="user", content="Do it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+
+    assert requests == 2
+    assert [event.type for event in events] == [
+        "text_delta",
+        "retry",
+        "text_delta",
+        "done",
+    ]
+    assert events[1].retry_reason == "stream_error"
+    assert events[1].retry_attempt == 1
+    assert events[1].retry_resets_stream is True
+    assert events[2].delta == "Recovered"
+
+
+def test_non_retryable_in_stream_error_surfaces_nested_message() -> None:
+    requests = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(
+            200,
+            text="data: " + json.dumps(
+                {
+                    "type": "response.failed",
+                    "response": {
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "context_length_exceeded",
+                            "message": "The input is too long",
+                        }
+                    },
+                }
+            ) + "\n\n",
+        )
+
+    async def collect() -> None:
+        provider = OpenAIProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "gpt-5.6-luna", [Message(role="user", content="Do it")]
+        ):
+            pass
+
+    with pytest.raises(RuntimeError, match="The input is too long"):
+        asyncio.run(collect())
+    assert requests == 1
 
 
 def call_openai_provider(

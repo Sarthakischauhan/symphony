@@ -56,9 +56,11 @@
 
 ## `model_retry_scheduled` (conditional)
 
-Emitted when a provider keeps the current turn alive after a retryable 429.
-OpenAI, Anthropic, and Gemini honor `Retry-After` and use capped exponential
-backoff when that header is absent.
+Emitted when a provider keeps the current turn alive after a retryable rate
+limit, server, connection, or in-stream error. Providers honor `Retry-After`
+and otherwise use capped exponential backoff. Retries are bounded. When
+`resets_stream` is true, consumers should discard partial output from the
+failed attempt.
 
 ```json
 {
@@ -67,7 +69,8 @@ backoff when that header is absent.
     "turn": 0,
     "retry_after": 2.5,
     "attempt": 1,
-    "reason": "rate_limit"
+    "reason": "rate_limit",
+    "resets_stream": false
   }
 }
 ```

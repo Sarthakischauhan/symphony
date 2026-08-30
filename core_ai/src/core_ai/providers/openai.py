@@ -34,6 +34,7 @@ class OpenAIProvider(BaseProvider):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         once = (
             self._stream_chat
@@ -41,7 +42,7 @@ class OpenAIProvider(BaseProvider):
             else self._stream_responses
         )
         async for event in stream_with_retries(
-            lambda: once(model_name, messages, tools, max_output_tokens)
+            lambda: once(model_name, messages, tools, max_output_tokens, reasoning_effort)
         ):
             yield event
 
@@ -51,6 +52,7 @@ class OpenAIProvider(BaseProvider):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         payload: Dict[str, Any] = {
             "model": model_name,
@@ -63,7 +65,7 @@ class OpenAIProvider(BaseProvider):
         if max_output_tokens is not None:
             payload["max_completion_tokens"] = max_output_tokens
         if self._is_reasoning_model(model_name):
-            payload["reasoning_effort"] = "medium"
+            payload["reasoning_effort"] = reasoning_effort or "medium"
 
         async with httpx.AsyncClient(transport=self.transport) as client:
             async with client.stream(
@@ -115,6 +117,7 @@ class OpenAIProvider(BaseProvider):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         payload: Dict[str, Any] = {
             "model": model_name,
@@ -122,7 +125,7 @@ class OpenAIProvider(BaseProvider):
             "input": self._responses_input(messages),
         }
         if model_name.startswith("gpt-5"):
-            payload["reasoning"] = {"effort": "medium", "summary": "auto"}
+            payload["reasoning"] = {"effort": reasoning_effort or "medium", "summary": "auto"}
         if max_output_tokens is not None:
             payload["max_output_tokens"] = max_output_tokens
         if tools:
@@ -181,8 +184,6 @@ class OpenAIProvider(BaseProvider):
                             reasoning_tokens=details.get("reasoning_tokens"),
                             total_tokens=usage.get("total_tokens"),
                         )
-                    elif event_type == "error":
-                        raise RuntimeError(str(data.get("message") or "OpenAI stream error"))
         yield StreamEvent(type="done", content_index=0)
 
     async def generate_image(

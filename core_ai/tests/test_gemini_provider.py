@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
 from core_ai.providers.gemini import GeminiProvider
 from core_ai.types import Message, StreamEvent
@@ -84,6 +85,73 @@ def test_gemini_rate_limit_retries_using_retry_after_header() -> None:
     assert requests == 2
     assert [event.type for event in events] == ["retry", "text_delta", "done"]
     assert events[1].delta == "Done"
+
+
+def test_gemini_retries_retryable_in_stream_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = 0
+
+    async def no_sleep(_delay: float) -> None:
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(
+                200,
+                text=_sse(
+                    '{"error":{"code":503,"status":"UNAVAILABLE","message":"Try again"}}'
+                ),
+            )
+        return httpx.Response(
+            200,
+            text=_sse('{"candidates":[{"content":{"parts":[{"text":"Done"}]}}]}'),
+        )
+
+    monkeypatch.setattr("core_ai.providers.http.asyncio.sleep", no_sleep)
+
+    async def collect() -> list[StreamEvent]:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "gemini-3.7-flash", [Message(role="user", content="Do it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+
+    assert requests == 2
+    assert [event.type for event in events] == ["retry", "text_delta", "done"]
+    assert events[0].retry_reason == "stream_error"
+    assert events[1].delta == "Done"
+
+
+def test_gemini_does_not_retry_terminal_in_stream_error() -> None:
+    requests = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"Bad request"}}'
+            ),
+        )
+
+    async def collect() -> None:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "gemini-3.7-flash", [Message(role="user", content="Do it")]
+        ):
+            pass
+
+    with pytest.raises(RuntimeError, match="Bad request"):
+        asyncio.run(collect())
+    assert requests == 1
 
 
 def test_gemini_translates_tool_history() -> None:

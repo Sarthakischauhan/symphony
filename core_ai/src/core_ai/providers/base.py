@@ -12,6 +12,7 @@ class BaseProvider(ABC):
         messages: List[Message],
         tools: List[Dict[str, Any]] = [],
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Takes unified messages, translates to provider-specific format,

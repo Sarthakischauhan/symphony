@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.types import Message, StreamEvent
@@ -96,6 +97,75 @@ def test_anthropic_rate_limit_retries_using_retry_after_header() -> None:
     assert [event.type for event in events] == ["retry", "text_delta", "done"]
     assert events[0].retry_after == 0
     assert events[1].delta == "Done"
+
+
+def test_anthropic_retries_retryable_in_stream_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = 0
+
+    async def no_sleep(_delay: float) -> None:
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(
+                200,
+                text=_sse(
+                    '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
+                ),
+            )
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Done"}}'
+            ),
+        )
+
+    monkeypatch.setattr("core_ai.providers.http.asyncio.sleep", no_sleep)
+
+    async def collect() -> list[StreamEvent]:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "claude-sonnet-5", [Message(role="user", content="Do it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+
+    assert requests == 2
+    assert [event.type for event in events] == ["retry", "text_delta", "done"]
+    assert events[0].retry_reason == "stream_error"
+    assert events[1].delta == "Done"
+
+
+def test_anthropic_does_not_retry_terminal_in_stream_error() -> None:
+    requests = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"error","error":{"type":"invalid_request_error","message":"Bad request"}}'
+            ),
+        )
+
+    async def collect() -> None:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "claude-sonnet-5", [Message(role="user", content="Do it")]
+        ):
+            pass
+
+    with pytest.raises(RuntimeError, match="Bad request"):
+        asyncio.run(collect())
+    assert requests == 1
 
 
 def test_anthropic_translates_tool_history() -> None:

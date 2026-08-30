@@ -193,15 +193,26 @@ class EventPresenter:
     def _on_model_retry_scheduled(self, payload: Dict[str, Any]) -> None:
         retry_after = float(payload.get("retry_after") or 0.0)
         attempt = int(payload.get("attempt") or 1)
+        reason = str(payload.get("reason") or "rate_limit")
+        if payload.get("resets_stream"):
+            if self._reasoning_active:
+                self.view.set_reasoning("")
+            self._finish_reasoning()
+            self._reasoning_parts.clear()
+            self.state.stream_text = ""
+            self.state.reasoning_text = ""
+            if self._assistant_open:
+                self.view.set_assistant("")
         delay = (
             f"{retry_after:.1f}s"
             if retry_after < 10 and not retry_after.is_integer()
             else f"{retry_after:.0f}s"
         )
         self.state.phase = "thinking"
-        self.state.detail = f"rate limited; retrying in {delay}"
+        label = "rate limited" if reason == "rate_limit" else reason.replace("_", " ")
+        self.state.detail = f"{label}; retrying in {delay}"
         self.view.set_working(
-            f"Rate limited · retrying in {delay} · attempt {attempt}"
+            f"{label.capitalize()} · retrying in {delay} · attempt {attempt}"
         )
 
     def _on_text_delta(self, payload: Dict[str, Any]) -> None:
