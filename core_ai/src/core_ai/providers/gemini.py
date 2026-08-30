@@ -86,12 +86,7 @@ class GeminiProvider(BaseProvider):
             payload["tools"] = [
                 {
                     "functionDeclarations": [
-                        {
-                            "name": tool["name"],
-                            "description": tool.get("description", ""),
-                            "parameters": tool.get("parameters")
-                            or {"type": "object", "properties": {}},
-                        }
+                        _gemini_tool_schema(tool)
                         for tool in tools
                     ]
                 }
@@ -270,6 +265,36 @@ def _first_inline_image(payload: Dict[str, Any]) -> tuple[bytes, str]:
             )
             return base64.b64decode(data), media_type
     raise RuntimeError("provider returned no image data")
+
+
+def _gemini_tool_schema(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert the shared tool schema to Gemini's accepted JSON schema.
+
+    Gemini rejects OpenAI-only fields and empty ``required`` arrays in some
+    API versions.  Keep this adapter local to the Gemini provider so other
+    providers continue receiving the canonical harness schema.
+    """
+    schema = tool.get("parameters") or {"type": "object", "properties": {}}
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        result = {
+            key: clean(item)
+            for key, item in value.items()
+            if key not in {"additionalProperties", "$schema", "strict"}
+        }
+        if not result.get("required"):
+            result.pop("required", None)
+        return result
+
+    return {
+        "name": tool.get("name", ""),
+        "description": tool.get("description", ""),
+        "parameters": clean(schema),
+    }
 
 
 def _http_error(response: httpx.Response) -> str:

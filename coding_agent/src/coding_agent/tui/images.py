@@ -262,7 +262,7 @@ class ImageModal(ModalBase[None]):
 
     def compose(self):  # type: ignore[no-untyped-def]
         with Container(id="content-pane", classes="modal-pane"):
-            yield ModalCloseButton("×", id="modal-close")
+            yield ModalCloseButton("Esc", id="modal-close")
             yield Static(self._title(), id="image-title")
             with ModalScroll(id="content-body", classes="modal-body"):
                 yield Static(self._preview(), id="image-preview")

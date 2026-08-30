@@ -86,7 +86,7 @@ class ContentModal(ModalBase[None]):
 
     def compose(self):  # type: ignore[no-untyped-def]
         with Container(id="content-pane", classes="modal-pane"):
-            yield ModalCloseButton("×", id="modal-close")
+            yield ModalCloseButton("Esc", id="modal-close")
             with ModalScroll(id="content-body", classes="modal-body"):
                 yield Static(self.content, id="content-text", markup=False)
             yield Static("↑↓ scroll   ·   Esc close", classes="modal-footer")
@@ -203,7 +203,7 @@ class DiffModal(ModalBase[None]):
         diff_text = read_workspace_diff(self.workspace)
         files = split_diff(diff_text)
         with Container(id="diff-pane", classes="modal-pane"):
-            yield ModalCloseButton("×", id="modal-close")
+            yield ModalCloseButton("Esc", id="modal-close")
             with ModalScroll(id="diff-body", classes="modal-body"):
                 if not files:
                     is_clean = diff_text.strip() in {"", "No local changes found."}
@@ -232,7 +232,7 @@ class LearningModal(ModalBase[None]):
     def compose(self):  # type: ignore[no-untyped-def]
         lessons = list(reversed(LearningStore(self.workspace).load()))
         with Container(id="learning-pane", classes="modal-pane"):
-            yield ModalCloseButton("×", id="modal-close")
+            yield ModalCloseButton("Esc", id="modal-close")
             with ModalScroll(id="learning-body", classes="modal-body"):
                 if not lessons:
                     yield EmptyState(
@@ -307,7 +307,7 @@ class PlanModal(ModalBase[PlanAction | None]):
         markdown = store.to_markdown()
         _task, sections = _plan_sections(markdown)
         with Container(id="plan-pane", classes="modal-pane"):
-            yield ModalCloseButton("×", id="modal-close")
+            yield ModalCloseButton("Esc", id="modal-close")
             with ModalScroll(id="plan-body", classes="modal-body"):
                 if not sections:
                     yield EmptyState(
@@ -391,9 +391,9 @@ class ContextModal(ModalBase[None]):
 
     def compose(self):  # type: ignore[no-untyped-def]
         with Container(id="context-pane", classes="modal-pane"):
-            with Horizontal():
+            with Horizontal(id="context-header"):
                 yield Static("Context", id="context-title")
-                yield ModalCloseButton("×", id="modal-close")
+                yield ModalCloseButton("Esc", id="modal-close")
             yield Static(self._render_meters(), id="context-meters")
             with Horizontal(id="context-buckets"):
                 for role, caption in self._chip_captions():
@@ -408,7 +408,7 @@ class ContextModal(ModalBase[None]):
                 else:
                     yield Static(self._render_rows(), id="context-list", markup=False)
             yield Static(
-                "← → filter   ·   click a bucket   ·   Esc close",
+                "← → switch view   ·   click to filter",
                 id="context-hint",
                 classes="modal-footer",
             )
@@ -483,6 +483,7 @@ class ContextModal(ModalBase[None]):
         if not visible:
             rows.append("Nothing in this bucket.", style="#686868")
             return rows
+        rows.append("TYPE  TOKENS    SENT  STATE   CONTENT\n", style="#555555")
         for item in visible:
             color = _ROLE_COLORS.get(item.role, "#bdbdbd")
             short = _ROLE_SHORT.get(item.role, item.role[:3].upper())
