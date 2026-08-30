@@ -19,6 +19,7 @@ from core_harness import (
     Persistence,
     Tool,
 )
+from core_harness.state import ContextReport, build_context_report
 from core_harness.utils.tokens import estimate_prompt_tokens
 
 from coding_agent.config import (
@@ -61,6 +62,7 @@ class CodingAgent:
         context_compact_threshold: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.context_compact_threshold,
         compaction_keep_recent: int = DEFAULT_CODING_AGENT_CONFIG.harness.compaction_keep_recent,
         tool_result_max_chars: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_max_chars,
+        tool_result_keep_recent: int = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_keep_recent,
         context_target_tokens: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.context_target_tokens,
     ) -> None:
         self.workspace = Path(workspace).resolve()
@@ -77,6 +79,7 @@ class CodingAgent:
             context_compact_threshold = config.harness.context_compact_threshold
             compaction_keep_recent = config.harness.compaction_keep_recent
             tool_result_max_chars = config.harness.tool_result_max_chars
+            tool_result_keep_recent = config.harness.tool_result_keep_recent
             context_target_tokens = config.harness.context_target_tokens
         if auto_approve is True:
             set_mode = getattr(self.control_plane, "set_approval_mode", None)
@@ -128,11 +131,16 @@ class CodingAgent:
             context_warn_threshold=context_warn_threshold,
             context_compact_threshold=context_compact_threshold,
             compactor=(
-                KeepSystemRecentCompactor(keep_recent=compaction_keep_recent)
+                KeepSystemRecentCompactor(
+                    keep_recent=compaction_keep_recent,
+                    target_tokens=context_target_tokens,
+                    keep_recent_tool_results=tool_result_keep_recent,
+                )
                 if context_compact_threshold is not None
                 else None
             ),
             tool_result_max_chars=tool_result_max_chars,
+            tool_result_keep_recent=tool_result_keep_recent,
             context_target_tokens=context_target_tokens,
         )
         if tools is None:
@@ -247,7 +255,11 @@ class CodingAgent:
                 "manual": True,
             },
         )
-        compacted = await KeepSystemRecentCompactor(keep_recent=keep_recent).compact(
+        compacted = await KeepSystemRecentCompactor(
+            keep_recent=keep_recent,
+            target_tokens=self.harness.context_target_tokens,
+            keep_recent_tool_results=self.harness.tool_result_keep_recent,
+        ).compact(
             messages,
             turn=0,
             context_limit=self.harness.state.context_limit(self.harness.model_id),
@@ -270,6 +282,15 @@ class CodingAgent:
             },
         )
         return (before, len(compacted))
+
+    async def context_report(self) -> ContextReport:
+        """Stored conversation vs the payload that would be sent to the model."""
+        messages = await self.persistence.load_conversation(session_id=self.session_id)
+        return build_context_report(
+            messages,
+            context_limit=self.harness.state.context_limit(self.harness.model_id),
+            keep_recent_tool_results=self.harness.tool_result_keep_recent,
+        )
 
 
 def build_agent(

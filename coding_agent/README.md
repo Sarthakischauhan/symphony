@@ -69,8 +69,7 @@ Plan mode uses a yellow composer border and writes streamed plans to readable,
 task-named files such as `.symphony/plans/to_build_a_server_plan.md`. When planning
 finishes, the plan opens in a modal with a **Build now** action; `/plan` opens a
 searchable picker for all saved workspace plans.
-`/new` starts a new persisted session, `/compact` keeps the system prompt and recent
-valid tool-call blocks, `/reload` reloads `.env` and rebuilds the provider registry,
+`/new` starts a new persisted session, `/compact` keeps the system prompt, the original task, and the most recent turns (with a summary of dropped work), `/context` opens a modal that breaks down stored vs sent tokens by role, `/reload` reloads `.env` and rebuilds the provider registry,
 `/diff` opens the current workspace diff in a modal,
 `/status` displays the current runtime context, `/help` shows commands, and `/clear`
 clears the visible transcript.
@@ -145,8 +144,12 @@ Conversation persistence is managed under
 `session_id` or the TUI `--resume` command.
 
 Automatic context compaction is enabled by default. When a model has 16,000 or
-fewer context tokens left, the harness keeps the system prompt and the eight most
-recent protocol-safe messages before the next model call. The warning threshold,
-compaction threshold, and number of recent messages can be customized with
-`context_warn_threshold`, `context_compact_threshold`, and
-`compaction_keep_recent`; pass `context_compact_threshold=None` to disable it.
+fewer context tokens left, the harness keeps the system prompt, the original task,
+and the eight most recent turns before the next model call. Dropped turns are
+summarized rather than discarded silently. Independently, each model request only
+resends the last two tool results in full so TPM stays bounded as a turn grows.
+The warning threshold, compaction threshold, recent-turn count, post-compact
+target, and tool-result window can be customized with `context_warn_threshold`,
+`context_compact_threshold`, `compaction_keep_recent`, `context_target_tokens`,
+and `tool_result_keep_recent`; pass `context_compact_threshold=None` to disable
+auto-compact.

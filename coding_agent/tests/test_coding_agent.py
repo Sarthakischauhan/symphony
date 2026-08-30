@@ -140,11 +140,13 @@ def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> No
 
         result = await agent.run("new request")
 
-        assert [message.content for message in registry.calls[0][1:]] == [
-            history[-1].content,
-            "new request",
-        ]
-        assert len(result.messages) == 4
+        sent = registry.calls[0]
+        assert sent[0].role == "system"
+        assert sent[1].content == history[0].content
+        assert str(sent[2].content).startswith("[compacted earlier context]")
+        assert sent[-2].content == history[-1].content
+        assert sent[-1].content == "new request"
+        assert len(result.messages) == len(sent) + 1
         saved = await agent.persistence.load_conversation(session_id=agent.session_id)
         assert saved == result.messages
 
