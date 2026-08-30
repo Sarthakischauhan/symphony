@@ -16,7 +16,7 @@ from core_harness.control_plane import ControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import UsageTotals
 from core_harness.models import PendingToolCall, ToolCall, ToolResult
-from core_harness.state import HarnessState
+from core_harness.state import HarnessState, prune_stale_tool_results
 from core_harness.tools import Tool
 from core_harness.utils.tokens import (
     estimate_completion_tokens,
@@ -52,6 +52,7 @@ class TurnRunner:
         state: HarnessState,
         context_limit: Optional[int],
         tool_result_max_chars: Optional[int],
+        tool_result_keep_recent: int = 2,
         context_target_tokens: Optional[int],
         remaining_runtime: Optional[float] = None,
         max_tool_calls: Optional[int] = None,
@@ -69,6 +70,7 @@ class TurnRunner:
         self.state = state
         self.context_limit = context_limit
         self.tool_result_max_chars = tool_result_max_chars
+        self.tool_result_keep_recent = tool_result_keep_recent
         self.context_target_tokens = context_target_tokens
         self.remaining_runtime = remaining_runtime
         self.max_tool_calls = max_tool_calls
@@ -405,7 +407,9 @@ class TurnRunner:
             stream_options["reasoning_effort"] = self.reasoning_effort
         agen = self.registry.stream(
             self.model_id,
-            messages,
+            prune_stale_tool_results(
+                messages, keep_recent=self.tool_result_keep_recent
+            ),
             self.tool_schemas,
             **stream_options,
         )

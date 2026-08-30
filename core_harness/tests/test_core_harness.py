@@ -22,7 +22,13 @@ from core_harness import (
     Tool,
 )
 from core_harness.utils.tokens import estimate_prompt_tokens, message_size_breakdown
-from core_harness.state import normalize_tool_protocol
+from core_harness.state import (
+    CLEARED_TOOL_RESULT_MARK,
+    COMPACTED_CONTEXT_MARK,
+    build_context_report,
+    normalize_tool_protocol,
+    prune_stale_tool_results,
+)
 
 
 def get_weather(city: str, control_plane: NullControlPlane) -> str:
@@ -266,6 +272,130 @@ def call_fake_harness(
     return registry, control_plane, result
 
 
+def bulky_result() -> str:
+    return "PAYLOAD-" + ("x" * 4000)
+
+
+class RepeatToolRegistry:
+    """Call bulky_result n times, then finish."""
+
+    def __init__(self, n_calls: int = 8) -> None:
+        self.n_calls = n_calls
+        self.calls: list[list[Message]] = []
+
+    async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
+        del model_id, tools
+        self.calls.append(list(messages))
+        n_tools = sum(1 for message in messages if message.role == "tool")
+        if n_tools < self.n_calls:
+            idx = n_tools
+            yield StreamEvent(
+                type="toolcall_start",
+                content_index=0,
+                tool_call_id=f"call-{idx}",
+                tool_name="bulky_result",
+            )
+            yield StreamEvent(type="toolcall_delta", content_index=0, delta="{}")
+            yield StreamEvent(type="usage", prompt_tokens=8, completion_tokens=2, total_tokens=10)
+            yield StreamEvent(type="done", content_index=0)
+            return
+        yield StreamEvent(type="text_delta", content_index=0, delta="done")
+        yield StreamEvent(type="usage", prompt_tokens=8, completion_tokens=2, total_tokens=10)
+        yield StreamEvent(type="done", content_index=0)
+
+
+def _tool_group(call_id: str, name: str, result: str) -> list[Message]:
+    return [
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": "{}"},
+                }
+            ],
+        ),
+        Message(role="tool", content=result, tool_call_id=call_id),
+    ]
+
+
+def test_prune_stale_tool_results_stubs_older_and_does_not_mutate() -> None:
+    messages = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="go"),
+    ]
+    for index in range(4):
+        messages.extend(_tool_group(f"c{index}", "read_file", "A" * 500))
+
+    original = [message.content for message in messages]
+    pruned = prune_stale_tool_results(messages, keep_recent=2)
+    assert [message.content for message in messages] == original
+
+    tools = [message for message in pruned if message.role == "tool"]
+    assert len(tools) == 4
+    assert str(tools[0].content).startswith(CLEARED_TOOL_RESULT_MARK)
+    assert "read_file" in str(tools[0].content)
+    assert "500" in str(tools[0].content)
+    assert str(tools[1].content).startswith(CLEARED_TOOL_RESULT_MARK)
+    assert tools[2].content == "A" * 500
+    assert tools[3].content == "A" * 500
+    assert estimate_prompt_tokens(pruned) < estimate_prompt_tokens(messages)
+
+
+def test_stale_tool_results_are_not_resent_to_the_model() -> None:
+    registry = RepeatToolRegistry(n_calls=8)
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="system",
+        tools=[Tool(bulky_result)],
+        max_turns=16,
+        tool_result_keep_recent=2,
+    )
+
+    result = asyncio.run(harness.run("inspect files"))
+
+    persisted = [message for message in result.messages if message.role == "tool"]
+    assert len(persisted) == 8
+    assert all(str(message.content).startswith("PAYLOAD-") for message in persisted)
+
+    last_sent = [message for message in registry.calls[-1] if message.role == "tool"]
+    assert len(last_sent) == 8
+    full = [message for message in last_sent if str(message.content).startswith("PAYLOAD-")]
+    stubs = [
+        message
+        for message in last_sent
+        if str(message.content).startswith(CLEARED_TOOL_RESULT_MARK)
+    ]
+    assert len(full) == 2
+    assert len(stubs) == 6
+    assert estimate_prompt_tokens(registry.calls[-1]) < estimate_prompt_tokens(result.messages)
+
+
+def test_build_context_report_splits_stored_and_sent() -> None:
+    messages = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="fix the tpm limit"),
+    ]
+    for index in range(3):
+        messages.extend(_tool_group(f"c{index}", "bash", "B" * 800))
+
+    report = build_context_report(messages, context_limit=100_000, keep_recent_tool_results=1)
+    assert report.message_count == 8
+    assert report.tool_result_count == 3
+    assert report.stubbed_result_count == 2
+    assert report.sent_tokens < report.stored_tokens
+    assert report.utilization is not None
+    tool_bucket = next(bucket for bucket in report.buckets if bucket.role == "tool")
+    sent_tool = next(bucket for bucket in report.sent_buckets if bucket.role == "tool")
+    assert tool_bucket.count == 3
+    assert sent_tool.tokens < tool_bucket.tokens
+    assert report.messages[-1].stubbed is False
+    assert report.messages[-3].stubbed is True
+
+
 def test_large_tool_results_are_bounded_before_reentering_context() -> None:
     registry = LargeToolRegistry()
     control_plane = NullControlPlane()
@@ -371,11 +501,22 @@ def test_core_harness_emits_context_warning_below_threshold() -> None:
 
 
 def test_core_harness_compacts_when_context_left_is_low() -> None:
-    registry, control_plane, result = call_fake_harness(
-        prompt_tokens=90,
-        context_limit=100,
+    registry = FakeRegistry(prompt_tokens=90)
+    control_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="You are a concise assistant.",
+        tools=[Tool(get_weather)],
+        control_plane=control_plane,
+        context_limits={"fake:test-model": 100},
         context_compact_threshold=20,
-        keep_recent=2,
+        compactor=KeepSystemRecentCompactor(keep_recent=2),
+        max_turns=8,
+    )
+    prior = [Message(role="user", content=f"earlier task {index}") for index in range(6)]
+    result = asyncio.run(
+        harness.run("What is the weather in San Francisco?", conversation=prior)
     )
 
     event_types = [event.event_type for event in control_plane.events]
@@ -394,11 +535,12 @@ def test_core_harness_compacts_when_context_left_is_low() -> None:
         event for event in control_plane.events if event.event_type == "compaction_completed"
     )
     assert completed.payload["message_count_after"] < completed.payload["message_count_before"]
-    assert completed.payload["estimated_tokens_after"] <= completed.payload[
-        "estimated_tokens_before"
-    ]
     assert len(registry.calls[1]["messages"]) < len(registry.calls[0]["messages"]) + 2
     assert registry.calls[1]["messages"][0].role == "system"
+    assert any(
+        message.role == "user" and message.content == "earlier task 0"
+        for message in registry.calls[1]["messages"]
+    )
     assert result.output_text == "It is sunny in San Francisco."
 
 
@@ -479,10 +621,70 @@ def test_compactor_keeps_complete_tool_group_even_above_message_budget() -> None
     )
     assert [message.role for message in compacted] == [
         "system",
+        "user",
         "assistant",
         "tool",
         "tool",
     ]
+    assert compacted[1].content == "old"
+
+
+def test_compactor_pins_original_task_and_summarizes_dropped_turns() -> None:
+    messages = [Message(role="system", content="system")]
+    messages.append(Message(role="user", content="original task"))
+    messages.append(Message(role="assistant", content="ok"))
+    for index in range(5):
+        messages.append(Message(role="user", content=f"follow-up {index}"))
+        messages.append(Message(role="assistant", content=f"ack {index}"))
+
+    compacted = asyncio.run(
+        KeepSystemRecentCompactor(keep_recent=3).compact(
+            messages,
+            turn=0,
+            context_limit=8_000,
+            tokens_used=400,
+            context_left=7_600,
+        )
+    )
+    assert compacted[0].role == "system"
+    assert compacted[1].content == "original task"
+    assert str(compacted[2].content).startswith(COMPACTED_CONTEXT_MARK)
+    assert "follow-up 0" in str(compacted[2].content)
+    assert compacted[-2].content == "follow-up 4"
+    assert compacted[-1].content == "ack 4"
+    assert all(message.content != "follow-up 1" for message in compacted)
+
+
+def test_compactor_stubs_old_tool_results_and_shrinks_tokens() -> None:
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="original task"),
+        Message(role="assistant", content="ok"),
+    ]
+    for index in range(3):
+        messages.append(Message(role="user", content=f"follow-up {index}"))
+        messages.extend(_tool_group(f"old-{index}", "read_file", "Z" * 2000))
+
+    before = estimate_prompt_tokens(messages)
+    compacted = asyncio.run(
+        KeepSystemRecentCompactor(
+            keep_recent=3,
+            keep_recent_tool_results=1,
+        ).compact(
+            messages,
+            turn=0,
+            context_limit=50_000,
+            tokens_used=before,
+            context_left=40_000,
+        )
+    )
+    assert compacted[1].content == "original task"
+    tools = [message for message in compacted if message.role == "tool"]
+    assert len(tools) == 3
+    assert str(tools[0].content).startswith(CLEARED_TOOL_RESULT_MARK)
+    assert str(tools[1].content).startswith(CLEARED_TOOL_RESULT_MARK)
+    assert tools[2].content == "Z" * 2000
+    assert estimate_prompt_tokens(compacted) < before
 
 
 def test_control_plane_fanout_and_event_log() -> None:

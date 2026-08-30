@@ -122,7 +122,9 @@ def approve(action: str, control_plane: NullControlPlane) -> str:
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
 
-Tool results are bounded to 12,000 characters by default before being sent in the next model request. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected.
+Tool results are bounded to 12,000 characters by default before being persisted. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected.
+
+Each model request only includes the last `tool_result_keep_recent` tool results in full (default 2). Older results are replaced with a one-line stub on a **copy** of the conversation — persisted history is unchanged. Resending every historical tool result is what pushed TPM past 200k after a couple dozen calls.
 
 ## Runs, results, and conversations
 
@@ -224,7 +226,7 @@ can additionally implement `send_command` and `drain_commands`.
 
 The harness includes token-estimation helpers and compaction support. Configure `context_limits`, `context_warn_threshold`, and `context_compact_threshold` for context monitoring. Set `context_target_tokens` to control the target size after compaction, and provide a custom `Compactor` when application-specific summarization is needed.
 
-`KeepSystemRecentCompactor` is included for a simple policy that preserves the leading system message and the most recent conversation messages while keeping assistant tool-call groups intact:
+`KeepSystemRecentCompactor` keeps the leading system prompt, the original user task, and the most recent conversation turns (a user message plus the assistant/tool group that followed it). Dropped turns become a short summary instead of disappearing. Old tool results inside kept turns are stubbed. `keep_recent` counts turns, not raw messages, so a long tool group can no longer displace the user's task:
 
 ```python
 from core_harness import KeepSystemRecentCompactor
@@ -233,8 +235,9 @@ harness = CoreHarness(
     registry=registry,
     model_id=default_model_id(registry),
     system_prompt="Be concise.",
-    compactor=KeepSystemRecentCompactor(keep_recent=8),
+    compactor=KeepSystemRecentCompactor(keep_recent=8, target_tokens=20_000),
     context_target_tokens=20_000,
+    tool_result_keep_recent=2,
 )
 ```
 
@@ -242,7 +245,7 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, and `HarnessLimitExceeded`.
+`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ContextReport`, `build_context_report`, `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, and `HarnessLimitExceeded`.
 
 ## Development
 

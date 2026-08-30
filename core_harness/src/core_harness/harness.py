@@ -66,6 +66,7 @@ class CoreHarness:
         context_compact_threshold: Optional[int] = None,
         compactor: Optional[Compactor] = None,
         tool_result_max_chars: Optional[int] = DEFAULT_HARNESS_CONFIG.tool_result_max_chars,
+        tool_result_keep_recent: int = DEFAULT_HARNESS_CONFIG.tool_result_keep_recent,
         context_target_tokens: Optional[int] = None,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
@@ -82,11 +83,14 @@ class CoreHarness:
             context_warn_threshold = config.context_warn_threshold
             context_compact_threshold = config.context_compact_threshold
             tool_result_max_chars = config.tool_result_max_chars
+            tool_result_keep_recent = config.tool_result_keep_recent
             context_target_tokens = config.context_target_tokens
             max_spawn_depth = config.max_spawn_depth
             if compactor is None and context_compact_threshold is not None:
                 compactor = KeepSystemRecentCompactor(
-                    keep_recent=config.compaction_keep_recent
+                    keep_recent=config.compaction_keep_recent,
+                    target_tokens=context_target_tokens,
+                    keep_recent_tool_results=tool_result_keep_recent,
                 )
         self.registry = registry
         self.model_id = model_id
@@ -105,6 +109,9 @@ class CoreHarness:
         if tool_result_max_chars is not None and tool_result_max_chars < 1:
             raise ValueError("tool_result_max_chars must be positive or None")
         self.tool_result_max_chars = tool_result_max_chars
+        if tool_result_keep_recent < 0:
+            raise ValueError("tool_result_keep_recent must be >= 0")
+        self.tool_result_keep_recent = tool_result_keep_recent
         self.context_target_tokens = context_target_tokens
         self.agent_id = agent_id or str(uuid.uuid4())
         self.parent_id = parent_id
@@ -294,6 +301,7 @@ class CoreHarness:
             context_compact_threshold=self.state.context_compact_threshold,
             compactor=self.state.compactor,
             tool_result_max_chars=self.tool_result_max_chars,
+            tool_result_keep_recent=self.tool_result_keep_recent,
             context_target_tokens=self.context_target_tokens,
             agent_id=child_id,
             parent_id=self.agent_id,
@@ -404,6 +412,7 @@ class CoreHarness:
             state=self.state,
             context_limit=context_limit,
             tool_result_max_chars=self.tool_result_max_chars,
+            tool_result_keep_recent=self.tool_result_keep_recent,
             context_target_tokens=self.context_target_tokens,
             max_tool_calls=self.limits.max_tool_calls,
             deadline=deadline,
