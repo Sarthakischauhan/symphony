@@ -44,7 +44,7 @@ class BashToolHeader(Horizontal, can_focus=True):
 
 # --- base.py ---
 class TopBar(Static):
-    """Terminal header with a quiet workspace label and model chip."""
+    """Terminal header with a quiet workspace label and model label."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._workspace = ""
@@ -54,7 +54,7 @@ class TopBar(Static):
     def compose(self):  # type: ignore[no-untyped-def]
         yield Static("◆  symphony", id="topbar-product")
         yield Static(id="topbar-workspace")
-        yield Static("model", id="topbar-model")
+        yield Static(id="topbar-model")
 
     def set_context(self, workspace: Path, model: str = "") -> None:
         self._workspace = str(workspace)
@@ -62,8 +62,9 @@ class TopBar(Static):
         self.query_one("#topbar-workspace", Static).update(
             Text(self._workspace, style="#777777")
         )
-        chip = Text(f" {model or 'no model'} ", style="#a0a0a0")
-        self.query_one("#topbar-model", Static).update(chip)
+        self.query_one("#topbar-model", Static).update(
+            Text(f" {model or 'no model'} ", style="#a0a0a0")
+        )
 
 
 class Welcome(Static):

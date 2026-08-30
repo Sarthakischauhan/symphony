@@ -21,10 +21,12 @@ from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import (
     CommandManager,
     command_matches,
+    effort_options_for_model,
     effort_matches,
     mode_matches,
     model_matches,
     model_options,
+    model_supports_effort,
     toggle_mode,
 )
 from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
@@ -481,10 +483,15 @@ class CodingAgentApp(App[None]):
             )
         elif event.text_area.text.startswith("/effort "):
             current = "default"
+            efforts = ()
             if self._agent is not None:
                 current = self._agent.harness.reasoning_effort or "default"
+                efforts = effort_options_for_model(self._agent.harness.model_id)
             menu.set_efforts(
-                effort_matches(event.text_area.text.removeprefix("/effort ")),
+                effort_matches(
+                    event.text_area.text.removeprefix("/effort "),
+                    efforts,
+                ),
                 current,
             )
         elif event.text_area.text.startswith("/mode "):
@@ -495,7 +502,13 @@ class CodingAgentApp(App[None]):
                 self._plan_store.path.name,
             )
         else:
-            menu.set_commands(command_matches(event.text_area.text))
+            model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")
+            menu.set_commands(
+                command_matches(
+                    event.text_area.text,
+                    include_effort=model_supports_effort(model_id),
+                )
+            )
 
     def on_key(self, event: events.Key) -> None:
         """Navigate, choose, or complete the visible slash menu."""

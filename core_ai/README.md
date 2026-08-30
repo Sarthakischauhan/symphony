@@ -56,8 +56,16 @@ The shipped catalog in `src/core_ai/models/generated.py` is produced by
 `scripts/generate_models.py`. It records each model's short id, provider, and API
 family. Packaging `core-ai` runs the generator through a Hatch build hook:
 
-- live `/models` endpoints are used when the matching API key is present
-- otherwise the existing generated snapshot (or a small fallback) is kept, so builds do not require network access
+- the curated `https://models.dev/models.json` catalog is used as the source of model ids
+- only text-output models with tool-calling support are emitted for OpenAI, Anthropic, and Gemini
+- the existing generated snapshot (or a small fallback) is kept when the catalog is unavailable, so builds remain resilient
+
+The catalog is downloaded once per generation and filtered locally; the full upstream
+response is never copied into the generated registry. Set `CORE_AI_MODELS_DEV=0`
+to disable the refresh, or `MODELS_DEV_URL` to use a mirror/test endpoint.
+
+Provider credentials are not needed to generate the catalog. They are still required
+when constructing a provider and using a model.
 
 Refresh the snapshot manually with:
 

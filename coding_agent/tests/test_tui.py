@@ -25,10 +25,13 @@ from coding_agent.tui.commands import (
     SLASH_COMMANDS,
     command_matches,
     effort_matches,
+    effort_options_for_model,
     find_mode,
     find_model,
     mode_matches,
     model_matches,
+    model_options,
+    model_supports_effort,
 )
 from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
 from coding_agent.tui.file_selector import (
@@ -141,6 +144,21 @@ def test_markdown_code_theme_matches_tui_surface() -> None:
     background = SYMPHONY_CODE_THEME.get_background_style().bgcolor
     assert background is not None
     assert background.get_truecolor().hex == "#0a0a0a"
+
+
+def test_topbar_renders_borderless_model_label(
+    tmp_path: Path,
+) -> None:
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path, model_id="anthropic:claude-sonnet-5")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            topbar = app.query_one(TopBar)
+            topbar.set_context(tmp_path, "anthropic:claude-sonnet-5")
+            model_label = topbar.query_one("#topbar-model")
+            assert str(model_label.render()) == " anthropic:claude-sonnet-5 "
+
+    asyncio.run(_run())
 
 
 def test_themed_markdown_avoids_rich_monokai_default() -> None:
@@ -1073,6 +1091,14 @@ def test_slash_command_discovery_and_model_resolution() -> None:
         "xhigh",
         "max",
     ]
+
+
+def test_effort_is_only_available_when_model_advertises_effort() -> None:
+    assert model_supports_effort("openai:gpt-5.6-luna")
+    assert effort_options_for_model("openai:gpt-5.6-luna")
+    assert not model_supports_effort("gemini:gemini-2.5-flash")
+    assert effort_options_for_model("gemini:gemini-2.5-flash") == ()
+    assert command_matches("/e", include_effort=False) == ()
 
 
 def test_file_mentions_are_ranked_and_preserve_prompt_text(tmp_path: Path) -> None:

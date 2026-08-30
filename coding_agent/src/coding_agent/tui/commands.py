@@ -8,7 +8,7 @@ from typing import Any, Iterable, Optional
 
 from dotenv import load_dotenv
 
-from core_ai import list_models
+from core_ai import get_model, list_models
 from coding_agent.agent import build_agent
 from coding_agent.config import load_coding_agent_config
 from coding_agent.tui.modal import DiffModal, LearningModal, PlanModal
@@ -125,11 +125,16 @@ SLASH_COMMANDS = (
 )
 
 
-def command_matches(value: str) -> tuple[SlashCommand, ...]:
+def command_matches(value: str, *, include_effort: bool = True) -> tuple[SlashCommand, ...]:
     if not value.startswith("/") or " " in value:
         return ()
     prefix = value[1:].lower()
-    return tuple(command for command in SLASH_COMMANDS if command.name.startswith(prefix))
+    return tuple(
+        command
+        for command in SLASH_COMMANDS
+        if command.name.startswith(prefix)
+        and (include_effort or command.name != "effort")
+    )
 
 
 
@@ -152,6 +157,8 @@ def select_model(app: Any, argument: str) -> None:
         app.add_notice(f"Unknown model: {argument}. Run /model to see available models.", "warning")
         return
     agent.harness.model_id = selected.id
+    if not model_supports_effort(selected.id):
+        agent.harness.reasoning_effort = None
     if agent.learning_loop is not None:
         agent.learning_loop.model_id = selected.id
     app.model_id = selected.id
@@ -183,22 +190,58 @@ def effort_matches(
     )
 
 
+def effort_options_for_model(model_id: str) -> tuple[EffortOption, ...]:
+    """Return only effort levels advertised by the active model."""
+    model = _model_info(model_id)
+    if model is None or not model.thinking_level_map:
+        return ()
+
+    supported = {
+        "none" if level == "off" else level
+        for level, provider_value in model.thinking_level_map
+        if provider_value is not None
+    }
+    return tuple(
+        option
+        for option in EFFORT_CATALOG
+        if option.id == "default" or option.id in supported
+    )
+
+
+def _model_info(model_id: str):
+    provider, separator, model_name = model_id.partition(":")
+    if not separator:
+        return None
+    return get_model(provider, model_name)
+
+
+def model_supports_effort(model_id: str) -> bool:
+    return bool(effort_options_for_model(model_id))
+
+
 def select_effort(app: Any, argument: str) -> None:
     value = argument.strip().lower()
-    if value not in EFFORTS:
-        app.add_notice(f"Unknown effort: {argument}. Choose: {', '.join(EFFORTS)}", "warning")
+    efforts = effort_options_for_model(app._agent.harness.model_id)
+    supported = {option.id for option in efforts}
+    if value not in supported:
+        choices = ", ".join(option.id for option in efforts)
+        app.add_notice(f"Unknown effort: {argument}. Choose: {choices}", "warning")
         return
     app._agent.harness.reasoning_effort = None if value == "default" else value
-    label = next(option.label for option in EFFORT_CATALOG if option.id == value)
+    label = next(option.label for option in efforts if option.id == value)
     app.add_notice(f"Reasoning effort set to {label}", "success")
 
 
 def show_effort_picker(app: Any) -> None:
+    efforts = effort_options_for_model(app._agent.harness.model_id)
+    if not efforts:
+        app.add_notice("The active model does not support effort settings.", "warning")
+        return
     prompt = app.query_one("#prompt")
     prompt.value = "/effort "
     prompt.cursor_position = len(prompt.value)
     current = app._agent.harness.reasoning_effort or "default"
-    app.query_one("#slash-menu").set_efforts(EFFORT_CATALOG, current)
+    app.query_one("#slash-menu").set_efforts(efforts, current)
 
 
 def select_mode(app: Any, argument: str) -> None:
@@ -293,7 +336,13 @@ async def reload_project(app: Any) -> None:
             config=reloaded_config,
         )
         reloaded_agent.set_mode(app.mode)
-        reloaded_agent.harness.reasoning_effort = previous_effort
+        reloaded_model = reloaded_agent.harness.model_id
+        reloaded_info = _model_info(reloaded_model)
+        reloaded_agent.harness.reasoning_effort = (
+            None
+            if reloaded_info is not None and not model_supports_effort(reloaded_model)
+            else previous_effort
+        )
         app._agent = reloaded_agent
         app.config = reloaded_config
         app.control_plane.approvals = reloaded_config.approvals
@@ -343,17 +392,23 @@ def show_status(app: Any) -> None:
     context = "unknown"
     if metrics.context_limit is not None and metrics.context_left is not None:
         context = f"{metrics.context_left:,} / {metrics.context_limit:,} tokens left"
-    app.add_notice(
-        "Status\n"
-        f"model     {app._agent.harness.model_id}\n"
-        f"effort    {app._agent.harness.reasoning_effort or 'default'}\n"
-        f"mode      {app.mode}\n"
-        f"approval  {app.control_plane.approvals.mode}\n"
-        f"session   {app._agent.session_id}\n"
-        f"context   {context}\n"
-        f"current   {metrics.tokens_used:,} tokens\n"
-        f"cumulative input   {metrics.cumulative_tokens:,} tokens"
+    lines = [
+        "Status",
+        f"model     {app._agent.harness.model_id}",
+    ]
+    if model_supports_effort(app._agent.harness.model_id):
+        lines.append(f"effort    {app._agent.harness.reasoning_effort or 'default'}")
+    lines.extend(
+        [
+            f"mode      {app.mode}",
+            f"approval  {app.control_plane.approvals.mode}",
+            f"session   {app._agent.session_id}",
+            f"context   {context}",
+            f"current   {metrics.tokens_used:,} tokens",
+            f"cumulative input   {metrics.cumulative_tokens:,} tokens",
+        ]
     )
+    app.add_notice("\n".join(lines))
 
 # --- command_manager.py ---
 class CommandManager:
@@ -376,7 +431,12 @@ class CommandManager:
         elif command == "clear":
             app.action_clear_transcript()
         elif command == "help":
-            lines = [f"{item.usage:<24} {item.description}" for item in SLASH_COMMANDS]
+            commands = SLASH_COMMANDS
+            if app._agent is not None and not model_supports_effort(
+                app._agent.harness.model_id
+            ):
+                commands = tuple(item for item in commands if item.name != "effort")
+            lines = [f"{item.usage:<24} {item.description}" for item in commands]
             app.add_notice("Slash commands\n" + "\n".join(lines))
         elif command == "status":
             show_status(app)
@@ -389,6 +449,8 @@ class CommandManager:
                 app.add_notice("/effort is unavailable while a turn is running.", "warning")
             elif app._agent is None:
                 app.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
+            elif not model_supports_effort(app._agent.harness.model_id):
+                app.add_notice("The active model does not support effort settings.", "warning")
             elif argument:
                 select_effort(app, argument)
             else:
@@ -439,9 +501,11 @@ __all__ = [
     "SlashCommand",
     "command_matches",
     "effort_matches",
+    "effort_options_for_model",
     "find_mode",
     "find_model",
     "mode_matches",
     "model_matches",
+    "model_supports_effort",
     "toggle_mode",
 ]

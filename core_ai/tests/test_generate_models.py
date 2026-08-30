@@ -25,6 +25,7 @@ def test_generate_without_existing_file_uses_fallbacks(tmp_path: Path, monkeypat
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("CORE_AI_MODELS_DEV", "0")
 
     generate_models.generate(output=output)
 
@@ -51,6 +52,7 @@ def test_generate_without_keys_keeps_existing_catalog(tmp_path: Path, monkeypatc
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("CORE_AI_MODELS_DEV", "0")
 
     generate_models.generate(output=output)
 
@@ -60,75 +62,44 @@ def test_generate_without_keys_keeps_existing_catalog(tmp_path: Path, monkeypatc
     assert catalog["gemini"] == [("gemini-custom", "generate_content")]
 
 
-def test_generate_fetches_live_provider_catalogs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generate_models = load_generate_models()
     output = tmp_path / "generated.py"
-    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
-    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
-
-    class FakeResponse:
-        def __init__(self, payload: dict) -> None:
-            self._payload = payload
-
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict:
-            return self._payload
-
     def fake_get(url: str, *args, **kwargs):
-        if "api.openai.com" in url:
-            return FakeResponse({"data": [{"id": "gpt-4.1-mini"}, {"id": "o3"}, {"id": "whisper-1"}]})
-        if "api.anthropic.com" in url:
-            params = kwargs.get("params") or {}
-            if params.get("after_id") == "claude-sonnet-5":
-                return FakeResponse(
-                    {"data": [{"id": "claude-opus-5"}], "has_more": False, "last_id": "claude-opus-5"}
-                )
-            return FakeResponse(
-                {"data": [{"id": "claude-sonnet-5"}], "has_more": True, "last_id": "claude-sonnet-5"}
-            )
-        if "generativelanguage.googleapis.com" in url:
-            params = kwargs.get("params") or {}
-            if params.get("pageToken") == "next":
-                return FakeResponse(
-                    {
-                        "models": [
-                            {
-                                "name": "models/gemini-3.7-flash",
-                                "supportedGenerationMethods": ["generateContent"],
-                            },
-                            {
-                                "name": "models/gemini-3.7-flash-image",
-                                "supportedGenerationMethods": ["generateContent"],
-                            },
-                        ]
-                    }
-                )
-            return FakeResponse(
-                {
-                    "models": [
-                        {
-                            "name": "models/gemini-2.0-flash",
-                            "supportedGenerationMethods": ["generateContent"],
-                        }
-                    ],
-                    "nextPageToken": "next",
-                }
-            )
-        raise AssertionError(url)
+        assert url == generate_models.MODELS_DEV_URL
+        return type("Response", (), {
+            "raise_for_status": lambda self: None,
+            "json": lambda self: {
+                "openai/gpt-4.1-mini": {
+                    "tool_call": True, "modalities": {"output": ["text"]}
+                },
+                "openai/o3": {
+                    "tool_call": True, "modalities": {"output": ["text"]}
+                },
+                "openai/whisper-1": {
+                    "tool_call": False, "modalities": {"output": ["audio"]}
+                },
+                "anthropic/claude-sonnet-5": {
+                    "tool_call": True, "modalities": {"output": ["text"]}
+                },
+                "google/gemini-3.7-flash": {
+                    "tool_call": True, "modalities": {"output": ["text"]}
+                },
+                "google/gemini-3.7-flash-image": {
+                    "tool_call": True, "modalities": {"output": ["image"]}
+                },
+            },
+        })()
 
     monkeypatch.setattr(httpx, "get", fake_get)
+    monkeypatch.setenv("MODELS_DEV_URL", generate_models.MODELS_DEV_URL)
     generate_models.generate(output=output)
     text = output.read_text()
     assert 'ModelInfo(id="gpt-4.1-mini", provider="openai", api="responses")' in text
     assert 'ModelInfo(id="o3", provider="openai", api="chat_completions")' in text
     assert "whisper-1" not in text
     assert 'ModelInfo(id="claude-sonnet-5", provider="anthropic", api="messages")' in text
-    assert 'ModelInfo(id="claude-opus-5", provider="anthropic", api="messages")' in text
     assert 'ModelInfo(id="gemini-3.7-flash", provider="gemini", api="generate_content")' in text
-    assert "gemini-2.0-flash" not in text
     assert "gemini-3.7-flash-image" not in text
 
 

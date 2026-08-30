@@ -357,12 +357,11 @@ Screen {
 
 #topbar-model {
     width: auto;
-    height: 3;
-    min-width: 20;
+    height: 2;
     padding: 0 1;
     content-align: center middle;
-    border: round #3b3b3b;
-    background: #0d0d0d;
+    color: #a0a0a0;
+    background: $background;
 }
 
 #transcript {
