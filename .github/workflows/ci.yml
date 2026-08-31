@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Install workspace
+        # Tests import via src on sys.path (see each package's tests/conftest.py).
+        # Skip editable installs: core-ai's hatch hook needs dotenv at build time,
+        # which is a runtime dependency and is not declared in build-system.requires.
+        run: uv sync --locked --all-packages --dev --no-install-workspace
+
+      - name: Run tests
+        run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests
