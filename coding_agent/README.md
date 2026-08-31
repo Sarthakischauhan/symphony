@@ -146,10 +146,14 @@ Conversation persistence is managed under
 Automatic context compaction is enabled by default. When a model has 16,000 or
 fewer context tokens left, the harness keeps the system prompt, the original task,
 and the eight most recent turns before the next model call. Dropped turns are
-summarized rather than discarded silently. Independently, each model request only
-resends the last two tool results in full so TPM stays bounded as a turn grows.
+summarized (with paths already observed) rather than discarded silently. Tool
+results are capped at 4,000 characters when they enter history; the full original
+is spilled to `.symphony/tool_outputs/` when truncated. Older tool bodies are
+stubbed only after the estimated prompt reaches `tool_result_prune_tokens`
+(48,000 by default), and stubs name the path so the model does not re-read them.
 The warning threshold, compaction threshold, recent-turn count, post-compact
-target, and tool-result window can be customized with `context_warn_threshold`,
-`context_compact_threshold`, `compaction_keep_recent`, `context_target_tokens`,
-and `tool_result_keep_recent`; pass `context_compact_threshold=None` to disable
+target, insert-time cap, and prune budget can be customized with
+`context_warn_threshold`, `context_compact_threshold`, `compaction_keep_recent`,
+`context_target_tokens`, `tool_result_max_chars`, `tool_result_keep_recent`, and
+`tool_result_prune_tokens`; pass `context_compact_threshold=None` to disable
 auto-compact.

@@ -63,6 +63,7 @@ class CodingAgent:
         compaction_keep_recent: int = DEFAULT_CODING_AGENT_CONFIG.harness.compaction_keep_recent,
         tool_result_max_chars: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_max_chars,
         tool_result_keep_recent: int = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_keep_recent,
+        tool_result_prune_tokens: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_prune_tokens,
         context_target_tokens: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.context_target_tokens,
     ) -> None:
         self.workspace = Path(workspace).resolve()
@@ -80,6 +81,7 @@ class CodingAgent:
             compaction_keep_recent = config.harness.compaction_keep_recent
             tool_result_max_chars = config.harness.tool_result_max_chars
             tool_result_keep_recent = config.harness.tool_result_keep_recent
+            tool_result_prune_tokens = config.harness.tool_result_prune_tokens
             context_target_tokens = config.harness.context_target_tokens
         if auto_approve is True:
             set_mode = getattr(self.control_plane, "set_approval_mode", None)
@@ -141,6 +143,8 @@ class CodingAgent:
             ),
             tool_result_max_chars=tool_result_max_chars,
             tool_result_keep_recent=tool_result_keep_recent,
+            tool_result_prune_tokens=tool_result_prune_tokens,
+            tool_output_dir=self.workspace / ".symphony" / "tool_outputs",
             context_target_tokens=context_target_tokens,
         )
         if tools is None:
@@ -290,6 +294,7 @@ class CodingAgent:
             messages,
             context_limit=self.harness.state.context_limit(self.harness.model_id),
             keep_recent_tool_results=self.harness.tool_result_keep_recent,
+            prune_tokens=self.harness.tool_result_prune_tokens,
         )
 
 

@@ -1681,6 +1681,7 @@ def test_context_modal_filters_buckets() -> None:
         ],
         context_limit=128_000,
         keep_recent_tool_results=0,
+        prune_tokens=0,
     )
 
     class Host(App):
