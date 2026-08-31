@@ -23,9 +23,9 @@ jobs:
       # 2. Build publishable packages (not core_server)
       - name: Build release distributions
         run: |
-          uv build --package symphony-core
-          uv build --package symphony-harness
-          uv build --package symphony-coding-agent
+          uv build --package symphony-core -o core_ai/dist
+          uv build --package symphony-harness -o core_harness/dist
+          uv build --package symphony-coding-agent -o coding_agent/dist
 
       # 3. Aggregated distributions go to artifact storage
       - name: Upload distributions
