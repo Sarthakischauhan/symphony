@@ -78,8 +78,7 @@ def default_coding_agent_harness() -> HarnessConfig:
         context_warn_threshold=32_000,
         context_compact_threshold=16_000,
         context_target_tokens=80_000,
-        compaction_keep_recent=8,
-        tool_output_dir=".symphony/tool_outputs",
+        compaction_keep_recent=10,
     )
 
 

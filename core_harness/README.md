@@ -124,7 +124,7 @@ def approve(action: str, control_plane: NullControlPlane) -> str:
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
 
-Tool results are bounded to 4,000 characters at insert time (40/60 head/tail) before being persisted. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected. When a result is truncated and `tool_output_dir` is set, the original is spilled to disk and the marker names that path.
+Tool results are bounded to 4,000 characters at insert time (40/60 head/tail) before being persisted. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected. Truncation stays in memory: the bounded text is what is stored, and the original payload is discarded.
 
 History stays linear until the estimated prompt reaches `tool_result_prune_tokens` (off by default). Only then are older tool bodies replaced with a path-aware one-line stub on a **copy** of the conversation — persisted history is unchanged. Unconditional last-N pruning made the model re-read files it had already seen.
 
@@ -230,7 +230,7 @@ The harness includes token-estimation helpers and compaction support. Set
 on `HarnessConfig`. Provide a custom `Compactor` when application-specific
 summarization is needed.
 
-`KeepSystemRecentCompactor` keeps the leading system prompt, the original user task, and the most recent conversation turns (a user message plus the assistant/tool group that followed it). Dropped turns become a short, path-aware summary instead of disappearing. Kept turns stay intact so the model still has the files it just read; old tool bodies inside them are stubbed only if the compact is still over the token target. `keep_recent` counts turns, not raw messages, so a long tool group can no longer displace the user's task:
+`KeepSystemRecentCompactor` keeps the leading system prompt, the original user task, and the most recent messages. Assistant/tool groups stay together so the provider protocol stays valid. Dropped messages become a short, path-aware summary instead of disappearing. A one-user N-tool loop is not one un-droppable turn: earlier tool groups can be summarised while the last `keep_recent` messages stay. Old tool bodies inside kept messages are stubbed only if the compact is still over the token target. `keep_recent` counts messages, not conversation turns:
 
 ```python
 from core_harness import HarnessConfig, KeepSystemRecentCompactor
@@ -244,9 +244,9 @@ harness = CoreHarness(
         tool_result_keep_recent=8,
         tool_result_prune_tokens=48_000,
         context_compact_threshold=16_000,
-        compaction_keep_recent=8,
+        compaction_keep_recent=10,
     ),
-    compactor=KeepSystemRecentCompactor(keep_recent=8, target_tokens=20_000),
+    compactor=KeepSystemRecentCompactor(keep_recent=10, target_tokens=20_000),
 )
 ```
 

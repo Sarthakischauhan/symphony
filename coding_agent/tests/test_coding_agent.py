@@ -34,8 +34,7 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert saved.harness.max_turns == 24
     assert saved.harness.tool_result_prune_tokens == 48_000
     assert saved.harness.context_compact_threshold == 16_000
-    assert saved.harness.tool_output_dir == ".symphony/tool_outputs"
-    assert agent.harness.tool_output_dir == tmp_path / ".symphony" / "tool_outputs"
+    assert saved.harness.compaction_keep_recent == 10
 
 
 def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> None:

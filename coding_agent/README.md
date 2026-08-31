@@ -112,7 +112,7 @@ the server-requested delay.
 Starting a coding agent writes a complete settings file to
 `<workspace>/.symphony/config.json`. That file is the source of truth for the
 spawn: harness limits, tool-result pruning, compaction, context thresholds,
-`tool_output_dir`, approvals, tool I/O bounds, and learning. There is no packaged
+approvals, tool I/O bounds, and learning. There is no packaged
 defaults JSON. If the file is missing, spawn generates it from
 `CodingAgentConfig` field defaults. See
 [`config.example.json`](./config.example.json) for the user-facing shape.
@@ -150,13 +150,14 @@ Conversation persistence is managed under
 
 Automatic context compaction is enabled by default. When a model has 16,000 or
 fewer context tokens left, the harness keeps the system prompt, the original task,
-and the eight most recent turns before the next model call. Dropped turns are
-summarized (with paths already observed) rather than discarded silently. Tool
-results are capped at 4,000 characters when they enter history; the full original
-is spilled to `.symphony/tool_outputs/` when truncated. Older tool bodies are
+and the ten most recent messages before the next model call. Dropped messages are
+summarized (with paths already observed) rather than discarded silently. A
+one-user tool loop is not treated as a single un-droppable turn. Tool
+results are capped at 4,000 characters when they enter history; the truncated
+body is what is stored. Older tool bodies are
 stubbed only after the estimated prompt reaches `tool_result_prune_tokens`
 (48,000 by default), and stubs name the path so the model does not re-read them.
-The warning threshold, compaction threshold, recent-turn count, post-compact
+The warning threshold, compaction threshold, recent-message count, post-compact
 target, insert-time cap, and prune budget can be customized with
 `context_warn_threshold`, `context_compact_threshold`, `compaction_keep_recent`,
 `context_target_tokens`, `tool_result_max_chars`, `tool_result_keep_recent`, and

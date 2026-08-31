@@ -27,7 +27,6 @@ from coding_agent.config import (
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
-from core_harness.config import HarnessConfig
 from coding_agent.learning import LearningLoop, LearningStore
 from coding_agent.persistence import SqlitePersistence
 from coding_agent.plan import PlanStore
@@ -89,7 +88,7 @@ class CodingAgent:
             registry=registry,
             model_id=model_id,
             system_prompt=self.base_system_prompt + "\n",
-            config=self._harness_settings(),
+            config=self.config.harness,
             tools=self.tools,
             control_plane=self.control_plane,
             persistence=self.persistence,
@@ -99,19 +98,6 @@ class CodingAgent:
             self.harness.register_tool(
                 self.harness.make_spawn_tool(configure=self._spawn_child_config)
             )
-
-    def _harness_settings(self) -> HarnessConfig:
-        """Resolve relative tool-output paths against the workspace."""
-        settings = self.config.harness
-        output_dir = settings.tool_output_dir
-        if not output_dir:
-            return settings
-        output = Path(output_dir)
-        if not output.is_absolute():
-            settings = settings.model_copy(
-                update={"tool_output_dir": str(self.workspace / output)}
-            )
-        return settings
 
     def _spawn_child_config(
         self,

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SettingsSource = Union["HarnessConfig", str, Path]
 
@@ -53,7 +53,7 @@ class HarnessConfig(BaseModel):
     context_warn_threshold: Optional[int] = Field(default=None, ge=0)
     context_compact_threshold: Optional[int] = Field(default=None, ge=0)
     context_target_tokens: Optional[int] = Field(default=None, ge=1)
-    compaction_keep_recent: int = Field(default=4, ge=1)
+    compaction_keep_recent: int = Field(default=10, ge=1)
     max_spawn_depth: int = Field(default=1, ge=0)
     spawn_max_turns: int = Field(default=8, ge=1)
     max_parallel_tool_calls: int = Field(default=3, ge=1)
@@ -62,7 +62,14 @@ class HarnessConfig(BaseModel):
         min_length=1,
     )
     context_limits: dict[str, int] = Field(default_factory=default_context_limits)
-    tool_output_dir: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_removed_spill_settings(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "tool_output_dir" in data:
+            data = dict(data)
+            data.pop("tool_output_dir", None)
+        return data
 
 
 def _read_json(path: Path) -> dict[str, Any]:

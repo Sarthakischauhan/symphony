@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from core_ai.content import text_from_content
@@ -86,9 +85,6 @@ class CoreHarness:
         self.tool_result_max_chars = self.config.tool_result_max_chars
         self.tool_result_keep_recent = self.config.tool_result_keep_recent
         self.tool_result_prune_tokens = self.config.tool_result_prune_tokens
-        self.tool_output_dir = (
-            Path(self.config.tool_output_dir) if self.config.tool_output_dir else None
-        )
         self.context_target_tokens = self.config.context_target_tokens
         self.agent_id = agent_id or str(uuid.uuid4())
         self.parent_id = parent_id
@@ -381,7 +377,6 @@ class CoreHarness:
             tool_result_max_chars=self.tool_result_max_chars,
             tool_result_keep_recent=self.tool_result_keep_recent,
             tool_result_prune_tokens=self.tool_result_prune_tokens,
-            tool_output_dir=self.tool_output_dir,
             context_target_tokens=self.context_target_tokens,
             max_tool_calls=self.limits.max_tool_calls,
             deadline=deadline,

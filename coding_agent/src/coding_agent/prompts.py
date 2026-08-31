@@ -13,7 +13,7 @@ Tools:
 
 Rules:
 - Use search and read_file to inspect the repository; never invent file contents.
-- A tool result marked truncated or "[tool result cleared: ...]" was already observed. Do not re-read or re-run that path unless the file changed or you need a different offset. Full truncated output may be on disk at the path in the marker.
+- A tool result marked truncated or "[tool result cleared: ...]" was already observed. Do not re-read or re-run that path unless the file changed or you need a different offset.
 - Treat an @path mentioned by the user as a workspace-relative file reference and inspect it as needed.
 - Stay inside the workspace and use relative paths.
 - Prefer patch for partial edits and preserve exact whitespace.

@@ -6,8 +6,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
 from core_ai.content import text_from_content
@@ -55,7 +54,6 @@ class TurnRunner:
         tool_result_max_chars: Optional[int],
         tool_result_keep_recent: int = 8,
         tool_result_prune_tokens: Optional[int] = None,
-        tool_output_dir: Optional[Union[str, Path]] = None,
         context_target_tokens: Optional[int],
         remaining_runtime: Optional[float] = None,
         max_tool_calls: Optional[int] = None,
@@ -75,7 +73,6 @@ class TurnRunner:
         self.tool_result_max_chars = tool_result_max_chars
         self.tool_result_keep_recent = tool_result_keep_recent
         self.tool_result_prune_tokens = tool_result_prune_tokens
-        self.tool_output_dir = Path(tool_output_dir) if tool_output_dir is not None else None
         self.context_target_tokens = context_target_tokens
         self.remaining_runtime = remaining_runtime
         self.max_tool_calls = max_tool_calls
@@ -380,7 +377,7 @@ class TurnRunner:
             return result
 
         async def commit(tool_call: ToolCall, result: ToolResult) -> None:
-            bounded = self._limit_tool_output(result.for_model(), tool_call=tool_call)
+            bounded = self._limit_tool_output(result.for_model())
             self.state.add_tool_message(messages, tool_call, bounded)
 
         index = 0
@@ -554,7 +551,7 @@ class TurnRunner:
         return tool_calls
 
     async def _emit_tool_result(self, tool_call: ToolCall, result: ToolResult) -> None:
-        bounded = self._limit_tool_output(result.for_model(), tool_call=tool_call)
+        bounded = self._limit_tool_output(result.for_model())
         await self.control_plane.emit(
             "tool_execution_started",
             {
@@ -607,7 +604,7 @@ class TurnRunner:
             },
         )
         result = await self._invoke_tool(tool_call)
-        bounded = self._limit_tool_output(result.for_model(), tool_call=tool_call)
+        bounded = self._limit_tool_output(result.for_model())
         await self.control_plane.emit(
             "tool_execution_completed",
             self._tool_completed_payload(tool_call, result, bounded),
@@ -690,63 +687,23 @@ class TurnRunner:
             "original_chars": original_chars,
         }
 
-    def _spill_tool_output(self, tool_call: ToolCall, text: str) -> Optional[str]:
-        if self.tool_output_dir is None:
-            return None
-        safe_id = "".join(
-            ch if ch.isalnum() or ch in "-_" else "_"
-            for ch in str(tool_call.id or "tool")
-        )
-        filename = f"{safe_id}.txt"
-        path = self.tool_output_dir / filename
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-        except OSError:
-            return None
-        parts = path.parts
-        if len(parts) >= 3 and parts[-3] == ".symphony" and parts[-2] == "tool_outputs":
-            return str(Path(".symphony") / "tool_outputs" / filename)
-        return str(path)
-
-    def _limit_tool_output(
-        self,
-        value: Content,
-        *,
-        tool_call: Optional[ToolCall] = None,
-    ) -> Content:
-        original = value if isinstance(value, str) else text_from_content(value)
-        spill_path = None
-        limit = self.tool_result_max_chars
-        if (
-            tool_call is not None
-            and limit is not None
-            and len(original) > limit
-        ):
-            spill_path = self._spill_tool_output(tool_call, original)
+    def _limit_tool_output(self, value: Content) -> Content:
         if isinstance(value, list):
             return [
                 (
                     {
                         **part,
-                        "text": self._limit_text(
-                            str(part.get("text") or ""),
-                            spill_path=spill_path,
-                        ),
+                        "text": self._limit_text(str(part.get("text") or "")),
                     }
                     if isinstance(part, dict) and part.get("type") == "text"
                     else part
                 )
                 for part in value
             ]
-        return self._limit_text(value, spill_path=spill_path)
+        return self._limit_text(value)
 
-    def _limit_text(self, value: str, *, spill_path: Optional[str] = None) -> str:
-        return bound_tool_result(
-            value,
-            max_chars=self.tool_result_max_chars,
-            spill_path=spill_path,
-        )
+    def _limit_text(self, value: str) -> str:
+        return bound_tool_result(value, max_chars=self.tool_result_max_chars)
 
     def _coerce_tool_output(self, value: Any) -> Content:
         if isinstance(value, str):

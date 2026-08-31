@@ -24,13 +24,11 @@ def bound_tool_result(
     text: str,
     *,
     max_chars: Optional[int],
-    spill_path: Optional[str] = None,
 ) -> str:
     """Cap a tool result at insert time, keeping a 40/60 head/tail split.
 
     Truncation is the TPM lever: the bounded text is what gets persisted, so
-    later turns never re-pay the original size. ``spill_path`` is mentioned in
-    the marker when the full original was written to disk.
+    later turns never re-pay the original size. The full original is discarded.
     """
     if max_chars is None or len(text) <= max_chars:
         return text
@@ -39,8 +37,6 @@ def bound_tool_result(
 
     def marker(short: bool) -> str:
         details = f"{omitted:,} chars omitted"
-        if spill_path:
-            details += f"; full output: {spill_path}"
         if short:
             return f"\n...[tool result truncated; {details}]...\n"
         return (
@@ -239,25 +235,6 @@ def messages_for_model(
     return prune_stale_tool_results(messages, keep_recent=keep_recent)
 
 
-def _conversation_turns(messages: List[Message]) -> List[List[Message]]:
-    """Group rest-of-conversation into user turns plus following assistant/tools."""
-    turns: List[List[Message]] = []
-    current: List[Message] = []
-    for block in _atomic_blocks(messages):
-        if block[0].role == "user":
-            if current:
-                turns.append(current)
-            current = list(block)
-            continue
-        if not current:
-            current = list(block)
-        else:
-            current.extend(block)
-    if current:
-        turns.append(current)
-    return turns
-
-
 def _first_user_message(messages: Sequence[Message]) -> Optional[Message]:
     for message in messages:
         if message.role != "user":
@@ -296,9 +273,10 @@ def _summarize_turns(turns: Sequence[Sequence[Message]], *, tokens: int) -> Mess
                 if ref and ref not in observed:
                     observed.append(ref)
 
+    dropped_messages = sum(len(turn) for turn in turns)
     lines = [
         COMPACTED_CONTEXT_MARK,
-        f"Dropped {len(turns)} earlier turn(s) (~{tokens:,} tokens).",
+        f"Dropped {dropped_messages} earlier message(s) (~{tokens:,} tokens).",
     ]
     if asks:
         shown = asks[:6]
@@ -337,18 +315,19 @@ class Compactor(Protocol):
 
 
 class KeepSystemRecentCompactor:
-    """Keep the system prompt, the original task, and the most recent turns.
+    """Keep the system prompt, the original task, and the most recent messages.
 
-    ``keep_recent`` counts conversation turns (a user message plus the
-    assistant/tool group that followed it), not raw messages. Kept turns stay
-    intact so the model still has the files it just read. Dropped turns become
-    a path-aware summary. Old tool bodies inside kept turns are stubbed only
-    as a last resort if the compact is still over ``target_tokens``.
+    ``keep_recent`` counts messages. Assistant/tool groups stay together so the
+    provider protocol stays valid. A one-user N-tool loop is not one
+    un-droppable unit: earlier tool groups can be summarised while the last
+    ``keep_recent`` messages stay. Dropped messages become a path-aware
+    summary. Old tool bodies inside kept messages are stubbed only as a last
+    resort if the compact is still over ``target_tokens``.
     """
 
     def __init__(
         self,
-        keep_recent: int = 4,
+        keep_recent: int = 10,
         target_tokens: Optional[int] = None,
         keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
     ) -> None:
@@ -378,41 +357,57 @@ class KeepSystemRecentCompactor:
         if not rest:
             return valid
 
-        turns = _conversation_turns(rest)
         first_user = _first_user_message(rest)
         remainder: List[List[Message]] = []
-        for turn in turns:
-            if first_user is not None and first_user in turn:
-                leftover = [message for message in turn if message is not first_user]
+        for block in _atomic_blocks(rest):
+            if first_user is not None and first_user in block:
+                leftover = [message for message in block if message is not first_user]
                 if leftover:
                     remainder.append(leftover)
             else:
-                remainder.append(turn)
+                remainder.append(block)
 
-        kept_turns = remainder[-self.keep_recent :]
-        dropped = remainder[: -self.keep_recent] if len(remainder) > self.keep_recent else []
+        selected: List[List[Message]] = []
+        selected_count = 0
+        dropped_end = 0
+        for index in range(len(remainder) - 1, -1, -1):
+            block = remainder[index]
+            if selected and selected_count + len(block) > self.keep_recent:
+                dropped_end = index + 1
+                break
+            selected.insert(0, block)
+            selected_count += len(block)
+            dropped_end = index
+            if selected_count >= self.keep_recent:
+                break
+        else:
+            dropped_end = 0
+            selected = list(remainder)
+
+        dropped = remainder[:dropped_end]
+        kept = selected
         pinned = [first_user] if first_user is not None else []
 
-        def assemble(pending: List[List[Message]], kept: List[List[Message]]) -> List[Message]:
+        def assemble(pending: List[List[Message]], kept_blocks: List[List[Message]]) -> List[Message]:
             summary: List[Message] = []
             if pending:
                 pending_messages = [message for group in pending for message in group]
                 summary = [_summarize_turns(pending, tokens=estimate_prompt_tokens(pending_messages))]
             leading = [system] if system is not None else []
-            recent = [message for group in kept for message in group]
+            recent = [message for group in kept_blocks for message in group]
             return leading + pinned + summary + recent
 
-        compacted = assemble(dropped, kept_turns)
+        compacted = assemble(dropped, kept)
         target = self.target_tokens
         if target is None and context_limit is not None:
             target = max(context_limit // 3, 1)
         while (
             target is not None
             and estimate_prompt_tokens(compacted) > target
-            and len(kept_turns) > 1
+            and len(kept) > 1
         ):
-            dropped.append(kept_turns.pop(0))
-            compacted = assemble(dropped, kept_turns)
+            dropped.append(kept.pop(0))
+            compacted = assemble(dropped, kept)
         if (
             target is not None
             and estimate_prompt_tokens(compacted) > target

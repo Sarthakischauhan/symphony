@@ -343,20 +343,8 @@ def test_bound_tool_result_keeps_40_60_head_tail() -> None:
     assert bounded.startswith("START-")
     assert bounded.endswith("-END")
     assert "tool result truncated" in bounded
-
-
-def test_bound_tool_result_mentions_spill_path() -> None:
-    text = "H" * 40 + "M" * 400 + "T" * 60
-    bounded = bound_tool_result(
-        text,
-        max_chars=200,
-        spill_path=".symphony/tool_outputs/call-1.txt",
-    )
-    assert "tool result truncated" in bounded
-    assert ".symphony/tool_outputs/call-1.txt" in bounded
-    assert "do not re-run" in bounded
-    assert bounded.startswith("H")
-    assert bounded.endswith("T")
+    assert "full output" not in bounded
+    assert "tool_outputs" not in bounded
 
 
 def test_prune_stale_tool_results_stubs_older_and_does_not_mutate() -> None:
@@ -555,29 +543,33 @@ def test_large_tool_results_are_bounded_before_reentering_context() -> None:
     assert "tool result truncated" in str(registry.calls[1][-1].content)
 
 
-def test_truncated_tool_results_spill_to_disk(tmp_path: Path) -> None:
+def test_truncated_tool_results_are_not_spilled_to_disk(tmp_path: Path) -> None:
     registry = LargeToolRegistry()
     output_dir = tmp_path / ".symphony" / "tool_outputs"
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
-        config=HarnessConfig(
-            tool_result_max_chars=120,
-            tool_output_dir=str(output_dir),
-        ),
+        config=HarnessConfig(tool_result_max_chars=120),
         tools=[Tool(large_tool_result)],
     )
 
     result = asyncio.run(harness.run("run the tool"))
     tool_messages = [message for message in result.messages if message.role == "tool"]
+    assert len(tool_messages) == 1
     bounded = str(tool_messages[0].content)
-    spilled = output_dir / "call-large.txt"
-    assert spilled.exists()
-    assert spilled.read_text(encoding="utf-8").startswith("START-")
-    assert spilled.read_text(encoding="utf-8").endswith("-END")
-    assert ".symphony/tool_outputs/call-large.txt" in bounded
-    assert "do not re-run" in bounded or "truncated" in bounded
+    original = "START-" + ("x" * 200) + "-END"
+    assert bounded == str(registry.calls[1][-1].content)
+    assert len(bounded) == 120
+    assert bounded.startswith("START-")
+    assert bounded.endswith("-END")
+    assert "tool result truncated" in bounded
+    assert original not in bounded
+    assert "full output" not in bounded
+    assert "tool_outputs" not in bounded
+    assert ".symphony" not in bounded
+    assert not output_dir.exists()
+    assert not list(tmp_path.rglob("*.txt"))
 
 
 def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
@@ -883,6 +875,123 @@ def test_compactor_prunes_tool_bodies_only_if_still_over_target() -> None:
     assert str(tools[0].content).startswith(CLEARED_TOOL_RESULT_MARK)
     assert "src/huge.py" in str(tools[0].content)
     assert estimate_prompt_tokens(compacted) < before
+
+
+def test_compactor_keeps_last_messages_in_one_user_tool_loop() -> None:
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="original task"),
+    ]
+    for index in range(20):
+        messages.extend(
+            _tool_group(
+                f"loop-{index}",
+                "read_file",
+                f"BODY-{index}-" + ("Z" * 40),
+                arguments={"path": f"src/file{index}.py"},
+            )
+        )
+
+    compacted = asyncio.run(
+        KeepSystemRecentCompactor(keep_recent=10).compact(
+            messages,
+            turn=0,
+            context_limit=50_000,
+            tokens_used=400,
+            context_left=40_000,
+        )
+    )
+
+    assert compacted[0].role == "system"
+    assert compacted[1].content == "original task"
+    assert str(compacted[2].content).startswith(COMPACTED_CONTEXT_MARK)
+    assert "src/file0.py" in str(compacted[2].content)
+    assert "read_file" in str(compacted[2].content)
+    assert all(message.content != "BODY-0-" + ("Z" * 40) for message in compacted)
+
+    recent = compacted[3:]
+    assert len(recent) == 10
+    tools = [message for message in recent if message.role == "tool"]
+    assert len(tools) == 5
+    assert tools[-1].content == "BODY-19-" + ("Z" * 40)
+    assert tools[0].content == "BODY-15-" + ("Z" * 40)
+    assert all(
+        f"BODY-{index}-" + ("Z" * 40) not in [message.content for message in compacted]
+        for index in range(15)
+    )
+
+
+def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
+    class CountingLoopRegistry:
+        """One user prompt, many tool calls, then a final answer."""
+
+        def __init__(self, n_calls: int = 16) -> None:
+            self.n_calls = n_calls
+            self.calls: list[list[Message]] = []
+
+        async def stream(
+            self,
+            model_id: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]],
+        ):
+            del model_id, tools
+            self.calls.append(list(messages))
+            if len(self.calls) <= self.n_calls:
+                idx = len(self.calls) - 1
+                yield StreamEvent(
+                    type="toolcall_start",
+                    content_index=0,
+                    tool_call_id=f"call-{idx}",
+                    tool_name="bulky_result",
+                )
+                yield StreamEvent(type="toolcall_delta", content_index=0, delta="{}")
+                yield StreamEvent(
+                    type="usage", prompt_tokens=8, completion_tokens=2, total_tokens=10
+                )
+                yield StreamEvent(type="done", content_index=0)
+                return
+            yield StreamEvent(type="text_delta", content_index=0, delta="done")
+            yield StreamEvent(
+                type="usage", prompt_tokens=8, completion_tokens=2, total_tokens=10
+            )
+            yield StreamEvent(type="done", content_index=0)
+
+    registry = CountingLoopRegistry(n_calls=16)
+    control_plane = NullControlPlane()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="system",
+        config=HarnessConfig(
+            max_turns=32,
+            tool_result_max_chars=80,
+            tool_result_prune_tokens=None,
+            context_target_tokens=50,
+        ),
+        tools=[Tool(bulky_result)],
+        control_plane=control_plane,
+        compactor=KeepSystemRecentCompactor(keep_recent=10),
+    )
+
+    result = asyncio.run(harness.run("inspect files"))
+
+    event_types = [event.event_type for event in control_plane.events]
+    assert "compaction_started" in event_types
+    assert "compaction_completed" in event_types
+    assert any(
+        str(message.content).startswith(COMPACTED_CONTEXT_MARK)
+        for message in result.messages
+    )
+    tools = [message for message in result.messages if message.role == "tool"]
+    assert 0 < len(tools) <= 5
+    assert "PAYLOAD-" in str(tools[-1].content)
+    assert not any(
+        message.role == "tool" and "call-0" == message.tool_call_id
+        for message in result.messages
+    )
+    last_sent_tools = [message for message in registry.calls[-1] if message.role == "tool"]
+    assert len(last_sent_tools) <= 5
 
 
 def test_control_plane_fanout_and_event_log() -> None:
