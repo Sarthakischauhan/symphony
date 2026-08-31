@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from core_ai import get_model, list_models
 from coding_agent.agent import build_agent
-from coding_agent.config import load_coding_agent_config
+from coding_agent.config import ensure_spawn_settings
 from coding_agent.tui.modal import ContextModal, DiffModal, LearningModal, PlanModal
 
 # --- __init__.py ---
@@ -327,7 +327,7 @@ async def reload_project(app: Any) -> None:
     session_id = previous_agent.session_id if previous_agent is not None else app.session_id
     try:
         load_dotenv(override=True)
-        reloaded_config = load_coding_agent_config(app.workspace)
+        reloaded_config = ensure_spawn_settings(app.workspace)
         reloaded_agent = build_agent(
             workspace=app.workspace,
             control_plane=app.control_plane,

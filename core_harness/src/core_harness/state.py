@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Seq
 
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
-from core_harness.config import DEFAULT_HARNESS_CONFIG
+from core_harness.config import default_context_limits
 from core_harness.models import ToolCall
 from core_harness.utils.tokens import estimate_message_tokens, estimate_prompt_tokens
 
@@ -543,7 +543,7 @@ def build_context_report(
 
 
 # --- state.py ---
-DEFAULT_CONTEXT_LIMITS = DEFAULT_HARNESS_CONFIG.context_limits
+DEFAULT_CONTEXT_LIMITS = default_context_limits()
 
 
 EmitEvent = Callable[[str, Dict[str, Any]], Awaitable[None]]

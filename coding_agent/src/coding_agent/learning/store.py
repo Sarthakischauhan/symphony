@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import LearningConfig
 from coding_agent.learning.sanitize import sanitize_task, sanitize_text
 
 @dataclass
@@ -31,7 +31,7 @@ class LearningStore:
         self,
         workspace: str | Path,
         *,
-        max_lessons: int = DEFAULT_CODING_AGENT_CONFIG.learning.max_lessons,
+        max_lessons: int = LearningConfig().max_lessons,
     ) -> None:
         self.path = Path(workspace).resolve() / ".symphony" / "learning" / "lessons.jsonl"
         self.max_lessons = max_lessons

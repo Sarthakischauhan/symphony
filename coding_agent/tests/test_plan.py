@@ -10,6 +10,7 @@ from core_ai.types import Message
 from core_harness import HarnessResult
 
 from coding_agent import CodingAgent, PlanStore
+from coding_agent.config import CodingAgentConfig, LearningConfig
 
 
 def test_plan_store_saves_latest_plan(tmp_path: Path) -> None:
@@ -44,7 +45,7 @@ def test_plan_mode_uses_read_only_tools_and_saves_result(tmp_path: Path) -> None
         registry=ModelRegistry(),
         model_id="openai:test",
         workspace=tmp_path,
-        enable_learning=False,
+        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
     )
     captured: dict[str, object] = {}
 

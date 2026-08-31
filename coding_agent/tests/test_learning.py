@@ -11,7 +11,7 @@ from core_harness import HarnessResult
 from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import LearningConfig
 from coding_agent.learning import LearningLoop, LearningStore
 
 
@@ -53,7 +53,7 @@ def test_reflection_is_scheduled_and_saved(tmp_path: Path) -> None:
     lessons, max_output_tokens = asyncio.run(scenario())
     assert len(lessons) == 1
     assert "focused tests" in lessons[0].summary
-    assert max_output_tokens == DEFAULT_CODING_AGENT_CONFIG.learning.max_output_tokens == 900
+    assert max_output_tokens == LearningConfig().max_output_tokens == 900
 
 
 def test_should_save_false_is_normal(tmp_path: Path) -> None:
@@ -83,7 +83,6 @@ def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
             registry=NeverRegistry(),  # type: ignore[arg-type]
             model_id="test:model",
             workspace=tmp_path,
-            enable_learning=True,
         )
 
         async def fake_run(*args, **kwargs):

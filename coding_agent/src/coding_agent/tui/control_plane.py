@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 from textual.message import Message
 
 from core_harness import ControlCommand, ControlCommandType, ControlPlaneEventType
-from coding_agent.config import ApprovalConfig, DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import ApprovalConfig
 
 
 class HarnessEvent(Message):
@@ -49,7 +49,7 @@ class TextualControlPlane:
     ) -> None:
         self._app: Any = None
         self.workspace = Path(workspace).resolve()
-        self.approvals = approvals or DEFAULT_CODING_AGENT_CONFIG.approvals
+        self.approvals = approvals or ApprovalConfig()
         self._interaction_lock = asyncio.Lock()
         self._question_futures: dict[str, asyncio.Future[str]] = {}
         self._cancelled = False

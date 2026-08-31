@@ -13,7 +13,7 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 from core_harness import HarnessResult
 
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import LearningConfig
 from coding_agent.learning.prompts import REVIEWER_SYSTEM_PROMPT
 from coding_agent.learning.sanitize import sanitize_task, sanitize_text
 from coding_agent.learning.store import LearningStore, Lesson
@@ -35,7 +35,7 @@ class LearningLoop:
         *,
         registry: ModelRegistry,
         model_id: str,
-        max_output_tokens: int = DEFAULT_CODING_AGENT_CONFIG.learning.max_output_tokens,
+        max_output_tokens: int = LearningConfig().max_output_tokens,
     ) -> None:
         self.store = store
         self.registry = registry
