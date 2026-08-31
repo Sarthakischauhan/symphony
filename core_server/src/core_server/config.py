@@ -32,7 +32,7 @@ class ServerConfig:
     context_limits: Optional[Dict[str, int]] = None
     context_warn_threshold: Optional[int] = None
     context_compact_threshold: Optional[int] = None
-    tool_result_max_chars: Optional[int] = 12_000
+    tool_result_max_chars: Optional[int] = 4_000
     context_target_tokens: Optional[int] = None
     cors_origins: List[str] = field(default_factory=list)
     max_request_bytes: int = 1_048_576

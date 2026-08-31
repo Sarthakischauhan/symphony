@@ -5,7 +5,8 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -67,6 +68,8 @@ class CoreHarness:
         compactor: Optional[Compactor] = None,
         tool_result_max_chars: Optional[int] = DEFAULT_HARNESS_CONFIG.tool_result_max_chars,
         tool_result_keep_recent: int = DEFAULT_HARNESS_CONFIG.tool_result_keep_recent,
+        tool_result_prune_tokens: Optional[int] = DEFAULT_HARNESS_CONFIG.tool_result_prune_tokens,
+        tool_output_dir: Optional[Union[str, Path]] = None,
         context_target_tokens: Optional[int] = None,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
@@ -84,6 +87,7 @@ class CoreHarness:
             context_compact_threshold = config.context_compact_threshold
             tool_result_max_chars = config.tool_result_max_chars
             tool_result_keep_recent = config.tool_result_keep_recent
+            tool_result_prune_tokens = config.tool_result_prune_tokens
             context_target_tokens = config.context_target_tokens
             max_spawn_depth = config.max_spawn_depth
             if compactor is None and context_compact_threshold is not None:
@@ -112,6 +116,10 @@ class CoreHarness:
         if tool_result_keep_recent < 0:
             raise ValueError("tool_result_keep_recent must be >= 0")
         self.tool_result_keep_recent = tool_result_keep_recent
+        if tool_result_prune_tokens is not None and tool_result_prune_tokens < 0:
+            raise ValueError("tool_result_prune_tokens must be >= 0 or None")
+        self.tool_result_prune_tokens = tool_result_prune_tokens
+        self.tool_output_dir = Path(tool_output_dir) if tool_output_dir is not None else None
         self.context_target_tokens = context_target_tokens
         self.agent_id = agent_id or str(uuid.uuid4())
         self.parent_id = parent_id
@@ -302,6 +310,8 @@ class CoreHarness:
             compactor=self.state.compactor,
             tool_result_max_chars=self.tool_result_max_chars,
             tool_result_keep_recent=self.tool_result_keep_recent,
+            tool_result_prune_tokens=self.tool_result_prune_tokens,
+            tool_output_dir=self.tool_output_dir,
             context_target_tokens=self.context_target_tokens,
             agent_id=child_id,
             parent_id=self.agent_id,
@@ -413,6 +423,8 @@ class CoreHarness:
             context_limit=context_limit,
             tool_result_max_chars=self.tool_result_max_chars,
             tool_result_keep_recent=self.tool_result_keep_recent,
+            tool_result_prune_tokens=self.tool_result_prune_tokens,
+            tool_output_dir=self.tool_output_dir,
             context_target_tokens=self.context_target_tokens,
             max_tool_calls=self.limits.max_tool_calls,
             deadline=deadline,

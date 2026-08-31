@@ -20,6 +20,7 @@ class HarnessConfig(BaseModel):
     max_tokens: Optional[int] = Field(default=None, ge=1)
     tool_result_max_chars: Optional[int] = Field(default=None, ge=1)
     tool_result_keep_recent: int = Field(ge=0)
+    tool_result_prune_tokens: Optional[int] = Field(default=None, ge=0)
     context_warn_threshold: Optional[int] = Field(default=None, ge=0)
     context_compact_threshold: Optional[int] = Field(default=None, ge=0)
     context_target_tokens: Optional[int] = Field(default=None, ge=1)

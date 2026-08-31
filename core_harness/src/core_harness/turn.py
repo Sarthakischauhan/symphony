@@ -6,7 +6,8 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from core_ai.registry import ModelRegistry
 from core_ai.content import text_from_content
@@ -16,7 +17,7 @@ from core_harness.control_plane import ControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import UsageTotals
 from core_harness.models import PendingToolCall, ToolCall, ToolResult
-from core_harness.state import HarnessState, prune_stale_tool_results
+from core_harness.state import HarnessState, bound_tool_result, messages_for_model
 from core_harness.tools import Tool
 from core_harness.utils.tokens import (
     estimate_completion_tokens,
@@ -52,7 +53,9 @@ class TurnRunner:
         state: HarnessState,
         context_limit: Optional[int],
         tool_result_max_chars: Optional[int],
-        tool_result_keep_recent: int = 2,
+        tool_result_keep_recent: int = 8,
+        tool_result_prune_tokens: Optional[int] = None,
+        tool_output_dir: Optional[Union[str, Path]] = None,
         context_target_tokens: Optional[int],
         remaining_runtime: Optional[float] = None,
         max_tool_calls: Optional[int] = None,
@@ -71,6 +74,8 @@ class TurnRunner:
         self.context_limit = context_limit
         self.tool_result_max_chars = tool_result_max_chars
         self.tool_result_keep_recent = tool_result_keep_recent
+        self.tool_result_prune_tokens = tool_result_prune_tokens
+        self.tool_output_dir = Path(tool_output_dir) if tool_output_dir is not None else None
         self.context_target_tokens = context_target_tokens
         self.remaining_runtime = remaining_runtime
         self.max_tool_calls = max_tool_calls
@@ -375,7 +380,7 @@ class TurnRunner:
             return result
 
         async def commit(tool_call: ToolCall, result: ToolResult) -> None:
-            bounded = self._limit_tool_output(result.for_model())
+            bounded = self._limit_tool_output(result.for_model(), tool_call=tool_call)
             self.state.add_tool_message(messages, tool_call, bounded)
 
         index = 0
@@ -407,8 +412,10 @@ class TurnRunner:
             stream_options["reasoning_effort"] = self.reasoning_effort
         agen = self.registry.stream(
             self.model_id,
-            prune_stale_tool_results(
-                messages, keep_recent=self.tool_result_keep_recent
+            messages_for_model(
+                messages,
+                keep_recent=self.tool_result_keep_recent,
+                prune_tokens=self.tool_result_prune_tokens,
             ),
             self.tool_schemas,
             **stream_options,
@@ -547,7 +554,7 @@ class TurnRunner:
         return tool_calls
 
     async def _emit_tool_result(self, tool_call: ToolCall, result: ToolResult) -> None:
-        bounded = self._limit_tool_output(result.for_model())
+        bounded = self._limit_tool_output(result.for_model(), tool_call=tool_call)
         await self.control_plane.emit(
             "tool_execution_started",
             {
@@ -600,7 +607,7 @@ class TurnRunner:
             },
         )
         result = await self._invoke_tool(tool_call)
-        bounded = self._limit_tool_output(result.for_model())
+        bounded = self._limit_tool_output(result.for_model(), tool_call=tool_call)
         await self.control_plane.emit(
             "tool_execution_completed",
             self._tool_completed_payload(tool_call, result, bounded),
@@ -683,30 +690,63 @@ class TurnRunner:
             "original_chars": original_chars,
         }
 
-    def _limit_tool_output(self, value: Content) -> Content:
+    def _spill_tool_output(self, tool_call: ToolCall, text: str) -> Optional[str]:
+        if self.tool_output_dir is None:
+            return None
+        safe_id = "".join(
+            ch if ch.isalnum() or ch in "-_" else "_"
+            for ch in str(tool_call.id or "tool")
+        )
+        filename = f"{safe_id}.txt"
+        path = self.tool_output_dir / filename
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        except OSError:
+            return None
+        parts = path.parts
+        if len(parts) >= 3 and parts[-3] == ".symphony" and parts[-2] == "tool_outputs":
+            return str(Path(".symphony") / "tool_outputs" / filename)
+        return str(path)
+
+    def _limit_tool_output(
+        self,
+        value: Content,
+        *,
+        tool_call: Optional[ToolCall] = None,
+    ) -> Content:
+        original = value if isinstance(value, str) else text_from_content(value)
+        spill_path = None
+        limit = self.tool_result_max_chars
+        if (
+            tool_call is not None
+            and limit is not None
+            and len(original) > limit
+        ):
+            spill_path = self._spill_tool_output(tool_call, original)
         if isinstance(value, list):
             return [
                 (
-                    {**part, "text": self._limit_text(str(part.get("text") or ""))}
+                    {
+                        **part,
+                        "text": self._limit_text(
+                            str(part.get("text") or ""),
+                            spill_path=spill_path,
+                        ),
+                    }
                     if isinstance(part, dict) and part.get("type") == "text"
                     else part
                 )
                 for part in value
             ]
-        return self._limit_text(value)
+        return self._limit_text(value, spill_path=spill_path)
 
-    def _limit_text(self, value: str) -> str:
-        limit = self.tool_result_max_chars
-        if limit is None or len(value) <= limit:
-            return value
-
-        marker = f"\n...[tool result truncated; {len(value) - limit} chars omitted]...\n"
-        if len(marker) >= limit:
-            return marker[:limit]
-        available = limit - len(marker)
-        head = (available + 1) // 2
-        tail = available // 2
-        return value[:head] + marker + value[-tail:]
+    def _limit_text(self, value: str, *, spill_path: Optional[str] = None) -> str:
+        return bound_tool_result(
+            value,
+            max_chars=self.tool_result_max_chars,
+            spill_path=spill_path,
+        )
 
     def _coerce_tool_output(self, value: Any) -> Content:
         if isinstance(value, str):
