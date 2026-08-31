@@ -12,7 +12,7 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
 from core_harness import NullControlPlane
 from coding_agent import CodingAgent
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import CodingAgentConfig, LearningConfig, spawn_settings_path
 
 
 def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path) -> None:
@@ -23,11 +23,19 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
         tools=[],
     )
     assert agent.learning_loop is not None
-    defaults = DEFAULT_CODING_AGENT_CONFIG.harness
+    defaults = CodingAgentConfig().harness
     assert agent.harness.max_turns == defaults.max_turns == 24
     assert agent.harness.limits.max_tool_calls == defaults.max_tool_calls
     assert agent.harness.limits.max_tokens == defaults.max_tokens
     assert agent.harness.limits.max_runtime_seconds == 600.0
+    settings_path = spawn_settings_path(tmp_path)
+    assert settings_path.exists()
+    saved = CodingAgentConfig.model_validate_json(settings_path.read_text(encoding="utf-8"))
+    assert saved.harness.max_turns == 24
+    assert saved.harness.tool_result_prune_tokens == 48_000
+    assert saved.harness.context_compact_threshold == 16_000
+    assert saved.harness.tool_output_dir == ".symphony/tool_outputs"
+    assert agent.harness.tool_output_dir == tmp_path / ".symphony" / "tool_outputs"
 
 
 def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> None:
@@ -35,8 +43,7 @@ def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> 
         registry=CapturingRegistry(),  # type: ignore[arg-type]
         model_id="fake:test-model",
         workspace=tmp_path,
-        enable_learning=False,
-        auto_approve=True,
+        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
     )
     assert "spawn_agent" in agent.harness.tools
     assert "read_file" in agent.harness.tools
@@ -52,7 +59,7 @@ def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
         model_id="fake:test-model",
         workspace=tmp_path,
         control_plane=plane,
-        enable_learning=False,
+        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
     )
     cfg = agent._spawn_child_config(
         prompt="x",
@@ -85,8 +92,7 @@ def test_coding_agent_child_stays_autonomous_if_parent_already_allows(tmp_path: 
         model_id="fake:test-model",
         workspace=tmp_path,
         control_plane=plane,
-        enable_learning=False,
-        auto_approve=True,
+        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
     )
     cfg = agent._spawn_child_config()
     assert cfg.control_plane is not None
@@ -115,17 +121,27 @@ class CapturingRegistry:
 def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> None:
     registry = CapturingRegistry()
     control_plane = NullControlPlane()
+    config = CodingAgentConfig()
+    config = config.model_copy(
+        update={
+            "learning": config.learning.model_copy(update={"enabled": False}),
+            "harness": config.harness.model_copy(
+                update={
+                    "context_limits": {"fake:test-model": 100},
+                    "context_warn_threshold": 30,
+                    "context_compact_threshold": 20,
+                    "compaction_keep_recent": 2,
+                }
+            ),
+        }
+    )
     agent = CodingAgent(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         workspace=tmp_path,
         control_plane=control_plane,
-        enable_learning=False,
+        config=config,
         tools=[],
-        context_limits={"fake:test-model": 100},
-        context_warn_threshold=30,
-        context_compact_threshold=20,
-        compaction_keep_recent=2,
     )
 
     async def _run() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -23,10 +23,11 @@ from core_harness.state import ContextReport, build_context_report
 from core_harness.utils.tokens import estimate_prompt_tokens
 
 from coding_agent.config import (
-    DEFAULT_CODING_AGENT_CONFIG,
-    CodingAgentConfig,
-    load_coding_agent_config,
+    SettingsSource,
+    ensure_spawn_settings,
+    resolve_coding_agent_config,
 )
+from core_harness.config import HarnessConfig
 from coding_agent.learning import LearningLoop, LearningStore
 from coding_agent.persistence import SqlitePersistence
 from coding_agent.plan import PlanStore
@@ -34,6 +35,7 @@ from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.tools import build_tools
 
 AgentMode = Literal["build", "plan"]
+
 
 class CodingAgent:
     """Workspace tools, persisted conversation, and optional post-run learning."""
@@ -44,49 +46,19 @@ class CodingAgent:
         registry: ModelRegistry,
         model_id: str,
         workspace: Union[str, Path],
+        config: SettingsSource | None = None,
         control_plane: Optional[ControlPlane] = None,
         persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
-        config: Optional[CodingAgentConfig] = None,
         system_prompt: str = SYSTEM_PROMPT,
         mode: AgentMode = "build",
-        enable_learning: Optional[bool] = None,
-        auto_approve: Optional[bool] = None,
-        max_turns: int = DEFAULT_CODING_AGENT_CONFIG.harness.max_turns,
-        max_tool_calls: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.max_tool_calls,
-        max_runtime_seconds: Optional[float] = DEFAULT_CODING_AGENT_CONFIG.harness.max_runtime_seconds,
-        max_tokens: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.max_tokens,
         tools: Optional[List[Tool]] = None,
-        context_limits: Optional[Dict[str, int]] = None,
-        context_warn_threshold: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.context_warn_threshold,
-        context_compact_threshold: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.context_compact_threshold,
-        compaction_keep_recent: int = DEFAULT_CODING_AGENT_CONFIG.harness.compaction_keep_recent,
-        tool_result_max_chars: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_max_chars,
-        tool_result_keep_recent: int = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_keep_recent,
-        tool_result_prune_tokens: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.tool_result_prune_tokens,
-        context_target_tokens: Optional[int] = DEFAULT_CODING_AGENT_CONFIG.harness.context_target_tokens,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
+        loaded = None if config is None else resolve_coding_agent_config(config)
+        self.config = ensure_spawn_settings(self.workspace, config=loaded)
         self.control_plane = control_plane or NullControlPlane()
-        self.config = config or DEFAULT_CODING_AGENT_CONFIG
-        if config is not None:
-            max_turns = config.harness.max_turns
-            max_tool_calls = config.harness.max_tool_calls
-            max_runtime_seconds = config.harness.max_runtime_seconds
-            max_tokens = config.harness.max_tokens
-            context_limits = config.harness.context_limits
-            context_warn_threshold = config.harness.context_warn_threshold
-            context_compact_threshold = config.harness.context_compact_threshold
-            compaction_keep_recent = config.harness.compaction_keep_recent
-            tool_result_max_chars = config.harness.tool_result_max_chars
-            tool_result_keep_recent = config.harness.tool_result_keep_recent
-            tool_result_prune_tokens = config.harness.tool_result_prune_tokens
-            context_target_tokens = config.harness.context_target_tokens
-        if auto_approve is True:
-            set_mode = getattr(self.control_plane, "set_approval_mode", None)
-            if callable(set_mode):
-                set_mode("always_allow")
         self.registry = registry
         self.session_id = session_id or str(uuid.uuid4())
         self.persistence = persistence or SqlitePersistence(
@@ -95,9 +67,6 @@ class CodingAgent:
         self.base_system_prompt = system_prompt.rstrip()
         self.mode = mode
         self.plan_store = PlanStore(self.workspace)
-        learning_enabled = (
-            self.config.learning.enabled if enable_learning is None else enable_learning
-        )
         self.learning_store = LearningStore(
             self.workspace,
             max_lessons=self.config.learning.max_lessons,
@@ -109,7 +78,7 @@ class CodingAgent:
                 model_id=model_id,
                 max_output_tokens=self.config.learning.max_output_tokens,
             )
-            if learning_enabled
+            if self.config.learning.enabled
             else None
         )
         self.tools = tools if tools is not None else build_tools(
@@ -120,37 +89,29 @@ class CodingAgent:
             registry=registry,
             model_id=model_id,
             system_prompt=self.base_system_prompt + "\n",
+            config=self._harness_settings(),
             tools=self.tools,
             control_plane=self.control_plane,
             persistence=self.persistence,
             session_id=self.session_id,
-            config=self.config.harness if config is not None else None,
-            max_turns=max_turns,
-            max_tool_calls=max_tool_calls,
-            max_runtime_seconds=max_runtime_seconds,
-            max_tokens=max_tokens,
-            context_limits=context_limits,
-            context_warn_threshold=context_warn_threshold,
-            context_compact_threshold=context_compact_threshold,
-            compactor=(
-                KeepSystemRecentCompactor(
-                    keep_recent=compaction_keep_recent,
-                    target_tokens=context_target_tokens,
-                    keep_recent_tool_results=tool_result_keep_recent,
-                )
-                if context_compact_threshold is not None
-                else None
-            ),
-            tool_result_max_chars=tool_result_max_chars,
-            tool_result_keep_recent=tool_result_keep_recent,
-            tool_result_prune_tokens=tool_result_prune_tokens,
-            tool_output_dir=self.workspace / ".symphony" / "tool_outputs",
-            context_target_tokens=context_target_tokens,
         )
         if tools is None:
             self.harness.register_tool(
                 self.harness.make_spawn_tool(configure=self._spawn_child_config)
             )
+
+    def _harness_settings(self) -> HarnessConfig:
+        """Resolve relative tool-output paths against the workspace."""
+        settings = self.config.harness
+        output_dir = settings.tool_output_dir
+        if not output_dir:
+            return settings
+        output = Path(output_dir)
+        if not output.is_absolute():
+            settings = settings.model_copy(
+                update={"tool_output_dir": str(self.workspace / output)}
+            )
+        return settings
 
     def _spawn_child_config(
         self,
@@ -241,8 +202,13 @@ class CodingAgent:
         if self.learning_loop is not None:
             await self.learning_loop.shutdown()
 
-    async def compact_conversation(self, *, keep_recent: int = 8) -> tuple[int, int]:
+    async def compact_conversation(self, *, keep_recent: Optional[int] = None) -> tuple[int, int]:
         """Manually compact the persisted conversation for the active session."""
+        keep_recent = (
+            keep_recent
+            if keep_recent is not None
+            else self.config.harness.compaction_keep_recent
+        )
         messages = await self.persistence.load_conversation(session_id=self.session_id)
         before = len(messages)
         if not messages:
@@ -305,19 +271,22 @@ def build_agent(
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
     enable_learning: Optional[bool] = None,
-    config: Optional[CodingAgentConfig | None] = None,
+    config: Optional[SettingsSource] = None,
 ) -> CodingAgent:
     """Build a coding agent from whatever provider credentials are available."""
     from core_ai import build_default_registry, default_model_id
 
     registry = build_default_registry()
-    resolved_config = config or load_coding_agent_config(workspace)
+    loaded = None if config is None else resolve_coding_agent_config(config)
+    overrides = None
+    if enable_learning is not None:
+        overrides = {"learning": {"enabled": enable_learning}}
+    resolved = ensure_spawn_settings(workspace, config=loaded, overrides=overrides)
     return CodingAgent(
         registry=registry,
         model_id=default_model_id(registry, model_id),
         workspace=workspace,
         control_plane=control_plane,
         session_id=session_id,
-        enable_learning=enable_learning,
-        config=resolved_config,
+        config=resolved,
     )

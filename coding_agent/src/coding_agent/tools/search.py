@@ -8,11 +8,11 @@ from pathlib import Path
 
 from pydantic import Field
 
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG, SearchConfig
+from coding_agent.config import SearchConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from coding_agent.utils.ignore_file import DEFAULT_SKIP_DIRS, is_ignored
 
-DEFAULT_SEARCH_CONFIG = DEFAULT_CODING_AGENT_CONFIG.tools.search
+DEFAULT_SEARCH_CONFIG = SearchConfig()
 
 
 class SearchArgs(ToolArgsModel):

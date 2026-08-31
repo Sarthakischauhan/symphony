@@ -21,7 +21,7 @@ from coding_agent.tools import (
     WriteFileTool,
     build_tools,
 )
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import ReadFileConfig
 from coding_agent.tui.control_plane import TextualControlPlane
 from coding_agent.tui.widgets import GenerateImageWidget
 from coding_agent.tui.widgets import ReadFileWidget
@@ -86,9 +86,7 @@ def test_read_file_rejects_oversized_images(
 ) -> None:
     image = tmp_path / "huge.png"
     image.write_bytes(PNG_1X1)
-    config = DEFAULT_CODING_AGENT_CONFIG.tools.read_file.model_copy(
-        update={"max_image_bytes": 1}
-    )
+    config = ReadFileConfig(max_image_bytes=1)
     result = ReadFileTool(tmp_path, config=config).run("huge.png")
     assert result.startswith("error: image exceeds")
 

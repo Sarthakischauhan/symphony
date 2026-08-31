@@ -97,7 +97,6 @@ agent = CodingAgent(
     registry=registry,
     model_id=default_model_id(registry),
     workspace=".",
-    enable_learning=True,
 )
 result = await agent.run("Fix the failing test")
 ```
@@ -110,15 +109,20 @@ the server-requested delay.
 
 ### Configuration
 
-Runtime policy is loaded from `<workspace>/.symphony/config.json`. The file is a
-partial overlay: omitted values retain the packaged defaults. See
-[`config.example.json`](./config.example.json) for the complete user-facing shape.
+Starting a coding agent writes a complete settings file to
+`<workspace>/.symphony/config.json`. That file is the source of truth for the
+spawn: harness limits, tool-result pruning, compaction, context thresholds,
+`tool_output_dir`, approvals, tool I/O bounds, and learning. There is no packaged
+defaults JSON. If the file is missing, spawn generates it from
+`CodingAgentConfig` field defaults. See
+[`config.example.json`](./config.example.json) for the user-facing shape.
+
+Pass the settings path or a loaded `CodingAgentConfig` into `CodingAgent` /
+`CoreHarness`. Constructors do not take a long list of config kwargs.
 
 Approval is owned by the control plane, not by wrapped tools. Set
 `approvals.mode` to `"ask"` for interactive gates or `"always_allow"` to let the
-control plane authorize every tool call without showing a prompt. Harness limits,
-spawn depth/concurrency, tool I/O bounds, approval thresholds, and learning bounds
-are configurable in the same file.
+control plane authorize every tool call without showing a prompt.
 
 ### Learning
 
@@ -134,7 +138,8 @@ Reflection never delays or changes the completed run. Future runs receive only a
 small task-relevant selection of lessons. Routine runs can return
 `should_save=false`, and reflection failures are logged without affecting the agent.
 
-Disable learning with `enable_learning=False` or `coding-agent-tui --no-learning`. Call
+Disable learning with `"learning": {"enabled": false}` in the spawn settings file
+or `coding-agent-tui --no-learning`. Call
 `await agent.shutdown_learning()` (or `wait_for_learning()`) when an application
 needs to cancel or drain pending reflection tasks before shutdown. The TUI does
 this automatically on exit.

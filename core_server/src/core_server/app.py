@@ -92,19 +92,11 @@ def create_app(config: ServerConfig) -> FastAPI:
             registry=config.registry,
             model_id=request.model_id or config.model_id,
             system_prompt=config.system_prompt,
+            config=config.to_harness_config(),
             tools=list(config.tools),
             control_plane=plane,
             persistence=config.persistence,
             session_id=request.session_id,
-            max_turns=config.max_turns,
-            max_tool_calls=config.max_tool_calls,
-            max_runtime_seconds=config.max_runtime_seconds,
-            max_tokens=config.max_tokens,
-            context_limits=config.context_limits,
-            context_warn_threshold=config.context_warn_threshold,
-            context_compact_threshold=config.context_compact_threshold,
-            tool_result_max_chars=config.tool_result_max_chars,
-            context_target_tokens=config.context_target_tokens,
         )
 
         async def run_harness() -> None:

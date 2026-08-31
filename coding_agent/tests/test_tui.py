@@ -21,6 +21,7 @@ from coding_agent.tui.modal import ContextModal
 from core_harness import HarnessResult
 from core_harness.state import COMPACTED_CONTEXT_MARK, build_context_report
 from coding_agent.agent import CodingAgent
+from coding_agent.config import CodingAgentConfig, LearningConfig
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.commands import (
     EFFORT_CATALOG,
@@ -1635,7 +1636,7 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
         model_id="openai:gpt-4o-mini",
         workspace=tmp_path,
         control_plane=control_plane,
-        enable_learning=False,
+        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
         tools=[],
     )
     messages = [Message(role="system", content="system")]

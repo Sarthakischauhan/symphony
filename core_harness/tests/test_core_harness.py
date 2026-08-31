@@ -16,6 +16,7 @@ from core_harness import (
     CoreHarness,
     FanoutControlPlane,
     HarnessCancelled,
+    HarnessConfig,
     InMemoryEventLog,
     InteractiveControlPlane,
     KeepSystemRecentCompactor,
@@ -236,8 +237,8 @@ def test_core_harness_forwards_reasoning_effort() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="openai:gpt-5.6-luna",
         system_prompt="Be useful.",
+        config=HarnessConfig(max_turns=1),
         reasoning_effort="high",
-        max_turns=1,
     )
 
     result = asyncio.run(harness.run("Do it"))
@@ -261,11 +262,14 @@ def call_fake_harness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="You are a concise assistant.",
+        config=HarnessConfig(
+            context_limits={"fake:test-model": context_limit},
+            context_warn_threshold=context_warn_threshold,
+            context_compact_threshold=context_compact_threshold,
+            compaction_keep_recent=keep_recent,
+        ),
         tools=[Tool(get_weather)],
         control_plane=control_plane,
-        context_limits={"fake:test-model": context_limit},
-        context_warn_threshold=context_warn_threshold,
-        context_compact_threshold=context_compact_threshold,
         compactor=(
             KeepSystemRecentCompactor(keep_recent=keep_recent)
             if context_compact_threshold is not None
@@ -420,11 +424,13 @@ def test_stale_tool_results_stay_until_token_budget() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
+        config=HarnessConfig(
+            max_turns=16,
+            tool_result_max_chars=4_000,
+            tool_result_keep_recent=2,
+            tool_result_prune_tokens=None,
+        ),
         tools=[Tool(bulky_result)],
-        max_turns=16,
-        tool_result_max_chars=4_000,
-        tool_result_keep_recent=2,
-        tool_result_prune_tokens=None,
     )
 
     result = asyncio.run(harness.run("inspect files"))
@@ -446,11 +452,13 @@ def test_stale_tool_results_are_pruned_once_over_budget() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
+        config=HarnessConfig(
+            max_turns=16,
+            tool_result_max_chars=4_000,
+            tool_result_keep_recent=2,
+            tool_result_prune_tokens=0,
+        ),
         tools=[Tool(bulky_result)],
-        max_turns=16,
-        tool_result_max_chars=4_000,
-        tool_result_keep_recent=2,
-        tool_result_prune_tokens=0,
     )
 
     result = asyncio.run(harness.run("inspect files"))
@@ -523,9 +531,9 @@ def test_large_tool_results_are_bounded_before_reentering_context() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
+        config=HarnessConfig(tool_result_max_chars=80),
         tools=[Tool(large_tool_result)],
         control_plane=control_plane,
-        tool_result_max_chars=80,
     )
 
     result = asyncio.run(harness.run("run the tool"))
@@ -554,9 +562,11 @@ def test_truncated_tool_results_spill_to_disk(tmp_path: Path) -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
+        config=HarnessConfig(
+            tool_result_max_chars=120,
+            tool_output_dir=str(output_dir),
+        ),
         tools=[Tool(large_tool_result)],
-        tool_result_max_chars=120,
-        tool_output_dir=output_dir,
     )
 
     result = asyncio.run(harness.run("run the tool"))
@@ -650,12 +660,15 @@ def test_core_harness_compacts_when_context_left_is_low() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="You are a concise assistant.",
+        config=HarnessConfig(
+            max_turns=8,
+            context_limits={"fake:test-model": 100},
+            context_compact_threshold=20,
+            compaction_keep_recent=2,
+        ),
         tools=[Tool(get_weather)],
         control_plane=control_plane,
-        context_limits={"fake:test-model": 100},
-        context_compact_threshold=20,
         compactor=KeepSystemRecentCompactor(keep_recent=2),
-        max_turns=8,
     )
     prior = [Message(role="user", content=f"earlier task {index}") for index in range(6)]
     result = asyncio.run(
@@ -907,8 +920,8 @@ def test_harness_forwards_multimodal_user_content() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
+        config=HarnessConfig(context_limits={"fake:test-model": 1000}),
         tools=[],
-        context_limits={"fake:test-model": 1000},
     )
     payload = "a" * 20_000
     user_input = [
@@ -972,9 +985,9 @@ def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
+        config=HarnessConfig(tool_result_max_chars=80),
         tools=[Tool(look_at_shot)],
         control_plane=control_plane,
-        tool_result_max_chars=80,
     )
 
     result = asyncio.run(harness.run("look"))
@@ -1006,9 +1019,9 @@ def test_control_plane_cancel_stops_harness() -> None:
             registry=registry,  # type: ignore[arg-type]
             model_id="fake:test-model",
             system_prompt="You are a concise assistant.",
+            config=HarnessConfig(context_limits={"fake:test-model": 100}),
             tools=[Tool(get_weather)],
             control_plane=control_plane,
-            context_limits={"fake:test-model": 100},
         )
         await harness.run("What is the weather in San Francisco?")
 
@@ -1036,10 +1049,12 @@ def test_e2e_two_tool_loop_answers_three_times_five() -> None:
             "You must call call_tool_a, then call call_tool_b, then answer "
             "3 * 5 with only the number."
         ),
+        config=HarnessConfig(
+            max_turns=8,
+            context_limits={"fake:math-model": 1000},
+        ),
         tools=[Tool(call_tool_a), Tool(call_tool_b)],
         control_plane=control_plane,
-        context_limits={"fake:math-model": 1000},
-        max_turns=8,
     )
 
     result = asyncio.run(
@@ -1098,6 +1113,7 @@ def call_live_core_harness() -> tuple[NullControlPlane, object]:
             "You are a concise assistant. Always call get_weather for weather "
             "questions and then answer with the tool result verbatim."
         ),
+        config=HarnessConfig(),
         tools=[Tool(get_weather)],
         control_plane=control_plane,
     )
@@ -1135,9 +1151,9 @@ def call_live_two_tool_math_harness() -> tuple[InteractiveControlPlane, object]:
             "then call call_tool_b, and only after both tools have returned should you "
             "answer the arithmetic. Final answer must be only the number for 3 * 5."
         ),
+        config=HarnessConfig(max_turns=8),
         tools=[Tool(call_tool_a), Tool(call_tool_b)],
         control_plane=control_plane,
-        max_turns=8,
     )
 
     try:

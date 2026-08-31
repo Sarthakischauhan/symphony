@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
+from core_harness.config import HarnessConfig
 from core_harness.persistence import Persistence
 from core_harness.tools import Tool
 
@@ -64,6 +65,22 @@ class ServerConfig:
         for name, value in positive.items():
             if value <= 0:
                 raise ValueError(f"{name} must be positive")
+
+    def to_harness_config(self) -> HarnessConfig:
+        """Settings object passed to ``CoreHarness`` for each run."""
+        values: dict = {
+            "max_turns": self.max_turns,
+            "max_tool_calls": self.max_tool_calls,
+            "max_runtime_seconds": self.max_runtime_seconds,
+            "max_tokens": self.max_tokens,
+            "context_warn_threshold": self.context_warn_threshold,
+            "context_compact_threshold": self.context_compact_threshold,
+            "tool_result_max_chars": self.tool_result_max_chars,
+            "context_target_tokens": self.context_target_tokens,
+        }
+        if self.context_limits is not None:
+            values["context_limits"] = self.context_limits
+        return HarnessConfig(**values)
 
 
 def build_config(

@@ -7,7 +7,11 @@ from core_harness.state import (
     messages_for_model,
     prune_stale_tool_results,
 )
-from core_harness.config import HarnessConfig, load_harness_config
+from core_harness.config import (
+    HarnessConfig,
+    load_harness_config,
+    resolve_harness_config,
+)
 from core_harness.control_plane import (
     ControlPlane,
     EventLog,
@@ -75,6 +79,7 @@ __all__ = [
     "bound_tool_result",
     "build_context_report",
     "load_harness_config",
+    "resolve_harness_config",
     "messages_for_model",
     "prune_stale_tool_results",
 ]

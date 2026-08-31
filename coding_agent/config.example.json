@@ -8,8 +8,11 @@
     "context_warn_threshold": 32000,
     "context_compact_threshold": 16000,
     "context_target_tokens": 80000,
+    "compaction_keep_recent": 8,
+    "tool_result_max_chars": 4000,
     "tool_result_keep_recent": 8,
-    "tool_result_prune_tokens": 48000
+    "tool_result_prune_tokens": 48000,
+    "tool_output_dir": ".symphony/tool_outputs"
   },
   "approvals": {
     "mode": "ask",
