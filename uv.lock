@@ -5,10 +5,10 @@ requires-python = ">=3.11"
 [manifest]
 members = [
     "agent-platform",
-    "coding-agent",
-    "core-ai",
-    "core-harness",
     "core-server",
+    "symphony-coding-agent",
+    "symphony-core",
+    "symphony-harness",
 ]
 
 [[package]]
@@ -69,35 +69,6 @@ wheels = [
 ]
 
 [[package]]
-name = "coding-agent"
-version = "0.1.0"
-source = { editable = "coding_agent" }
-dependencies = [
-    { name = "core-ai" },
-    { name = "core-harness" },
-    { name = "pillow" },
-    { name = "pydantic" },
-    { name = "textual" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "core-ai", editable = "core_ai" },
-    { name = "core-harness", editable = "core_harness" },
-    { name = "pillow", specifier = ">=12.3.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "textual", specifier = ">=8.2.8" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
-
-[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -107,66 +78,14 @@ wheels = [
 ]
 
 [[package]]
-name = "core-ai"
-version = "0.1.0"
-source = { editable = "core_ai" }
-dependencies = [
-    { name = "dotenv" },
-    { name = "httpx" },
-    { name = "pydantic" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "hatchling" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pydantic", specifier = ">=2.13.4" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "hatchling" },
-    { name = "pytest", specifier = ">=9.1.1" },
-]
-
-[[package]]
-name = "core-harness"
-version = "0.1.0"
-source = { editable = "core_harness" }
-dependencies = [
-    { name = "core-ai" },
-    { name = "pydantic" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "core-ai", editable = "core_ai" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
-
-[[package]]
 name = "core-server"
 version = "0.1.0"
 source = { editable = "core_server" }
 dependencies = [
-    { name = "core-ai" },
-    { name = "core-harness" },
     { name = "dotenv" },
     { name = "fastapi" },
+    { name = "symphony-core" },
+    { name = "symphony-harness" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -178,10 +97,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "core-ai", editable = "core_ai" },
-    { name = "core-harness", editable = "core_harness" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "symphony-core", editable = "core_ai" },
+    { name = "symphony-harness", editable = "core_harness" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 
@@ -734,6 +653,87 @@ sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
 ]
+
+[[package]]
+name = "symphony-coding-agent"
+version = "0.1.0"
+source = { editable = "coding_agent" }
+dependencies = [
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "symphony-core" },
+    { name = "symphony-harness" },
+    { name = "textual" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pillow", specifier = ">=12.3.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "symphony-core", editable = "core_ai" },
+    { name = "symphony-harness", editable = "core_harness" },
+    { name = "textual", specifier = ">=8.2.8" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+
+[[package]]
+name = "symphony-core"
+version = "0.1.0"
+source = { editable = "core_ai" }
+dependencies = [
+    { name = "dotenv" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "hatchling" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dotenv", specifier = ">=0.9.9" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pydantic", specifier = ">=2.13.4" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "hatchling" },
+    { name = "pytest", specifier = ">=9.1.1" },
+]
+
+[[package]]
+name = "symphony-harness"
+version = "0.1.0"
+source = { editable = "core_harness" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "symphony-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "symphony-core", editable = "core_ai" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "textual"
