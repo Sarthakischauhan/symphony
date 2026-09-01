@@ -11,7 +11,7 @@ from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 
-from core_harness.config import DEFAULT_HARNESS_CONFIG, HarnessConfig
+from core_harness.config import SettingsSource, resolve_harness_config
 from core_harness.control_plane import ControlPlane, IdentifiedControlPlane, NullControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import (
@@ -50,44 +50,24 @@ class CoreHarness:
         registry: ModelRegistry,
         model_id: str,
         system_prompt: str,
+        config: SettingsSource,
         reasoning_effort: Optional[str] = None,
         tools: Optional[List[Tool]] = None,
         control_plane: Optional[ControlPlane] = None,
         persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
-        config: Optional[HarnessConfig] = None,
-        max_turns: int = DEFAULT_HARNESS_CONFIG.max_turns,
-        max_tool_calls: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tool_calls,
-        max_runtime_seconds: Optional[float] = DEFAULT_HARNESS_CONFIG.max_runtime_seconds,
-        max_tokens: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tokens,
-        limits: Optional[RunLimits] = None,
-        context_limits: Optional[Dict[str, int]] = None,
-        context_warn_threshold: Optional[int] = None,
-        context_compact_threshold: Optional[int] = None,
         compactor: Optional[Compactor] = None,
-        tool_result_max_chars: Optional[int] = DEFAULT_HARNESS_CONFIG.tool_result_max_chars,
-        context_target_tokens: Optional[int] = None,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
         spawn_depth: int = 0,
-        max_spawn_depth: int = DEFAULT_HARNESS_CONFIG.max_spawn_depth,
     ) -> None:
-        self.config = config or DEFAULT_HARNESS_CONFIG
-        if config is not None:
-            max_turns = config.max_turns
-            max_tool_calls = config.max_tool_calls
-            max_runtime_seconds = config.max_runtime_seconds
-            max_tokens = config.max_tokens
-            context_limits = config.context_limits
-            context_warn_threshold = config.context_warn_threshold
-            context_compact_threshold = config.context_compact_threshold
-            tool_result_max_chars = config.tool_result_max_chars
-            context_target_tokens = config.context_target_tokens
-            max_spawn_depth = config.max_spawn_depth
-            if compactor is None and context_compact_threshold is not None:
-                compactor = KeepSystemRecentCompactor(
-                    keep_recent=config.compaction_keep_recent
-                )
+        self.config = resolve_harness_config(config)
+        if compactor is None and self.config.context_compact_threshold is not None:
+            compactor = KeepSystemRecentCompactor(
+                keep_recent=self.config.compaction_keep_recent,
+                target_tokens=self.config.context_target_tokens,
+                keep_recent_tool_results=self.config.tool_result_keep_recent,
+            )
         self.registry = registry
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort
@@ -95,27 +75,27 @@ class CoreHarness:
         self.control_plane = control_plane or NullControlPlane()
         self.persistence = persistence or NullPersistence()
         self.session_id = session_id
-        self.limits = limits or RunLimits(
-            max_turns=max_turns,
-            max_tool_calls=max_tool_calls,
-            max_runtime_seconds=max_runtime_seconds,
-            max_tokens=max_tokens,
+        self.limits = RunLimits(
+            max_turns=self.config.max_turns,
+            max_tool_calls=self.config.max_tool_calls,
+            max_runtime_seconds=self.config.max_runtime_seconds,
+            max_tokens=self.config.max_tokens,
         )
         self.max_turns = self.limits.max_turns
-        if tool_result_max_chars is not None and tool_result_max_chars < 1:
-            raise ValueError("tool_result_max_chars must be positive or None")
-        self.tool_result_max_chars = tool_result_max_chars
-        self.context_target_tokens = context_target_tokens
+        self.tool_result_max_chars = self.config.tool_result_max_chars
+        self.tool_result_keep_recent = self.config.tool_result_keep_recent
+        self.tool_result_prune_tokens = self.config.tool_result_prune_tokens
+        self.context_target_tokens = self.config.context_target_tokens
         self.agent_id = agent_id or str(uuid.uuid4())
         self.parent_id = parent_id
         self.spawn_depth = spawn_depth
-        self.max_spawn_depth = max_spawn_depth
+        self.max_spawn_depth = self.config.max_spawn_depth
         self._active_run_id: Optional[str] = None
         self._active_session_id: Optional[str] = None
         self.state = HarnessState(
-            context_limits=context_limits,
-            context_warn_threshold=context_warn_threshold,
-            context_compact_threshold=context_compact_threshold,
+            context_limits=self.config.context_limits,
+            context_warn_threshold=self.config.context_warn_threshold,
+            context_compact_threshold=self.config.context_compact_threshold,
             compactor=compactor,
             context_target_tokens=self.context_target_tokens,
         )
@@ -280,25 +260,16 @@ class CoreHarness:
             registry=self.registry,
             model_id=model_id or self.model_id,
             system_prompt=system_prompt or self.config.subagent_system_prompt,
+            config=self.config.model_copy(update={"max_turns": child_turns}),
             reasoning_effort=self.reasoning_effort,
             tools=child_tools,
             control_plane=child_plane,
             persistence=NullPersistence(),
             session_id=str(uuid.uuid4()),
-            max_turns=child_turns,
-            max_tool_calls=self.limits.max_tool_calls,
-            max_runtime_seconds=self.limits.max_runtime_seconds,
-            max_tokens=self.limits.max_tokens,
-            context_limits=self.state.context_limits,
-            context_warn_threshold=self.state.context_warn_threshold,
-            context_compact_threshold=self.state.context_compact_threshold,
             compactor=self.state.compactor,
-            tool_result_max_chars=self.tool_result_max_chars,
-            context_target_tokens=self.context_target_tokens,
             agent_id=child_id,
             parent_id=self.agent_id,
             spawn_depth=self.spawn_depth + 1,
-            max_spawn_depth=self.max_spawn_depth,
         )
         await plane.emit(
             "agent_spawned",
@@ -404,6 +375,8 @@ class CoreHarness:
             state=self.state,
             context_limit=context_limit,
             tool_result_max_chars=self.tool_result_max_chars,
+            tool_result_keep_recent=self.tool_result_keep_recent,
+            tool_result_prune_tokens=self.tool_result_prune_tokens,
             context_target_tokens=self.context_target_tokens,
             max_tool_calls=self.limits.max_tool_calls,
             deadline=deadline,

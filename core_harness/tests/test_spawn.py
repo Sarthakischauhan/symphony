@@ -6,8 +6,7 @@ import asyncio
 from typing import Any
 
 from core_ai.types import Message, StreamEvent
-from core_harness import ChildConfig, CoreHarness, NullControlPlane, Tool
-from core_harness.config import DEFAULT_HARNESS_CONFIG
+from core_harness import ChildConfig, CoreHarness, HarnessConfig, NullControlPlane, Tool
 
 
 class ScriptedRegistry:
@@ -52,6 +51,7 @@ def test_run_events_carry_agent_id_without_parent() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
+        config=HarnessConfig(),
         control_plane=plane,
         agent_id="parent-agent",
     )
@@ -79,10 +79,10 @@ def test_spawn_emits_parent_and_child_identity() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
+        config=HarnessConfig(max_turns=4),
         tools=[Tool(inspect_repo)],
         control_plane=plane,
         agent_id="parent-agent",
-        max_turns=4,
     )
     harness.register_tool(harness.make_spawn_tool())
 
@@ -113,7 +113,7 @@ def test_spawn_emits_parent_and_child_identity() -> None:
 
     child_calls = [call for call in registry.calls if any(
         message.role == "system"
-        and DEFAULT_HARNESS_CONFIG.subagent_system_prompt in str(message.content)
+        and HarnessConfig().subagent_system_prompt in str(message.content)
         for message in call["messages"]
     )]
     assert child_calls
@@ -137,10 +137,10 @@ def test_spawn_depth_limit_returns_error_without_child_run() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
+        config=HarnessConfig(max_spawn_depth=1),
         control_plane=plane,
         agent_id="parent-agent",
         spawn_depth=1,
-        max_spawn_depth=1,
     )
     result = asyncio.run(harness.spawn("go deeper", label="too deep"))
     assert result.output_text.startswith("error: spawn depth")
@@ -155,6 +155,7 @@ def test_direct_spawn_uses_shared_control_plane() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
+        config=HarnessConfig(),
         control_plane=plane,
         agent_id="parent-agent",
         session_id="session-parent",
@@ -237,9 +238,9 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
+        config=HarnessConfig(max_turns=4),
         control_plane=plane,
         agent_id="parent-agent",
-        max_turns=4,
     )
     harness.register_tool(harness.make_spawn_tool())
     result = asyncio.run(harness.run("Investigate auth and db in parallel."))
@@ -267,6 +268,7 @@ def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:parent-model",
         system_prompt="parent",
+        config=HarnessConfig(),
         control_plane=parent_plane,
         agent_id="parent-agent",
     )
@@ -303,9 +305,9 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:parent-model",
         system_prompt="parent",
+        config=HarnessConfig(max_turns=4),
         control_plane=parent_plane,
         agent_id="parent-agent",
-        max_turns=4,
     )
 
     def configure(**kwargs: Any) -> ChildConfig:
@@ -346,6 +348,7 @@ def test_make_spawn_tool_configure_merges_partial_override() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:parent-model",
         system_prompt="parent",
+        config=HarnessConfig(),
         control_plane=parent_plane,
         agent_id="parent-agent",
     )
@@ -376,6 +379,7 @@ def test_spawn_caps_child_max_turns() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
+        config=HarnessConfig(),
         agent_id="parent-agent",
     )
     turns: list[int] = []
@@ -406,6 +410,7 @@ def test_looping_child_stops_at_spawn_turn_cap() -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
+        config=HarnessConfig(),
         tools=[Tool(inspect_repo)],
         control_plane=plane,
         agent_id="parent-agent",

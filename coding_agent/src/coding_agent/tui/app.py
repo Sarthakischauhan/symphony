@@ -16,7 +16,7 @@ from textual.widget import Widget
 from textual.widgets import OptionList, Static, TextArea
 
 from coding_agent.agent import AgentMode, CodingAgent, build_agent
-from coding_agent.config import load_coding_agent_config
+from coding_agent.config import ensure_spawn_settings
 from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import (
     CommandManager,
@@ -92,7 +92,10 @@ class CodingAgentApp(App[None]):
         self.model_id = model_id
         self.session_id = session_id
         self.enable_learning = enable_learning
-        self.config = load_coding_agent_config(self.workspace)
+        overrides = None
+        if enable_learning is not None:
+            overrides = {"learning": {"enabled": enable_learning}}
+        self.config = ensure_spawn_settings(self.workspace, overrides=overrides)
         self.mode: AgentMode = "build"
         self.control_plane = TextualControlPlane(
             workspace=self.workspace,

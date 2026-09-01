@@ -1,6 +1,7 @@
-## coding_agent
+# symphony-code
 
-A workspace coding agent built on `core_harness`.
+A workspace coding agent built on `symphony-harness`. The Python module remains
+`coding_agent` for API compatibility.
 
 <div align="center">
   <img src="../docs/demo.png" alt="Symphony coding agent TUI" height="400">
@@ -71,8 +72,7 @@ Plan mode uses a yellow composer border and writes streamed plans to readable,
 task-named files such as `.symphony/plans/to_build_a_server_plan.md`. When planning
 finishes, the plan opens in a modal with a **Build now** action; `/plan` opens a
 searchable picker for all saved workspace plans.
-`/new` starts a new persisted session, `/compact` keeps the system prompt and recent
-valid tool-call blocks, `/reload` reloads `.env` and rebuilds the provider registry,
+`/new` starts a new persisted session, `/compact` keeps the system prompt, the original task, and the most recent turns (with a summary of dropped work), `/context` opens a modal that breaks down stored vs sent tokens by role, `/reload` reloads `.env` and rebuilds the provider registry,
 `/diff` opens the current workspace diff in a modal,
 `/status` displays the current runtime context, `/help` shows commands, and `/clear`
 clears the visible transcript.
@@ -100,7 +100,6 @@ agent = CodingAgent(
     registry=registry,
     model_id=default_model_id(registry),
     workspace=".",
-    enable_learning=True,
 )
 result = await agent.run("Fix the failing test")
 ```
@@ -113,15 +112,23 @@ the server-requested delay.
 
 ### Configuration
 
-Runtime policy is loaded from `<workspace>/.symphony/config.json`. The file is a
-partial overlay: omitted values retain the packaged defaults. See
-[`config.example.json`](./config.example.json) for the complete user-facing shape.
+Starting a coding agent writes a complete settings file to
+`<workspace>/.symphony/config.json`. That file is the source of truth for the
+spawn: harness limits, tool-result pruning, compaction, context thresholds,
+approvals, tool I/O bounds, and learning. There is no packaged
+defaults JSON. If the file is missing, spawn generates it from
+`CodingAgentConfig` field defaults. See
+[`config.example.json`](./config.example.json) for the user-facing shape.
+
+Pass the settings path or a loaded `CodingAgentConfig` into `CodingAgent` /
+`CoreHarness`. Constructors do not take a long list of config kwargs.
 
 Approval is owned by the control plane, not by wrapped tools. Set
 `approvals.mode` to `"ask"` for interactive gates or `"always_allow"` to let the
-control plane authorize every tool call without showing a prompt. Harness limits,
-spawn depth/concurrency, tool I/O bounds, approval thresholds, and learning bounds
-are configurable in the same file.
+control plane authorize every tool call without showing a prompt. Choosing
+**Always allow** in the TUI is a run-level override: it applies only to the
+current run (including its child agents) and does not change the persistent
+`.symphony/config.json` used by future runs.
 
 ### Learning
 
@@ -137,7 +144,8 @@ Reflection never delays or changes the completed run. Future runs receive only a
 small task-relevant selection of lessons. Routine runs can return
 `should_save=false`, and reflection failures are logged without affecting the agent.
 
-Disable learning with `enable_learning=False` or `symphony --no-learning`. Call
+Disable learning with `"learning": {"enabled": false}` in the spawn settings file
+or `enable_learning=False` / `symphony --no-learning`. Call
 `await agent.shutdown_learning()` (or `wait_for_learning()`) when an application
 needs to cancel or drain pending reflection tasks before shutdown. The TUI does
 this automatically on exit.
@@ -147,8 +155,17 @@ Conversation persistence is managed under
 `session_id` or the TUI `--resume` command.
 
 Automatic context compaction is enabled by default. When a model has 16,000 or
-fewer context tokens left, the harness keeps the system prompt and the eight most
-recent protocol-safe messages before the next model call. The warning threshold,
-compaction threshold, and number of recent messages can be customized with
-`context_warn_threshold`, `context_compact_threshold`, and
-`compaction_keep_recent`; pass `context_compact_threshold=None` to disable it.
+fewer context tokens left, the harness keeps the system prompt, the original task,
+and the ten most recent messages before the next model call. Dropped messages are
+summarized (with paths already observed) rather than discarded silently. A
+one-user tool loop is not treated as a single un-droppable turn. Tool
+results are capped at 4,000 characters when they enter history; the truncated
+body is what is stored. Older tool bodies are
+stubbed only after the estimated prompt reaches `tool_result_prune_tokens`
+(48,000 by default), and stubs name the path so the model does not re-read them.
+The warning threshold, compaction threshold, recent-message count, post-compact
+target, insert-time cap, and prune budget can be customized with
+`context_warn_threshold`, `context_compact_threshold`, `compaction_keep_recent`,
+`context_target_tokens`, `tool_result_max_chars`, `tool_result_keep_recent`, and
+`tool_result_prune_tokens`; pass `context_compact_threshold=None` to disable
+auto-compact.

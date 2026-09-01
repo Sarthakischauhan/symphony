@@ -8,10 +8,10 @@ import signal
 
 from pydantic import Field
 
-from coding_agent.config import BashConfig, DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import BashConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
-DEFAULT_BASH_CONFIG = DEFAULT_CODING_AGENT_CONFIG.tools.bash
+DEFAULT_BASH_CONFIG = BashConfig()
 
 
 class BashArgs(ToolArgsModel):

@@ -3,12 +3,59 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
+from collections import Counter
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Sequence
 
+from core_ai.content import text_from_content
 from core_ai.types import Content, Message
-from core_harness.config import DEFAULT_HARNESS_CONFIG
+from core_harness.config import default_context_limits
 from core_harness.models import ToolCall
-from core_harness.utils.tokens import estimate_prompt_tokens
+from core_harness.utils.tokens import estimate_message_tokens, estimate_prompt_tokens
+
+CLEARED_TOOL_RESULT_MARK = "[tool result cleared:"
+COMPACTED_CONTEXT_MARK = "[compacted earlier context]"
+DEFAULT_PRUNE_KEEP_RECENT = 8
+_REF_KEYS = ("path", "file", "filename", "target", "query", "pattern", "command")
+_MIN_BOUND_KEEP = 10
+
+
+def bound_tool_result(
+    text: str,
+    *,
+    max_chars: Optional[int],
+) -> str:
+    """Cap a tool result at insert time, keeping a 40/60 head/tail split.
+
+    Truncation is the TPM lever: the bounded text is what gets persisted, so
+    later turns never re-pay the original size. The full original is discarded.
+    """
+    if max_chars is None or len(text) <= max_chars:
+        return text
+
+    omitted = len(text) - max_chars
+
+    def marker(short: bool) -> str:
+        details = f"{omitted:,} chars omitted"
+        if short:
+            return f"\n...[tool result truncated; {details}]...\n"
+        return (
+            f"\n...[tool result truncated; {details}"
+            f" — already observed; do not re-run]...\n"
+        )
+
+    stamp = marker(short=False)
+    if len(stamp) + _MIN_BOUND_KEEP > max_chars:
+        stamp = marker(short=True)
+    if len(stamp) >= max_chars:
+        return stamp[:max_chars]
+
+    available = max_chars - len(stamp)
+    head = (available * 2) // 5
+    tail = available - head
+    suffix = text[-tail:] if tail else ""
+    return text[:head] + stamp + suffix
+
 
 # --- compaction.py ---
 def normalize_tool_protocol(messages: List[Message]) -> List[Message]:
@@ -64,6 +111,196 @@ def _atomic_blocks(messages: List[Message]) -> List[List[Message]]:
     return blocks
 
 
+def _preview_value(value: str, *, limit: int = 80) -> str:
+    text = " ".join(value.split())
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
+    return text
+
+
+def _call_name(call: Dict[str, Any]) -> str:
+    function = call.get("function") if isinstance(call.get("function"), dict) else {}
+    name = function.get("name") if isinstance(function, dict) else None
+    if not name:
+        raw = call.get("name")
+        name = raw if isinstance(raw, str) else None
+    return str(name or "tool")
+
+
+def _call_arguments(call: Dict[str, Any]) -> Dict[str, Any]:
+    function = call.get("function") if isinstance(call.get("function"), dict) else {}
+    raw = function.get("arguments") if isinstance(function, dict) else call.get("arguments")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
+def _tool_ref(call: Dict[str, Any]) -> str:
+    name = _call_name(call)
+    arguments = _call_arguments(call)
+    for key in _REF_KEYS:
+        value = arguments.get(key)
+        if isinstance(value, str) and value.strip():
+            return f"{name} {key}={_preview_value(value)}"
+    return name
+
+
+def _tool_names(messages: Sequence[Message]) -> Dict[str, str]:
+    names: Dict[str, str] = {}
+    for message in messages:
+        if message.role != "assistant" or not message.tool_calls:
+            continue
+        for call in message.tool_calls:
+            call_id = call.get("id")
+            if call_id is None:
+                continue
+            names[str(call_id)] = _call_name(call)
+    return names
+
+
+def _tool_refs(messages: Sequence[Message]) -> Dict[str, str]:
+    refs: Dict[str, str] = {}
+    for message in messages:
+        if message.role != "assistant" or not message.tool_calls:
+            continue
+        for call in message.tool_calls:
+            call_id = call.get("id")
+            if call_id is None:
+                continue
+            refs[str(call_id)] = _tool_ref(call)
+    return refs
+
+
+def _is_cleared_tool_result(content: Content) -> bool:
+    return text_from_content(content).startswith(CLEARED_TOOL_RESULT_MARK)
+
+
+def _cleared_stub(ref: str, text: str) -> str:
+    return (
+        f"{CLEARED_TOOL_RESULT_MARK} {ref} · {len(text):,} chars"
+        f" — already observed; do not re-fetch unless it changed]"
+    )
+
+
+def prune_stale_tool_results(
+    messages: List[Message],
+    *,
+    keep_recent: int = DEFAULT_PRUNE_KEEP_RECENT,
+) -> List[Message]:
+    """Return messages with older tool results replaced by a one-line stub.
+
+    The most recent ``keep_recent`` tool messages stay intact. Stubs name the
+    tool and path so the model does not re-read work it has already seen.
+    Persisted history is not mutated.
+    """
+    if keep_recent < 0:
+        raise ValueError("keep_recent must be >= 0")
+    tool_indices = [index for index, message in enumerate(messages) if message.role == "tool"]
+    if len(tool_indices) <= keep_recent:
+        return list(messages)
+
+    stale = set(tool_indices if keep_recent == 0 else tool_indices[:-keep_recent])
+    refs = _tool_refs(messages)
+    pruned: List[Message] = []
+    for index, message in enumerate(messages):
+        if index not in stale or _is_cleared_tool_result(message.content):
+            pruned.append(message)
+            continue
+        text = text_from_content(message.content)
+        ref = refs.get(str(message.tool_call_id or ""), "tool")
+        pruned.append(message.model_copy(update={"content": _cleared_stub(ref, text)}))
+    return pruned
+
+
+def messages_for_model(
+    messages: List[Message],
+    *,
+    keep_recent: int = DEFAULT_PRUNE_KEEP_RECENT,
+    prune_tokens: Optional[int] = None,
+) -> List[Message]:
+    """Conversation sent to the model: linear until a token budget is crossed.
+
+    Insert-time bounding is what keeps TPM in check. Old tool bodies are only
+    stubbed once the estimated prompt is at least ``prune_tokens``. ``None``
+    means never prune on send.
+    """
+    if prune_tokens is None or estimate_prompt_tokens(messages) < prune_tokens:
+        return list(messages)
+    return prune_stale_tool_results(messages, keep_recent=keep_recent)
+
+
+def _first_user_message(messages: Sequence[Message]) -> Optional[Message]:
+    for message in messages:
+        if message.role != "user":
+            continue
+        if text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK):
+            continue
+        return message
+    return None
+
+
+def _preview_ask(content: Content) -> str:
+    text = " ".join(text_from_content(content).split())
+    if len(text) > 120:
+        return text[:117] + "…"
+    return text
+
+
+def _summarize_turns(turns: Sequence[Sequence[Message]], *, tokens: int) -> Message:
+    asks: List[str] = []
+    tools: Counter[str] = Counter()
+    observed: List[str] = []
+    names: Dict[str, str] = {}
+    refs: Dict[str, str] = {}
+    for turn in turns:
+        names.update(_tool_names(turn))
+        refs.update(_tool_refs(turn))
+        for message in turn:
+            if message.role == "user":
+                preview = _preview_ask(message.content)
+                if preview and not preview.startswith(COMPACTED_CONTEXT_MARK):
+                    asks.append(preview)
+            elif message.role == "tool":
+                name = names.get(str(message.tool_call_id or ""), "tool")
+                tools[name] += 1
+                ref = refs.get(str(message.tool_call_id or ""), "")
+                if ref and ref not in observed:
+                    observed.append(ref)
+
+    dropped_messages = sum(len(turn) for turn in turns)
+    lines = [
+        COMPACTED_CONTEXT_MARK,
+        f"Dropped {dropped_messages} earlier message(s) (~{tokens:,} tokens).",
+    ]
+    if asks:
+        shown = asks[:6]
+        preview = "; ".join(f'"{ask}"' for ask in shown)
+        if len(asks) > 6:
+            preview += f"; … ({len(asks) - 6} more)"
+        lines.append(f"User asks: {preview}")
+    if tools:
+        used = ", ".join(
+            f"{name}×{count}" if count > 1 else name
+            for name, count in tools.items()
+        )
+        lines.append(f"Tools used: {used}")
+    if observed:
+        shown_obs = observed[:10]
+        extra = f"; … ({len(observed) - 10} more)" if len(observed) > 10 else ""
+        lines.append("Already observed: " + "; ".join(shown_obs) + extra)
+    lines.append(
+        "Continue from the messages below. Do not re-fetch already observed "
+        "paths unless they changed. Do not ask the user to repeat dropped work."
+    )
+    return Message(role="user", content="\n".join(lines))
+
+
 class Compactor(Protocol):
     async def compact(
         self,
@@ -78,12 +315,31 @@ class Compactor(Protocol):
 
 
 class KeepSystemRecentCompactor:
-    """Keep the leading system message (if any) and the most recent messages."""
+    """Keep the system prompt, the original task, and the most recent messages.
 
-    def __init__(self, keep_recent: int = 4) -> None:
+    ``keep_recent`` counts messages. Assistant/tool groups stay together so the
+    provider protocol stays valid. A one-user N-tool loop is not one
+    un-droppable unit: earlier tool groups can be summarised while the last
+    ``keep_recent`` messages stay. Dropped messages become a path-aware
+    summary. Old tool bodies inside kept messages are stubbed only as a last
+    resort if the compact is still over ``target_tokens``.
+    """
+
+    def __init__(
+        self,
+        keep_recent: int = 10,
+        target_tokens: Optional[int] = None,
+        keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
+    ) -> None:
         if keep_recent < 1:
             raise ValueError("keep_recent must be >= 1")
+        if target_tokens is not None and target_tokens < 1:
+            raise ValueError("target_tokens must be positive or None")
+        if keep_recent_tool_results < 0:
+            raise ValueError("keep_recent_tool_results must be >= 0")
         self.keep_recent = keep_recent
+        self.target_tokens = target_tokens
+        self.keep_recent_tool_results = keep_recent_tool_results
 
     async def compact(
         self,
@@ -94,26 +350,195 @@ class KeepSystemRecentCompactor:
         tokens_used: int,
         context_left: Optional[int],
     ) -> List[Message]:
-        del turn, context_limit, tokens_used, context_left
+        del turn, tokens_used, context_left
         valid = normalize_tool_protocol(messages)
         system = valid[0] if valid and valid[0].role == "system" else None
         rest = valid[1:] if system is not None else valid
+        if not rest:
+            return valid
+
+        first_user = _first_user_message(rest)
+        remainder: List[List[Message]] = []
+        for block in _atomic_blocks(rest):
+            if first_user is not None and first_user in block:
+                leftover = [message for message in block if message is not first_user]
+                if leftover:
+                    remainder.append(leftover)
+            else:
+                remainder.append(block)
 
         selected: List[List[Message]] = []
         selected_count = 0
-        for block in reversed(_atomic_blocks(rest)):
+        dropped_end = 0
+        for index in range(len(remainder) - 1, -1, -1):
+            block = remainder[index]
             if selected and selected_count + len(block) > self.keep_recent:
+                dropped_end = index + 1
                 break
             selected.insert(0, block)
             selected_count += len(block)
+            dropped_end = index
             if selected_count >= self.keep_recent:
                 break
+        else:
+            dropped_end = 0
+            selected = list(remainder)
 
-        recent = [message for block in selected for message in block]
-        return ([system] if system is not None else []) + recent
+        dropped = remainder[:dropped_end]
+        kept = selected
+        pinned = [first_user] if first_user is not None else []
+
+        def assemble(pending: List[List[Message]], kept_blocks: List[List[Message]]) -> List[Message]:
+            summary: List[Message] = []
+            if pending:
+                pending_messages = [message for group in pending for message in group]
+                summary = [_summarize_turns(pending, tokens=estimate_prompt_tokens(pending_messages))]
+            leading = [system] if system is not None else []
+            recent = [message for group in kept_blocks for message in group]
+            return leading + pinned + summary + recent
+
+        compacted = assemble(dropped, kept)
+        target = self.target_tokens
+        if target is None and context_limit is not None:
+            target = max(context_limit // 3, 1)
+        while (
+            target is not None
+            and estimate_prompt_tokens(compacted) > target
+            and len(kept) > 1
+        ):
+            dropped.append(kept.pop(0))
+            compacted = assemble(dropped, kept)
+        if (
+            target is not None
+            and estimate_prompt_tokens(compacted) > target
+        ):
+            compacted = prune_stale_tool_results(
+                compacted, keep_recent=self.keep_recent_tool_results
+            )
+        return compacted
+
+
+# --- context report ---
+@dataclass(frozen=True)
+class ContextBucket:
+    role: str
+    label: str
+    tokens: int
+    count: int
+
+
+@dataclass(frozen=True)
+class ContextMessage:
+    index: int
+    role: str
+    tokens: int
+    sent_tokens: int
+    stubbed: bool
+    tool_name: Optional[str]
+    preview: str
+
+
+@dataclass(frozen=True)
+class ContextReport:
+    stored_tokens: int
+    sent_tokens: int
+    context_limit: Optional[int]
+    message_count: int
+    tool_result_count: int
+    stubbed_result_count: int
+    buckets: tuple[ContextBucket, ...]
+    sent_buckets: tuple[ContextBucket, ...]
+    messages: tuple[ContextMessage, ...]
+
+    @property
+    def utilization(self) -> Optional[float]:
+        if not self.context_limit:
+            return None
+        return min(self.stored_tokens / self.context_limit, 1.0)
+
+    @property
+    def sent_utilization(self) -> Optional[float]:
+        if not self.context_limit:
+            return None
+        return min(self.sent_tokens / self.context_limit, 1.0)
+
+
+_ROLE_LABELS = {
+    "system": "System",
+    "user": "Messages",
+    "assistant": "Assistant",
+    "tool": "Tool results",
+}
+
+
+def _buckets_for(messages: Sequence[Message]) -> tuple[ContextBucket, ...]:
+    tokens: Dict[str, int] = {role: 0 for role in _ROLE_LABELS}
+    counts: Dict[str, int] = {role: 0 for role in _ROLE_LABELS}
+    for message in messages:
+        role = message.role if message.role in tokens else "user"
+        tokens[role] += estimate_message_tokens(message)
+        counts[role] += 1
+    return tuple(
+        ContextBucket(role=role, label=label, tokens=tokens[role], count=counts[role])
+        for role, label in _ROLE_LABELS.items()
+    )
+
+
+def build_context_report(
+    messages: List[Message],
+    *,
+    context_limit: Optional[int] = None,
+    keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
+    prune_tokens: Optional[int] = None,
+) -> ContextReport:
+    """Stored conversation vs the payload that would be sent to the model."""
+    sent = messages_for_model(
+        messages,
+        keep_recent=keep_recent_tool_results,
+        prune_tokens=prune_tokens,
+    )
+    names = _tool_names(messages)
+    entries: List[ContextMessage] = []
+    stubbed = 0
+    tools = 0
+    for index, (stored, outgoing) in enumerate(zip(messages, sent)):
+        is_tool = stored.role == "tool"
+        is_stubbed = is_tool and _is_cleared_tool_result(outgoing.content) and not _is_cleared_tool_result(
+            stored.content
+        )
+        if is_tool:
+            tools += 1
+        if is_stubbed or (is_tool and _is_cleared_tool_result(stored.content)):
+            stubbed += 1
+        preview = " ".join(text_from_content(stored.content).split())
+        if len(preview) > 72:
+            preview = preview[:69] + "…"
+        entries.append(
+            ContextMessage(
+                index=index,
+                role=stored.role,
+                tokens=estimate_message_tokens(stored),
+                sent_tokens=estimate_message_tokens(outgoing),
+                stubbed=is_stubbed or (is_tool and _is_cleared_tool_result(stored.content)),
+                tool_name=names.get(str(stored.tool_call_id or "")) if is_tool else None,
+                preview=preview,
+            )
+        )
+    return ContextReport(
+        stored_tokens=estimate_prompt_tokens(messages),
+        sent_tokens=estimate_prompt_tokens(sent),
+        context_limit=context_limit,
+        message_count=len(messages),
+        tool_result_count=tools,
+        stubbed_result_count=stubbed,
+        buckets=_buckets_for(messages),
+        sent_buckets=_buckets_for(sent),
+        messages=tuple(entries),
+    )
+
 
 # --- state.py ---
-DEFAULT_CONTEXT_LIMITS = DEFAULT_HARNESS_CONFIG.context_limits
+DEFAULT_CONTEXT_LIMITS = default_context_limits()
 
 
 EmitEvent = Callable[[str, Dict[str, Any]], Awaitable[None]]
@@ -268,9 +693,19 @@ class HarnessState:
         return compacted
 
 __all__ = [
+    "CLEARED_TOOL_RESULT_MARK",
+    "COMPACTED_CONTEXT_MARK",
     "Compactor",
+    "ContextBucket",
+    "ContextMessage",
+    "ContextReport",
     "DEFAULT_CONTEXT_LIMITS",
+    "DEFAULT_PRUNE_KEEP_RECENT",
     "HarnessState",
     "KeepSystemRecentCompactor",
+    "bound_tool_result",
+    "build_context_report",
+    "messages_for_model",
     "normalize_tool_protocol",
+    "prune_stale_tool_results",
 ]

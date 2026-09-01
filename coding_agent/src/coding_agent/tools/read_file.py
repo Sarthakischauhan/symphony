@@ -6,11 +6,11 @@ from pathlib import Path
 
 from pydantic import Field
 
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG, ReadFileConfig
+from coding_agent.config import ReadFileConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from core_ai.content import image_part_from_bytes, sniff_image_media_type
 
-DEFAULT_READ_FILE_CONFIG = DEFAULT_CODING_AGENT_CONFIG.tools.read_file
+DEFAULT_READ_FILE_CONFIG = ReadFileConfig()
 
 
 class ReadFileArgs(ToolArgsModel):

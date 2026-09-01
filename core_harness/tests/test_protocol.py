@@ -14,6 +14,7 @@ from core_harness import (
     CoreHarness,
     EVENT_SCHEMA_VERSION,
     HarnessCancelled,
+    HarnessConfig,
     HarnessLimitExceeded,
     NullControlPlane,
     NullPersistence,
@@ -103,13 +104,15 @@ def _harness(
         registry=registry,
         model_id="fake:test-model",
         system_prompt="system",
+        config=HarnessConfig(
+            max_turns=max_turns,
+            max_tool_calls=max_tool_calls,
+            max_runtime_seconds=max_runtime_seconds,
+            max_tokens=max_tokens,
+        ),
         tools=tools or [],
         control_plane=plane,
         persistence=persistence,
-        max_turns=max_turns,
-        max_tool_calls=max_tool_calls,
-        max_runtime_seconds=max_runtime_seconds,
-        max_tokens=max_tokens,
     )
     return registry, plane, harness
 

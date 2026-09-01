@@ -1,5 +1,17 @@
-from core_harness.state import Compactor, KeepSystemRecentCompactor
-from core_harness.config import HarnessConfig, load_harness_config
+from core_harness.state import (
+    Compactor,
+    ContextReport,
+    KeepSystemRecentCompactor,
+    bound_tool_result,
+    build_context_report,
+    messages_for_model,
+    prune_stale_tool_results,
+)
+from core_harness.config import (
+    HarnessConfig,
+    load_harness_config,
+    resolve_harness_config,
+)
 from core_harness.control_plane import (
     ControlPlane,
     EventLog,
@@ -34,6 +46,7 @@ __all__ = [
     "Checkpoint",
     "ChildConfig",
     "Compactor",
+    "ContextReport",
     "ControlCommand",
     "ControlCommandType",
     "ControlPlane",
@@ -63,5 +76,10 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "UsageTotals",
+    "bound_tool_result",
+    "build_context_report",
     "load_harness_config",
+    "resolve_harness_config",
+    "messages_for_model",
+    "prune_stale_tool_results",
 ]

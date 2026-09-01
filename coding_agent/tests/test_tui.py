@@ -11,13 +11,17 @@ from typing import Any
 
 import pytest
 from textual import events
+from textual.app import App
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from core_ai import ModelRegistry
 from core_ai.types import Message
+from coding_agent.tui.modal import ContextModal
 from core_harness import HarnessResult
+from core_harness.state import COMPACTED_CONTEXT_MARK, build_context_report
 from coding_agent.agent import CodingAgent
+from coding_agent.config import CodingAgentConfig, LearningConfig
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.commands import (
     EFFORT_CATALOG,
@@ -1070,6 +1074,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "learning" in [command.name for command in SLASH_COMMANDS]
     assert "plan" in [command.name for command in SLASH_COMMANDS]
     assert "effort" in [command.name for command in SLASH_COMMANDS]
+    assert "context" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
     assert find_model("gpt-5.6-sol").id == "openai:gpt-5.6-sol"  # type: ignore[union-attr]
@@ -1472,6 +1477,27 @@ def test_slash_menu_and_commands(
             self.compacted = True
             return (14, 9)
 
+        async def context_report(self):
+            return build_context_report(
+                [
+                    Message(role="system", content="sys"),
+                    Message(role="user", content="hello"),
+                    Message(
+                        role="assistant",
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {"name": "read_file", "arguments": "{}"},
+                            }
+                        ],
+                    ),
+                    Message(role="tool", content="file contents " * 40, tool_call_id="c1"),
+                ],
+                context_limit=128_000,
+            )
+
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -1555,6 +1581,16 @@ def test_slash_menu_and_commands(
 
             opened: list[object] = []
             app.push_screen = lambda screen, *args: opened.append(screen)  # type: ignore[method-assign]
+            await app._run_slash_command("/context")
+            assert opened and opened[0].__class__.__name__ == "ContextModal"
+
+            opened.clear()
+            app._busy = True
+            await app._run_slash_command("/context")
+            assert opened and opened[0].__class__.__name__ == "ContextModal"
+            app._busy = False
+
+            opened.clear()
             await app._run_slash_command("/diff")
             assert opened and opened[0].__class__.__name__ == "DiffModal"
 
@@ -1600,7 +1636,7 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
         model_id="openai:gpt-4o-mini",
         workspace=tmp_path,
         control_plane=control_plane,
-        enable_learning=False,
+        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
         tools=[],
     )
     messages = [Message(role="system", content="system")]
@@ -1611,10 +1647,12 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
             session_id=agent.session_id,
             messages=messages,
         )
-        assert await agent.compact_conversation(keep_recent=8) == (13, 9)
+        assert await agent.compact_conversation(keep_recent=8) == (13, 11)
         saved = await agent.persistence.load_conversation(session_id=agent.session_id)
-        assert len(saved) == 9
+        assert len(saved) == 11
         assert saved[0].role == "system"
+        assert saved[1].content == "message 0"
+        assert str(saved[2].content).startswith(COMPACTED_CONTEXT_MARK)
         assert saved[-1].content == "message 11"
 
     asyncio.run(_run())
@@ -1622,6 +1660,52 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
         "compaction_started",
         "compaction_completed",
     ]
+
+
+def test_context_modal_filters_buckets() -> None:
+    report = build_context_report(
+        [
+            Message(role="system", content="sys"),
+            Message(role="user", content="hello there"),
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": "{}"},
+                    }
+                ],
+            ),
+            Message(role="tool", content="command output " * 30, tool_call_id="c1"),
+        ],
+        context_limit=128_000,
+        keep_recent_tool_results=0,
+        prune_tokens=0,
+    )
+
+    class Host(App):
+        def on_mount(self) -> None:
+            self.push_screen(ContextModal(report))
+
+    async def _run() -> None:
+        async with Host().run_test() as pilot:
+            await pilot.pause()
+            modal = pilot.app.screen
+            assert isinstance(modal, ContextModal)
+            listing = str(modal.query_one("#context-list").render())
+            assert "hello there" in listing
+            modal.set_filter("tool")
+            await pilot.pause()
+            filtered = str(modal.query_one("#context-list").render())
+            assert "hello there" not in filtered
+            assert "bash" in filtered
+            assert "stub" in filtered.lower()
+            meta = str(modal.query_one("#context-meta").render())
+            assert "tool only" in meta
+
+    asyncio.run(_run())
 
 
 def test_patch_events_render_a_specialized_diff_widget(

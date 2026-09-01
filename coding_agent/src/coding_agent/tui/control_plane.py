@@ -15,7 +15,9 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 from textual.message import Message
 
 from core_harness import ControlCommand, ControlCommandType, ControlPlaneEventType
-from coding_agent.config import ApprovalConfig, DEFAULT_CODING_AGENT_CONFIG
+from coding_agent.config import ApprovalConfig, ensure_spawn_settings
+
+ALLOW_ALWAYS = "Always allow"
 
 
 class HarnessEvent(Message):
@@ -49,7 +51,7 @@ class TextualControlPlane:
     ) -> None:
         self._app: Any = None
         self.workspace = Path(workspace).resolve()
-        self.approvals = approvals or DEFAULT_CODING_AGENT_CONFIG.approvals
+        self.approvals = approvals or ApprovalConfig()
         self._interaction_lock = asyncio.Lock()
         self._question_futures: dict[str, asyncio.Future[str]] = {}
         self._cancelled = False
@@ -172,11 +174,26 @@ class TextualControlPlane:
             )
             return await self.ask_user(request_id)
 
-    def set_approval_mode(self, mode: str) -> None:
-        """Change approval policy without changing or wrapping any tools."""
+    def set_approval_mode(self, mode: str, *, persist: bool = False) -> None:
+        """Change approval policy for this run and optionally persist it.
+
+        Child planes are intentionally isolated so a child cannot silently change
+        the parent's policy. An explicit user choice, however, is made in the
+        shared TUI and must apply to the parent as well as future children.
+        """
         self.approvals = ApprovalConfig.model_validate(
             {**self.approvals.model_dump(), "mode": mode}
         )
+        parent = self._cancel_parent
+        if parent is not None:
+            parent.set_approval_mode(mode, persist=persist)
+            return
+        if persist:
+            config = ensure_spawn_settings(self.workspace)
+            ensure_spawn_settings(
+                self.workspace,
+                config=config.model_copy(update={"approvals": self.approvals}),
+            )
 
     async def approve_tool_call(
         self,
@@ -193,13 +210,19 @@ class TextualControlPlane:
             return True
         answer = await self.request_user_input(
             question=prompt,
-            choices=("Allow once", "Deny"),
+            choices=("Allow once", ALLOW_ALWAYS, "Deny"),
             default="Allow once",
             kind="approval",
             metadata={"tool_name": tool_name},
             emit=emit,
         )
-        return answer.strip().lower() in self.approvals.allow_answers
+        normalized = answer.strip().lower()
+        if normalized == ALLOW_ALWAYS.lower():
+            # "Always allow" is scoped to this run. Keep it in the in-memory
+            # control plane and do not modify the workspace config.
+            self.set_approval_mode("always_allow")
+            return True
+        return normalized in self.approvals.allow_answers
 
     def _approval_prompt(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         if tool_name == "bash" and self.approvals.require_for_bash:

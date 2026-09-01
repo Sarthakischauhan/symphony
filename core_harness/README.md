@@ -2,7 +2,7 @@
 
 `symphony-harness` is a provider-independent, asynchronous agent loop. It runs a model with Python tools, maintains the conversation for each run, reports lifecycle events, and applies operational limits and context-window policies.
 
-> The package is under active development. The public API is exported from `core_harness`.
+> The package is under active development. The public API is exported from the `core_harness` Python module.
 
 ## Installation
 
@@ -25,7 +25,7 @@ import asyncio
 from pathlib import Path
 
 from core_ai import build_default_registry, default_model_id
-from core_harness import CoreHarness, NullControlPlane, Tool
+from core_harness import CoreHarness, HarnessConfig, NullControlPlane, Tool
 
 
 WORKSPACE = Path(".")
@@ -50,14 +50,16 @@ async def main() -> None:
         registry=registry,
         model_id=default_model_id(registry),
         system_prompt="You are a concise assistant. Use tools when they help.",
+        config=HarnessConfig(
+            max_turns=8,
+            max_tool_calls=12,
+            max_runtime_seconds=120,
+            max_tokens=8_000,
+            tool_result_max_chars=4_000,
+            context_target_tokens=80_000,
+        ),
         tools=[Tool(read_file)],
         control_plane=control_plane,
-        max_turns=8,
-        max_tool_calls=12,
-        max_runtime_seconds=120,
-        max_tokens=8_000,
-        tool_result_max_chars=12_000,
-        context_target_tokens=80_000,
         session_id="example-session",
     )
 
@@ -122,7 +124,9 @@ def approve(action: str, control_plane: NullControlPlane) -> str:
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
 
-Tool results are bounded to 12,000 characters by default before being sent in the next model request. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected.
+Tool results are bounded to 4,000 characters at insert time (40/60 head/tail) before being persisted. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected. Truncation stays in memory: the bounded text is what is stored, and the original payload is discarded.
+
+History stays linear until the estimated prompt reaches `tool_result_prune_tokens` (off by default). Only then are older tool bodies replaced with a path-aware one-line stub on a **copy** of the conversation — persisted history is unchanged. Unconditional last-N pruning made the model re-read files it had already seen.
 
 ## Runs, results, and conversations
 
@@ -165,27 +169,25 @@ result = await parent.spawn(
 
 ## Limits and cancellation
 
-Engine-owned defaults are loaded from `core_harness/defaults.json`. Applications
-can load an override with `load_harness_config(path)` and pass the resulting
-`HarnessConfig` to `CoreHarness(config=...)`. Shared product config files may put
-these values under a top-level `harness` object.
-
-Configure safeguards either with individual arguments or with a `RunLimits` object:
+Pass a `HarnessConfig` (or a JSON file path) to `CoreHarness`. There is no packaged
+defaults file; omitted keys use the `HarnessConfig` field defaults. Shared product
+config files may put these values under a top-level `harness` object.
 
 ```python
-from core_harness import RunLimits
+from core_harness import HarnessConfig, load_harness_config
 
 harness = CoreHarness(
     registry=registry,
     model_id=default_model_id(registry),
     system_prompt="Be helpful.",
-    limits=RunLimits(
+    config=HarnessConfig(
         max_turns=6,
         max_tool_calls=10,
         max_runtime_seconds=60,
         max_tokens=4_000,
     ),
 )
+# or: config=load_harness_config("harness.json")
 ```
 
 The harness raises `HarnessCancelled` when a run is cancelled and `HarnessLimitExceeded` when a configured limit is reached. An inbound control plane can pause, resume, cancel, or inject a user/system message while a run is active:
@@ -222,19 +224,29 @@ can additionally implement `send_command` and `drain_commands`.
 
 ## Context management
 
-The harness includes token-estimation helpers and compaction support. Configure `context_limits`, `context_warn_threshold`, and `context_compact_threshold` for context monitoring. Set `context_target_tokens` to control the target size after compaction, and provide a custom `Compactor` when application-specific summarization is needed.
+The harness includes token-estimation helpers and compaction support. Set
+`context_limits`, `context_warn_threshold`, `context_compact_threshold`,
+`context_target_tokens`, `tool_result_keep_recent`, and `tool_result_prune_tokens`
+on `HarnessConfig`. Provide a custom `Compactor` when application-specific
+summarization is needed.
 
-`KeepSystemRecentCompactor` is included for a simple policy that preserves the leading system message and the most recent conversation messages while keeping assistant tool-call groups intact:
+`KeepSystemRecentCompactor` keeps the leading system prompt, the original user task, and the most recent messages. Assistant/tool groups stay together so the provider protocol stays valid. Dropped messages become a short, path-aware summary instead of disappearing. A one-user N-tool loop is not one un-droppable turn: earlier tool groups can be summarised while the last `keep_recent` messages stay. Old tool bodies inside kept messages are stubbed only if the compact is still over the token target. `keep_recent` counts messages, not conversation turns:
 
 ```python
-from core_harness import KeepSystemRecentCompactor
+from core_harness import HarnessConfig, KeepSystemRecentCompactor
 
 harness = CoreHarness(
     registry=registry,
     model_id=default_model_id(registry),
     system_prompt="Be concise.",
-    compactor=KeepSystemRecentCompactor(keep_recent=8),
-    context_target_tokens=20_000,
+    config=HarnessConfig(
+        context_target_tokens=20_000,
+        tool_result_keep_recent=8,
+        tool_result_prune_tokens=48_000,
+        context_compact_threshold=16_000,
+        compaction_keep_recent=10,
+    ),
+    compactor=KeepSystemRecentCompactor(keep_recent=10, target_tokens=20_000),
 )
 ```
 
@@ -242,7 +254,7 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, and `HarnessLimitExceeded`.
+`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ContextReport`, `build_context_report`, `bound_tool_result`, `messages_for_model`, `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
 
 ## Development
 

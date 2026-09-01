@@ -6,18 +6,18 @@ from __future__ import annotations
 MODAL_BASE_CSS = """
 #modal-close {
     dock: right;
-    width: 3;
-    height: 3;
-    color: #a0a0a0;
-    content-align: center middle;
+    width: 7;
+    height: 1;
+    color: #737373;
+    content-align: right middle;
     background: #101010;
-    border: round #343434;
 }
 
 #modal-close:hover,
 #modal-close:focus {
     color: #f2d675;
-    background: #303030;
+    text-style: bold;
+    background: #101010;
 }
 
 .modal-pane {
@@ -254,6 +254,109 @@ PlanModal {
     background: #302c20;
 }
 
+"""
+
+# --- context.py ---
+CONTEXT_MODAL_CSS = MODAL_BASE_CSS + """
+ContextModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.52);
+}
+
+#context-pane {
+    width: 82%;
+    max-width: 118;
+    height: 78%;
+    max-height: 44;
+    padding: 1 2;
+    background: #101010;
+    border: round #38474a;
+}
+
+#context-header {
+    width: 100%;
+    height: 2;
+    background: #101010;
+}
+
+#context-title {
+    width: 1fr;
+    height: 1;
+    color: #d8d8d8;
+    text-style: bold;
+    background: #101010;
+}
+
+#context-meters {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 1 2;
+    background: #0d0d0d;
+    border-top: solid #2a2a2a;
+}
+
+#context-buckets {
+    width: 100%;
+    height: 3;
+    margin-bottom: 1;
+    background: #101010;
+    border-bottom: solid #252525;
+}
+
+.context-chip {
+    width: auto;
+    height: 3;
+    margin-right: 2;
+    padding: 0 1 1 1;
+    color: #9a9a9a;
+    content-align: center middle;
+    background: #101010;
+}
+
+.context-chip:hover,
+.context-chip:focus {
+    color: #e6e6e6;
+    background: #161616;
+}
+
+.context-chip-active {
+    color: #f2d675;
+    text-style: bold;
+    background: #101010;
+    border-bottom: heavy #8f835a;
+}
+
+#context-meta {
+    width: 100%;
+    height: 2;
+    padding: 0 1 1 1;
+    color: #686868;
+    background: #101010;
+}
+
+#context-body {
+    padding: 0;
+    background: #101010;
+}
+
+#context-list {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    background: #0d0d0d;
+    border-top: solid #252525;
+}
+
+.context-row {
+    width: 100%;
+    height: auto;
+}
+
+#context-hint {
+    text-align: right;
+    padding-right: 0;
+}
 """
 
 # --- resume.py ---

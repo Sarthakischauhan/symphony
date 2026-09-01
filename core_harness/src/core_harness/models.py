@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 
 from core_ai.types import Content, Message
-from core_harness.config import DEFAULT_HARNESS_CONFIG
+from core_harness.config import HarnessConfig
 
 # --- tools.py ---
 ToolResultStatus = Literal["success", "error", "timeout", "cancelled"]
@@ -144,10 +144,10 @@ class UsageTotals(BaseModel):
 class RunLimits(BaseModel):
     """Optional caps for a single harness run."""
 
-    max_turns: int = DEFAULT_HARNESS_CONFIG.max_turns
-    max_tool_calls: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tool_calls
-    max_runtime_seconds: Optional[float] = DEFAULT_HARNESS_CONFIG.max_runtime_seconds
-    max_tokens: Optional[int] = DEFAULT_HARNESS_CONFIG.max_tokens
+    max_turns: int = Field(default_factory=lambda: HarnessConfig().max_turns)
+    max_tool_calls: Optional[int] = None
+    max_runtime_seconds: Optional[float] = None
+    max_tokens: Optional[int] = None
 
 
 class HarnessResult(BaseModel):

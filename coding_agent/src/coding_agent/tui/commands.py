@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 
 from core_ai import get_model, list_models
 from coding_agent.agent import build_agent
-from coding_agent.config import load_coding_agent_config
-from coding_agent.tui.modal import DiffModal, LearningModal, PlanModal
+from coding_agent.config import ensure_spawn_settings
+from coding_agent.tui.modal import ContextModal, DiffModal, LearningModal, PlanModal
 
 # --- __init__.py ---
 @dataclass(frozen=True)
@@ -117,6 +117,7 @@ SLASH_COMMANDS = (
     SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),
+    SlashCommand("context", "Inspect stored vs sent context"),
     SlashCommand("learning", "Open markdown-rendered agent learnings"),
     SlashCommand("diff", "Open the current workspace diff in a modal"),
     SlashCommand("clear", "Clear the visible transcript"),
@@ -326,7 +327,7 @@ async def reload_project(app: Any) -> None:
     session_id = previous_agent.session_id if previous_agent is not None else app.session_id
     try:
         load_dotenv(override=True)
-        reloaded_config = load_coding_agent_config(app.workspace)
+        reloaded_config = ensure_spawn_settings(app.workspace)
         reloaded_agent = build_agent(
             workspace=app.workspace,
             control_plane=app.control_plane,
@@ -410,6 +411,15 @@ def show_status(app: Any) -> None:
     )
     app.add_notice("\n".join(lines))
 
+
+async def show_context(app: Any) -> None:
+    if app._agent is None:
+        app.add_notice("Context · offline", "warning")
+        return
+    report = await app._agent.context_report()
+    app.push_screen(ContextModal(report))
+
+
 # --- command_manager.py ---
 class CommandManager:
     """Parse slash commands and run the matching handler."""
@@ -440,6 +450,8 @@ class CommandManager:
             app.add_notice("Slash commands\n" + "\n".join(lines))
         elif command == "status":
             show_status(app)
+        elif command == "context":
+            await show_context(app)
         elif command == "learning":
             app.push_screen(LearningModal(app.workspace))
         elif command == "plan":

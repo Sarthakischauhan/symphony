@@ -5,7 +5,7 @@ from typing import List, Type
 
 from core_harness import Tool
 
-from coding_agent.config import DEFAULT_CODING_AGENT_CONFIG, ToolsConfig
+from coding_agent.config import ToolsConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from coding_agent.tools.ask_user import AskUserArgs, AskUserTool
 from coding_agent.tools.bash import BashArgs, BashTool
@@ -36,12 +36,13 @@ __all__ = [
 def build_tools(
     workspace: str | Path,
     *,
-    config: ToolsConfig = DEFAULT_CODING_AGENT_CONFIG.tools,
+    config: ToolsConfig | None = None,
 ) -> List[Tool]:
+    tools_config = config or ToolsConfig()
     configured = {
-        BashTool: {"config": config.bash},
-        ReadFileTool: {"config": config.read_file},
-        SearchTool: {"config": config.search},
+        BashTool: {"config": tools_config.bash},
+        ReadFileTool: {"config": tools_config.read_file},
+        SearchTool: {"config": tools_config.search},
     }
     return [
         tool_class(workspace, **configured.get(tool_class, {})).as_harness_tool()
