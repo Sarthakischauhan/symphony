@@ -2065,11 +2065,11 @@ def test_thinking_gradient_timer_pauses_when_hidden_or_idle(
             assert thinking._animation_timer is not None
             assert thinking._animation_timer._active.is_set()
 
-            thinking.display = False
+            thinking.set_visible(False)
             await pilot.pause()
             assert not thinking._animation_timer._active.is_set()
 
-            thinking.display = True
+            thinking.set_visible(True)
             await pilot.pause()
             assert thinking._animation_timer._active.is_set()
 

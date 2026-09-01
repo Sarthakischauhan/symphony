@@ -47,6 +47,11 @@ class ThinkingStatus(Static):
         del display
         self._sync_animation_timer()
 
+    def set_visible(self, visible: bool) -> None:
+        """Show or hide the status line and pause the gradient when it is off-screen."""
+        self.display = visible
+        self._sync_animation_timer()
+
     def _sync_animation_timer(self) -> None:
         timer = self._animation_timer
         if timer is None:
@@ -131,7 +136,7 @@ class RunProcess(Container):
         if self._completed:
             return
         self._completed = True
-        self._thinking.display = False
+        self._thinking.set_visible(False)
         self.add_item(
             Static(Text(f"✓  {title}", style="#5f6a62"), classes="process-complete")
         )

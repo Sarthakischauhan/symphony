@@ -8,7 +8,6 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
-from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget, make_tool_widget
 from coding_agent.tui.transcript.messages import AssistantMessage, Notice, Welcome
 from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
 
@@ -69,7 +68,7 @@ class TranscriptSurface:
         if self._thinking is None:
             self.set_thinking("Working")
         assert self._thinking is not None
-        self._thinking.display = True
+        self._thinking.set_visible(True)
         self._thinking.set_working(detail)
 
     def _mount_process_item(self, widget: Widget) -> None:
@@ -84,7 +83,7 @@ class TranscriptSurface:
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         if new or self._reasoning is None:
             if self._thinking is not None:
-                self._thinking.display = False
+                self._thinking.set_visible(False)
             self._reasoning = ReasoningWidget(text)
             self._mount_process_item(self._reasoning)
         else:
@@ -100,8 +99,10 @@ class TranscriptSurface:
         self._reasoning = None
 
     def add_tool(self, call_id: str, name: str) -> None:
+        from coding_agent.tui.tools.calls import make_tool_widget
+
         if self._thinking is not None:
-            self._thinking.display = False
+            self._thinking.set_visible(False)
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
@@ -116,6 +117,8 @@ class TranscriptSurface:
         status: str = "preparing",
         result: Any = None,
     ) -> None:
+        from coding_agent.tui.tools.calls import ToolCallSummary
+
         transcript = self.query_one("#transcript", VerticalScroll)
         was_at_end = transcript.is_vertical_scroll_end
         widget = self._tools.get(call_id)
@@ -143,6 +146,8 @@ class TranscriptSurface:
 
     def _cap_live_tools(self) -> None:
         """Keep only the newest live ToolCallWidgets mounted; older ones become summaries."""
+        from coding_agent.tui.tools.calls import ToolCallWidget
+
         limit = getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT)
         live_ids = [
             call_id
@@ -160,6 +165,8 @@ class TranscriptSurface:
             self._collapse_tool_widget(call_id)
 
     def _collapse_tool_widget(self, call_id: str) -> None:
+        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+
         widget = self._tools.get(call_id)
         if not isinstance(widget, ToolCallWidget) or widget.tool_name == "spawn_agent":
             return

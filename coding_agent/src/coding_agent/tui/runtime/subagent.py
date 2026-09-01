@@ -200,7 +200,7 @@ class SubagentScreen(ModalBase[None]):
                 widget.set_arguments(arguments, raw_arguments)
 
         if record.status == "running":
-            self._thinking.display = True
+            self._thinking.set_visible(True)
             self._thinking.set_working(record.label or "subagent")
         else:
             self._thinking.set_text(

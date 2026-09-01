@@ -207,14 +207,14 @@ class ToolCallSummary(Static):
         self.label = label
         self.detail = detail
         self.status = status
-        super().__init__(self._render(), classes="tool-call-summary")
+        super().__init__(self._line(), classes="tool-call-summary")
 
     @classmethod
     def from_tool_widget(cls, widget: ToolCallWidget) -> ToolCallSummary:
         label, detail, status = widget.summary_line()
         return cls(widget.call_id, widget.tool_name, label, detail, status)
 
-    def _render(self) -> Text:
+    def _line(self) -> Text:
         marker = self._STATUS_MARKERS.get(self.status, "○")
         color = self._STATUS_COLORS.get(self.status, "#666666")
         line = Text(f"{marker}  {self.label}", style=color)
@@ -247,7 +247,7 @@ class ToolCallSummary(Static):
             self.status = "failed" if str(result or "").startswith("error:") else "done"
         elif status:
             self.status = status
-        self.update(self._render())
+        self.update(self._line())
 
 
 IMAGE_CHIP = "[Image 1]"
