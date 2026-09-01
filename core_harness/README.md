@@ -1,6 +1,6 @@
-# core-harness
+# symphony-harness
 
-`core-harness` is a provider-independent, asynchronous agent loop. It runs a model with Python tools, maintains the conversation for each run, reports lifecycle events, and applies operational limits and context-window policies.
+`symphony-harness` is a provider-independent, asynchronous agent loop. It runs a model with Python tools, maintains the conversation for each run, reports lifecycle events, and applies operational limits and context-window policies.
 
 > The package is under active development. The public API is exported from `core_harness`.
 
@@ -9,7 +9,7 @@
 From this repository:
 
 ```sh
-uv add core-harness
+uv add symphony-harness
 ```
 
 When using the workspace checkout, install the workspace dependencies with `uv sync` and run commands from the repository root or from this directory.
