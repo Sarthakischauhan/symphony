@@ -15,26 +15,25 @@ jobs:
 
       # 1. Install modern, hyper-fast Astral uv
       - name: Set up uv
-        uses: astral-sh/setup-uv-action@v5
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
           version: "latest"
 
-      # 2. Build ALL packages inside the monorepo workspace cleanly
+      # 2. Build publishable packages only (not core_server) into a flat dist/
+      #    so pypa/gh-action-pypi-publish can upload wheels/sdists from one dir.
       - name: Build release distributions
         run: |
-          uv build --all
+          uv build --package symphony-core -o dist
+          uv build --package symphony-harness -o dist
+          uv build --package symphony-code -o dist
 
       # 3. Aggregated distributions go to artifact storage
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:
           name: release-dists
-          # uv deposits each wheel/tarball in <package>/dist/
-          path: |
-            core_harness/dist/
-            coding_agent/dist/
-            core_ai/dist/
+          path: dist/
 
   pypi-publish:
     runs-on: ubuntu-latest
@@ -60,5 +59,4 @@ jobs:
         with:
           packages-dir: combined-dist/
           # Skips packages already on PyPI if you bump individual versions incrementally
-          skip-existing: true 
-
+          skip-existing: true

@@ -8,7 +8,7 @@ This document describes the current implementation. It was validated against the
 
 ```mermaid
 flowchart TD
-    CLI["coding-agent-tui / python -m coding_agent.tui"] --> MAIN["tui.__main__.main()"]
+    CLI["symphony / symphony-code / coding-agent-tui / python -m coding_agent.tui"] --> MAIN["tui.__main__.main()"]
     MAIN --> RESUME{"--resume?"}
     RESUME -- Yes --> PICK["Load SQLite session options<br/>ResumeApp selects session"]
     RESUME -- No --> RUN
@@ -269,7 +269,7 @@ lifecycle hook.
 ## Key execution path
 
 ```text
-coding-agent-tui
+symphony (also symphony-code, coding-agent-tui)
   → coding_agent.tui.__main__.main()
   → optional ResumeApp
   → run_tui()

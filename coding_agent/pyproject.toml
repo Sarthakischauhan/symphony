@@ -1,5 +1,5 @@
 [project]
-name = "coding-agent"
+name = "symphony-code"
 version = "0.1.0"
 description = "Minimal coding agent built on core_harness"
 readme = "README.md"
@@ -8,8 +8,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "core-ai",
-    "core-harness",
+    "symphony-core",
+    "symphony-harness",
     "pillow>=12.3.0",
     "pydantic>=2.0.0",
     "textual>=8.2.8",
@@ -17,10 +17,12 @@ dependencies = [
 
 [project.scripts]
 coding-agent-tui = "coding_agent.tui.__main__:main"
+symphony = "coding_agent.tui.__main__:main"
+symphony-code = "coding_agent.tui.__main__:main"
 
 [tool.uv.sources]
-core-ai = { workspace = true }
-core-harness = { workspace = true }
+symphony-core = { workspace = true }
+symphony-harness = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -30,3 +32,6 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "coding_agent"

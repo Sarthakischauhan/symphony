@@ -1,6 +1,14 @@
-# core-ai
+# symphony-core
 
 Small shared package for model providers and streaming response types. It is under active development, with a focus on providing a `ModelRegistry`, streaming providers, and shared types like `Message` and `StreamEvent`.
+
+> The public API is exported from `core_ai`.
+
+## Installation
+
+```sh
+uv add symphony-core
+```
 
 ## What it provides
 
@@ -13,7 +21,7 @@ Small shared package for model providers and streaming response types. It is und
 
 ## Example
 
-`core-ai` is used by the coding agent stack:
+`symphony-core` is used by the coding agent stack:
 
 ```python
 from core_ai import build_default_registry, default_model_id
@@ -54,7 +62,7 @@ fallback); Anthropic uses Messages and Gemini uses streamGenerateContent.
 
 The shipped catalog in `src/core_ai/models/generated.py` is produced by
 `scripts/generate_models.py`. It records each model's short id, provider, and API
-family. Packaging `core-ai` runs the generator through a Hatch build hook:
+family. Packaging `symphony-core` runs the generator through a Hatch build hook:
 
 - the curated `https://models.dev/models.json` catalog is used as the source of model ids
 - only text-output models with tool-calling support are emitted for OpenAI, Anthropic, and Gemini
