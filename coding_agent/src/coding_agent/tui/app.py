@@ -32,6 +32,7 @@ from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import (
     AssistantMessage,
+    LIVE_TOOL_WIDGET_LIMIT,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
@@ -102,7 +103,7 @@ class CodingAgentApp(
         self._pending_question_default = ""
         self._model_options = model_options()
         self._command_manager = CommandManager(self)
-        self.live_tool_widget_limit = 8
+        self.live_tool_widget_limit = LIVE_TOOL_WIDGET_LIMIT
         self._scroll_end_scheduled = False
         self._pending_scroll_end = False
 

@@ -8,10 +8,9 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
+from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT, reconcile_live_tools
 from coding_agent.tui.transcript.messages import AssistantMessage, Notice, Welcome
 from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
-
-LIVE_TOOL_WIDGET_LIMIT = 8
 
 
 class TranscriptSurface:
@@ -106,7 +105,11 @@ class TranscriptSurface:
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
-        self._cap_live_tools()
+        reconcile_live_tools(
+            self._process,
+            self._tools,
+            limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
+        )
 
     def update_tool(
         self,
@@ -136,63 +139,11 @@ class TranscriptSurface:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
         if status == "done":
-            self._cap_live_tools()
-
-    def _cap_live_tools(self) -> None:
-        """Keep only the newest live ToolCallWidgets mounted; older ones join one explored line."""
-        from coding_agent.tui.tools.calls import ToolCallWidget
-
-        limit = getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT)
-        live_ids = [
-            call_id
-            for call_id, widget in self._tools.items()
-            if isinstance(widget, ToolCallWidget) and widget.tool_name != "spawn_agent"
-        ]
-        if len(live_ids) <= limit:
-            return
-        for call_id in live_ids[:-limit]:
-            widget = self._tools[call_id]
-            if not isinstance(widget, ToolCallWidget):
-                continue
-            if widget.status in {"preparing", "running"}:
-                continue
-            self._collapse_tool_widget(call_id)
-
-    def _collapse_tool_widget(self, call_id: str) -> None:
-        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
-
-        widget = self._tools.get(call_id)
-        if not isinstance(widget, ToolCallWidget) or widget.tool_name == "spawn_agent":
-            return
-        summary = self._adjacent_explored_summary(widget)
-        if summary is None:
-            summary = ToolCallSummary()
-            if self._process is not None:
-                self._process.replace_item(widget, summary)
-        elif self._process is not None:
-            self._process.remove_item(widget)
-        summary.add_call(call_id)
-        self._tools[call_id] = summary
-
-    def _adjacent_explored_summary(self, widget: Widget) -> Any:
-        """Reuse the explored line in this stretch; start a new one after a thought."""
-        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
-
-        if self._process is None:
-            return None
-        items = self._process.timeline_items()
-        try:
-            index = items.index(widget)
-        except ValueError:
-            return None
-        for item in reversed(items[:index]):
-            if isinstance(item, ReasoningWidget):
-                return None
-            if isinstance(item, ToolCallSummary):
-                return item
-            if isinstance(item, ToolCallWidget):
-                return None
-        return None
+            reconcile_live_tools(
+                self._process,
+                self._tools,
+                limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
+            )
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)

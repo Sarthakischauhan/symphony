@@ -187,7 +187,12 @@ class ToolCallSummary(Static):
     def add_call(self, call_id: str) -> None:
         if call_id not in self.call_ids:
             self.call_ids.append(call_id)
-        self.update(self._line())
+        from textual._context import NoActiveAppError
+
+        try:
+            self.update(self._line())
+        except NoActiveAppError:
+            pass
 
     def _line(self) -> Text:
         n = self.count
