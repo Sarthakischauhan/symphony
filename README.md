@@ -117,32 +117,32 @@ Set at least one provider credential, then launch the TUI:
 
 ```sh
 export OPENAI_API_KEY=...       # or ANTHROPIC_API_KEY / GEMINI_API_KEY
-uv run --package coding-agent coding-agent-tui
+uv run --package symphony-code symphony
 ```
 
 Select a model explicitly with a qualified id when needed:
 
 ```sh
-uv run --package coding-agent coding-agent-tui \
+uv run --package symphony-code symphony \
   --model anthropic:claude-sonnet-5
 ```
 
 Launch against a different workspace:
 
 ```sh
-uv run --package coding-agent coding-agent-tui --workspace /tmp/coding-agent-workspace
+uv run --package symphony-code symphony --workspace /tmp/coding-agent-workspace
 ```
 
 Learning is enabled by default. Disable it when needed:
 
 ```sh
-uv run --package coding-agent coding-agent-tui --no-learning
+uv run --package symphony-code symphony --no-learning
 ```
 
 Resume a previous session interactively:
 
 ```sh
-uv run --package coding-agent coding-agent-tui --resume
+uv run --package symphony-code symphony --resume
 ```
 
 The default workspace is the current directory. Use `--workspace` to override it.
@@ -211,7 +211,7 @@ Requires Python ≥ 3.11 and [`uv`](https://docs.astral.sh/uv/).
 ```sh
 uv sync                    # install the workspace
 uv run pytest              # run all package tests from the root
-uv run --package coding-agent coding-agent-tui   # run the TUI
+uv run --package symphony-code symphony   # run the TUI
 ```
 
 Run a single package's tests from that package's directory with `uv run pytest`.

@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 members = [
     "agent-platform",
     "core-server",
-    "symphony-coding-agent",
+    "symphony-code",
     "symphony-core",
     "symphony-harness",
 ]
@@ -655,7 +655,7 @@ wheels = [
 ]
 
 [[package]]
-name = "symphony-coding-agent"
+name = "symphony-code"
 version = "0.1.0"
 source = { editable = "coding_agent" }
 dependencies = [

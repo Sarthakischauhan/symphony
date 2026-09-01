@@ -127,7 +127,7 @@ Scaffold a basic terminal UI so humans can chat with the agent:
 - [x] Add `textual` dependency
 - [x] Minimal app: transcript log + input box + run agent turn
 - [x] Subscribe to control-plane events (tool start/complete; streaming later)
-- [x] Entry points: `python -m coding_agent.tui` / `coding-agent-tui`
+- [x] Entry points: `python -m coding_agent.tui` / `symphony` / `symphony-code` / `coding-agent-tui`
 - [x] Stream `text_delta` into the log without duplicating final output
 - [x] Cancel bindings via inbound CP commands
 

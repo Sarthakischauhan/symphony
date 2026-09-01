@@ -48,10 +48,12 @@ Set at least one provider credential in the environment or `.env`:
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
 
 ```bash
-uv run --package coding-agent coding-agent-tui
-uv run --package coding-agent coding-agent-tui --workspace /path/to/project
-uv run --package coding-agent coding-agent-tui --model gemini:gemini-3.7-flash
+uv run --package symphony-code symphony
+uv run --package symphony-code symphony --workspace /path/to/project
+uv run --package symphony-code symphony --model gemini:gemini-3.7-flash
 ```
+
+`symphony-code` and `coding-agent-tui` are aliases for the same TUI.
 
 The TUI renders harness events as a conversation: streamed Markdown responses,
 live tool rows, reasoning summaries, muted per-turn token usage, context warnings,
@@ -135,7 +137,7 @@ Reflection never delays or changes the completed run. Future runs receive only a
 small task-relevant selection of lessons. Routine runs can return
 `should_save=false`, and reflection failures are logged without affecting the agent.
 
-Disable learning with `enable_learning=False` or `coding-agent-tui --no-learning`. Call
+Disable learning with `enable_learning=False` or `symphony --no-learning`. Call
 `await agent.shutdown_learning()` (or `wait_for_learning()`) when an application
 needs to cancel or drain pending reflection tasks before shutdown. The TUI does
 this automatically on exit.

@@ -1,5 +1,5 @@
 [project]
-name = "symphony-coding-agent"
+name = "symphony-code"
 version = "0.1.0"
 description = "Minimal coding agent built on core_harness"
 readme = "README.md"
@@ -18,6 +18,7 @@ dependencies = [
 [project.scripts]
 coding-agent-tui = "coding_agent.tui.__main__:main"
 symphony = "coding_agent.tui.__main__:main"
+symphony-code = "coding_agent.tui.__main__:main"
 
 [tool.uv.sources]
 symphony-core = { workspace = true }

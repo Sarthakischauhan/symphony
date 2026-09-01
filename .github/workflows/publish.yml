@@ -26,7 +26,7 @@ jobs:
         run: |
           uv build --package symphony-core -o dist
           uv build --package symphony-harness -o dist
-          uv build --package symphony-coding-agent -o dist
+          uv build --package symphony-code -o dist
 
       # 3. Aggregated distributions go to artifact storage
       - name: Upload distributions
