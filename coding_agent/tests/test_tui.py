@@ -1390,8 +1390,8 @@ def test_reload_refreshes_config_without_clearing_conversation(
         built_with.update(kwargs)
         return reloaded_agent
 
-    monkeypatch.setattr("coding_agent.tui.commands.load_dotenv", _load_dotenv)
-    monkeypatch.setattr("coding_agent.tui.commands.build_agent", _build_agent)
+    monkeypatch.setattr("coding_agent.tui.commands.manager.load_dotenv", _load_dotenv)
+    monkeypatch.setattr("coding_agent.tui.commands.manager.build_agent", _build_agent)
 
     async def _run() -> None:
         async with app.run_test() as pilot:
