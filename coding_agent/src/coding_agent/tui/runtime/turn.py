@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Callable
-
 from textual import work
 from textual.widgets import Static
 
@@ -14,25 +12,12 @@ from coding_agent.tui.screens.history import load_session_history
 from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
-STREAM_PAINT_INTERVAL_S = 1 / 60
-
 
 class TurnSurface:
     """Harness event routing and the exclusive agent-turn worker."""
 
     def _set_status(self, _value: str) -> None:
         self.query_one("#status", Static).update(render_status(self._ui_state, self.workspace))
-
-    def _schedule_stream_flush(self, callback: Callable[[], None]) -> None:
-        """Coalesce assistant/reasoning paints to at most one per display frame."""
-        if getattr(self, "_stream_flush_timer", None) is not None:
-            return
-
-        def _run() -> None:
-            self._stream_flush_timer = None
-            callback()
-
-        self._stream_flush_timer = self.set_timer(STREAM_PAINT_INTERVAL_S, _run)
 
     def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
         """Restore context usage for a resumed session before its first run."""

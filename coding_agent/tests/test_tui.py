@@ -1017,7 +1017,8 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
                     "text": "**REASONING SUMMARY**\nStarting.",
                 },
             )
-            await pilot.pause(0.05)
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
             text = "**REASONING SUMMARY**\n**Explaining application context**\n\nStarting.\n\n" + "\n\n".join(
                 f"Streaming thought {index}." for index in range(30)
             )
@@ -1030,7 +1031,8 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
                     "text": text,
                 },
             )
-            await pilot.pause(0.05)
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
 
             thought = app.query_one(ReasoningWidget)
             scroll = thought.query_one(".reasoning-scroll")

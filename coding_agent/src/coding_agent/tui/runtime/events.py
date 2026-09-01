@@ -10,10 +10,9 @@ from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
-ScheduleFlush = Callable[[Callable[[], None]], None]
 ChromeSnapshot = Tuple[Any, ...]
 
-# High-frequency stream events are buffered and painted once per frame.
+# High-frequency stream events are buffered and painted with the next real UI update.
 _STREAM_EVENT_TYPES = frozenset({"text_delta", "reasoning_delta"})
 
 
@@ -69,13 +68,11 @@ class EventPresenter:
         view: TranscriptView,
         set_status: StatusFn,
         workspace: str = "",
-        schedule_flush: Optional[ScheduleFlush] = None,
     ) -> None:
         self.state = state
         self.view = view
         self._set_status = set_status
         self.workspace = workspace
-        self._schedule_flush = schedule_flush
         self._assistant_open = False
         self._tool_names: dict[str, str] = {}
         self._tool_arguments: dict[str, str] = {}
@@ -83,7 +80,6 @@ class EventPresenter:
         self._reasoning_active = False
         self._pending_assistant: Optional[tuple[str, bool]] = None
         self._pending_reasoning: Optional[tuple[str, bool]] = None
-        self._flush_scheduled = False
         self._last_chrome: Optional[ChromeSnapshot] = None
 
     def _chrome_snapshot(self) -> ChromeSnapshot:
@@ -121,8 +117,6 @@ class EventPresenter:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
-        if event_type in _STREAM_EVENT_TYPES:
-            self._request_stream_flush()
         after = self._chrome_snapshot()
         if after != before:
             self.refresh_chrome()
@@ -134,7 +128,6 @@ class EventPresenter:
 
     def flush_stream_paints(self) -> None:
         """Apply buffered assistant/reasoning widget updates."""
-        self._flush_scheduled = False
         pending_reasoning = self._pending_reasoning
         pending_assistant = self._pending_assistant
         self._pending_reasoning = None
@@ -145,17 +138,6 @@ class EventPresenter:
         if pending_assistant is not None:
             text, new = pending_assistant
             self.view.set_assistant(text, new=new)
-
-    def _request_stream_flush(self) -> None:
-        if self._pending_assistant is None and self._pending_reasoning is None:
-            return
-        if self._schedule_flush is None:
-            self.flush_stream_paints()
-            return
-        if self._flush_scheduled:
-            return
-        self._flush_scheduled = True
-        self._schedule_flush(self.flush_stream_paints)
 
     def _buffer_assistant(self, text: str, *, new: bool) -> None:
         if self._pending_assistant is None:
@@ -195,7 +177,6 @@ class EventPresenter:
         self._reasoning_active = False
         self._pending_assistant = None
         self._pending_reasoning = None
-        self._flush_scheduled = False
         self.view.set_thinking("Thinking…")
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
