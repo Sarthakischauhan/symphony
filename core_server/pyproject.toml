@@ -8,8 +8,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "core-ai",
-    "core-harness",
+    "symphony-core",
+    "symphony-harness",
     "dotenv>=0.9.9",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -19,8 +19,8 @@ dependencies = [
 core-server = "core_server.__main__:main"
 
 [tool.uv.sources]
-core-ai = { workspace = true }
-core-harness = { workspace = true }
+symphony-core = { workspace = true }
+symphony-harness = { workspace = true }
 
 [dependency-groups]
 dev = [

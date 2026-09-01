@@ -1,5 +1,5 @@
 [project]
-name = "core-harness"
+name = "symphony-harness"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -8,12 +8,12 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "core-ai",
+    "symphony-core",
     "pydantic>=2.0.0",
 ]
 
 [tool.uv.sources]
-core-ai = { workspace = true }
+symphony-core = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -23,3 +23,6 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "core_harness"
