@@ -10,13 +10,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Sequence, Union
+from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
 from textual.message import Message
 
 from core_harness import ControlCommand, ControlCommandType, ControlPlaneEventType
 from coding_agent.config import ApprovalConfig, ensure_spawn_settings
-from coding_agent.tui.composer import PromptInput, SlashMenu
 
 ALLOW_ALWAYS = "Always allow"
 
@@ -266,54 +265,3 @@ class TextualControlPlane:
         if future is None or future.done():
             return
         future.set_result(answer or "")
-
-
-class QuestionSurface:
-    """Ask-user composer flow mixed into CodingAgentApp."""
-
-    def _show_question(self, payload: Mapping[str, Any]) -> None:
-        request_id = str(payload.get("request_id") or "")
-        question = str(payload.get("question") or "")
-        choices = [str(choice) for choice in payload.get("choices") or []]
-        default = str(payload.get("default") or "")
-        kind = str(payload.get("kind") or "")
-        if not request_id or not question:
-            self.add_notice("The agent sent an invalid question request.", "error")
-            return
-        self._pending_question_id = request_id
-        self._pending_question_default = default
-        self._ui_state.phase = "paused"
-        self._ui_state.detail = "waiting for user"
-        self._update_composer_hint()
-        menu = self.query_one(
-            "#approval-menu" if kind == "approval" else "#slash-menu",
-            SlashMenu,
-        )
-        menu.set_question(
-            question,
-            choices,
-            default=default,
-            kind=kind,
-        )
-        prompt = self.query_one("#prompt", PromptInput)
-        prompt.submit_on_enter = kind == "approval"
-        prompt.disabled = False
-        prompt.value = "" if choices else default
-        prompt.cursor_position = len(prompt.value)
-        prompt.focus()
-
-    async def _answer_question(self, answer: str) -> None:
-        request_id = self._pending_question_id
-        if request_id is None:
-            return
-        self._pending_question_id = None
-        self._pending_question_default = ""
-        self.query_one("#slash-menu", SlashMenu).set_commands(())
-        self.query_one("#approval-menu", SlashMenu).set_commands(())
-        await self.control_plane.answer_user(request_id, answer)
-        self._ui_state.phase = "thinking"
-        self._ui_state.detail = "resuming"
-        prompt = self.query_one("#prompt", PromptInput)
-        prompt.submit_on_enter = False
-        prompt.disabled = True
-        self._update_composer_hint()

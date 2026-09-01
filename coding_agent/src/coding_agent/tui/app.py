@@ -4,56 +4,51 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
-from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
-from textual.widget import Widget
-from textual.widgets import OptionList, Static, TextArea
+from textual.widgets import Static
 
 from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.plan import PlanStore
-from coding_agent.tui.commands import (
-    CommandManager,
-    command_matches,
-    effort_options_for_model,
-    effort_matches,
-    mode_matches,
-    model_matches,
-    model_options,
-    model_supports_effort,
-    toggle_mode,
-)
+from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import Composer, PromptInput, SlashMenu
+from coding_agent.tui.composer.surface import ComposerSurface
 from coding_agent.tui.runtime import (
     EventPresenter,
-    HarnessEvent,
     SubagentRecord,
     TextualControlPlane,
     UiRunState,
-    render_status,
 )
-from coding_agent.tui.runtime.control_plane import QuestionSurface
 from coding_agent.tui.runtime.subagent import SubagentSurface
-from coding_agent.tui.screens.file_selector import (
-    active_file_mention,
-    complete_file_mention,
-    file_matches,
-)
-from coding_agent.tui.screens.history import load_session_history
+from coding_agent.tui.runtime.turn import TurnSurface
+from coding_agent.tui.screens.ask import QuestionSurface
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
-from coding_agent.tui.tools.images import build_user_content
-from coding_agent.tui.transcript import TopBar, TranscriptSurface, UserMessage, Welcome
-from core_ai.types import Content
-from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
+from coding_agent.tui.tools import ToolCallWidget
+from coding_agent.tui.transcript import (
+    AssistantMessage,
+    ReasoningWidget,
+    RunProcess,
+    ThinkingStatus,
+    TopBar,
+    TranscriptSurface,
+    Welcome,
+)
 
 
-class CodingAgentApp(TranscriptSurface, SubagentSurface, QuestionSurface, App[None]):
+class CodingAgentApp(
+    TranscriptSurface,
+    SubagentSurface,
+    QuestionSurface,
+    ComposerSurface,
+    TurnSurface,
+    App[None],
+):
     """Full-screen chat transcript backed by core_harness events."""
 
     CSS = APP_CSS
@@ -159,283 +154,6 @@ class CodingAgentApp(TranscriptSurface, SubagentSurface, QuestionSurface, App[No
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
 
-
-    def _set_status(self, _value: str) -> None:
-        self.query_one("#status", Static).update(render_status(self._ui_state, self.workspace))
-
-    def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
-        """Restore context usage for a resumed session before its first run."""
-        metrics = self._ui_state.metrics
-        metrics.tokens_used = tokens_used
-        metrics.context_limit = context_limit
-        metrics.context_left = max(context_limit - tokens_used, 0)
-        metrics.utilization = tokens_used / context_limit if context_limit else None
-        self._set_status("")
-
-    @work(exclusive=False)
-    async def load_session_history(self) -> None:
-        if self._agent is None:
-            return
-        await load_session_history(self._agent, self)
-
-    def on_harness_event(self, message: HarnessEvent) -> None:
-        payload = message.payload or {}
-        if message.event_type == "agent_spawned":
-            self._on_agent_spawned(payload)
-            return
-        if message.event_type in {"agent_completed", "agent_failed"}:
-            self._on_agent_finished(message.event_type, payload)
-            return
-        if payload.get("parent_id"):
-            self._on_child_event(message.event_type, payload)
-            if message.event_type == "question_asked":
-                self._show_child_question(payload)
-            return
-        if self._plan_run_active and message.event_type == "text_delta":
-            self._plan_store.append(str(payload.get("delta") or ""))
-            return
-        if message.event_type == "question_asked":
-            self._show_question(payload)
-            return
-        if self._presenter is not None:
-            self._presenter.handle(message.event_type, payload)
-        if self._plan_run_active and message.event_type in {
-            "run_completed",
-            "run_failed",
-            "run_cancelled",
-        }:
-            self._plan_run_active = False
-
-
-    on_control_plane_event = on_harness_event
-
-    async def on_prompt_input_submitted(self, event: PromptInput.Submitted) -> None:
-        text = event.input.expanded_value(event.input.text).strip()
-        pasted_chunks = event.input.take_pasted_chunks()
-        event.input.load_text("")
-        if self._pending_question_id is not None:
-            event.input.take_images()
-            await self._answer_question(text or self._pending_question_default)
-            return
-        if not text:
-            event.input.take_images()
-            return
-        self.query_one("#slash-menu", SlashMenu).set_commands(())
-        if text.startswith("/"):
-            event.input.take_images()
-            await self._run_slash_command(text)
-            return
-        images = event.input.take_images()
-        if self._agent is None:
-            self.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
-            return
-        if self._busy:
-            self.add_notice("A turn is already in progress.", "warning")
-            return
-
-        user_content = build_user_content(text, images)
-        self._assistant = None
-        self._thinking = None
-        self._reasoning = None
-        self._process = None
-        self._tools = {}
-        self._mount_transcript(
-            UserMessage(text, pasted_chunks=pasted_chunks, images=images)
-        )
-        self.set_thinking("Thinking…")
-        if self.mode == "plan":
-            self._plan_store.begin(text)
-            self._plan_run_active = True
-        self._busy = True
-        event.input.disabled = True
-        self.query_one("#composer-hint", Static).update("Working…   Esc cancel")
-        self.run_agent(user_content)
-
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        if event.text_area.id != "prompt":
-            return
-        if self._pending_question_id is not None:
-            return
-        approval_menu = self.query_one("#approval-menu", SlashMenu)
-        menu = (
-            approval_menu
-            if approval_menu.display
-            else self.query_one("#slash-menu", SlashMenu)
-        )
-        mention = active_file_mention(event.text_area.text)
-        if mention is not None:
-            _start, query = mention
-            menu.set_files(file_matches(self.workspace, query))
-        elif event.text_area.text.startswith("/model "):
-            current = self._agent.harness.model_id if self._agent is not None else ""
-            menu.set_models(
-                model_matches(
-                    event.text_area.text.removeprefix("/model "),
-                    self._model_options,
-                ),
-                current,
-            )
-        elif event.text_area.text.startswith("/effort "):
-            current = "default"
-            efforts = ()
-            if self._agent is not None:
-                current = self._agent.harness.reasoning_effort or "default"
-                efforts = effort_options_for_model(self._agent.harness.model_id)
-            menu.set_efforts(
-                effort_matches(
-                    event.text_area.text.removeprefix("/effort "),
-                    efforts,
-                ),
-                current,
-            )
-        elif event.text_area.text.startswith("/mode "):
-            menu.set_modes(mode_matches(event.text_area.text.removeprefix("/mode ")), self.mode)
-        elif event.text_area.text.startswith("/plan "):
-            menu.set_plans(
-                self._command_manager.plan_options(event.text_area.text.removeprefix("/plan ")),
-                self._plan_store.path.name,
-            )
-        else:
-            model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")
-            menu.set_commands(
-                command_matches(
-                    event.text_area.text,
-                    include_effort=model_supports_effort(model_id),
-                )
-            )
-
-    def on_key(self, event: events.Key) -> None:
-        """Navigate, choose, or complete the visible slash menu."""
-        prompt = self.query_one("#prompt", PromptInput)
-        if not prompt.has_focus:
-            return
-        if event.key in {"ctrl+enter", "control+enter"}:
-            prompt.action_submit()
-            event.prevent_default()
-            event.stop()
-            return
-        approval_menu = self.query_one("#approval-menu", SlashMenu)
-        menu = (
-            approval_menu
-            if approval_menu.display
-            else self.query_one("#slash-menu", SlashMenu)
-        )
-        if not menu.display:
-            if event.key == "tab" and not self._busy:
-                toggle_mode(self)
-                event.prevent_default()
-                event.stop()
-            return
-
-        if event.key in {"up", "down"}:
-            menu.move_selection(-1 if event.key == "up" else 1)
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key in {"tab", "enter"} and menu.selected_value:
-            self._choose_menu_option(menu, submit=event.key == "enter")
-            event.prevent_default()
-            event.stop()
-        elif event.key == "enter" and self._pending_question_id is not None:
-            self.call_later(prompt.action_submit)
-            event.prevent_default()
-            event.stop()
-
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
-        """Apply menu choices selected with the pointer."""
-        if event.option_list.id not in {"slash-menu", "approval-menu"}:
-            return
-        menu = event.option_list
-        assert isinstance(menu, SlashMenu)
-        if menu.select_option_index(event.option_index):
-            self._choose_menu_option(menu, submit=True)
-        event.stop()
-
-    def _choose_menu_option(self, menu: SlashMenu, *, submit: bool) -> None:
-        prompt = self.query_one("#prompt", PromptInput)
-        if self._pending_question_id is not None and submit:
-            answer = menu.selected_value
-            menu.set_commands(())
-            prompt.load_text("")
-            self.call_later(self._answer_question, answer)
-            prompt.focus()
-            return
-        if menu.is_file_selector:
-            prompt.value, cursor = complete_file_mention(
-                prompt.value,
-                menu.selected_value.removeprefix("@"),
-            )
-            prompt.cursor_position = cursor
-            menu.set_commands(())
-        else:
-            prompt.value = menu.selected_value
-            prompt.cursor_position = len(prompt.value)
-            if submit:
-                menu.set_commands(())
-                self.call_later(prompt.action_submit)
-        prompt.focus()
-
-    async def _run_slash_command(self, value: str) -> None:
-        await self._command_manager.run(value)
-
-    def _update_composer_hint(self) -> None:
-        label = self.mode.upper()
-        self.query_one("#composer", Composer).set_class(
-            self.mode == "plan", "plan-mode"
-        )
-        self.query_one("#composer-mode", Static).update(f"{label} · Tab mode")
-        hint = "Ctrl+↵ send   Enter line break   Esc cancel"
-        if self._pending_question_id is not None:
-            hint = "↵ approve   ↑↓ choose   Esc deny"
-        self.query_one("#composer-hint", Static).update(hint)
-
-    @work(exclusive=True)
-    async def run_agent(self, user_input: Content) -> None:
-        try:
-            await self._run_agent_turn(user_input)
-        except (HarnessCancelled, HarnessLimitExceeded):
-            if self._presenter is not None:
-                self._presenter.flush_stream_to_log()
-        except Exception as exc:  # noqa: BLE001
-            if self._presenter is not None:
-                self._presenter.flush_stream_to_log()
-            if self._ui_state.detail != "failed":
-                self.add_notice(f"Error · {exc}", "error")
-        finally:
-            if self._presenter is not None:
-                self._ui_state.phase = "idle"
-                self._presenter.refresh_chrome()
-            self._busy = False
-            self._pending_question_id = None
-            self._pending_question_default = ""
-            self.control_plane.reset_cancel()
-            prompt = self.query_one("#prompt", PromptInput)
-            prompt.submit_on_enter = False
-            prompt.disabled = False
-            self._update_composer_hint()
-            prompt.focus()
-
-    async def _run_agent_turn(self, user_input: Content) -> HarnessResult:
-        assert self._agent is not None
-        mode = self.mode
-        result = await self._agent.run(user_input)
-        if mode == "plan":
-            self._command_manager.open_plan_modal()
-        return result
-
-    def action_clear_transcript(self) -> None:
-        transcript = self.query_one("#transcript", VerticalScroll)
-        transcript.remove_children()
-        transcript.mount(Welcome(self.workspace))
-        self._assistant = None
-        self._thinking = None
-        self._reasoning = None
-        self._process = None
-        self._tools.clear()
-        self._subagents.clear()
-
     def action_cancel_run(self) -> None:
         if isinstance(self.screen, ModalScreen):
             self.screen.dismiss(None)
@@ -471,7 +189,6 @@ class CodingAgentApp(TranscriptSurface, SubagentSurface, QuestionSurface, App[No
         shutdown = getattr(self._agent, "shutdown_learning", None)
         if callable(shutdown):
             await shutdown()
-
 
 
 def run_tui(
