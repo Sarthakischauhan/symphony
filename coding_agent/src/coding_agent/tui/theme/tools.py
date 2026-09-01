@@ -192,9 +192,10 @@ TOOLS_CSS = """
 }
 
 .tool-call-summary {
-    width: 100%;
+    width: auto;
+    max-width: 72;
     height: 1;
-    padding: 0 1;
+    padding: 0 1 0 2;
     color: #666666;
     background: $background;
 }

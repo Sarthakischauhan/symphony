@@ -98,12 +98,14 @@ class RunProcess(Container):
 
     def __init__(self, thinking: ThinkingStatus) -> None:
         self._pending_items: list[Widget] = []
+        self._items: list[Widget] = []
         self._thinking = thinking
         self._completed = False
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
         pending, self._pending_items = self._pending_items, []
+        self._items = list(pending)
         yield self._thinking
         yield from pending
 
@@ -111,16 +113,34 @@ class RunProcess(Container):
         if not self.is_attached:
             self._pending_items.append(widget)
             return
+        self._items.append(widget)
         self.mount(widget)
+
+    def timeline_items(self) -> list[Widget]:
+        """Timeline order, including items not yet flushed to the DOM."""
+        if self.is_attached:
+            return [self._thinking, *self._items]
+        return [self._thinking, *self._pending_items]
 
     def replace_item(self, old: Widget, new: Widget) -> None:
         """Swap a mounted or pending child without dropping surrounding timeline items."""
         if old in self._pending_items:
             self._pending_items[self._pending_items.index(old)] = new
             return
+        if old in self._items:
+            self._items[self._items.index(old)] = new
         if old.is_attached:
             self.mount(new, after=old)
             old.remove()
+
+    def remove_item(self, widget: Widget) -> None:
+        if widget in self._pending_items:
+            self._pending_items.remove(widget)
+            return
+        if widget in self._items:
+            self._items.remove(widget)
+        if widget.is_attached:
+            widget.remove()
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._flush_pending_items)
@@ -129,6 +149,7 @@ class RunProcess(Container):
         if not self._pending_items:
             return
         pending, self._pending_items = self._pending_items, []
+        self._items.extend(pending)
         self.mount(*pending)
 
     def complete(self, title: str, *, collapse: bool = True) -> None:

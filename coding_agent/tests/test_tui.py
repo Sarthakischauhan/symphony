@@ -1998,7 +1998,7 @@ def test_parallel_subagent_rows_bind_by_label(
     asyncio.run(_run())
 
 
-def test_old_tool_widgets_collapse_to_summaries_after_live_limit(
+def test_old_tool_widgets_collapse_to_one_explored_summary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2019,26 +2019,67 @@ def test_old_tool_widgets_collapse_to_summaries_after_live_limit(
                 app.update_tool(call_id, status="done", result="ok")
             await pilot.pause()
 
-            nodes = list(app._tools.values())
-            summaries = [node for node in nodes if isinstance(node, ToolCallSummary)]
-            live = [node for node in nodes if isinstance(node, ToolCallWidget)]
-            assert len(nodes) == 12
-            assert len(summaries) == 4
-            assert len(live) == 8
-            assert [node.call_id for node in summaries] == [
-                "read-0",
-                "read-1",
-                "read-2",
-                "read-3",
+            live = [
+                node
+                for node in app._tools.values()
+                if isinstance(node, ToolCallWidget)
             ]
-            assert [node.call_id for node in live] == [f"read-{index}" for index in range(4, 12)]
+            summaries = list(
+                dict.fromkeys(
+                    node
+                    for node in app._tools.values()
+                    if isinstance(node, ToolCallSummary)
+                )
+            )
+            assert len(live) == 8
+            assert [node.call_id for node in live] == [
+                f"read-{index}" for index in range(4, 12)
+            ]
+            assert len(summaries) == 1
+            assert summaries[0].count == 4
+            assert summaries[0].call_ids == ["read-0", "read-1", "read-2", "read-3"]
             assert len(list(app.query(ToolCallWidget))) == 8
-            assert len(list(app.query(ToolCallSummary))) == 4
-            first = summaries[0]
-            rendered = str(first.render())
-            assert "Read" in rendered
-            assert "src/f0.py" in rendered
-            assert "done" in rendered
+            assert len(list(app.query(ToolCallSummary))) == 1
+            rendered = str(summaries[0].render())
+            assert "[ Explored 4 tool calls ]" in rendered
+
+    asyncio.run(_run())
+
+
+def test_explored_summary_splits_when_reasoning_separates_tool_batches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app.live_tool_widget_limit = 3
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for index in range(5):
+                call_id = f"a-{index}"
+                app.add_tool(call_id, "read_file")
+                app.update_tool(
+                    call_id, arguments={"path": f"a{index}.py"}, status="done", result="ok"
+                )
+            app.set_reasoning("Considering the next batch.", new=True)
+            app.finish_reasoning()
+            for index in range(5):
+                call_id = f"b-{index}"
+                app.add_tool(call_id, "read_file")
+                app.update_tool(
+                    call_id, arguments={"path": f"b{index}.py"}, status="done", result="ok"
+                )
+            await pilot.pause()
+
+            summaries = list(app.query(ToolCallSummary))
+            assert len(summaries) == 2
+            assert summaries[0].count == 5
+            assert summaries[1].count == 2
+            assert "[ Explored 5 tool calls ]" in str(summaries[0].render())
+            assert "[ Explored 2 tool calls ]" in str(summaries[1].render())
+            assert len(list(app.query(ToolCallWidget))) == 3
+            assert len(list(app.query(ReasoningWidget))) == 1
 
     asyncio.run(_run())
 

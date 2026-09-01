@@ -126,12 +126,6 @@ class TranscriptSurface:
             self.add_tool(call_id, "tool")
             widget = self._tools[call_id]
         if isinstance(widget, ToolCallSummary):
-            widget.apply_update(
-                arguments=arguments,
-                raw_arguments=raw_arguments,
-                status=status,
-                result=result,
-            )
             self._follow_transcript_tail(transcript, was_at_end=was_at_end)
             return
         if status == "running":
@@ -145,7 +139,7 @@ class TranscriptSurface:
             self._cap_live_tools()
 
     def _cap_live_tools(self) -> None:
-        """Keep only the newest live ToolCallWidgets mounted; older ones become summaries."""
+        """Keep only the newest live ToolCallWidgets mounted; older ones join one explored line."""
         from coding_agent.tui.tools.calls import ToolCallWidget
 
         limit = getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT)
@@ -170,10 +164,35 @@ class TranscriptSurface:
         widget = self._tools.get(call_id)
         if not isinstance(widget, ToolCallWidget) or widget.tool_name == "spawn_agent":
             return
-        summary = ToolCallSummary.from_tool_widget(widget)
-        if self._process is not None:
-            self._process.replace_item(widget, summary)
+        summary = self._adjacent_explored_summary(widget)
+        if summary is None:
+            summary = ToolCallSummary()
+            if self._process is not None:
+                self._process.replace_item(widget, summary)
+        elif self._process is not None:
+            self._process.remove_item(widget)
+        summary.add_call(call_id)
         self._tools[call_id] = summary
+
+    def _adjacent_explored_summary(self, widget: Widget) -> Any:
+        """Reuse the explored line in this stretch; start a new one after a thought."""
+        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+
+        if self._process is None:
+            return None
+        items = self._process.timeline_items()
+        try:
+            index = items.index(widget)
+        except ValueError:
+            return None
+        for item in reversed(items[:index]):
+            if isinstance(item, ReasoningWidget):
+                return None
+            if isinstance(item, ToolCallSummary):
+                return item
+            if isinstance(item, ToolCallWidget):
+                return None
+        return None
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)
