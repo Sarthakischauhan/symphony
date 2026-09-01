@@ -36,25 +36,41 @@ class ThinkingStatus(Static):
 
     def on_mount(self) -> None:
         self._animation_timer = self.set_interval(0.12, self._advance_gradient)
-        if not self._working:
-            self._animation_timer.pause()
+        self._sync_animation_timer()
+
+    def on_unmount(self) -> None:
+        if self._animation_timer is not None:
+            self._animation_timer.stop()
+            self._animation_timer = None
+
+    def watch_display(self, display: bool) -> None:
+        del display
+        self._sync_animation_timer()
+
+    def _sync_animation_timer(self) -> None:
+        timer = self._animation_timer
+        if timer is None:
+            return
+        if self._working and self.display:
+            timer.resume()
+        else:
+            timer.pause()
 
     def set_text(self, value: str) -> None:
         self._working = False
-        if self._animation_timer is not None:
-            self._animation_timer.pause()
+        self._sync_animation_timer()
         self.update(Text(f"✻  {value}", style="#666666"))
 
     def set_working(self, detail: str = "") -> None:
         """Show a moving color gradient while a model request is retrying."""
         self._working = True
         self._working_detail = detail
-        if self._animation_timer is not None:
-            self._animation_timer.resume()
+        self._sync_animation_timer()
         self._render_working()
 
     def _advance_gradient(self) -> None:
-        if not self._working:
+        if not self._working or not self.display:
+            self._sync_animation_timer()
             return
         self._gradient_step = (self._gradient_step + 1) % len(self._WORKING_COLORS)
         self._render_working()
@@ -91,6 +107,15 @@ class RunProcess(Container):
             self._pending_items.append(widget)
             return
         self.mount(widget)
+
+    def replace_item(self, old: Widget, new: Widget) -> None:
+        """Swap a mounted or pending child without dropping surrounding timeline items."""
+        if old in self._pending_items:
+            self._pending_items[self._pending_items.index(old)] = new
+            return
+        if old.is_attached:
+            self.mount(new, after=old)
+            old.remove()
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._flush_pending_items)

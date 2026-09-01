@@ -67,6 +67,8 @@ from coding_agent.tui.tools import (
     GenerateImageWidget,
     PatchDiffWidget,
     ReadFileWidget,
+    ToolCallSummary,
+    ToolCallWidget,
 )
 from coding_agent.tui.composer import PromptInput, SlashMenu
 from coding_agent.tui.transcript import (
@@ -1015,7 +1017,7 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
                     "text": "**REASONING SUMMARY**\nStarting.",
                 },
             )
-            await pilot.pause()
+            await pilot.pause(0.05)
             text = "**REASONING SUMMARY**\n**Explaining application context**\n\nStarting.\n\n" + "\n\n".join(
                 f"Streaming thought {index}." for index in range(30)
             )
@@ -1028,7 +1030,7 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
                     "text": text,
                 },
             )
-            await pilot.pause()
+            await pilot.pause(0.05)
 
             thought = app.query_one(ReasoningWidget)
             scroll = thought.query_one(".reasoning-scroll")
@@ -1992,5 +1994,88 @@ def test_parallel_subagent_rows_bind_by_label(
             assert isinstance(db, SubagentWidget)
             assert auth.record is not None and auth.record.agent_id == "child-auth"
             assert db.record is not None and db.record.agent_id == "child-db"
+
+    asyncio.run(_run())
+
+
+def test_old_tool_widgets_collapse_to_summaries_after_live_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app.live_tool_widget_limit = 8
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for index in range(12):
+                call_id = f"read-{index}"
+                app.add_tool(call_id, "read_file")
+                app.update_tool(
+                    call_id,
+                    arguments={"path": f"src/f{index}.py"},
+                    status="running",
+                )
+                app.update_tool(call_id, status="done", result="ok")
+            await pilot.pause()
+
+            nodes = list(app._tools.values())
+            summaries = [node for node in nodes if isinstance(node, ToolCallSummary)]
+            live = [node for node in nodes if isinstance(node, ToolCallWidget)]
+            assert len(nodes) == 12
+            assert len(summaries) == 4
+            assert len(live) == 8
+            assert [node.call_id for node in summaries] == [
+                "read-0",
+                "read-1",
+                "read-2",
+                "read-3",
+            ]
+            assert [node.call_id for node in live] == [f"read-{index}" for index in range(4, 12)]
+            assert len(list(app.query(ToolCallWidget))) == 8
+            assert len(list(app.query(ToolCallSummary))) == 4
+            first = summaries[0]
+            rendered = str(first.render())
+            assert "Read" in rendered
+            assert "src/f0.py" in rendered
+            assert "done" in rendered
+
+    asyncio.run(_run())
+
+
+def test_thinking_gradient_timer_pauses_when_hidden_or_idle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:test"})
+            app._presenter.handle("turn_started", {"turn": 0})
+            app._presenter.handle(
+                "model_retry_scheduled",
+                {"turn": 0, "retry_after": 2.5, "attempt": 1},
+            )
+            await pilot.pause()
+
+            thinking = app.query_one(ThinkingStatus)
+            assert thinking._animation_timer is not None
+            assert thinking._animation_timer._active.is_set()
+
+            thinking.display = False
+            await pilot.pause()
+            assert not thinking._animation_timer._active.is_set()
+
+            thinking.display = True
+            await pilot.pause()
+            assert thinking._animation_timer._active.is_set()
+
+            thinking.set_text("Completed · idle")
+            await pilot.pause()
+            assert not thinking._working
+            assert not thinking._animation_timer._active.is_set()
 
     asyncio.run(_run())

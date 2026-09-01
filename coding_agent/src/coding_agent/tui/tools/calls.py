@@ -15,7 +15,7 @@ from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
-from coding_agent.tui.transcript import clip_text, compact_json
+from coding_agent.tui.transcript.messages import clip_text, compact_json
 
 class BashToolHeader(Horizontal, can_focus=True):
     """Focusable Bash timeline header that toggles its output."""
@@ -171,6 +171,83 @@ class ToolCallWidget(Collapsible):
         )
         self.add_class(f"status-{self.status}")
         self._body.update(Group(*self._body_rows()))
+
+    def summary_line(self) -> tuple[str, str, str]:
+        """Return (label, detail, status) for a one-line collapsed stand-in."""
+        label, _icon = self._tool_title()
+        return label, clip_text(self._summary(), 140), self.status
+
+
+class ToolCallSummary(Static):
+    """One-line stand-in for an unmounted ToolCallWidget."""
+
+    _STATUS_MARKERS = {
+        "preparing": "○",
+        "running": "●",
+        "done": "✓",
+        "failed": "×",
+    }
+    _STATUS_COLORS = {
+        "preparing": "#d7a84b",
+        "running": "#d7a84b",
+        "done": "#72a57a",
+        "failed": "#d66b73",
+    }
+
+    def __init__(
+        self,
+        call_id: str,
+        tool_name: str,
+        label: str,
+        detail: str,
+        status: str,
+    ) -> None:
+        self.call_id = call_id
+        self.tool_name = tool_name
+        self.label = label
+        self.detail = detail
+        self.status = status
+        super().__init__(self._render(), classes="tool-call-summary")
+
+    @classmethod
+    def from_tool_widget(cls, widget: ToolCallWidget) -> ToolCallSummary:
+        label, detail, status = widget.summary_line()
+        return cls(widget.call_id, widget.tool_name, label, detail, status)
+
+    def _render(self) -> Text:
+        marker = self._STATUS_MARKERS.get(self.status, "○")
+        color = self._STATUS_COLORS.get(self.status, "#666666")
+        line = Text(f"{marker}  {self.label}", style=color)
+        if self.detail:
+            line.append(f"  {self.detail}", style="#c8c8c8")
+        line.append(f"   {self.status}", style="#666666")
+        return line
+
+    def apply_update(
+        self,
+        *,
+        arguments: Mapping[str, Any] | None = None,
+        raw_arguments: str = "",
+        status: str = "preparing",
+        result: Any = None,
+    ) -> None:
+        if arguments:
+            detail = str(
+                arguments.get("path")
+                or arguments.get("command")
+                or arguments.get("query")
+                or arguments.get("pattern")
+                or compact_json(arguments)
+            )
+            if detail:
+                self.detail = clip_text(detail, 140)
+        elif raw_arguments:
+            self.detail = clip_text(raw_arguments, 140)
+        if status == "done":
+            self.status = "failed" if str(result or "").startswith("error:") else "done"
+        elif status:
+            self.status = status
+        self.update(self._render())
 
 
 IMAGE_CHIP = "[Image 1]"

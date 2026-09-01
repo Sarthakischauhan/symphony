@@ -8,8 +8,11 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
+from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget, make_tool_widget
 from coding_agent.tui.transcript.messages import AssistantMessage, Notice, Welcome
 from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
+
+LIVE_TOOL_WIDGET_LIMIT = 8
 
 
 class TranscriptSurface:
@@ -19,8 +22,21 @@ class TranscriptSurface:
         self, transcript: VerticalScroll, *, was_at_end: bool
     ) -> None:
         """Keep following live output unless the user has scrolled away."""
-        if was_at_end:
-            self.call_after_refresh(transcript.scroll_end, animate=False)
+        if not was_at_end:
+            return
+        self._pending_scroll_end = True
+        if getattr(self, "_scroll_end_scheduled", False):
+            return
+        self._scroll_end_scheduled = True
+        self.call_after_refresh(self._flush_transcript_scroll_end)
+
+    def _flush_transcript_scroll_end(self) -> None:
+        self._scroll_end_scheduled = False
+        if not getattr(self, "_pending_scroll_end", False):
+            return
+        self._pending_scroll_end = False
+        transcript = self.query_one("#transcript", VerticalScroll)
+        transcript.scroll_end(animate=False)
 
     def _mount_transcript(self, widget: Static) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
@@ -84,13 +100,12 @@ class TranscriptSurface:
         self._reasoning = None
 
     def add_tool(self, call_id: str, name: str) -> None:
-        from coding_agent.tui.tools.calls import make_tool_widget
-
         if self._thinking is not None:
             self._thinking.display = False
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
+        self._cap_live_tools()
 
     def update_tool(
         self,
@@ -107,6 +122,15 @@ class TranscriptSurface:
         if widget is None:
             self.add_tool(call_id, "tool")
             widget = self._tools[call_id]
+        if isinstance(widget, ToolCallSummary):
+            widget.apply_update(
+                arguments=arguments,
+                raw_arguments=raw_arguments,
+                status=status,
+                result=result,
+            )
+            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
+            return
         if status == "running":
             widget.set_running(arguments)
         elif status == "done":
@@ -114,6 +138,35 @@ class TranscriptSurface:
         else:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
+        if status == "done":
+            self._cap_live_tools()
+
+    def _cap_live_tools(self) -> None:
+        """Keep only the newest live ToolCallWidgets mounted; older ones become summaries."""
+        limit = getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT)
+        live_ids = [
+            call_id
+            for call_id, widget in self._tools.items()
+            if isinstance(widget, ToolCallWidget) and widget.tool_name != "spawn_agent"
+        ]
+        if len(live_ids) <= limit:
+            return
+        for call_id in live_ids[:-limit]:
+            widget = self._tools[call_id]
+            if not isinstance(widget, ToolCallWidget):
+                continue
+            if widget.status in {"preparing", "running"}:
+                continue
+            self._collapse_tool_widget(call_id)
+
+    def _collapse_tool_widget(self, call_id: str) -> None:
+        widget = self._tools.get(call_id)
+        if not isinstance(widget, ToolCallWidget) or widget.tool_name == "spawn_agent":
+            return
+        summary = ToolCallSummary.from_tool_widget(widget)
+        if self._process is not None:
+            self._process.replace_item(widget, summary)
+        self._tools[call_id] = summary
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)
