@@ -20,23 +20,20 @@ jobs:
           enable-cache: true
           version: "latest"
 
-      # 2. Build publishable packages (not core_server)
+      # 2. Build publishable packages only (not core_server) into a flat dist/
+      #    so pypa/gh-action-pypi-publish can upload wheels/sdists from one dir.
       - name: Build release distributions
         run: |
-          uv build --package symphony-core -o core_ai/dist
-          uv build --package symphony-harness -o core_harness/dist
-          uv build --package symphony-coding-agent -o coding_agent/dist
+          uv build --package symphony-core -o dist
+          uv build --package symphony-harness -o dist
+          uv build --package symphony-coding-agent -o dist
 
       # 3. Aggregated distributions go to artifact storage
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:
           name: release-dists
-          # uv deposits each wheel/tarball in <package>/dist/
-          path: |
-            core_harness/dist/
-            coding_agent/dist/
-            core_ai/dist/
+          path: dist/
 
   pypi-publish:
     runs-on: ubuntu-latest
