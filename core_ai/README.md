@@ -2,7 +2,7 @@
 
 Small shared package for model providers and streaming response types. It is under active development, with a focus on providing a `ModelRegistry`, streaming providers, and shared types like `Message` and `StreamEvent`.
 
-> The public API is exported from `core_ai`.
+> The public API is exported from the `core_ai` Python module.
 
 ## Installation
 

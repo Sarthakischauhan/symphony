@@ -1,6 +1,6 @@
 # core-server
 
-FastAPI server that wraps `core_harness` and streams its control-plane events over SSE.
+FastAPI server that wraps `symphony-harness` and streams its control-plane events over SSE. The Python modules remain `core_server` and `core_harness`.
 
 The harness is configured with a system prompt, tools, and the usual run settings. Applications subscribe to the same events the harness already emits — they are not remapped.
 

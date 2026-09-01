@@ -237,6 +237,8 @@ class SlashMenu(OptionList):
     def _approval_choice(choice: str) -> Text:
         if choice == "Allow once":
             return Text("   ✓  Allow once", style="bold #8fc49a")
+        if choice == "Always allow":
+            return Text("   ⚡  Always allow", style="bold #e0b66b")
         if choice == "Deny":
             return Text("   ×  Deny", style="bold #df8b91")
         return Text(f"   {choice}", style="#c5c5c5")

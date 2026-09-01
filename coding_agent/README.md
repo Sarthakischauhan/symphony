@@ -1,6 +1,7 @@
-## coding_agent
+# symphony-code
 
-A workspace coding agent built on `core_harness`.
+A workspace coding agent built on `symphony-harness`. The Python module remains
+`coding_agent` for API compatibility.
 
 <div align="center">
   <img src="../docs/demo.png" alt="Symphony coding agent TUI" height="400">
@@ -124,7 +125,10 @@ Pass the settings path or a loaded `CodingAgentConfig` into `CodingAgent` /
 
 Approval is owned by the control plane, not by wrapped tools. Set
 `approvals.mode` to `"ask"` for interactive gates or `"always_allow"` to let the
-control plane authorize every tool call without showing a prompt.
+control plane authorize every tool call without showing a prompt. Choosing
+**Always allow** in the TUI is a run-level override: it applies only to the
+current run (including its child agents) and does not change the persistent
+`.symphony/config.json` used by future runs.
 
 ### Learning
 

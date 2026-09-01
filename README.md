@@ -1,6 +1,9 @@
 # Symphony
 
-An open-source agent harness. `core_ai` and `core_harness` are the harness; `coding_agent` is the first product built on it — more are coming (a browser-use agent is next).
+An open-source agent harness. The published packages are `symphony-core` and
+`symphony-harness`; `symphony-code` is the first product built on them. The
+Python modules retain their compatibility names (`core_ai`, `core_harness`, and
+`coding_agent`). More products are coming (a browser-use agent is next).
 
 Built with a simple philosophy: keep the harness product-agnostic, keep the provider layer swappable, and drive every UI from a single control-plane event stream instead of scraping output. Parent runs can spawn child agents; those children reuse the same stream, tagged with `parent_id` and `agent_id`.
 
@@ -49,12 +52,12 @@ flowchart TD
 
 | Layer | Package | Role |
 |---|---|---|
-| Harness | [`core_harness`](./core_harness/README.md) | The agent loop: turns, tools, control-plane events, compaction |
-| Harness | [`core_ai`](./core_ai/README.md) | OpenAI, Anthropic, and Gemini providers; model catalog; streaming types |
-| Agent | [`coding_agent`](./coding_agent/README.md) | One consumer of the harness: workspace tools, SQLite sessions, Textual TUI |
-| Server | [`core_server`](./core_server/README.md) | FastAPI wrapper that streams harness control-plane events over SSE |
+| Harness | [`symphony-harness`](./core_harness/README.md) | The agent loop: turns, tools, control-plane events, compaction |
+| Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, and Gemini providers; model catalog; streaming types |
+| Agent | [`symphony-code`](./coding_agent/README.md) | One consumer of the harness: workspace tools, SQLite sessions, Textual TUI |
+| Server | [`core-server`](./core_server/README.md) | FastAPI wrapper that streams harness control-plane events over SSE |
 
-The harness (Symphony) is standalone and product-agnostic. Agents are separate consumers that plug into the harness's tool and control-plane interfaces — `coding_agent` today, a browser-use agent next. `core_harness` builds on `core_ai`; agents do not extend the harness.
+The harness (Symphony) is standalone and product-agnostic. Agents are separate consumers that plug into the harness's tool and control-plane interfaces — `symphony-code` today, a browser-use agent next. `symphony-harness` builds on `symphony-core`; the Python modules remain `core_harness`, `core_ai`, and `coding_agent`.
 
 ### Source layout
 

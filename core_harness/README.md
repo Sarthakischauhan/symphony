@@ -2,7 +2,7 @@
 
 `symphony-harness` is a provider-independent, asynchronous agent loop. It runs a model with Python tools, maintains the conversation for each run, reports lifecycle events, and applies operational limits and context-window policies.
 
-> The package is under active development. The public API is exported from `core_harness`.
+> The package is under active development. The public API is exported from the `core_harness` Python module.
 
 ## Installation
 

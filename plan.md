@@ -1,6 +1,6 @@
 # Symphony Plan
 
-Living roadmap for the Symphony monorepo (`core_ai` → `core_harness` → `coding_agent`).
+Living roadmap for the Symphony monorepo (`symphony-core` → `symphony-harness` → `symphony-code`). The Python modules remain `core_ai` → `core_harness` → `coding_agent`.
 
 ---
 
