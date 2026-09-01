@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
@@ -12,24 +11,21 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 
 from core_harness.config import SettingsSource, resolve_harness_config
-from core_harness.control_plane import ControlPlane, IdentifiedControlPlane, NullControlPlane
+from core_harness.events import ControlPlane, IdentifiedControlPlane, NullControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import (
-    ControlCommandType,
     HarnessResult,
     RunLimits,
-    ToolCall,
     UsageTotals,
 )
 from core_harness.persistence import Checkpoint, NullPersistence, Persistence
-from core_harness.state import (
+from core_harness.context import (
     Compactor,
     HarnessState,
     KeepSystemRecentCompactor,
     normalize_tool_protocol,
 )
 from core_harness.tools import Tool
-from core_harness.turn import TurnRunner
 
 
 @dataclass
@@ -332,205 +328,14 @@ class CoreHarness:
         session_id: Optional[str] = None,
     ) -> HarnessResult:
         """Run turns until the model stops calling tools or a limit is hit."""
-        active_session = session_id or self.session_id or str(uuid.uuid4())
-        run_id = str(uuid.uuid4())
-        started_at = time.monotonic()
-        plane = IdentifiedControlPlane(
-            self.control_plane,
-            run_id=run_id,
-            session_id=active_session,
-            agent_id=self.agent_id,
-            parent_id=self.parent_id,
-        )
+        from core_harness.loop import run_session
 
-        messages = await self._initial_messages(
-            active_session,
+        return await run_session(
+            self,
             user_input,
-            conversation,
+            conversation=conversation,
+            session_id=session_id,
         )
-        await plane.emit(
-            "run_started",
-            {
-                "model_id": self.model_id,
-                "tool_names": list(self.tools),
-            },
-        )
-        await self._persist_conversation(active_session, messages)
-
-        usage = UsageTotals()
-        all_tool_calls: List[ToolCall] = []
-        context_limit = self.state.context_limit(self.model_id)
-        context_left: Optional[int] = None
-        turn = 0
-        deadline = None
-        if self.limits.max_runtime_seconds is not None:
-            deadline = started_at + self.limits.max_runtime_seconds
-        turn_runner = TurnRunner(
-            registry=self.registry,
-            model_id=self.model_id,
-            reasoning_effort=self.reasoning_effort,
-            tool_schemas=self.tool_schemas(),
-            tools=self.tools,
-            control_plane=plane,
-            state=self.state,
-            context_limit=context_limit,
-            tool_result_max_chars=self.tool_result_max_chars,
-            tool_result_keep_recent=self.tool_result_keep_recent,
-            tool_result_prune_tokens=self.tool_result_prune_tokens,
-            context_target_tokens=self.context_target_tokens,
-            max_tool_calls=self.limits.max_tool_calls,
-            deadline=deadline,
-            max_runtime_seconds=self.limits.max_runtime_seconds,
-            max_parallel_tool_calls=self.config.max_parallel_tool_calls,
-        )
-
-        try:
-            for turn in range(self.max_turns):
-                self._raise_if_limit("max_runtime_seconds", time.monotonic() - started_at)
-                self._raise_if_limit("max_tokens", usage.total_tokens)
-                remaining = None
-                if deadline is not None:
-                    remaining = max(deadline - time.monotonic(), 0.0)
-                turn_runner.remaining_runtime = remaining
-                turn_runner.deadline = deadline
-                messages = await self._apply_inbound_commands(
-                    messages, turn=turn, control_plane=plane
-                )
-                result = await turn_runner.run(
-                    messages,
-                    turn=turn,
-                    usage=usage,
-                    context_left=context_left,
-                )
-                context_left = result.context_left
-                all_tool_calls.extend(result.tool_calls)
-                self._raise_if_limit("max_tool_calls", len(all_tool_calls))
-                self._raise_if_limit("max_tokens", usage.total_tokens)
-
-                if not result.tool_calls:
-                    await self._persist_state(
-                        session_id=active_session,
-                        turn=turn,
-                        messages=messages,
-                        usage=usage,
-                        context_limit=context_limit,
-                        context_left=context_left,
-                        status="completed",
-                        metadata={"output_text": result.assistant_text, "run_id": run_id},
-                    )
-                    await plane.emit(
-                        "run_completed",
-                        {
-                            "turn": turn,
-                            "output_text": result.assistant_text,
-                            "usage": usage.model_dump(),
-                            "context": {
-                                "context_limit": context_limit,
-                                "tokens_used": result.budget_tokens,
-                                "context_left": context_left,
-                                "utilization": (
-                                    result.budget_tokens / context_limit
-                                    if context_limit
-                                    else None
-                                ),
-                                "message_sizes": result.message_sizes,
-                            },
-                        },
-                    )
-                    return HarnessResult(
-                        output_text=result.assistant_text,
-                        messages=messages,
-                        tool_calls=all_tool_calls,
-                        usage=usage,
-                        context_limit=context_limit,
-                        context_left=context_left,
-                    )
-
-                await self._persist_state(
-                    session_id=active_session,
-                    turn=turn,
-                    messages=messages,
-                    usage=usage,
-                    context_limit=context_limit,
-                    context_left=context_left,
-                    status="running",
-                    metadata={"run_id": run_id},
-                )
-            self._exceed(
-                "max_turns",
-                float(self.max_turns),
-                float(self.max_turns),
-                f"Harness exceeded max_turns={self.max_turns}",
-            )
-        except HarnessCancelled as exc:
-            await plane.emit("run_cancelled", {"turn": turn, "reason": str(exc)})
-            await self._persist_state(
-                session_id=active_session,
-                turn=turn,
-                messages=messages,
-                usage=usage,
-                context_limit=context_limit,
-                context_left=context_left,
-                status="cancelled",
-                metadata={"reason": str(exc), "run_id": run_id},
-            )
-            raise
-        except HarnessLimitExceeded as exc:
-            await plane.emit(
-                "run_limit_exceeded",
-                {
-                    "turn": turn,
-                    "limit": exc.limit,
-                    "value": exc.value,
-                    "max": exc.maximum,
-                    "message": str(exc),
-                },
-            )
-            await self._persist_state(
-                session_id=active_session,
-                turn=turn,
-                messages=messages,
-                usage=usage,
-                context_limit=context_limit,
-                context_left=context_left,
-                status="failed",
-                metadata={
-                    "limit": exc.limit,
-                    "message": str(exc),
-                    "run_id": run_id,
-                },
-            )
-            raise
-        except Exception as exc:
-            await plane.emit(
-                "run_failed",
-                {
-                    "turn": turn,
-                    "error_type": type(exc).__name__,
-                    "message": str(exc),
-                },
-            )
-            await self._persist_state(
-                session_id=active_session,
-                turn=turn,
-                messages=messages,
-                usage=usage,
-                context_limit=context_limit,
-                context_left=context_left,
-                status="failed",
-                metadata={"error_type": type(exc).__name__, "message": str(exc), "run_id": run_id},
-            )
-            raise
-
-    def _raise_if_limit(self, name: str, value: float) -> None:
-        maximum = getattr(self.limits, name)
-        if maximum is None:
-            return
-        if value > maximum or (name == "max_runtime_seconds" and value >= maximum):
-            self._exceed(name, value, float(maximum), f"Harness exceeded {name}={maximum}")
-
-    def _exceed(self, limit: str, value: float, maximum: float, message: str) -> None:
-        raise HarnessLimitExceeded(limit, value, maximum, message)
 
     async def _initial_messages(
         self,
@@ -587,42 +392,6 @@ class CoreHarness:
                 metadata=metadata or {},
             )
         )
-
-    async def _apply_inbound_commands(
-        self,
-        messages: List[Message],
-        *,
-        turn: int,
-        control_plane: ControlPlane,
-    ) -> List[Message]:
-        if getattr(control_plane, "cancelled", False):
-            raise HarnessCancelled(getattr(control_plane, "cancel_reason", "cancelled"))
-
-        wait_if_paused = getattr(control_plane, "wait_if_paused", None)
-        if wait_if_paused is not None and getattr(control_plane, "paused", False):
-            await control_plane.emit("paused", {"turn": turn})
-            await wait_if_paused()
-            await control_plane.emit("resumed", {"turn": turn})
-
-        drain = getattr(control_plane, "drain_commands", None)
-        if drain is None:
-            return messages
-
-        for command in await drain():
-            if command.type == ControlCommandType.CANCEL:
-                raise HarnessCancelled(str(command.payload.get("reason", "cancelled")))
-            if command.type == ControlCommandType.INJECT_MESSAGE:
-                injected = command.to_message()
-                messages.append(injected)
-                await control_plane.emit(
-                    "message_injected",
-                    {
-                        "turn": turn,
-                        "role": injected.role,
-                        "content": injected.content,
-                    },
-                )
-        return messages
 
 
 __all__ = [

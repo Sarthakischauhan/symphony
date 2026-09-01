@@ -49,7 +49,7 @@ def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> 
 
 
 def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
-    from coding_agent.tui.control_plane import TextualControlPlane
+    from coding_agent.tui.runtime import TextualControlPlane
 
     plane = TextualControlPlane(workspace=tmp_path)
     plane.set_approval_mode("ask")
@@ -82,7 +82,7 @@ def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
 
 
 def test_coding_agent_child_stays_autonomous_if_parent_already_allows(tmp_path: Path) -> None:
-    from coding_agent.tui.control_plane import TextualControlPlane
+    from coding_agent.tui.runtime import TextualControlPlane
 
     plane = TextualControlPlane(workspace=tmp_path)
     plane.set_approval_mode("always_allow")

@@ -17,9 +17,9 @@ from textual.widgets import Static
 
 from core_ai import ModelRegistry
 from core_ai.types import Message
-from coding_agent.tui.modal import ContextModal
+from coding_agent.tui.screens import ContextModal
 from core_harness import HarnessResult
-from core_harness.state import COMPACTED_CONTEXT_MARK, build_context_report
+from core_harness.context import COMPACTED_CONTEXT_MARK, build_context_report
 from coding_agent.agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LearningConfig
 from coding_agent.tui.app import CodingAgentApp
@@ -37,20 +37,20 @@ from coding_agent.tui.commands import (
     model_options,
     model_supports_effort,
 )
-from coding_agent.tui.control_plane import ControlPlaneEvent, TextualControlPlane
-from coding_agent.tui.file_selector import (
+from coding_agent.tui.runtime import ControlPlaneEvent, TextualControlPlane
+from coding_agent.tui.screens.file_selector import (
     active_file_mention,
     complete_file_mention,
     file_matches,
 )
-from coding_agent.tui.images import (
+from coding_agent.tui.tools import (
     ImageAttachment,
     build_user_content,
     display_from_content,
     dropped_image_paths,
     render_half_block,
 )
-from coding_agent.tui.modal import (
+from coding_agent.tui.screens import (
     ContentModal,
     DiffFileCard,
     DiffModal,
@@ -59,23 +59,23 @@ from coding_agent.tui.modal import (
     PlanSectionCard,
     _plan_sections,
 )
-from coding_agent.tui.subagent import SubagentRecord, SubagentScreen, SubagentWidget
-from coding_agent.tui.resume import ResumeApp, SessionOption, load_session_options
+from coding_agent.tui.runtime import SubagentRecord, SubagentScreen, SubagentWidget
+from coding_agent.tui.screens.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
-from coding_agent.tui.widgets import (
+from coding_agent.tui.tools import (
     BashToolWidget,
     GenerateImageWidget,
     PatchDiffWidget,
-    PromptInput,
     ReadFileWidget,
+)
+from coding_agent.tui.composer import PromptInput, SlashMenu
+from coding_agent.tui.transcript import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
     TopBar,
     UserMessage,
 )
-
-from coding_agent.tui.slash_menu import SlashMenu
 
 
 def test_tui_escape_cancels_busy_run_and_restores_composer(
@@ -451,7 +451,7 @@ def test_diff_modal_shows_file_names_and_change_stats(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "coding_agent.tui.modal.read_workspace_diff",
+        "coding_agent.tui.screens.diff.read_workspace_diff",
         lambda _workspace: (
             "diff --git a/src/app.py b/src/app.py\n"
             "--- a/src/app.py\n"

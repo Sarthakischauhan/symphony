@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core_ai.providers.anthropic import Content
-from core_harness.control_plane import ControlPlane
+from core_harness.events import ControlPlane
 from pydantic import Field
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool

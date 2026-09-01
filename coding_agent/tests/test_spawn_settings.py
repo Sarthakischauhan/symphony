@@ -14,7 +14,7 @@ from coding_agent.config import (
     spawn_settings_path,
 )
 from coding_agent.agent import CodingAgent, build_agent
-from coding_agent.tui.control_plane import TextualControlPlane
+from coding_agent.tui.runtime import TextualControlPlane
 from core_ai.types import StreamEvent
 
 

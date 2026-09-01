@@ -1,4 +1,4 @@
-from core_harness.state import (
+from core_harness.context import (
     Compactor,
     ContextReport,
     KeepSystemRecentCompactor,
@@ -12,7 +12,7 @@ from core_harness.config import (
     load_harness_config,
     resolve_harness_config,
 )
-from core_harness.control_plane import (
+from core_harness.events import (
     ControlPlane,
     EventLog,
     FanoutControlPlane,

@@ -29,41 +29,31 @@ from coding_agent.tui.commands import (
     model_supports_effort,
     toggle_mode,
 )
-from coding_agent.tui.control_plane import HarnessEvent, TextualControlPlane
-from coding_agent.tui.events import EventPresenter
-from coding_agent.tui.file_selector import (
+from coding_agent.tui.composer import Composer, PromptInput, SlashMenu
+from coding_agent.tui.runtime import (
+    EventPresenter,
+    HarnessEvent,
+    SubagentRecord,
+    TextualControlPlane,
+    UiRunState,
+    render_status,
+)
+from coding_agent.tui.runtime.control_plane import QuestionSurface
+from coding_agent.tui.runtime.subagent import SubagentSurface
+from coding_agent.tui.screens.file_selector import (
     active_file_mention,
     complete_file_mention,
     file_matches,
 )
-from coding_agent.tui.history import load_session_history
-from coding_agent.tui.images import build_user_content
-from coding_agent.tui.subagent import SubagentRecord, SubagentScreen
-from coding_agent.tui.slash_menu import SlashMenu
-from coding_agent.tui.state import UiRunState
-from coding_agent.tui.status import render_status
-from coding_agent.tui.styles import APP_CSS
-from coding_agent.tui.theme import SYMPHONY_RICH_THEME
-from coding_agent.tui.widgets import (
-    AssistantMessage,
-    Composer,
-    Notice,
-    PromptInput,
-    ReasoningWidget,
-    RunProcess,
-    ThinkingStatus,
-    TopBar,
-    ToolCallWidget,
-    UserMessage,
-    Welcome,
-    make_tool_widget,
-)
-from coding_agent.tui.subagent import SubagentWidget
+from coding_agent.tui.screens.history import load_session_history
+from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
+from coding_agent.tui.tools.images import build_user_content
+from coding_agent.tui.transcript import TopBar, TranscriptSurface, UserMessage, Welcome
 from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 
 
-class CodingAgentApp(App[None]):
+class CodingAgentApp(TranscriptSurface, SubagentSurface, QuestionSurface, App[None]):
     """Full-screen chat transcript backed by core_harness events."""
 
     CSS = APP_CSS
@@ -169,115 +159,6 @@ class CodingAgentApp(App[None]):
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
 
-    # TranscriptView implementation
-    def _follow_transcript_tail(
-        self, transcript: VerticalScroll, *, was_at_end: bool
-    ) -> None:
-        """Keep following live output unless the user has scrolled away."""
-        if was_at_end:
-            self.call_after_refresh(transcript.scroll_end, animate=False)
-
-    def _mount_transcript(self, widget: Static) -> None:
-        transcript = self.query_one("#transcript", VerticalScroll)
-        was_at_end = transcript.is_vertical_scroll_end
-        welcome = self.query(".welcome")
-        if welcome:
-            welcome.first().remove()
-        transcript.mount(widget)
-        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-
-    def set_assistant(self, text: str, *, new: bool = False) -> None:
-        if new or self._assistant is None:
-            self._assistant = AssistantMessage(text)
-            self._mount_transcript(self._assistant)
-        else:
-            transcript = self.query_one("#transcript", VerticalScroll)
-            was_at_end = transcript.is_vertical_scroll_end
-            self._assistant.set_content(text)
-            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-
-    def set_thinking(self, text: str) -> None:
-        if self._thinking is None:
-            self._thinking = ThinkingStatus(text)
-            self._process = RunProcess(self._thinking)
-            self._mount_transcript(self._process)
-        else:
-            self._thinking.set_text(text)
-
-    def set_working(self, detail: str = "") -> None:
-        if self._thinking is None:
-            self.set_thinking("Working")
-        assert self._thinking is not None
-        self._thinking.display = True
-        self._thinking.set_working(detail)
-
-    def _mount_process_item(self, widget: Widget) -> None:
-        transcript = self.query_one("#transcript", VerticalScroll)
-        was_at_end = transcript.is_vertical_scroll_end
-        if self._process is None:
-            self.set_thinking("Thinking…")
-        assert self._process is not None
-        self._process.add_item(widget)
-        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-
-    def set_reasoning(self, text: str, *, new: bool = False) -> None:
-        if new or self._reasoning is None:
-            if self._thinking is not None:
-                self._thinking.display = False
-            self._reasoning = ReasoningWidget(text)
-            self._mount_process_item(self._reasoning)
-        else:
-            transcript = self.query_one("#transcript", VerticalScroll)
-            was_at_end = transcript.is_vertical_scroll_end
-            self._reasoning.set_content(text)
-            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-
-    def finish_reasoning(self) -> None:
-        if self._reasoning is None:
-            return
-        self._reasoning.complete()
-        self._reasoning = None
-
-    def add_tool(self, call_id: str, name: str) -> None:
-        if self._thinking is not None:
-            self._thinking.display = False
-        widget = make_tool_widget(call_id, name)
-        self._tools[call_id] = widget
-        self._mount_process_item(widget)
-
-    def update_tool(
-        self,
-        call_id: str,
-        *,
-        arguments: Optional[Mapping[str, Any]] = None,
-        raw_arguments: str = "",
-        status: str = "preparing",
-        result: Any = None,
-    ) -> None:
-        transcript = self.query_one("#transcript", VerticalScroll)
-        was_at_end = transcript.is_vertical_scroll_end
-        widget = self._tools.get(call_id)
-        if widget is None:
-            self.add_tool(call_id, "tool")
-            widget = self._tools[call_id]
-        if status == "running":
-            widget.set_running(arguments)
-        elif status == "done":
-            widget.set_result(result)
-        else:
-            widget.set_arguments(arguments, raw_arguments)
-        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-
-    def add_notice(self, text: str, tone: str = "info") -> None:
-        notice = Notice(text, tone)
-        if self._busy and self._process is not None:
-            self._mount_process_item(notice)
-        else:
-            self._mount_transcript(notice)
-
-    def finish_process(self, title: str, *, collapse: bool = True) -> None:
-        if self._process is not None:
-            self._process.complete(title, collapse=collapse)
 
     def _set_status(self, _value: str) -> None:
         self.query_one("#status", Static).update(render_status(self._ui_state, self.workspace))
@@ -296,10 +177,6 @@ class CodingAgentApp(App[None]):
         if self._agent is None:
             return
         await load_session_history(self._agent, self)
-
-    def mount_transcript(self, widget: Static) -> None:
-        """Public adapter used by the persisted-history loader."""
-        self._mount_transcript(widget)
 
     def on_harness_event(self, message: HarnessEvent) -> None:
         payload = message.payload or {}
@@ -329,92 +206,6 @@ class CodingAgentApp(App[None]):
         }:
             self._plan_run_active = False
 
-    def _bind_spawn_widget(self, record: SubagentRecord) -> None:
-        candidates = [
-            item
-            for item in self._tools.values()
-            if isinstance(item, SubagentWidget) and item.record is None
-        ]
-        if not candidates:
-            return
-        match = next(
-            (
-                item
-                for item in candidates
-                if (
-                    not record.prompt
-                    or item.arguments.get("prompt") == record.prompt
-                )
-                and (
-                    not record.label
-                    or item.arguments.get("label") in {record.label, None, ""}
-                )
-            ),
-            candidates[0],
-        )
-        match.bind(record)
-
-    def _on_agent_spawned(self, payload: dict[str, Any]) -> None:
-        child_id = str(payload.get("child_id") or "")
-        record = SubagentRecord(
-            agent_id=child_id,
-            parent_id=str(payload.get("agent_id") or ""),
-            label=str(payload.get("label") or "subagent"),
-            prompt=str(payload.get("prompt") or ""),
-            model_id=str(payload.get("model_id") or ""),
-        )
-        if child_id:
-            self._subagents[child_id] = record
-        self._bind_spawn_widget(record)
-        self._refresh_subagent_screen(record)
-
-    def _on_agent_finished(self, event_type: str, payload: dict[str, Any]) -> None:
-        child_id = str(payload.get("child_id") or "")
-        record = self._subagents.get(child_id)
-        if record is None:
-            return
-        record.ingest(event_type, payload)
-        self._refresh_subagent_widgets(record)
-        self._refresh_subagent_screen(record)
-
-    def _on_child_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        agent_id = str(payload.get("agent_id") or "")
-        record = self._subagents.get(agent_id)
-        if record is None:
-            record = SubagentRecord(
-                agent_id=agent_id,
-                parent_id=str(payload.get("parent_id") or ""),
-                label="subagent",
-                prompt="",
-                model_id=str(payload.get("model_id") or ""),
-            )
-            if agent_id:
-                self._subagents[agent_id] = record
-            self._bind_spawn_widget(record)
-        record.ingest(event_type, payload)
-        self._refresh_subagent_widgets(record)
-        self._refresh_subagent_screen(record)
-
-    def _show_child_question(self, payload: Mapping[str, Any]) -> None:
-        """Surface child questions through the parent's interactive composer."""
-        if isinstance(self.screen, SubagentScreen):
-            self.screen.dismiss(None)
-            self.call_after_refresh(self._show_question, dict(payload))
-            return
-        self._show_question(payload)
-
-    def _refresh_subagent_widgets(self, record: SubagentRecord) -> None:
-        for widget in self._tools.values():
-            if isinstance(widget, SubagentWidget) and widget.record is record:
-                widget.refresh_content()
-
-    def _refresh_subagent_screen(self, record: SubagentRecord) -> None:
-        screen = self.screen
-        if isinstance(screen, SubagentScreen) and screen.record.agent_id == record.agent_id:
-            screen.refresh_record()
-
-    def open_subagent(self, record: SubagentRecord) -> None:
-        self.push_screen(SubagentScreen(record, workspace=self.workspace))
 
     on_control_plane_event = on_harness_event
 
@@ -681,52 +472,6 @@ class CodingAgentApp(App[None]):
         if callable(shutdown):
             await shutdown()
 
-    def _show_question(self, payload: Mapping[str, Any]) -> None:
-        request_id = str(payload.get("request_id") or "")
-        question = str(payload.get("question") or "")
-        choices = [str(choice) for choice in payload.get("choices") or []]
-        default = str(payload.get("default") or "")
-        kind = str(payload.get("kind") or "")
-        if not request_id or not question:
-            self.add_notice("The agent sent an invalid question request.", "error")
-            return
-        self._pending_question_id = request_id
-        self._pending_question_default = default
-        self._ui_state.phase = "paused"
-        self._ui_state.detail = "waiting for user"
-        self._update_composer_hint()
-        menu = self.query_one(
-            "#approval-menu" if kind == "approval" else "#slash-menu",
-            SlashMenu,
-        )
-        menu.set_question(
-            question,
-            choices,
-            default=default,
-            kind=kind,
-        )
-        prompt = self.query_one("#prompt", PromptInput)
-        prompt.submit_on_enter = kind == "approval"
-        prompt.disabled = False
-        prompt.value = "" if choices else default
-        prompt.cursor_position = len(prompt.value)
-        prompt.focus()
-
-    async def _answer_question(self, answer: str) -> None:
-        request_id = self._pending_question_id
-        if request_id is None:
-            return
-        self._pending_question_id = None
-        self._pending_question_default = ""
-        self.query_one("#slash-menu", SlashMenu).set_commands(())
-        self.query_one("#approval-menu", SlashMenu).set_commands(())
-        await self.control_plane.answer_user(request_id, answer)
-        self._ui_state.phase = "thinking"
-        self._ui_state.detail = "resuming"
-        prompt = self.query_one("#prompt", PromptInput)
-        prompt.submit_on_enter = False
-        prompt.disabled = True
-        self._update_composer_hint()
 
 
 def run_tui(
