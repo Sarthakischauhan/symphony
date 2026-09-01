@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from coding_agent.agent import build_agent
-from coding_agent.tui.control_plane import TextualControlPlane
+from coding_agent.tui.runtime import TextualControlPlane
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.gemini import GeminiProvider
 

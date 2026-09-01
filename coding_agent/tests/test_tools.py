@@ -22,10 +22,10 @@ from coding_agent.tools import (
     build_tools,
 )
 from coding_agent.config import ReadFileConfig
-from coding_agent.tui.control_plane import TextualControlPlane
-from coding_agent.tui.widgets import GenerateImageWidget
-from coding_agent.tui.widgets import ReadFileWidget
-from coding_agent.tui.widgets import ToolCallWidget
+from coding_agent.tui.runtime import TextualControlPlane
+from coding_agent.tui.tools import GenerateImageWidget
+from coding_agent.tui.tools import ReadFileWidget
+from coding_agent.tui.tools import ToolCallWidget
 
 
 

@@ -24,8 +24,9 @@ from core_harness import (
     PersistingControlPlane,
     Tool,
 )
-from core_harness.utils.tokens import estimate_prompt_tokens, message_size_breakdown
-from core_harness.state import (
+from core_harness.context import (
+    estimate_prompt_tokens,
+    message_size_breakdown,
     CLEARED_TOOL_RESULT_MARK,
     COMPACTED_CONTEXT_MARK,
     bound_tool_result,

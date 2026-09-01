@@ -1,0 +1,215 @@
+"""Transcript message widgets and shared text helpers."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from rich.console import Group
+from rich.style import Style
+from rich.text import Text
+from textual.widgets import Static
+
+from coding_agent.tui.screens.modal import ContentModal
+from coding_agent.tui.theme import themed_markdown
+from coding_agent.tui.tools.images import IMAGE_MARKER_RE, ImageAttachment, ImageModal
+
+
+def compact_json(value: Mapping[str, Any]) -> str:
+    """Serialize a mapping compactly for single-line UI summaries."""
+    if not value:
+        return ""
+    return json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
+
+
+def clip_text(value: Any, limit: int = 420) -> str:
+    """Trim text to a display limit while preserving a visual ellipsis."""
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}…"
+
+
+def preview_text(value: Any, limit: int = 180) -> str:
+    """Trim an event value for a short notice message."""
+    text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}…"
+
+class TopBar(Static):
+    """Terminal header with a quiet workspace label and model label."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._workspace = ""
+        self._model = ""
+        super().__init__(*args, **kwargs)
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        yield Static("◆  symphony", id="topbar-product")
+        yield Static(id="topbar-workspace")
+        yield Static(id="topbar-model")
+
+    def set_context(self, workspace: Path, model: str = "") -> None:
+        self._workspace = str(workspace)
+        self._model = model
+        self.query_one("#topbar-workspace", Static).update(
+            Text(self._workspace, style="#777777")
+        )
+        self.query_one("#topbar-model", Static).update(
+            Text(f" {model or 'no model'} ", style="#a0a0a0")
+        )
+
+
+class Welcome(Static):
+    def __init__(self, workspace: Path) -> None:
+        body = Group(
+            Text("Symphony", style="bold #f0f0f0"),
+            Text("Coding agent", style="#858585"),
+            Text(""),
+            Text(f"  {workspace}", style="#666666"),
+            Text(""),
+            Text("Describe a task, ask a question, or request a code change.", style="#a0a0a0"),
+            Text("Enter sends  ·  Esc cancels a run  ·  Ctrl+D quits  ·  Ctrl+L clears", style="#575757"),
+        )
+        super().__init__(body, classes="welcome")
+
+class UserMessage(Static):
+    """A user prompt with long pasted chunks and images hidden behind compact links."""
+
+    COMPACT_PASTE_AFTER = 100
+
+    def __init__(
+        self,
+        content: str,
+        *,
+        pasted_chunks: tuple[str, ...] = (),
+        images: Sequence[ImageAttachment] = (),
+    ) -> None:
+        self._hidden_content: dict[str, str] = {}
+        self._images = {image.number: image for image in images}
+        super().__init__(
+            self._compact_content(content, pasted_chunks),
+            classes="message user-message",
+        )
+
+    def _compact_content(self, content: str, pasted_chunks: tuple[str, ...]) -> Text:
+        self._hidden_content.clear()
+        replacements: list[tuple[int, int, Text]] = []
+        occupied: list[tuple[int, int]] = []
+
+        for chunk in pasted_chunks:
+            candidates = (chunk, chunk.strip(), chunk.lstrip(), chunk.rstrip())
+            displayed_chunk = next(
+                (candidate for candidate in candidates if candidate in content),
+                "",
+            )
+            if (
+                len(displayed_chunk) <= self.COMPACT_PASTE_AFTER
+                and "\n" not in displayed_chunk
+                and "\r" not in displayed_chunk
+            ):
+                continue
+            start = content.find(displayed_chunk)
+            while start >= 0 and _overlaps(start, start + len(displayed_chunk), occupied):
+                start = content.find(displayed_chunk, start + 1)
+            if start < 0:
+                continue
+            end = start + len(displayed_chunk)
+            key = str(len(self._hidden_content))
+            self._hidden_content[key] = displayed_chunk
+            occupied.append((start, end))
+            replacements.append(
+                (
+                    start,
+                    end,
+                    Text(
+                        f"[{len(displayed_chunk):,} chars]",
+                        style=Style(
+                            color="#87b5b1",
+                            bold=True,
+                            underline=True,
+                            meta={"@click": f"open_content('{key}')"},
+                        ),
+                    ),
+                )
+            )
+
+        for match in IMAGE_MARKER_RE.finditer(content):
+            number = match.group(1)
+            if number not in self._images:
+                continue
+            start, end = match.span()
+            if _overlaps(start, end, occupied):
+                continue
+            occupied.append((start, end))
+            replacements.append(
+                (
+                    start,
+                    end,
+                    Text(
+                        match.group(0),
+                        style=Style(
+                            color="#87b5b1",
+                            bold=True,
+                            underline=True,
+                            meta={"@click": f"open_image('{number}')"},
+                        ),
+                    ),
+                )
+            )
+
+        if not replacements:
+            return Text(content)
+
+        display = Text()
+        cursor = 0
+        for start, end, chip in sorted(replacements, key=lambda item: item[0]):
+            display.append(content[cursor:start])
+            display.append(chip)
+            cursor = end
+        display.append(content[cursor:])
+        return display
+
+    def action_open_content(self, key: str) -> None:
+        content = self._hidden_content.get(key)
+        if content is not None:
+            self.app.push_screen(ContentModal(content))
+
+    def action_open_image(self, number: str) -> None:
+        image = self._images.get(number)
+        if image is not None:
+            self.app.push_screen(ImageModal(image))
+
+
+class AssistantMessage(Static):
+    def __init__(self, content: str = "") -> None:
+        super().__init__(classes="message assistant-message")
+        self.set_content(content)
+
+    def set_content(self, content: str) -> None:
+        self.message_text = content
+        self.update(
+            Group(
+                Text("◆  SYMPHONY", style="bold #d0d0d0"),
+                themed_markdown(content or " "),
+            )
+        )
+
+def _overlaps(start: int, end: int, occupied: Sequence[tuple[int, int]]) -> bool:
+    return any(
+        start < occupied_end and end > occupied_start
+        for occupied_start, occupied_end in occupied
+    )
+
+
+class Notice(Static):
+    COLORS = {
+        "info": "#707070",
+        "warning": "#d7a84b",
+        "error": "#e06c75",
+        "success": "#70a879",
+    }
+
+    def __init__(self, text: str, tone: str = "info") -> None:
+        color = self.COLORS.get(tone, self.COLORS["info"])
+        super().__init__(Text(f"  {text}", style=color), classes=f"notice {tone}")

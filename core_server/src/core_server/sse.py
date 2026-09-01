@@ -8,7 +8,7 @@ import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
 from core_harness import ControlCommand
-from core_harness.control_plane import NullControlPlane
+from core_harness.events import NullControlPlane
 from core_harness.models import ControlPlaneEvent, ControlPlaneEventType
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from coding_agent.persistence import SqlitePersistence
 from coding_agent.tui.app import run_tui
-from coding_agent.tui.resume import ResumeApp, load_session_options
+from coding_agent.tui.screens.resume import ResumeApp, load_session_options
 
 
 def main() -> None:
