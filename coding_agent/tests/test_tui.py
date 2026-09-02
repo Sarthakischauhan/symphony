@@ -2043,7 +2043,7 @@ def test_old_tool_widgets_collapse_to_one_explored_summary(
             assert len(list(app.query(ToolCallWidget))) == 8
             assert len(list(app.query(ToolCallSummary))) == 1
             rendered = str(summaries[0].render())
-            assert "[ Explored 4 tool calls ]" in rendered
+            assert "[ Explored       4 tools]" in rendered
 
     asyncio.run(_run())
 
@@ -2076,11 +2076,50 @@ def test_explored_summary_splits_when_reasoning_separates_tool_batches(
 
             summaries = list(app.query(ToolCallSummary))
             assert len(summaries) == 2
-            assert summaries[0].count == 5
+            assert summaries[0].count == 2
             assert summaries[1].count == 2
-            assert "[ Explored 5 tool calls ]" in str(summaries[0].render())
-            assert "[ Explored 2 tool calls ]" in str(summaries[1].render())
-            assert len(list(app.query(ToolCallWidget))) == 3
+            assert "[ Explored       2 tools]" in str(summaries[0].render())
+            assert "[ Explored       2 tools]" in str(summaries[1].render())
+            assert len(list(app.query(ToolCallWidget))) == 6
+            assert len(list(app.query(ReasoningWidget))) == 1
+
+
+def test_explored_does_not_collapse_second_stretch_under_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app.live_tool_widget_limit = 8
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for index in range(5):
+                call_id = f"a-{index}"
+                app.add_tool(call_id, "read_file")
+                app.update_tool(
+                    call_id, arguments={"path": f"a{index}.py"}, status="done", result="ok"
+                )
+            app.set_reasoning("Considering the next batch.", new=True)
+            app.finish_reasoning()
+            for index in range(5):
+                call_id = f"b-{index}"
+                app.add_tool(call_id, "read_file")
+                app.update_tool(
+                    call_id, arguments={"path": f"b{index}.py"}, status="done", result="ok"
+                )
+            await pilot.pause()
+
+            assert not list(app.query(ToolCallSummary))
+            live = [
+                node
+                for node in app._tools.values()
+                if isinstance(node, ToolCallWidget)
+            ]
+            assert [node.call_id for node in live] == [
+                f"a-{index}" for index in range(5)
+            ] + [f"b-{index}" for index in range(5)]
+            assert len(list(app.query(ToolCallWidget))) == 10
             assert len(list(app.query(ReasoningWidget))) == 1
 
     asyncio.run(_run())

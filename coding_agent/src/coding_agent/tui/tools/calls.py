@@ -195,9 +195,11 @@ class ToolCallSummary(Static):
             pass
 
     def _line(self) -> Text:
-        n = self.count
-        noun = "tool call" if n == 1 else "tool calls"
-        return Text(f"[ Explored {n} {noun} ]", style="#666666")
+        line = Text()
+        line.append("[ ", style="#666666")
+        line.append("Explored", style="#d7a84b")
+        line.append(f"       {self.count} tools]", style="#666666")
+        return line
 
 
 IMAGE_CHIP = "[Image 1]"
