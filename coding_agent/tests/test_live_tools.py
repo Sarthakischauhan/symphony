@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript.live_tools import reconcile_live_tools
-from coding_agent.tui.transcript.process import ReasoningWidget, ThinkingStatus
+from coding_agent.tui.transcript.process import ReasoningWidget
 
 
 def _done_tool(call_id: str, name: str = "read_file") -> ToolCallWidget:
@@ -64,9 +64,14 @@ def test_reconcile_starts_new_explored_line_after_reasoning() -> None:
 
 
 def test_reconcile_does_not_collapse_second_stretch_under_limit() -> None:
-    """Two batches of 5 done tools split by reasoning stay fully live at the default cap."""
+    """Two batches of 5 done tools split by reasoning stay fully live at the default cap.
+
+    ``ThinkingStatus`` is first in ``timeline_items()`` and must not split stretches.
+    A non-widget sentinel stands in here so this test stays App-free.
+    """
+    thinking = object()
     tools: dict[str, object] = {}
-    timeline: list[object] = [ThinkingStatus("Thinking…")]
+    timeline: list[object] = [thinking]
     for index in range(5):
         widget = _done_tool(f"a-{index}")
         tools[widget.call_id] = widget
@@ -86,7 +91,7 @@ def test_reconcile_does_not_collapse_second_stretch_under_limit() -> None:
     assert _call_ids(live) == [f"a-{index}" for index in range(5)] + [
         f"b-{index}" for index in range(5)
     ]
-    assert isinstance(timeline[0], ThinkingStatus)
+    assert timeline[0] is thinking
     assert any(isinstance(item, ReasoningWidget) for item in timeline)
 
 

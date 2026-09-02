@@ -24,7 +24,9 @@ def reconcile_live_tools(
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
-    for live in _live_tools_by_stretch(snapshot()):
+    # Copy first: collapsing mutates the live timeline, which would skip
+    # later stretch items if we iterated the same list.
+    for live in _live_tools_by_stretch(tuple(snapshot())):
         for widget in _overflow_past_limit(live, limit):
             if _is_in_progress_tool(widget):
                 continue
