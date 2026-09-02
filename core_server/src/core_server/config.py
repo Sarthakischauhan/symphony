@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
 from core_harness.config import HarnessConfig
-from core_harness.persistence import Persistence
+from core_harness import Persistence
 from core_harness.tools import Tool
 
 from core_server.models import SupportedModel

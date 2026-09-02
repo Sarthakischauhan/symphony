@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from core_harness import CoreHarness, HarnessCancelled, HarnessLimitExceeded
+from core_harness.addons.persistence import PersistenceAddon
 
 from core_server.config import ServerConfig
 from core_server.models import ModelRegistryResponse, RegistryModel, RegistryProvider
@@ -88,6 +89,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     async def start_run(request: RunRequest) -> StreamingResponse:
         _validate_request(request, config)
         plane = SSEControlPlane(max_queue_size=config.sse_queue_size)
+        addons = []
+        if config.persistence is not None:
+            addons.append(PersistenceAddon(config.persistence))
         harness = CoreHarness(
             registry=config.registry,
             model_id=request.model_id or config.model_id,
@@ -95,8 +99,8 @@ def create_app(config: ServerConfig) -> FastAPI:
             config=config.to_harness_config(),
             tools=list(config.tools),
             control_plane=plane,
-            persistence=config.persistence,
             session_id=request.session_id,
+            addons=addons or None,
         )
 
         async def run_harness() -> None:

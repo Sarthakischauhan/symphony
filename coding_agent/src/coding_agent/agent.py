@@ -13,12 +13,15 @@ from core_harness import (
     ChildConfig,
     ControlPlane,
     CoreHarness,
+    HarnessConfig,
     HarnessResult,
     KeepSystemRecentCompactor,
     NullControlPlane,
     Persistence,
     Tool,
 )
+from core_harness.addons.compaction import compaction_from_config
+from core_harness.addons.persistence import PersistenceAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
 from coding_agent.config import (
@@ -33,6 +36,14 @@ from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.tools import build_tools
 
 AgentMode = Literal["build", "plan"]
+
+
+def default_addons(*, persistence: Persistence, harness_config: HarnessConfig) -> list:
+    """Product defaults: real persistence plus keep-system-recent compaction."""
+    return [
+        PersistenceAddon(persistence),
+        compaction_from_config(harness_config),
+    ]
 
 
 class CodingAgent:
@@ -90,8 +101,11 @@ class CodingAgent:
             config=self.config.harness,
             tools=self.tools,
             control_plane=self.control_plane,
-            persistence=self.persistence,
             session_id=self.session_id,
+            addons=default_addons(
+                persistence=self.persistence,
+                harness_config=self.config.harness,
+            ),
         )
         if tools is None:
             self.harness.register_tool(

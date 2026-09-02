@@ -75,6 +75,7 @@ async def run_session(
         deadline=deadline,
         max_runtime_seconds=harness.limits.max_runtime_seconds,
         max_parallel_tool_calls=harness.config.max_parallel_tool_calls,
+        notify_addons=harness.notify_addons,
     )
 
     try:
@@ -89,11 +90,18 @@ async def run_session(
             messages = await _apply_inbound_commands(
                 harness, messages, turn=turn, control_plane=plane
             )
+            await harness.notify_addons("before_turn", turn=turn, messages=messages)
             result = await turn_runner.run(
                 messages,
                 turn=turn,
                 usage=usage,
                 context_left=context_left,
+            )
+            await harness.notify_addons(
+                "after_turn",
+                turn=turn,
+                messages=messages,
+                had_tool_calls=bool(result.tool_calls),
             )
             context_left = result.context_left
             all_tool_calls.extend(result.tool_calls)

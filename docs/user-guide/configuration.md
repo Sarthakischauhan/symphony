@@ -70,14 +70,16 @@ for the user-facing shape.
 
 ## Context policy
 
-When a model has 16,000 or fewer context tokens left, the harness keeps the
-system prompt, the original task, and the ten most recent messages. Dropped
-messages are summarized with paths already observed. Tool results are capped
-at 4,000 characters when they enter history. Older tool bodies are stubbed
-only after the estimated prompt reaches `tool_result_prune_tokens` (48,000 by
-default).
+coding_agent attaches keep-system-recent compaction by default. When a model
+has 16,000 or fewer context tokens left, it keeps the system prompt, the
+original task, and the ten most recent messages. Dropped messages are
+summarized with paths already observed. Tool results are capped at 4,000
+characters when they enter history. Older tool bodies are stubbed only after
+the estimated prompt reaches `tool_result_prune_tokens` (48,000 by default).
 
-Pass `context_compact_threshold=None` to disable auto-compact. `/reload`
+A bare `CoreHarness` does not compact until a product attaches the add-on.
+Pass `context_compact_threshold=None` (and `context_target_tokens=None` to
+also drop the token-target trigger) to disable auto-compact. `/reload`
 rebuilds the provider registry and model choices from `.env`.
 
 ## Harness-only config

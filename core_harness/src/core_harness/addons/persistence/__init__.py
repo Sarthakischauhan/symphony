@@ -1,4 +1,4 @@
-"""Persistence protocol, checkpoint model, and the no-op store."""
+"""Persistence add-on: protocol, checkpoint, and the no-op store."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from core_ai.types import Message
 from core_harness.models import UsageTotals
 
-# --- checkpoint.py ---
 CheckpointStatus = Literal["running", "completed", "failed", "cancelled"]
 
 
@@ -25,7 +24,7 @@ class Checkpoint(BaseModel):
     status: CheckpointStatus = "running"
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-# --- base.py ---
+
 class Persistence(Protocol):
     """Pluggable store for conversations and run checkpoints."""
 
@@ -41,7 +40,7 @@ class Persistence(Protocol):
     async def load_checkpoint(self, *, session_id: str) -> Optional[Checkpoint]:
         ...
 
-# --- null.py ---
+
 class NullPersistence:
     """Discard conversations and checkpoints."""
 
@@ -57,4 +56,23 @@ class NullPersistence:
     async def load_checkpoint(self, *, session_id: str) -> Optional[Checkpoint]:
         return None
 
-__all__ = ["Checkpoint", "CheckpointStatus", "NullPersistence", "Persistence"]
+
+class PersistenceAddon:
+    """Mount a ``Persistence`` store onto a harness."""
+
+    name = "persistence"
+
+    def __init__(self, store: Persistence | None = None) -> None:
+        self.store = store or NullPersistence()
+
+    def attach(self, harness: Any) -> None:
+        harness.persistence = self.store
+
+
+__all__ = [
+    "Checkpoint",
+    "CheckpointStatus",
+    "NullPersistence",
+    "Persistence",
+    "PersistenceAddon",
+]

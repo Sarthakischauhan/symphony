@@ -1,11 +1,9 @@
-"""Conversation compaction, token estimates, and harness state."""
+"""Token estimates, pruning, and harness state."""
 
 from core_harness.context.compact import (
     CLEARED_TOOL_RESULT_MARK,
     COMPACTED_CONTEXT_MARK,
     DEFAULT_PRUNE_KEEP_RECENT,
-    Compactor,
-    KeepSystemRecentCompactor,
     bound_tool_result,
     estimate_completion_tokens,
     estimate_message_tokens,
@@ -28,14 +26,12 @@ from core_harness.context.state import (
 __all__ = [
     "CLEARED_TOOL_RESULT_MARK",
     "COMPACTED_CONTEXT_MARK",
-    "Compactor",
     "ContextBucket",
     "ContextMessage",
     "ContextReport",
     "DEFAULT_CONTEXT_LIMITS",
     "DEFAULT_PRUNE_KEEP_RECENT",
     "HarnessState",
-    "KeepSystemRecentCompactor",
     "bound_tool_result",
     "build_context_report",
     "estimate_completion_tokens",

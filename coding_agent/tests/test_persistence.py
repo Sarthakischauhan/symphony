@@ -8,6 +8,7 @@ from typing import Any
 
 from core_ai.types import Message, StreamEvent
 from core_harness import Checkpoint, CoreHarness, HarnessConfig, NullControlPlane, Tool
+from core_harness.addons.persistence import PersistenceAddon
 from coding_agent.persistence import SqlitePersistence
 
 
@@ -80,7 +81,7 @@ def test_harness_persists_and_reloads_conversation(tmp_path: Path) -> None:
         config=HarnessConfig(context_limits={"fake:test": 1000}),
         tools=[Tool(ping)],
         control_plane=control_plane,
-        persistence=store,
+        addons=[PersistenceAddon(store)],
         session_id="session-a",
     )
 

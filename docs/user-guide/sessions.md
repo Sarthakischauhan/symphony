@@ -24,6 +24,6 @@ copy once the prune budget is hit; persisted history stays linear until then.
 
 ## Library
 
-`SqlitePersistence` implements the harness `Persistence` protocol. The harness
-default is `NullPersistence`, so library harness runs discard state unless you
-pass a store.
+`SqlitePersistence` implements the harness `Persistence` protocol. coding_agent
+attaches it by default. A bare `CoreHarness` uses `NullPersistence`, so library
+harness runs discard state unless you attach a store.

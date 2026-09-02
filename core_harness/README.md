@@ -169,9 +169,10 @@ result = await harness.run(
 )
 ```
 
-By default, `NullPersistence` discards state. Pass an implementation of the
-`Persistence` protocol to save and load conversation messages and `Checkpoint`
-objects as the run progresses. `session_id` is the key used by persistence.
+By default, `NullPersistence` discards state. Attach a `PersistenceAddon` with
+an implementation of the `Persistence` protocol to save and load conversation
+messages and `Checkpoint` objects as the run progresses. `session_id` is the
+key used by persistence. `CoreHarness` does not invent a store on its own.
 
 ## Subagents
 
@@ -268,13 +269,25 @@ harness calls the approval gate before invoking a registered tool. Inbound
 implementations can additionally implement `send_command` and
 `drain_commands`.
 
+## Add-ons
+
+`CoreHarness` is an extension surface. It does not auto-build compaction,
+persistence, or telemetry. Pass `addons=[...]` or call `register_addon`.
+Optional hooks, when present on an add-on, are `before_turn`, `after_turn`,
+`on_tool`, and `on_compact`. Skills can use this same attach path later;
+there is no directory discovery or loader.
+
+`coding_agent` attaches `PersistenceAddon` (SQLite) and
+`KeepSystemRecentCompactor` by default. A bare harness run has no compaction.
+
 ## Context management
 
-The harness includes token-estimation helpers and compaction support. Set
-`context_limits`, `context_warn_threshold`, `context_compact_threshold`,
+The harness includes token-estimation helpers. Set `context_limits`,
+`context_warn_threshold`, `context_compact_threshold`,
 `context_target_tokens`, `tool_result_keep_recent`, and
-`tool_result_prune_tokens` on `HarnessConfig`. Provide a custom `Compactor`
-when application-specific summarization is needed.
+`tool_result_prune_tokens` on `HarnessConfig`. Attach a `CompactionAddon` when
+a run should compact; provide a custom `Compactor` for application-specific
+summarization.
 
 `KeepSystemRecentCompactor` keeps the leading system prompt, the original
 user task, and the most recent messages. Assistant/tool groups stay together
@@ -286,7 +299,7 @@ only if the compact is still over the token target. `keep_recent` counts
 messages, not conversation turns:
 
 ```python
-from core_harness import HarnessConfig, KeepSystemRecentCompactor
+from core_harness import CompactionAddon, HarnessConfig, KeepSystemRecentCompactor
 
 harness = CoreHarness(
     registry=registry,
@@ -299,7 +312,7 @@ harness = CoreHarness(
         context_compact_threshold=16_000,
         compaction_keep_recent=10,
     ),
-    compactor=KeepSystemRecentCompactor(keep_recent=10, target_tokens=20_000),
+    addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=10, target_tokens=20_000))],
 )
 ```
 
@@ -307,9 +320,10 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `HarnessConfig`,
-`RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`,
-`Compactor`, `KeepSystemRecentCompactor`, `ContextReport`,
+`Addon`, `PersistenceAddon`, `CompactionAddon`, `TelemetryAddon`,
+`NullTelemetry`, `CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`,
+`HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
+`NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `messages_for_model`,
 `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`,
 `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`,

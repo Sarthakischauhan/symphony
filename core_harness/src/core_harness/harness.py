@@ -10,6 +10,9 @@ from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 
+from core_harness.addons import Addon
+from core_harness.addons.persistence import Checkpoint, NullPersistence, PersistenceAddon
+from core_harness.addons.telemetry import NullTelemetry
 from core_harness.config import SettingsSource, resolve_harness_config
 from core_harness.events import ControlPlane, IdentifiedControlPlane, NullControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
@@ -18,13 +21,7 @@ from core_harness.models import (
     RunLimits,
     UsageTotals,
 )
-from core_harness.persistence import Checkpoint, NullPersistence, Persistence
-from core_harness.context import (
-    Compactor,
-    HarnessState,
-    KeepSystemRecentCompactor,
-    normalize_tool_protocol,
-)
+from core_harness.context import HarnessState, normalize_tool_protocol
 from core_harness.tools import Tool
 
 
@@ -38,7 +35,7 @@ class ChildConfig:
 
 
 class CoreHarness:
-    """Configured harness: tools, limits, persistence, and one-run execution."""
+    """Configured harness: tools, limits, run loop, and attached add-ons."""
 
     def __init__(
         self,
@@ -50,26 +47,20 @@ class CoreHarness:
         reasoning_effort: Optional[str] = None,
         tools: Optional[List[Tool]] = None,
         control_plane: Optional[ControlPlane] = None,
-        persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
-        compactor: Optional[Compactor] = None,
+        addons: Optional[Sequence[Addon]] = None,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
         spawn_depth: int = 0,
     ) -> None:
         self.config = resolve_harness_config(config)
-        if compactor is None and self.config.context_compact_threshold is not None:
-            compactor = KeepSystemRecentCompactor(
-                keep_recent=self.config.compaction_keep_recent,
-                target_tokens=self.config.context_target_tokens,
-                keep_recent_tool_results=self.config.tool_result_keep_recent,
-            )
         self.registry = registry
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort
         self.system_prompt = system_prompt
         self.control_plane = control_plane or NullControlPlane()
-        self.persistence = persistence or NullPersistence()
+        self.persistence = NullPersistence()
+        self.telemetry = NullTelemetry()
         self.session_id = session_id
         self.limits = RunLimits(
             max_turns=self.config.max_turns,
@@ -92,12 +83,30 @@ class CoreHarness:
             context_limits=self.config.context_limits,
             context_warn_threshold=self.config.context_warn_threshold,
             context_compact_threshold=self.config.context_compact_threshold,
-            compactor=compactor,
             context_target_tokens=self.context_target_tokens,
         )
+        self.addons: List[Addon] = []
         self.tools: Dict[str, Tool] = {}
         for tool in tools or []:
             self.register_tool(tool)
+        for addon in addons or []:
+            self.register_addon(addon)
+
+    def register_addon(self, addon: Addon) -> None:
+        """Attach an add-on. Skills can use this path later; there is no loader."""
+        addon.attach(self)
+        self.addons.append(addon)
+
+    async def notify_addons(self, hook: str, **payload: Any) -> None:
+        for addon in self.addons:
+            handler = getattr(addon, hook, None)
+            if handler is not None:
+                await handler(**payload)
+
+    def _child_addons(self) -> List[Addon]:
+        return [
+            addon for addon in self.addons if not isinstance(addon, PersistenceAddon)
+        ]
 
     def register_tool(self, tool: Tool) -> None:
         self.tools[tool.name] = tool
@@ -260,9 +269,8 @@ class CoreHarness:
             reasoning_effort=self.reasoning_effort,
             tools=child_tools,
             control_plane=child_plane,
-            persistence=NullPersistence(),
             session_id=str(uuid.uuid4()),
-            compactor=self.state.compactor,
+            addons=self._child_addons(),
             agent_id=child_id,
             parent_id=self.agent_id,
             spawn_depth=self.spawn_depth + 1,

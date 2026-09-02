@@ -127,7 +127,9 @@ The full catalog is on [Control-plane events](../developer-guide/events.md).
 
 ## Context
 
-`KeepSystemRecentCompactor` keeps the system prompt, the original task, and
-the most recent messages. Dropped work becomes a path-aware summary.
-Auto-compact defaults to when 16,000 or fewer context tokens remain. Disable
-with `context_compact_threshold=None`.
+Compaction is an add-on. Attach `CompactionAddon` / `KeepSystemRecentCompactor`
+when a product run should compact. A bare `CoreHarness` does not. coding_agent
+attaches keep-system-recent compaction by default. Dropped work becomes a
+path-aware summary. coding_agent auto-compacts when 16,000 or fewer context
+tokens remain. Disable with `context_compact_threshold=None` (and
+`context_target_tokens=None` if you also use a token target).
