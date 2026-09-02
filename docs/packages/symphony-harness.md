@@ -83,10 +83,12 @@ text/image parts. It returns `HarnessResult` with `output_text`, `messages`,
 ## Subagents
 
 `CoreHarness.spawn()` starts a child run. Parent/child identity stays on the
-harness. Lifecycle events stay on the parent plane. Every child event is
-stamped with the child's `agent_id` and the parent's id as `parent_id`.
-Multiple `spawn_agent` calls in one turn run concurrently (up to three).
-Nested spawns stop at `max_spawn_depth`.
+harness (`begin_child` / `run_child`). `SubagentAddon` builds the child
+harness and picks child add-ons via `fork_for_child` (or
+`ChildConfig.addons` / `addon_factory`). Lifecycle events stay on the parent
+plane. Every child event is stamped with the child's `agent_id` and the
+parent's id as `parent_id`. Multiple `spawn_agent` calls in one turn run
+concurrently (up to three). Nested spawns stop at `max_spawn_depth`.
 
 The `spawn_agent` tool comes from `SubagentAddon`. coding_agent attaches it
 by default. A bare `CoreHarness` has no spawn tool.

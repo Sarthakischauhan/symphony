@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
 from core_ai.types import Message, StreamEvent
 from core_harness import (
+    Addon,
+    ChildConfig,
     CompactionAddon,
     CoreHarness,
     HarnessConfig,
@@ -14,12 +17,13 @@ from core_harness import (
     NullControlPlane,
     NullPersistence,
     PersistenceAddon,
+    SubagentAddon,
     TelemetryAddon,
     Tool,
 )
 
 
-class RecordingAddon:
+class RecordingAddon(Addon):
     name = "recording"
 
     def __init__(self) -> None:
@@ -166,3 +170,163 @@ def test_telemetry_addon_is_a_noop_seam() -> None:
     result = asyncio.run(harness.run("hi"))
     assert result.output_text == "ok"
     assert any(addon.name == "telemetry" for addon in harness.addons)
+
+
+def test_register_addon_rejects_duplicate_name() -> None:
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn()]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="system",
+        config=HarnessConfig(),
+        addons=[CompactionAddon()],
+    )
+    with pytest.raises(ValueError, match="duplicate addon name: 'compaction'"):
+        harness.register_addon(CompactionAddon())
+
+
+def test_children_do_not_inherit_persistence_by_default() -> None:
+    stores: list[object] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        if self.parent_id is not None:
+            stores.append(self.persistence)
+
+    class MemoryStore(NullPersistence):
+        pass
+
+    store = MemoryStore()
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn("child")]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="parent",
+        config=HarnessConfig(),
+        addons=[PersistenceAddon(store), SubagentAddon()],
+        agent_id="parent-agent",
+    )
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(harness.spawn("go", label="worker"))
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    assert result.output_text == "child"
+    assert isinstance(harness.persistence, MemoryStore)
+    assert stores and all(isinstance(item, NullPersistence) for item in stores)
+    assert all(item is not store for item in stores)
+
+
+def test_custom_addon_does_not_inherit_without_fork() -> None:
+    class MarkerAddon(Addon):
+        name = "marker"
+
+        def attach(self, harness: Any) -> None:
+            harness.marked = True
+
+    child_names: list[list[str]] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        if self.parent_id is not None:
+            child_names.append([addon.name for addon in self.addons])
+
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn("child")]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="parent",
+        config=HarnessConfig(),
+        addons=[MarkerAddon(), SubagentAddon()],
+        agent_id="parent-agent",
+    )
+    assert getattr(harness, "marked", False) is True
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        asyncio.run(harness.spawn("go"))
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    assert child_names == [[]]
+
+
+def test_parallel_children_get_distinct_compaction_addon_instances() -> None:
+    """Two concurrent spawns must not share one CompactionAddon object."""
+    parent_compaction = CompactionAddon()
+    child_compactions: list[CompactionAddon] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        if self.parent_id is not None:
+            child_compactions.extend(
+                addon
+                for addon in self.addons
+                if isinstance(addon, CompactionAddon)
+            )
+
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn("ok")]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="parent",
+        config=HarnessConfig(),
+        addons=[parent_compaction, SubagentAddon()],
+        agent_id="parent-agent",
+    )
+
+    async def spawn_two() -> None:
+        await asyncio.gather(
+            harness.spawn("task a", label="a"),
+            harness.spawn("task b", label="b"),
+        )
+
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        asyncio.run(spawn_two())
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+
+    assert len(child_compactions) == 2
+    first, second = child_compactions
+    assert first is not second
+    assert first is not parent_compaction
+    assert second is not parent_compaction
+    assert id(first) != id(second)
+
+
+def test_child_config_addon_factory_is_used_instead_of_forks() -> None:
+    class FactoryAddon(Addon):
+        name = "factory"
+
+        def attach(self, harness: Any) -> None:
+            harness.factory_mounted = True
+
+    seen: list[object] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        if self.parent_id is not None:
+            seen.append(list(self.addons))
+
+    def factory(parent: CoreHarness) -> list[Addon]:
+        del parent
+        return [FactoryAddon()]
+
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn("child")]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="parent",
+        config=HarnessConfig(),
+        addons=[CompactionAddon(), SubagentAddon()],
+        agent_id="parent-agent",
+    )
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        asyncio.run(
+            harness.spawn("go", child_config=ChildConfig(addon_factory=factory))
+        )
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    assert len(seen) == 1
+    names = [addon.name for addon in seen[0]]
+    assert names == ["factory"]
+    assert getattr(seen[0][0], "name") == "factory"

@@ -248,9 +248,11 @@ implementations can additionally implement `send_command` and
 
 `CoreHarness` is an extension surface. It does not auto-build compaction,
 persistence, telemetry, or a spawn tool. Pass `addons=[...]` or call
-`register_addon`. Optional hooks, when present on an add-on, are
-`before_turn`, `after_turn`, `on_tool`, and `on_compact`. Skills can use this
-same attach path later; there is no directory discovery or loader.
+`register_addon`. Duplicate `name` values raise. Subclass `Addon` for
+no-op `before_turn`, `after_turn`, `on_tool`, and `on_compact` hooks.
+`fork_for_child` is the only inherit path onto a child harness; the
+default returns `None`. Skills can use this same attach path later;
+there is no directory discovery or loader.
 
 `coding_agent` attaches `PersistenceAddon` (SQLite),
 `KeepSystemRecentCompactor`, and `SubagentAddon` by default. A bare harness
@@ -259,10 +261,18 @@ run has no compaction and no `spawn_agent` tool.
 ## Subagents
 
 `CoreHarness.spawn()` starts a child run. Parent/child identity (`agent_id`,
-`parent_id`), `spawn_depth` / `max_spawn_depth`, and control-plane forking
-stay on the harness. Lifecycle events (`agent_spawned` / `agent_completed` /
-`agent_failed`) stay on the parent plane. The child run itself uses
+`parent_id`), `spawn_depth` / `max_spawn_depth`, and lifecycle events
+(`agent_spawned` / `agent_completed` / `agent_failed`) stay on the harness
+via `begin_child` / `run_child`. `SubagentAddon` builds the child
+`CoreHarness` (tools, config copy, system prompt, turns, add-ons) and
+formats the `spawn_agent` tool result. The child run itself uses
 `child_config.control_plane` when provided, otherwise the parent's plane.
+
+Children collect add-ons by calling `fork_for_child` on each parent add-on
+(or `ChildConfig.addons` / `ChildConfig.addon_factory` when set). Compaction
+and telemetry fork to new instances. Persistence and subagent do not, so
+children keep `NullPersistence` and cannot spawn further agents. Parallel
+children never share those forked instances.
 
 The `spawn_agent` tool is an add-on. Attach `SubagentAddon` (coding_agent
 does this by default). A bare `CoreHarness` has no spawn tool.
@@ -327,8 +337,8 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`Addon`, `PersistenceAddon`, `CompactionAddon`, `TelemetryAddon`,
-`SubagentAddon`, `NullTelemetry`, `CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`,
+`Addon`, `AddonProtocol`, `PersistenceAddon`, `CompactionAddon`, `TelemetryAddon`,
+`SubagentAddon`, `NullTelemetry`, `CoreHarness`, `ChildConfig`, `ChildIdentity`, `Tool`, `HarnessResult`,
 `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
 `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `messages_for_model`,

@@ -11,7 +11,7 @@ from core_ai.types import Content, Message
 
 from core_harness.addons import Addon
 from core_harness.addons.persistence import Checkpoint, NullPersistence
-from core_harness.addons.subagent import ChildConfig
+from core_harness.addons.subagent import ChildConfig, ChildIdentity
 from core_harness.addons.telemetry import NullTelemetry
 from core_harness.config import SettingsSource, resolve_harness_config
 from core_harness.events import ControlPlane, IdentifiedControlPlane, NullControlPlane
@@ -85,22 +85,23 @@ class CoreHarness:
 
     def register_addon(self, addon: Addon) -> None:
         """Attach an add-on. Skills can use this path later; there is no loader."""
+        if any(existing.name == addon.name for existing in self.addons):
+            raise ValueError(f"duplicate addon name: {addon.name!r}")
         addon.attach(self)
         self.addons.append(addon)
 
     async def notify_addons(self, hook: str, **payload: Any) -> None:
         for addon in self.addons:
-            handler = getattr(addon, hook, None)
-            if handler is not None:
-                await handler(**payload)
-
-    def _child_addons(self) -> List[Addon]:
-        """Copy add-ons onto a child. Persistence and subagent do not inherit."""
-        return [
-            addon
-            for addon in self.addons
-            if getattr(addon, "inherit_on_spawn", True)
-        ]
+            if hook == "before_turn":
+                await addon.before_turn(**payload)
+            elif hook == "after_turn":
+                await addon.after_turn(**payload)
+            elif hook == "on_tool":
+                await addon.on_tool(**payload)
+            elif hook == "on_compact":
+                await addon.on_compact(**payload)
+            else:
+                raise ValueError(f"unknown addon hook: {hook!r}")
 
     def register_tool(self, tool: Tool) -> None:
         self.tools[tool.name] = tool
@@ -121,36 +122,32 @@ class CoreHarness:
             parent_id=self.parent_id,
         )
 
-    def _child_tools(self, exclude_tools: Iterable[str]) -> List[Tool]:
-        blocked = set(exclude_tools)
-        return [tool for name, tool in self.tools.items() if name not in blocked]
+    def _subagent_addon(self):
+        from core_harness.addons.subagent import SubagentAddon
 
-    async def spawn(
+        for addon in self.addons:
+            if isinstance(addon, SubagentAddon):
+                return addon
+        return SubagentAddon()
+
+    async def begin_child(
         self,
-        prompt: Content,
         *,
         label: str = "",
-        tools: Optional[List[Tool]] = None,
-        exclude_tools: Iterable[str] = ("spawn_agent",),
-        system_prompt: Optional[str] = None,
-        model_id: Optional[str] = None,
-        max_turns: Optional[int] = None,
-        child_config: Optional[ChildConfig] = None,
-    ) -> HarnessResult:
-        """Run a child harness. Identity, depth, and plane fork stay on the harness."""
-        cfg = child_config or ChildConfig()
-        model_id = model_id or cfg.model_id
-        max_turns = max_turns if max_turns is not None else cfg.max_turns
-        child_plane = cfg.control_plane or self.control_plane
+        prompt: Content = "",
+        control_plane: Optional[ControlPlane] = None,
+    ) -> ChildIdentity:
+        """Mint child identity and check depth. Does not construct a harness."""
         prompt_text = text_from_content(prompt)
         child_id = str(uuid.uuid4())
-        plane = self._parent_plane()
+        parent_plane = self._parent_plane()
+        child_plane = control_plane or self.control_plane
         if self.spawn_depth >= self.max_spawn_depth:
             message = (
                 f"error: spawn depth {self.spawn_depth} exceeds "
                 f"max_spawn_depth={self.max_spawn_depth}"
             )
-            await plane.emit(
+            await parent_plane.emit(
                 "agent_failed",
                 {
                     "child_id": child_id,
@@ -159,33 +156,42 @@ class CoreHarness:
                     "message": message,
                 },
             )
-            return HarnessResult(output_text=message, messages=[], tool_calls=[])
-
-        child_tools = tools if tools is not None else self._child_tools(exclude_tools)
-        child_turns = max_turns if max_turns is not None else min(
-            self.max_turns, self.config.spawn_max_turns
-        )
-        child_turns = max(1, min(child_turns, self.config.spawn_max_turns))
-        child = CoreHarness(
-            registry=self.registry,
-            model_id=model_id or self.model_id,
-            system_prompt=system_prompt or self.config.subagent_system_prompt,
-            config=self.config.model_copy(update={"max_turns": child_turns}),
-            reasoning_effort=self.reasoning_effort,
-            tools=child_tools,
-            control_plane=child_plane,
-            session_id=str(uuid.uuid4()),
-            addons=self._child_addons(),
+            return ChildIdentity(
+                agent_id=child_id,
+                parent_id=self.agent_id,
+                spawn_depth=self.spawn_depth + 1,
+                label=label,
+                prompt_text=prompt_text,
+                control_plane=child_plane,
+                parent_plane=parent_plane,
+                blocked=True,
+                blocked_message=message,
+            )
+        return ChildIdentity(
             agent_id=child_id,
             parent_id=self.agent_id,
             spawn_depth=self.spawn_depth + 1,
+            label=label,
+            prompt_text=prompt_text,
+            control_plane=child_plane,
+            parent_plane=parent_plane,
         )
+
+    async def run_child(
+        self,
+        child: CoreHarness,
+        prompt: Content,
+        *,
+        identity: ChildIdentity,
+    ) -> HarnessResult:
+        """Emit lifecycle events and await ``child.run``."""
+        plane = identity.parent_plane
         await plane.emit(
             "agent_spawned",
             {
-                "child_id": child_id,
-                "label": label,
-                "prompt": prompt_text,
+                "child_id": child.agent_id,
+                "label": identity.label,
+                "prompt": identity.prompt_text,
                 "model_id": child.model_id,
                 "depth": child.spawn_depth,
             },
@@ -196,8 +202,8 @@ class CoreHarness:
             await plane.emit(
                 "agent_failed",
                 {
-                    "child_id": child_id,
-                    "label": label,
+                    "child_id": child.agent_id,
+                    "label": identity.label,
                     "message": str(exc),
                     "error_type": type(exc).__name__,
                 },
@@ -211,8 +217,8 @@ class CoreHarness:
             await plane.emit(
                 "agent_failed",
                 {
-                    "child_id": child_id,
-                    "label": label,
+                    "child_id": child.agent_id,
+                    "label": identity.label,
                     "message": str(exc),
                     "error_type": type(exc).__name__,
                 },
@@ -225,13 +231,38 @@ class CoreHarness:
         await plane.emit(
             "agent_completed",
             {
-                "child_id": child_id,
-                "label": label,
+                "child_id": child.agent_id,
+                "label": identity.label,
                 "output_text": result.output_text,
                 "usage": result.usage.model_dump(),
             },
         )
         return result
+
+    async def spawn(
+        self,
+        prompt: Content,
+        *,
+        label: str = "",
+        tools: Optional[List[Tool]] = None,
+        exclude_tools: Iterable[str] = ("spawn_agent",),
+        system_prompt: Optional[str] = None,
+        model_id: Optional[str] = None,
+        max_turns: Optional[int] = None,
+        child_config: Optional[ChildConfig] = None,
+    ) -> HarnessResult:
+        """Run a child harness. Identity, depth, and lifecycle events stay here."""
+        return await self._subagent_addon().run_spawn(
+            self,
+            prompt,
+            label=label,
+            tools=tools,
+            exclude_tools=exclude_tools,
+            system_prompt=system_prompt,
+            model_id=model_id,
+            max_turns=max_turns,
+            child_config=child_config,
+        )
 
     async def run(
         self,
