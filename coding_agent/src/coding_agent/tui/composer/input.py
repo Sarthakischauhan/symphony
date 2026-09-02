@@ -54,11 +54,14 @@ class PromptInput(TextArea):
         """Route Enter to the active interaction channel."""
         if event.key != "enter":
             return
-        if self.submit_on_enter:
+        from coding_agent.tui.composer.slash_menu import SlashMenu
+
+        approval_menu = self.app.query_one("#approval-menu", SlashMenu)
+        if approval_menu.display and approval_menu.selected_value:
+            self.app._choose_menu_option(approval_menu, submit=True)
+        elif self.submit_on_enter:
             self.action_submit()
         else:
-            from coding_agent.tui.composer.slash_menu import SlashMenu
-
             menu = self.app.query_one("#slash-menu", SlashMenu)
             if not menu.display or not menu.selected_value:
                 return
