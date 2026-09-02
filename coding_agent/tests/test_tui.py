@@ -1279,6 +1279,60 @@ def test_permission_question_has_distinct_secure_design(
     asyncio.run(_run())
 
 
+def test_approval_enter_submits_highlighted_always_allow(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.control_plane.approvals.mode == "ask"
+
+            approval = asyncio.create_task(
+                app.control_plane.approve_tool_call(
+                    tool_name="bash",
+                    arguments={"command": "echo hi"},
+                )
+            )
+            for _ in range(20):
+                await pilot.pause()
+                if app.query_one("#approval-menu", SlashMenu).display:
+                    break
+            else:
+                raise AssertionError("approval menu did not appear")
+
+            menu = app.query_one("#approval-menu", SlashMenu)
+            assert menu._questions == ("Allow once", "Always allow", "Deny")
+            assert menu.selected_value == "Allow once"
+            menu.move_selection(1)
+            assert menu.selected_value == "Always allow"
+
+            request_id = app._pending_question_id
+            assert request_id is not None
+            answered = app.control_plane._question_futures[request_id]
+            prompt = app.query_one("#prompt", PromptInput)
+            assert prompt.submit_on_enter
+            # Enter used to submit the empty prompt / "Allow once" default.
+            prompt.action_submit()
+            await pilot.pause()
+
+            assert answered.result() == "Always allow"
+            assert await approval is True
+            assert app.control_plane.approvals.mode == "always_allow"
+
+            second = await app.control_plane.approve_tool_call(
+                tool_name="bash",
+                arguments={"command": "echo again"},
+            )
+            assert second is True
+            assert app._pending_question_id is None
+            assert not app.query_one("#approval-menu", SlashMenu).display
+
+    asyncio.run(_run())
+
+
 def test_subagent_approval_question_uses_parent_approval_menu(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

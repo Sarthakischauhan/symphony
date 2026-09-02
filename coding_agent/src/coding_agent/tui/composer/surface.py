@@ -34,7 +34,7 @@ class ComposerSurface:
         event.input.load_text("")
         if self._pending_question_id is not None:
             event.input.take_images()
-            await self._answer_question(text or self._pending_question_default)
+            await self._answer_question(self._submitted_question_answer(text))
             return
         if not text:
             event.input.take_images()
@@ -171,6 +171,13 @@ class ComposerSurface:
         if menu.select_option_index(event.option_index):
             self._choose_menu_option(menu, submit=True)
         event.stop()
+
+    def _submitted_question_answer(self, text: str) -> str:
+        """Prefer the visible approval highlight over empty prompt text / default."""
+        approval_menu = self.query_one("#approval-menu", SlashMenu)
+        if approval_menu.display and approval_menu.selected_value:
+            return approval_menu.selected_value
+        return text or self._pending_question_default
 
     def _choose_menu_option(self, menu: SlashMenu, *, submit: bool) -> None:
         prompt = self.query_one("#prompt", PromptInput)
