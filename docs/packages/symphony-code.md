@@ -1,35 +1,33 @@
 # symphony-code
 
-`symphony-code` is the first product on the harness. It is not the harness. It
-adds workspace tools, SQLite sessions, optional learning, and a
-conversation-first Textual TUI driven entirely from control-plane events.
+The coding agent. Workspace tools + a Textual TUI, sitting on
+`symphony-harness`. Import it as `coding_agent`.
 
-```sh
-uv run --package symphony-code symphony
-```
+<video src="../demo.mp4" controls muted loop playsinline poster="../demo.png" width="800">
+  <a href="../demo.mp4">Demo: create hello.py, write a test, run pytest — 1 passed</a>
+</video>
+
+That clip is a live run. The agent wrote `hello.py`, wrote `test_hello.py`, and
+ran `python -m pytest` — **1 passed**.
 
 ```sh
 uv add symphony-code
+export OPENAI_API_KEY=sk-...          # or ANTHROPIC_API_KEY / GEMINI_API_KEY
+uv run --package symphony-code symphony --workspace .
 ```
 
-Import it as `coding_agent`. `symphony`, `symphony-code`, and
-`coding-agent-tui` are the same TUI entry point.
+`symphony`, `symphony-code`, and `coding-agent-tui` are the same command.
 
-<div align="center">
-  <img src="../demo.png" alt="Symphony TUI" height="340">
-</div>
+Ask something you can verify on disk:
 
-## What it provides
+```text
+Create hello.py with a greet() function and a test, then run it.
+```
 
-- Workspace tools: `read_file`, `write_file`, `generate_image`, `patch`,
-  `search`, `bash`, `spawn_agent`, `ask_user`.
-- Incremental repo discovery — no preloaded semantic index.
-- Persisted conversations in SQLite, resumable by `session_id` or `--resume`.
-- Optional learning/reflection after successful runs.
-- Textual TUI with streaming Markdown, live tool events, reasoning summaries,
-  usage, and compaction notices.
+You should see `Write` / `Bash` rows in the transcript, then the files on disk.
+`Esc` cancels. `/` is the command menu. `Tab` toggles **build** / **plan**.
 
-## Programmatic agent
+## Library
 
 ```python
 from core_ai import build_default_registry, default_model_id
@@ -41,24 +39,18 @@ agent = CodingAgent(
     model_id=default_model_id(registry),
     workspace=".",
 )
-result = await agent.run("Fix the failing test")
+print((await agent.run("Fix the failing test")).output_text)
 ```
 
-The agent asks before `bash`, overwriting an existing file, or applying a
-broad patch. Plan-mode reads stay unprompted. Default run caps: 24 turns, 40
-tool calls, 10 minutes, no aggregate token failure limit.
+## Docs
 
-<div align="center">
-  <img src="../subagent-spawn.gif" alt="Spawned subagent nested session" height="300">
-</div>
+| | |
+| --- | --- |
+| [TUI](../user-guide/tui.md) | Keybindings, plan mode, images |
+| [Tools](../user-guide/tools.md) | `read_file`, `write_file`, `patch`, `search`, `bash`, `spawn_agent` |
+| [Configuration](../user-guide/configuration.md) | `.symphony/config.json`, approvals |
+| [Sessions](../user-guide/sessions.md) | SQLite, `--resume` |
+| [Slash commands](../reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
 
-`spawn_agent` opens a nested session with the same transcript chrome.
-
-Guides:
-
-- [TUI](../user-guide/tui.md)
-- [Configuration](../user-guide/configuration.md)
-- [Tools](../user-guide/tools.md)
-- [Learning](../user-guide/learning.md)
-- [Sessions](../user-guide/sessions.md)
-- [Slash commands](../reference/slash-commands.md)
+The agent asks before bash, overwrite, or a broad patch. Sessions persist in
+`.symphony/sessions.sqlite3`.

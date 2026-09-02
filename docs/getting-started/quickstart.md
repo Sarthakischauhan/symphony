@@ -17,21 +17,21 @@ The default workspace is the current directory. Point it somewhere else with
 uv run --package symphony-code symphony --workspace /path/to/project
 ```
 
-<div align="center">
-  <img src="../demo.png" alt="Symphony coding agent TUI" height="360">
-</div>
+<video src="../demo.mp4" controls muted loop playsinline poster="../demo.png" width="800">
+  <a href="../demo.mp4">Demo: create hello.py, write a test, run pytest — 1 passed</a>
+</video>
 
 ## 2. Run a prompt you can verify
 
 Ask for something that must touch the workspace:
 
 ```text
-Create hello.txt with hi, then read it back.
+Create hello.py with a greet() function and a test, then run it.
 ```
 
-Success looks like: the model streams a reply, a `write_file` / `read_file` row
-appears, an approval prompt may ask before overwrite, and `hello.txt` exists on
-disk.
+Success looks like the demo above: Write / Bash rows in the transcript, then
+`hello.py` and `test_hello.py` on disk, and pytest reporting **1 passed**. An
+approval prompt may ask before overwrite or bash.
 
 ## 3. Try the interface
 
@@ -62,7 +62,7 @@ agent = CodingAgent(
     model_id=default_model_id(registry),
     workspace=".",
 )
-result = await agent.run("Create hello.txt with hi, then read it back.")
+result = await agent.run("Create hello.py with a greet() function and a test, then run it.")
 print(result.output_text)
 ```
 

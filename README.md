@@ -40,9 +40,9 @@ children; those children reuse the stream, tagged with `parent_id` and
 `symphony-code` is the first product on the harness (workspace tools, SQLite
 sessions, Textual TUI). A browser-use agent is next.
 
-<div align="center">
-  <img src="./docs/demo.png" alt="Symphony coding agent TUI" height="380">
-</div>
+<video src="./docs/demo.mp4" controls muted loop playsinline poster="./docs/demo.png" width="800">
+  <a href="./docs/demo.mp4">Demo: symphony-code writes hello.py, a test, and runs pytest</a>
+</video>
 
 ```mermaid
 flowchart TD
