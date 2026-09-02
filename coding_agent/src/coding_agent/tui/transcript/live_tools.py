@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, MutableMapping, Sequence
+from typing import Any, Callable, Iterable, MutableMapping, Sequence
 
 LIVE_TOOL_WIDGET_LIMIT = 8
 
@@ -13,27 +13,22 @@ def reconcile_live_tools(
     *,
     limit: int = LIVE_TOOL_WIDGET_LIMIT,
 ) -> None:
-    """Keep the last ``limit`` tool cards live; fold older ones into Explored lines.
+    """Keep the last ``limit`` tool cards live per stretch; fold older ones.
 
-    A stretch is a run of tools not separated by a reasoning/thinking block.
-    Each stretch gets at most one Explored summary. ``spawn_agent`` cards stay
-    live and do not count toward the cap. In-progress tools are not collapsed.
+    A stretch is a run of timeline items split by ``ReasoningWidget``.
+    ``ThinkingStatus`` does not split stretches. Each stretch gets at most one
+    Explored summary. ``spawn_agent`` cards stay live and do not count toward
+    the cap. In-progress tools are not collapsed.
     """
     if timeline is None or limit < 0:
         return
-    from coding_agent.tui.tools.calls import ToolCallWidget
 
     snapshot, replace, remove = _timeline_ops(timeline)
-    live = [
-        item
-        for item in snapshot()
-        if isinstance(item, ToolCallWidget) and item.tool_name != "spawn_agent"
-    ]
-    overflow = live[:-limit] if limit else live
-    for widget in overflow:
-        if widget.status in {"preparing", "running"}:
-            continue
-        _collapse_into_explored(widget, snapshot, replace, remove, tools)
+    for live in _live_tools_by_stretch(snapshot()):
+        for widget in _overflow_past_limit(live, limit):
+            if _is_in_progress_tool(widget):
+                continue
+            _collapse_into_explored(widget, snapshot, replace, remove, tools)
 
 
 def _timeline_ops(
@@ -57,6 +52,39 @@ def _timeline_ops(
         items.remove(old)
 
     return snapshot, replace, remove
+
+
+def _is_reasoning_boundary(item: Any) -> bool:
+    """Only ``ReasoningWidget`` splits stretches; ``ThinkingStatus`` does not."""
+    from coding_agent.tui.transcript.process import ReasoningWidget
+
+    return isinstance(item, ReasoningWidget)
+
+
+def _counts_toward_live_cap(item: Any) -> bool:
+    from coding_agent.tui.tools.calls import ToolCallWidget
+
+    return isinstance(item, ToolCallWidget) and item.tool_name != "spawn_agent"
+
+
+def _is_in_progress_tool(widget: Any) -> bool:
+    return widget.status in {"preparing", "running"}
+
+
+def _overflow_past_limit(live: Sequence[Any], limit: int) -> list[Any]:
+    return list(live if not limit else live[:-limit])
+
+
+def _live_tools_by_stretch(items: Sequence[Any]) -> Iterable[list[Any]]:
+    live: list[Any] = []
+    for item in items:
+        if _is_reasoning_boundary(item):
+            yield live
+            live = []
+            continue
+        if _counts_toward_live_cap(item):
+            live.append(item)
+    yield live
 
 
 def _collapse_into_explored(

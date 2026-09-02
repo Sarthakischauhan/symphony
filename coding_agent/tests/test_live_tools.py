@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript.live_tools import reconcile_live_tools
-from coding_agent.tui.transcript.process import ReasoningWidget
+from coding_agent.tui.transcript.process import ReasoningWidget, ThinkingStatus
 
 
 def _done_tool(call_id: str, name: str = "read_file") -> ToolCallWidget:
     widget = ToolCallWidget(call_id, name)
     widget.status = "done"
     return widget
+
+
+def _call_ids(items: list[object]) -> list[str]:
+    return [item.call_id for item in items if isinstance(item, ToolCallWidget)]
 
 
 def test_reconcile_folds_overflow_into_one_explored_summary() -> None:
@@ -51,11 +55,39 @@ def test_reconcile_starts_new_explored_line_after_reasoning() -> None:
     summaries = [item for item in timeline if isinstance(item, ToolCallSummary)]
     live = [item for item in timeline if isinstance(item, ToolCallWidget)]
     assert len(summaries) == 2
-    assert summaries[0].count == 5
+    assert summaries[0].count == 2
     assert summaries[1].count == 2
-    assert len(live) == 3
-    assert [item.call_id for item in live] == ["b-2", "b-3", "b-4"]
-    assert isinstance(timeline[1], ReasoningWidget)
+    assert summaries[0].call_ids == ["a-0", "a-1"]
+    assert summaries[1].call_ids == ["b-0", "b-1"]
+    assert _call_ids(live) == ["a-2", "a-3", "a-4", "b-2", "b-3", "b-4"]
+    assert any(isinstance(item, ReasoningWidget) for item in timeline)
+
+
+def test_reconcile_does_not_collapse_second_stretch_under_limit() -> None:
+    """Two batches of 5 done tools split by reasoning stay fully live at the default cap."""
+    tools: dict[str, object] = {}
+    timeline: list[object] = [ThinkingStatus("Thinking…")]
+    for index in range(5):
+        widget = _done_tool(f"a-{index}")
+        tools[widget.call_id] = widget
+        timeline.append(widget)
+    timeline.append(ReasoningWidget("Considering the next batch."))
+    for index in range(5):
+        widget = _done_tool(f"b-{index}")
+        tools[widget.call_id] = widget
+        timeline.append(widget)
+
+    reconcile_live_tools(timeline, tools)
+
+    summaries = [item for item in timeline if isinstance(item, ToolCallSummary)]
+    live = [item for item in timeline if isinstance(item, ToolCallWidget)]
+    assert summaries == []
+    assert len(live) == 10
+    assert _call_ids(live) == [f"a-{index}" for index in range(5)] + [
+        f"b-{index}" for index in range(5)
+    ]
+    assert isinstance(timeline[0], ThinkingStatus)
+    assert any(isinstance(item, ReasoningWidget) for item in timeline)
 
 
 def test_reconcile_does_not_collapse_spawn_or_running_tools() -> None:
@@ -79,3 +111,16 @@ def test_reconcile_does_not_collapse_spawn_or_running_tools() -> None:
     assert len(live_reads) == 2
     assert len(summaries) == 1
     assert summaries[0].count == 2
+
+
+def test_tool_call_summary_line_uses_amber_explored_and_muted_count() -> None:
+    summary = ToolCallSummary()
+    summary.add_call("read-0")
+    summary.add_call("read-1")
+    line = summary._line()
+    assert line.plain == "[ Explored       2 tools]"
+    styles = {
+        line.plain[span.start : span.end]: str(span.style) for span in line.spans
+    }
+    assert styles["Explored"] == "#d7a84b"
+    assert styles["       2 tools]"] == "#666666"
