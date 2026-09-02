@@ -1,7 +1,9 @@
 # Environment
 
-Keys can live in `.env`. `/reload` in the TUI reloads that file and rebuilds
-the registry.
+Keys can live in `.env`. First-run onboarding and `/provider` write
+`<workspace>/.env`. `/reload` in the TUI reloads that file and rebuilds the
+registry.
+
 
 ## Provider credentials
 

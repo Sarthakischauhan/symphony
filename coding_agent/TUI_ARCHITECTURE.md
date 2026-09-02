@@ -14,7 +14,11 @@ flowchart TD
     RESUME -- No --> RUN
     PICK --> RUN["run_tui(...)"]
 
-    RUN --> INIT["CodingAgentApp.__init__()"]
+    RUN --> ENV["Load cwd + workspace .env"]
+    ENV --> KEYS{"Any provider key?"}
+    KEYS -- No --> ONBOARD["OnboardApp: pick provider, paste key, optionally add another"]
+    ONBOARD --> ENV
+    KEYS -- Yes --> INIT["CodingAgentApp.__init__()"]
     INIT --> CFG["Load project configuration"]
     INIT --> TCP["Create unbound TextualControlPlane"]
     INIT --> TEXTUAL["Textual App.run()"]

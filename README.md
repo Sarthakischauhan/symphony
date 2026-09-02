@@ -17,9 +17,10 @@ swappable, and drive every UI from a single control-plane event stream.
 git clone https://github.com/Sarthakischauhan/symphony.git
 cd symphony
 uv sync
-export OPENAI_API_KEY=sk-...          # or ANTHROPIC_API_KEY / GEMINI_API_KEY
-uv run --package symphony-code symphony
+uv run --package symphony-code symphony   # asks for a provider + API key if none is set
+# or: export OPENAI_API_KEY=sk-... then launch
 ```
+
 
 The published packages are `symphony-core`, `symphony-harness`, and
 `symphony-code`. `core-server` ships in this workspace. Python import names stay
@@ -93,7 +94,8 @@ flowchart TD
 ## Install
 
 **Requirements:** Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/). At least
-one provider key.
+one provider key. If none is set, the TUI asks which provider to use.
+
 
 ### From source (TUI + all packages)
 
@@ -101,9 +103,11 @@ one provider key.
 git clone https://github.com/Sarthakischauhan/symphony.git
 cd symphony
 uv sync
-export OPENAI_API_KEY=sk-...
 uv run --package symphony-code symphony
 ```
+
+If no key is set, the TUI asks which provider to use. You can still export one
+yourself (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY`).
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are the same entry point.
 

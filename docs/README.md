@@ -9,9 +9,9 @@ If you just want to run it:
 git clone https://github.com/Sarthakischauhan/symphony.git
 cd symphony
 uv sync
-export OPENAI_API_KEY=sk-...
 uv run --package symphony-code symphony
 ```
+
 
 Then read **[Installation](./getting-started/installation.md)** and
 **[Quickstart](./getting-started/quickstart.md)**.

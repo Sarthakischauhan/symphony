@@ -4,14 +4,21 @@ import os
 from typing import Optional
 
 from core_ai.providers.anthropic import AnthropicProvider
+from core_ai.providers.catalog import (
+    PROVIDERS,
+    MissingProviderCredentials,
+    provider_api_key,
+)
 from core_ai.providers.gemini import GeminiProvider
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.registry import ModelRegistry
 
-DEFAULT_MODELS = {
-    "openai": "openai:gpt-5.6-luna",
-    "anthropic": "anthropic:claude-sonnet-5",
-    "gemini": "gemini:gemini-3.7-flash",
+DEFAULT_MODELS = {spec.id: spec.default_model for spec in PROVIDERS}
+
+_PROVIDER_TYPES = {
+    "openai": OpenAIProvider,
+    "anthropic": AnthropicProvider,
+    "gemini": GeminiProvider,
 }
 
 
@@ -25,48 +32,35 @@ def build_default_registry(
     gemini_base_url: Optional[str] = None,
 ) -> ModelRegistry:
     """Register every provider that has credentials in the environment."""
-    openai_api_key = openai_api_key if openai_api_key is not None else os.getenv("OPENAI_API_KEY")
-    anthropic_api_key = (
-        anthropic_api_key if anthropic_api_key is not None else os.getenv("ANTHROPIC_API_KEY")
-    )
-    gemini_api_key = gemini_api_key if gemini_api_key is not None else (
-        os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    )
+    explicit_keys = {
+        "openai": openai_api_key,
+        "anthropic": anthropic_api_key,
+        "gemini": gemini_api_key,
+    }
+    explicit_base_urls = {
+        "openai": openai_base_url,
+        "anthropic": anthropic_base_url,
+        "gemini": gemini_base_url,
+    }
     registry = ModelRegistry()
-    if openai_api_key:
-        registry.register(
-            "openai",
-            OpenAIProvider(
-                api_key=openai_api_key,
-                base_url=openai_base_url
-                or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-            ),
+    for spec in PROVIDERS:
+        api_key = (
+            explicit_keys[spec.id]
+            if explicit_keys[spec.id] is not None
+            else provider_api_key(spec)
         )
-    if anthropic_api_key:
-        registry.register(
-            "anthropic",
-            AnthropicProvider(
-                api_key=anthropic_api_key,
-                base_url=anthropic_base_url
-                or os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-            ),
+        if not api_key:
+            continue
+        base_url = explicit_base_urls[spec.id] or os.getenv(
+            spec.base_url_env,
+            spec.default_base_url,
         )
-    if gemini_api_key:
         registry.register(
-            "gemini",
-            GeminiProvider(
-                api_key=gemini_api_key,
-                base_url=gemini_base_url
-                or os.getenv(
-                    "GEMINI_BASE_URL",
-                    "https://generativelanguage.googleapis.com/v1beta",
-                ),
-            ),
+            spec.id,
+            _PROVIDER_TYPES[spec.id](api_key=api_key, base_url=base_url),
         )
     if not registry.namespaces():
-        raise RuntimeError(
-            "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY / GOOGLE_API_KEY"
-        )
+        raise MissingProviderCredentials()
     return registry
 
 

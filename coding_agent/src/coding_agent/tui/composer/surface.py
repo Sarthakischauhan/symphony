@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual import events
 from textual.widgets import OptionList, Static, TextArea
 
+from coding_agent.credentials import OFFLINE_HINT
 from coding_agent.tui.commands import (
     command_matches,
     effort_matches,
@@ -46,7 +47,7 @@ class ComposerSurface:
             return
         images = event.input.take_images()
         if self._agent is None:
-            self.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
+            self.add_notice(OFFLINE_HINT, "error")
             return
         if self._busy:
             self.add_notice("A turn is already in progress.", "warning")

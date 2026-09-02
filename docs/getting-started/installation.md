@@ -5,8 +5,9 @@ The shipped product is **symphony-code** (the Textual TUI). The other packages
 are libraries you can import on their own.
 
 > **Requirements:** Python **3.11+** and uv. You need at least one provider
-> credential: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY` /
-> `GOOGLE_API_KEY`.
+> credential. If none is set, the TUI walks you through choosing a provider
+> and pasting an API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or
+> `GEMINI_API_KEY` / `GOOGLE_API_KEY`).
 
 ## Install from source
 
@@ -19,12 +20,14 @@ cd symphony
 uv sync
 ```
 
-Then export a key and launch the TUI from the repo root:
+Then launch the TUI from the repo root:
 
 ```sh
-export OPENAI_API_KEY=sk-...   # or ANTHROPIC_API_KEY / GEMINI_API_KEY
 uv run --package symphony-code symphony
 ```
+
+If a key is already in the environment, that provider is used immediately.
+Otherwise the TUI asks which provider to add.
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are aliases for the same
 entry point.
@@ -56,8 +59,9 @@ PyPI names and import names differ on purpose:
 
 ## Provider credentials
 
-Every provider with a key is registered. You can set keys in the environment or
-a `.env` file in the workspace.
+Every provider with a key is registered. Set keys in the environment, a `.env`
+file in the workspace, or from the TUI: first-run onboarding and `/provider`.
+
 
 | Provider | Credential | Optional |
 | --- | --- | --- |

@@ -20,6 +20,7 @@ from coding_agent.tui.theme.modal import (
     MODAL_BASE_CSS,
     PLAN_MODAL_CSS,
 )
+from coding_agent.tui.theme.onboard import ONBOARD_CSS, PROVIDER_MODAL_CSS
 from coding_agent.tui.theme.resume import RESUME_CSS
 from coding_agent.tui.theme.tools import TOOLS_CSS
 
@@ -35,7 +36,9 @@ __all__ = [
     "IMAGE_MODAL_CSS",
     "LEARNING_MODAL_CSS",
     "MODAL_BASE_CSS",
+    "ONBOARD_CSS",
     "PLAN_MODAL_CSS",
+    "PROVIDER_MODAL_CSS",
     "RESUME_CSS",
     "SYMPHONY_CODE_THEME",
     "SYMPHONY_COLORS",

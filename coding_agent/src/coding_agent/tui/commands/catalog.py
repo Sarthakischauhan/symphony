@@ -7,6 +7,7 @@ from typing import Iterable, Optional
 
 from core_ai import list_models
 
+
 @dataclass(frozen=True)
 class SlashCommand:
     name: str
@@ -106,6 +107,7 @@ SLASH_COMMANDS = (
     SlashCommand("mode", "View or switch between build and plan", "[mode]"),
     SlashCommand("effort", "Set model reasoning effort", "[level]"),
     SlashCommand("plan", "Choose and open a workspace plan", "[plan]"),
+    SlashCommand("provider", "Add or update a provider API key", "[name]"),
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),

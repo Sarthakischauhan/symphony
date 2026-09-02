@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
@@ -15,6 +14,7 @@ from textual.widgets import Static
 
 from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
+from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.plan import PlanStore
 from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import Composer, PromptInput, SlashMenu
@@ -28,6 +28,7 @@ from coding_agent.tui.runtime import (
 from coding_agent.tui.runtime.subagent import SubagentSurface
 from coding_agent.tui.runtime.turn import TurnSurface
 from coding_agent.tui.screens.ask import QuestionSurface
+from coding_agent.tui.screens.onboard import OnboardApp
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import (
@@ -40,6 +41,7 @@ from coding_agent.tui.transcript import (
     TranscriptSurface,
     Welcome,
 )
+from core_ai import has_configured_provider
 
 
 class CodingAgentApp(
@@ -141,7 +143,10 @@ class CodingAgentApp(
             self._agent.set_mode(self.mode)
         except Exception as exc:
             self._set_status("")
-            self.add_notice(f"Offline · {exc}. Add it to .env and restart.", "error")
+            if has_configured_provider():
+                self.add_notice(f"Offline · {exc}. {OFFLINE_HINT}", "error")
+            else:
+                self.add_notice(OFFLINE_HINT, "error")
             self.query_one("#prompt", PromptInput).focus()
             return
 
@@ -160,7 +165,11 @@ class CodingAgentApp(
 
     def action_cancel_run(self) -> None:
         if isinstance(self.screen, ModalScreen):
-            self.screen.dismiss(None)
+            close = getattr(self.screen, "action_close_modal", None)
+            if callable(close):
+                close()
+            else:
+                self.screen.dismiss(None)
             return
         menu = self.query_one("#slash-menu", SlashMenu)
         approval_menu = self.query_one("#approval-menu", SlashMenu)
@@ -203,7 +212,11 @@ def run_tui(
     enable_learning: Optional[bool] = None,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
-    load_dotenv(override=True)
+    workspace = Path(workspace).resolve()
+    load_provider_env(workspace)
+    if not has_configured_provider():
+        OnboardApp(workspace).run()
+        load_provider_env(workspace)
     CodingAgentApp(
         workspace=workspace,
         model_id=model_id,
