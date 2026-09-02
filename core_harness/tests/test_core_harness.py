@@ -11,6 +11,7 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message, StreamEvent
 from core_harness import (
+    CompactionAddon,
     ControlCommand,
     ControlPlaneEventType,
     CoreHarness,
@@ -254,8 +255,6 @@ def call_fake_harness(
     prompt_tokens: int = 10,
     context_limit: int = 100,
     context_warn_threshold: Optional[int] = None,
-    context_compact_threshold: Optional[int] = None,
-    keep_recent: int = 2,
 ) -> tuple[FakeRegistry, NullControlPlane, Any]:
     registry = FakeRegistry(emit_usage=emit_usage, prompt_tokens=prompt_tokens)
     control_plane = NullControlPlane()
@@ -266,16 +265,9 @@ def call_fake_harness(
         config=HarnessConfig(
             context_limits={"fake:test-model": context_limit},
             context_warn_threshold=context_warn_threshold,
-            context_compact_threshold=context_compact_threshold,
-            compaction_keep_recent=keep_recent,
         ),
         tools=[Tool(get_weather)],
         control_plane=control_plane,
-        compactor=(
-            KeepSystemRecentCompactor(keep_recent=keep_recent)
-            if context_compact_threshold is not None
-            else None
-        ),
     )
     result = asyncio.run(harness.run("What is the weather in San Francisco?"))
     return registry, control_plane, result
@@ -661,7 +653,7 @@ def test_core_harness_compacts_when_context_left_is_low() -> None:
         ),
         tools=[Tool(get_weather)],
         control_plane=control_plane,
-        compactor=KeepSystemRecentCompactor(keep_recent=2),
+        addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=2))],
     )
     prior = [Message(role="user", content=f"earlier task {index}") for index in range(6)]
     result = asyncio.run(
@@ -972,7 +964,7 @@ def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
         ),
         tools=[Tool(bulky_result)],
         control_plane=control_plane,
-        compactor=KeepSystemRecentCompactor(keep_recent=10),
+        addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=10))],
     )
 
     result = asyncio.run(harness.run("inspect files"))

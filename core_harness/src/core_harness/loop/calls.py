@@ -76,6 +76,9 @@ class TurnToolCalls:
         async def commit(tool_call: ToolCall, result: ToolResult) -> None:
             bounded = self._limit_tool_output(result.for_model())
             self.state.add_tool_message(messages, tool_call, bounded)
+            notify = getattr(self, "notify_addons", None)
+            if notify is not None:
+                await notify("on_tool", tool_call=tool_call, result=result)
 
         index = 0
         while index < len(tool_calls):

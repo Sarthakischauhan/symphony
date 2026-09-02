@@ -1,7 +1,23 @@
-from core_harness.context import (
+from core_harness.addons import (
+    Addon,
+    ChildConfig,
+    CompactionAddon,
     Compactor,
-    ContextReport,
     KeepSystemRecentCompactor,
+    NullTelemetry,
+    PersistenceAddon,
+    SubagentAddon,
+    Telemetry,
+    TelemetryAddon,
+    compaction_from_config,
+)
+from core_harness.addons.persistence import (
+    Checkpoint,
+    NullPersistence,
+    Persistence,
+)
+from core_harness.context import (
+    ContextReport,
     bound_tool_result,
     build_context_report,
     messages_for_model,
@@ -25,7 +41,7 @@ from core_harness.events import (
     PersistingControlPlane,
 )
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
-from core_harness.harness import ChildConfig, CoreHarness
+from core_harness.harness import CoreHarness
 from core_harness.models import (
     ControlCommand,
     ControlCommandType,
@@ -39,12 +55,13 @@ from core_harness.models import (
     ToolResult,
     UsageTotals,
 )
-from core_harness.persistence import Checkpoint, NullPersistence, Persistence
 from core_harness.tools import Tool
 
 __all__ = [
+    "Addon",
     "Checkpoint",
     "ChildConfig",
+    "CompactionAddon",
     "Compactor",
     "ContextReport",
     "ControlCommand",
@@ -68,16 +85,22 @@ __all__ = [
     "KeepSystemRecentCompactor",
     "NullControlPlane",
     "NullPersistence",
+    "NullTelemetry",
     "PendingToolCall",
     "Persistence",
+    "PersistenceAddon",
     "PersistingControlPlane",
     "RunLimits",
+    "SubagentAddon",
+    "Telemetry",
+    "TelemetryAddon",
     "Tool",
     "ToolCall",
     "ToolResult",
     "UsageTotals",
     "bound_tool_result",
     "build_context_report",
+    "compaction_from_config",
     "load_harness_config",
     "resolve_harness_config",
     "messages_for_model",

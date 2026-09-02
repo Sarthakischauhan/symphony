@@ -6,7 +6,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
@@ -24,6 +24,10 @@ from core_harness.context import (
 )
 from core_harness.tools import Tool
 from core_harness.loop.calls import TurnToolCalls
+
+
+async def _ignore_addon_hook(_hook: str, **_payload: Any) -> None:
+    return None
 
 
 @dataclass
@@ -62,6 +66,7 @@ class TurnRunner(TurnToolCalls):
         deadline: Optional[float] = None,
         max_runtime_seconds: Optional[float] = None,
         max_parallel_tool_calls: int = 1,
+        notify_addons: Optional[Callable[..., Awaitable[None]]] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -81,6 +86,7 @@ class TurnRunner(TurnToolCalls):
         self.deadline = deadline
         self.max_runtime_seconds = max_runtime_seconds
         self.max_parallel_tool_calls = max_parallel_tool_calls
+        self.notify_addons = notify_addons or _ignore_addon_hook
 
     def _cancelled(self) -> bool:
         return bool(getattr(self.control_plane, "cancelled", False))
@@ -136,7 +142,7 @@ class TurnRunner(TurnToolCalls):
             else None
         )
 
-        messages[:] = await self.state.maybe_compact(
+        compacted = await self.state.maybe_compact(
             messages,
             turn=turn,
             context_limit=self.context_limit,
@@ -144,6 +150,16 @@ class TurnRunner(TurnToolCalls):
             context_left=compact_context_left,
             emit=self.control_plane.emit,
         )
+        if compacted is not messages:
+            await self.notify_addons(
+                "on_compact",
+                turn=turn,
+                messages=compacted,
+                context_limit=self.context_limit,
+                tokens_used=compact_tokens_used,
+                context_left=compact_context_left,
+            )
+        messages[:] = compacted
         estimated_message_tokens = estimate_prompt_tokens(messages)
         budget_tokens = estimated_message_tokens
         await self.control_plane.emit(

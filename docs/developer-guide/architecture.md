@@ -75,13 +75,13 @@ core_ai/src/core_ai/
     defaults.py
 
 core_harness/src/core_harness/
-  harness.py          # CoreHarness config + run loop
+  harness.py          # CoreHarness: tools, limits, run loop, attach add-ons
   tools.py            # Tool adapter
   events.py           # control planes
-  context/            # compaction + token policy
+  context/            # token estimates, pruning, harness state
   loop/               # turn runner, calls, session
   models.py           # events, tools, result
-  persistence.py      # protocol + checkpoint
+  addons/             # persistence, compaction, telemetry, subagent seams
 
 coding_agent/src/coding_agent/
   agent.py            # CodingAgent + build_agent

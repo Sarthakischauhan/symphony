@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 
+from core_harness.addons import Addon
+from core_harness.addons.persistence import Checkpoint, NullPersistence
+from core_harness.addons.subagent import ChildConfig
+from core_harness.addons.telemetry import NullTelemetry
 from core_harness.config import SettingsSource, resolve_harness_config
 from core_harness.events import ControlPlane, IdentifiedControlPlane, NullControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
@@ -18,27 +21,12 @@ from core_harness.models import (
     RunLimits,
     UsageTotals,
 )
-from core_harness.persistence import Checkpoint, NullPersistence, Persistence
-from core_harness.context import (
-    Compactor,
-    HarnessState,
-    KeepSystemRecentCompactor,
-    normalize_tool_protocol,
-)
+from core_harness.context import HarnessState, normalize_tool_protocol
 from core_harness.tools import Tool
 
 
-@dataclass
-class ChildConfig:
-    """Per-child overrides for a spawn. Omitted fields inherit from the parent."""
-
-    model_id: Optional[str] = None
-    max_turns: Optional[int] = None
-    control_plane: Optional[ControlPlane] = None
-
-
 class CoreHarness:
-    """Configured harness: tools, limits, persistence, and one-run execution."""
+    """Configured harness: tools, limits, run loop, and attached add-ons."""
 
     def __init__(
         self,
@@ -50,26 +38,20 @@ class CoreHarness:
         reasoning_effort: Optional[str] = None,
         tools: Optional[List[Tool]] = None,
         control_plane: Optional[ControlPlane] = None,
-        persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
-        compactor: Optional[Compactor] = None,
+        addons: Optional[Sequence[Addon]] = None,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
         spawn_depth: int = 0,
     ) -> None:
         self.config = resolve_harness_config(config)
-        if compactor is None and self.config.context_compact_threshold is not None:
-            compactor = KeepSystemRecentCompactor(
-                keep_recent=self.config.compaction_keep_recent,
-                target_tokens=self.config.context_target_tokens,
-                keep_recent_tool_results=self.config.tool_result_keep_recent,
-            )
         self.registry = registry
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort
         self.system_prompt = system_prompt
         self.control_plane = control_plane or NullControlPlane()
-        self.persistence = persistence or NullPersistence()
+        self.persistence = NullPersistence()
+        self.telemetry = NullTelemetry()
         self.session_id = session_id
         self.limits = RunLimits(
             max_turns=self.config.max_turns,
@@ -92,12 +74,33 @@ class CoreHarness:
             context_limits=self.config.context_limits,
             context_warn_threshold=self.config.context_warn_threshold,
             context_compact_threshold=self.config.context_compact_threshold,
-            compactor=compactor,
             context_target_tokens=self.context_target_tokens,
         )
+        self.addons: List[Addon] = []
         self.tools: Dict[str, Tool] = {}
         for tool in tools or []:
             self.register_tool(tool)
+        for addon in addons or []:
+            self.register_addon(addon)
+
+    def register_addon(self, addon: Addon) -> None:
+        """Attach an add-on. Skills can use this path later; there is no loader."""
+        addon.attach(self)
+        self.addons.append(addon)
+
+    async def notify_addons(self, hook: str, **payload: Any) -> None:
+        for addon in self.addons:
+            handler = getattr(addon, hook, None)
+            if handler is not None:
+                await handler(**payload)
+
+    def _child_addons(self) -> List[Addon]:
+        """Copy add-ons onto a child. Persistence and subagent do not inherit."""
+        return [
+            addon
+            for addon in self.addons
+            if getattr(addon, "inherit_on_spawn", True)
+        ]
 
     def register_tool(self, tool: Tool) -> None:
         self.tools[tool.name] = tool
@@ -122,95 +125,6 @@ class CoreHarness:
         blocked = set(exclude_tools)
         return [tool for name, tool in self.tools.items() if name not in blocked]
 
-    def make_spawn_tool(
-        self,
-        *,
-        exclude_tools: Sequence[str] = ("spawn_agent",),
-        max_turns: Optional[int] = None,
-        configure: Optional[Callable[..., Optional[ChildConfig]]] = None,
-    ) -> Tool:
-        """Model-facing wrapper around :meth:`spawn`.
-
-        ``configure`` is a product hook. It receives the model arguments and
-        may return a :class:`ChildConfig` (for example a child-specific
-        control plane). The harness itself does not interpret approval policy.
-        """
-        default_max_turns = max_turns
-
-        async def spawn_agent(
-            prompt: str,
-            label: str = "",
-            model_id: str = "",
-            max_turns: int = 0,
-        ) -> str:
-            child_config = ChildConfig(
-                model_id=model_id or None,
-                max_turns=max_turns or None,
-            )
-            if configure is not None:
-                override = configure(
-                    prompt=prompt,
-                    label=label,
-                    model_id=model_id or None,
-                    max_turns=max_turns or None,
-                )
-                if override is not None:
-                    child_config = ChildConfig(
-                        model_id=override.model_id or child_config.model_id,
-                        max_turns=(
-                            override.max_turns
-                            if override.max_turns is not None
-                            else child_config.max_turns
-                        ),
-                        control_plane=override.control_plane or child_config.control_plane,
-                    )
-            if child_config.max_turns is None:
-                child_config.max_turns = default_max_turns
-            result = await self.spawn(
-                prompt,
-                label=label,
-                exclude_tools=exclude_tools,
-                child_config=child_config,
-            )
-            name = label.strip() or "child"
-            return f"Subagent {name} completed.\n\n{result.output_text}"
-
-        return Tool(
-            spawn_agent,
-            name="spawn_agent",
-            description=(
-                "Spawn a child agent for a focused subtask. Call this multiple "
-                "times in one turn to run up to three independent children in "
-                "parallel. Optionally set model_id and max_turns for that child. "
-                "Children run without approval prompts and cannot spawn further "
-                "agents."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "The full task for the child agent to complete.",
-                    },
-                    "label": {
-                        "type": "string",
-                        "description": "Short name shown in the UI, e.g. 'inspect auth'.",
-                    },
-                    "model_id": {
-                        "type": "string",
-                        "description": "Optional model for the child. Defaults to the parent model.",
-                    },
-                    "max_turns": {
-                        "type": "integer",
-                        "description": "Optional turn cap for the child, limited by spawn_max_turns.",
-                    },
-                },
-                "required": ["prompt"],
-                "additionalProperties": False,
-            },
-            parallel=True,
-        )
-
     async def spawn(
         self,
         prompt: Content,
@@ -223,7 +137,7 @@ class CoreHarness:
         max_turns: Optional[int] = None,
         child_config: Optional[ChildConfig] = None,
     ) -> HarnessResult:
-        """Run a child harness. Lifecycle events stay on the parent plane."""
+        """Run a child harness. Identity, depth, and plane fork stay on the harness."""
         cfg = child_config or ChildConfig()
         model_id = model_id or cfg.model_id
         max_turns = max_turns if max_turns is not None else cfg.max_turns
@@ -260,9 +174,8 @@ class CoreHarness:
             reasoning_effort=self.reasoning_effort,
             tools=child_tools,
             control_plane=child_plane,
-            persistence=NullPersistence(),
             session_id=str(uuid.uuid4()),
-            compactor=self.state.compactor,
+            addons=self._child_addons(),
             agent_id=child_id,
             parent_id=self.agent_id,
             spawn_depth=self.spawn_depth + 1,
@@ -395,7 +308,6 @@ class CoreHarness:
 
 
 __all__ = [
-    "ChildConfig",
     "CoreHarness",
     "HarnessCancelled",
     "HarnessLimitExceeded",

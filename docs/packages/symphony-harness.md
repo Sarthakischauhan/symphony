@@ -82,15 +82,19 @@ text/image parts. It returns `HarnessResult` with `output_text`, `messages`,
 
 ## Subagents
 
-`CoreHarness.spawn()` starts a child run. Lifecycle events stay on the parent
-plane. Every child event is stamped with the child's `agent_id` and the
-parent's id as `parent_id`. Multiple `spawn_agent` calls in one turn run
-concurrently (up to three). Nested spawns stop at `max_spawn_depth`.
+`CoreHarness.spawn()` starts a child run. Parent/child identity stays on the
+harness. Lifecycle events stay on the parent plane. Every child event is
+stamped with the child's `agent_id` and the parent's id as `parent_id`.
+Multiple `spawn_agent` calls in one turn run concurrently (up to three).
+Nested spawns stop at `max_spawn_depth`.
+
+The `spawn_agent` tool comes from `SubagentAddon`. coding_agent attaches it
+by default. A bare `CoreHarness` has no spawn tool.
 
 ```python
-from core_harness import ChildConfig
+from core_harness import ChildConfig, SubagentAddon
 
-parent.register_tool(parent.make_spawn_tool())
+parent = CoreHarness(..., addons=[SubagentAddon()])
 result = await parent.spawn(
     "Inspect README.md",
     label="readme",
@@ -127,7 +131,9 @@ The full catalog is on [Control-plane events](../developer-guide/events.md).
 
 ## Context
 
-`KeepSystemRecentCompactor` keeps the system prompt, the original task, and
-the most recent messages. Dropped work becomes a path-aware summary.
-Auto-compact defaults to when 16,000 or fewer context tokens remain. Disable
-with `context_compact_threshold=None`.
+Compaction is an add-on. Attach `CompactionAddon` / `KeepSystemRecentCompactor`
+when a product run should compact. A bare `CoreHarness` does not. coding_agent
+attaches keep-system-recent compaction by default. Dropped work becomes a
+path-aware summary. coding_agent auto-compacts when 16,000 or fewer context
+tokens remain. Disable with `context_compact_threshold=None` (and
+`context_target_tokens=None` if you also use a token target).

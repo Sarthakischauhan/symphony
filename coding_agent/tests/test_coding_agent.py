@@ -13,6 +13,7 @@ from core_ai.types import Message, StreamEvent
 from core_harness import NullControlPlane
 from coding_agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LearningConfig, spawn_settings_path
+from coding_agent.persistence import SqlitePersistence
 
 
 def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path) -> None:
@@ -35,6 +36,9 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert saved.harness.tool_result_prune_tokens == 48_000
     assert saved.harness.context_compact_threshold == 16_000
     assert saved.harness.compaction_keep_recent == 10
+    assert agent.harness.state.compactor is not None
+    assert isinstance(agent.persistence, SqlitePersistence)
+    assert agent.harness.persistence is agent.persistence
 
 
 def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> None:
@@ -46,6 +50,7 @@ def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> 
     )
     assert "spawn_agent" in agent.harness.tools
     assert "read_file" in agent.harness.tools
+    assert any(addon.name == "subagent" for addon in agent.harness.addons)
 
 
 def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:

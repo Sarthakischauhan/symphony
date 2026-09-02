@@ -169,34 +169,10 @@ result = await harness.run(
 )
 ```
 
-By default, `NullPersistence` discards state. Pass an implementation of the
-`Persistence` protocol to save and load conversation messages and `Checkpoint`
-objects as the run progresses. `session_id` is the key used by persistence.
-
-## Subagents
-
-`CoreHarness.spawn()` starts a child run. Lifecycle events (`agent_spawned` /
-`agent_completed` / `agent_failed`) stay on the parent plane. The child run
-itself uses `child_config.control_plane` when provided, otherwise the parent's
-plane. Every child event is stamped with the child's `agent_id` and the
-parent's id as `parent_id`.
-
-```python
-from core_harness import ChildConfig, CoreHarness, Tool
-
-parent.register_tool(parent.make_spawn_tool())
-result = await parent.spawn(
-    "Inspect README.md",
-    label="readme",
-    child_config=ChildConfig(model_id="openai:gpt-5.6-mini", max_turns=4),
-)
-```
-
-`make_spawn_tool(configure=...)` lets a product map model arguments onto a
-`ChildConfig` — for example a forked UI control plane that auto-approves child
-tools. Children get a fresh conversation, `NullPersistence`, and the parent
-tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`.
-Multiple `spawn_agent` calls in one turn run concurrently (up to three).
+By default, `NullPersistence` discards state. Attach a `PersistenceAddon` with
+an implementation of the `Persistence` protocol to save and load conversation
+messages and `Checkpoint` objects as the run progresses. `session_id` is the
+key used by persistence. `CoreHarness` does not invent a store on its own.
 
 ## Limits and cancellation
 
@@ -268,13 +244,57 @@ harness calls the approval gate before invoking a registered tool. Inbound
 implementations can additionally implement `send_command` and
 `drain_commands`.
 
+## Add-ons
+
+`CoreHarness` is an extension surface. It does not auto-build compaction,
+persistence, telemetry, or a spawn tool. Pass `addons=[...]` or call
+`register_addon`. Optional hooks, when present on an add-on, are
+`before_turn`, `after_turn`, `on_tool`, and `on_compact`. Skills can use this
+same attach path later; there is no directory discovery or loader.
+
+`coding_agent` attaches `PersistenceAddon` (SQLite),
+`KeepSystemRecentCompactor`, and `SubagentAddon` by default. A bare harness
+run has no compaction and no `spawn_agent` tool.
+
+## Subagents
+
+`CoreHarness.spawn()` starts a child run. Parent/child identity (`agent_id`,
+`parent_id`), `spawn_depth` / `max_spawn_depth`, and control-plane forking
+stay on the harness. Lifecycle events (`agent_spawned` / `agent_completed` /
+`agent_failed`) stay on the parent plane. The child run itself uses
+`child_config.control_plane` when provided, otherwise the parent's plane.
+
+The `spawn_agent` tool is an add-on. Attach `SubagentAddon` (coding_agent
+does this by default). A bare `CoreHarness` has no spawn tool.
+
+```python
+from core_harness import ChildConfig, CoreHarness, SubagentAddon, Tool
+
+parent = CoreHarness(
+    ...,
+    addons=[SubagentAddon()],
+)
+result = await parent.spawn(
+    "Inspect README.md",
+    label="readme",
+    child_config=ChildConfig(model_id="openai:gpt-5.6-mini", max_turns=4),
+)
+```
+
+`SubagentAddon(configure=...)` lets a product map model arguments onto a
+`ChildConfig` — for example a forked UI control plane that auto-approves child
+tools. Children get a fresh conversation, `NullPersistence`, and the parent
+tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`.
+Multiple `spawn_agent` calls in one turn run concurrently (up to three).
+
 ## Context management
 
-The harness includes token-estimation helpers and compaction support. Set
-`context_limits`, `context_warn_threshold`, `context_compact_threshold`,
+The harness includes token-estimation helpers. Set `context_limits`,
+`context_warn_threshold`, `context_compact_threshold`,
 `context_target_tokens`, `tool_result_keep_recent`, and
-`tool_result_prune_tokens` on `HarnessConfig`. Provide a custom `Compactor`
-when application-specific summarization is needed.
+`tool_result_prune_tokens` on `HarnessConfig`. Attach a `CompactionAddon` when
+a run should compact; provide a custom `Compactor` for application-specific
+summarization.
 
 `KeepSystemRecentCompactor` keeps the leading system prompt, the original
 user task, and the most recent messages. Assistant/tool groups stay together
@@ -286,7 +306,7 @@ only if the compact is still over the token target. `keep_recent` counts
 messages, not conversation turns:
 
 ```python
-from core_harness import HarnessConfig, KeepSystemRecentCompactor
+from core_harness import CompactionAddon, HarnessConfig, KeepSystemRecentCompactor
 
 harness = CoreHarness(
     registry=registry,
@@ -299,7 +319,7 @@ harness = CoreHarness(
         context_compact_threshold=16_000,
         compaction_keep_recent=10,
     ),
-    compactor=KeepSystemRecentCompactor(keep_recent=10, target_tokens=20_000),
+    addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=10, target_tokens=20_000))],
 )
 ```
 
@@ -307,9 +327,10 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `HarnessConfig`,
-`RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`,
-`Compactor`, `KeepSystemRecentCompactor`, `ContextReport`,
+`Addon`, `PersistenceAddon`, `CompactionAddon`, `TelemetryAddon`,
+`SubagentAddon`, `NullTelemetry`, `CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`,
+`HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
+`NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `messages_for_model`,
 `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`,
 `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`,

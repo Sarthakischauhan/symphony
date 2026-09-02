@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Sequence
 
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
@@ -18,6 +18,9 @@ from core_harness.context.compact import (
     _is_cleared_tool_result,
     _tool_names,
 )
+
+if TYPE_CHECKING:
+    from core_harness.addons.compaction import Compactor
 
 # --- context report ---
 @dataclass(frozen=True)

@@ -20,7 +20,7 @@ from core_harness import (
     NullPersistence,
     Tool,
 )
-from core_harness.persistence import Checkpoint
+from core_harness.addons.persistence import Checkpoint, PersistenceAddon
 
 
 IDENTITY_KEYS = ("run_id", "session_id", "agent_id", "parent_id", "seq", "ts", "schema_version")
@@ -100,6 +100,9 @@ def _harness(
     control_plane: Any = None,
 ) -> tuple[Any, Any, CoreHarness]:
     plane = control_plane or NullControlPlane()
+    addons = []
+    if persistence is not None:
+        addons.append(PersistenceAddon(persistence))
     harness = CoreHarness(
         registry=registry,
         model_id="fake:test-model",
@@ -112,7 +115,7 @@ def _harness(
         ),
         tools=tools or [],
         control_plane=plane,
-        persistence=persistence,
+        addons=addons or None,
     )
     return registry, plane, harness
 

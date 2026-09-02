@@ -13,12 +13,16 @@ from core_harness import (
     ChildConfig,
     ControlPlane,
     CoreHarness,
+    HarnessConfig,
     HarnessResult,
     KeepSystemRecentCompactor,
     NullControlPlane,
     Persistence,
     Tool,
 )
+from core_harness.addons.compaction import compaction_from_config
+from core_harness.addons.persistence import PersistenceAddon
+from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
 from coding_agent.config import (
@@ -33,6 +37,23 @@ from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.tools import build_tools
 
 AgentMode = Literal["build", "plan"]
+
+
+def default_addons(
+    *,
+    persistence: Persistence,
+    harness_config: HarnessConfig,
+    spawn_configure: Any = None,
+    include_subagent: bool = True,
+) -> list:
+    """Product defaults: persistence, compaction, and spawn_agent."""
+    addons: list = [
+        PersistenceAddon(persistence),
+        compaction_from_config(harness_config),
+    ]
+    if include_subagent:
+        addons.append(SubagentAddon(configure=spawn_configure))
+    return addons
 
 
 class CodingAgent:
@@ -83,6 +104,7 @@ class CodingAgent:
             self.workspace,
             config=self.config.tools,
         )
+        include_subagent = tools is None
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -90,13 +112,14 @@ class CodingAgent:
             config=self.config.harness,
             tools=self.tools,
             control_plane=self.control_plane,
-            persistence=self.persistence,
             session_id=self.session_id,
+            addons=default_addons(
+                persistence=self.persistence,
+                harness_config=self.config.harness,
+                spawn_configure=self._spawn_child_config if include_subagent else None,
+                include_subagent=include_subagent,
+            ),
         )
-        if tools is None:
-            self.harness.register_tool(
-                self.harness.make_spawn_tool(configure=self._spawn_child_config)
-            )
 
     def _spawn_child_config(
         self,
