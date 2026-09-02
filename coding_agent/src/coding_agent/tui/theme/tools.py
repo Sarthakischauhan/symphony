@@ -190,4 +190,13 @@ TOOLS_CSS = """
 .diff-tool .tool-call-header:focus {
     background: #202020;
 }
+
+.tool-call-summary {
+    width: auto;
+    max-width: 72;
+    height: 1;
+    padding: 0 1 0 2;
+    color: #666666;
+    background: $background;
+}
 """

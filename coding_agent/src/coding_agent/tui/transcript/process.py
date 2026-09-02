@@ -36,25 +36,46 @@ class ThinkingStatus(Static):
 
     def on_mount(self) -> None:
         self._animation_timer = self.set_interval(0.12, self._advance_gradient)
-        if not self._working:
-            self._animation_timer.pause()
+        self._sync_animation_timer()
+
+    def on_unmount(self) -> None:
+        if self._animation_timer is not None:
+            self._animation_timer.stop()
+            self._animation_timer = None
+
+    def watch_display(self, display: bool) -> None:
+        del display
+        self._sync_animation_timer()
+
+    def set_visible(self, visible: bool) -> None:
+        """Show or hide the status line and pause the gradient when it is off-screen."""
+        self.display = visible
+        self._sync_animation_timer()
+
+    def _sync_animation_timer(self) -> None:
+        timer = self._animation_timer
+        if timer is None:
+            return
+        if self._working and self.display:
+            timer.resume()
+        else:
+            timer.pause()
 
     def set_text(self, value: str) -> None:
         self._working = False
-        if self._animation_timer is not None:
-            self._animation_timer.pause()
+        self._sync_animation_timer()
         self.update(Text(f"✻  {value}", style="#666666"))
 
     def set_working(self, detail: str = "") -> None:
         """Show a moving color gradient while a model request is retrying."""
         self._working = True
         self._working_detail = detail
-        if self._animation_timer is not None:
-            self._animation_timer.resume()
+        self._sync_animation_timer()
         self._render_working()
 
     def _advance_gradient(self) -> None:
-        if not self._working:
+        if not self._working or not self.display:
+            self._sync_animation_timer()
             return
         self._gradient_step = (self._gradient_step + 1) % len(self._WORKING_COLORS)
         self._render_working()
@@ -77,12 +98,14 @@ class RunProcess(Container):
 
     def __init__(self, thinking: ThinkingStatus) -> None:
         self._pending_items: list[Widget] = []
+        self._items: list[Widget] = []
         self._thinking = thinking
         self._completed = False
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
         pending, self._pending_items = self._pending_items, []
+        self._items = list(pending)
         yield self._thinking
         yield from pending
 
@@ -90,7 +113,34 @@ class RunProcess(Container):
         if not self.is_attached:
             self._pending_items.append(widget)
             return
+        self._items.append(widget)
         self.mount(widget)
+
+    def timeline_items(self) -> list[Widget]:
+        """Timeline order, including items not yet flushed to the DOM."""
+        if self.is_attached:
+            return [self._thinking, *self._items]
+        return [self._thinking, *self._pending_items]
+
+    def replace_item(self, old: Widget, new: Widget) -> None:
+        """Swap a mounted or pending child without dropping surrounding timeline items."""
+        if old in self._pending_items:
+            self._pending_items[self._pending_items.index(old)] = new
+            return
+        if old in self._items:
+            self._items[self._items.index(old)] = new
+        if old.is_attached:
+            self.mount(new, after=old)
+            old.remove()
+
+    def remove_item(self, widget: Widget) -> None:
+        if widget in self._pending_items:
+            self._pending_items.remove(widget)
+            return
+        if widget in self._items:
+            self._items.remove(widget)
+        if widget.is_attached:
+            widget.remove()
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._flush_pending_items)
@@ -99,6 +149,7 @@ class RunProcess(Container):
         if not self._pending_items:
             return
         pending, self._pending_items = self._pending_items, []
+        self._items.extend(pending)
         self.mount(*pending)
 
     def complete(self, title: str, *, collapse: bool = True) -> None:
@@ -106,7 +157,7 @@ class RunProcess(Container):
         if self._completed:
             return
         self._completed = True
-        self._thinking.display = False
+        self._thinking.set_visible(False)
         self.add_item(
             Static(Text(f"✓  {title}", style="#5f6a62"), classes="process-complete")
         )

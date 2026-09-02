@@ -15,7 +15,7 @@ from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
-from coding_agent.tui.transcript import clip_text, compact_json
+from coding_agent.tui.transcript.messages import clip_text, compact_json
 
 class BashToolHeader(Horizontal, can_focus=True):
     """Focusable Bash timeline header that toggles its output."""
@@ -171,6 +171,33 @@ class ToolCallWidget(Collapsible):
         )
         self.add_class(f"status-{self.status}")
         self._body.update(Group(*self._body_rows()))
+
+
+class ToolCallSummary(Static):
+    """One-line stand-in for a group of unmounted ToolCallWidgets."""
+
+    def __init__(self) -> None:
+        self.call_ids: list[str] = []
+        super().__init__(self._line(), classes="tool-call-summary")
+
+    @property
+    def count(self) -> int:
+        return len(self.call_ids)
+
+    def add_call(self, call_id: str) -> None:
+        if call_id not in self.call_ids:
+            self.call_ids.append(call_id)
+        from textual._context import NoActiveAppError
+
+        try:
+            self.update(self._line())
+        except NoActiveAppError:
+            pass
+
+    def _line(self) -> Text:
+        n = self.count
+        noun = "tool call" if n == 1 else "tool calls"
+        return Text(f"[ Explored {n} {noun} ]", style="#666666")
 
 
 IMAGE_CHIP = "[Image 1]"

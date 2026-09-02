@@ -8,6 +8,7 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
+from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT, reconcile_live_tools
 from coding_agent.tui.transcript.messages import AssistantMessage, Notice, Welcome
 from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
 
@@ -19,8 +20,21 @@ class TranscriptSurface:
         self, transcript: VerticalScroll, *, was_at_end: bool
     ) -> None:
         """Keep following live output unless the user has scrolled away."""
-        if was_at_end:
-            self.call_after_refresh(transcript.scroll_end, animate=False)
+        if not was_at_end:
+            return
+        self._pending_scroll_end = True
+        if getattr(self, "_scroll_end_scheduled", False):
+            return
+        self._scroll_end_scheduled = True
+        self.call_after_refresh(self._flush_transcript_scroll_end)
+
+    def _flush_transcript_scroll_end(self) -> None:
+        self._scroll_end_scheduled = False
+        if not getattr(self, "_pending_scroll_end", False):
+            return
+        self._pending_scroll_end = False
+        transcript = self.query_one("#transcript", VerticalScroll)
+        transcript.scroll_end(animate=False)
 
     def _mount_transcript(self, widget: Static) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
@@ -53,7 +67,7 @@ class TranscriptSurface:
         if self._thinking is None:
             self.set_thinking("Working")
         assert self._thinking is not None
-        self._thinking.display = True
+        self._thinking.set_visible(True)
         self._thinking.set_working(detail)
 
     def _mount_process_item(self, widget: Widget) -> None:
@@ -68,7 +82,7 @@ class TranscriptSurface:
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         if new or self._reasoning is None:
             if self._thinking is not None:
-                self._thinking.display = False
+                self._thinking.set_visible(False)
             self._reasoning = ReasoningWidget(text)
             self._mount_process_item(self._reasoning)
         else:
@@ -87,10 +101,15 @@ class TranscriptSurface:
         from coding_agent.tui.tools.calls import make_tool_widget
 
         if self._thinking is not None:
-            self._thinking.display = False
+            self._thinking.set_visible(False)
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
+        reconcile_live_tools(
+            self._process,
+            self._tools,
+            limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
+        )
 
     def update_tool(
         self,
@@ -101,12 +120,17 @@ class TranscriptSurface:
         status: str = "preparing",
         result: Any = None,
     ) -> None:
+        from coding_agent.tui.tools.calls import ToolCallSummary
+
         transcript = self.query_one("#transcript", VerticalScroll)
         was_at_end = transcript.is_vertical_scroll_end
         widget = self._tools.get(call_id)
         if widget is None:
             self.add_tool(call_id, "tool")
             widget = self._tools[call_id]
+        if isinstance(widget, ToolCallSummary):
+            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
+            return
         if status == "running":
             widget.set_running(arguments)
         elif status == "done":
@@ -114,6 +138,12 @@ class TranscriptSurface:
         else:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
+        if status == "done":
+            reconcile_live_tools(
+                self._process,
+                self._tools,
+                limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
+            )
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)

@@ -6,6 +6,7 @@ from coding_agent.tui.tools.calls import (
     GenerateImageWidget,
     PatchDiffWidget,
     ReadFileWidget,
+    ToolCallSummary,
     ToolCallWidget,
     make_tool_widget,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "ImageModal",
     "PatchDiffWidget",
     "ReadFileWidget",
+    "ToolCallSummary",
     "ToolCallWidget",
     "build_user_content",
     "diff_stats",

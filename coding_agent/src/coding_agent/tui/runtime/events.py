@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol
+from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 
 from coding_agent.tui.runtime.state import UiRunState
-from coding_agent.tui.transcript import preview_text
+from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
+ChromeSnapshot = Tuple[Any, ...]
+
+# High-frequency stream events are buffered and painted with the next real UI update.
+_STREAM_EVENT_TYPES = frozenset({"text_delta", "reasoning_delta"})
 
 
 def _clean_reasoning(text: str) -> str:
@@ -74,22 +78,80 @@ class EventPresenter:
         self._tool_arguments: dict[str, str] = {}
         self._reasoning_parts: dict[int, str] = {}
         self._reasoning_active = False
+        self._pending_assistant: Optional[tuple[str, bool]] = None
+        self._pending_reasoning: Optional[tuple[str, bool]] = None
+        self._last_chrome: Optional[ChromeSnapshot] = None
+
+    def _chrome_snapshot(self) -> ChromeSnapshot:
+        m = self.state.metrics
+        return (
+            self.state.phase,
+            self.state.detail,
+            self.state.status_line(workspace=self.workspace),
+            m.prompt_tokens,
+            m.completion_tokens,
+            m.reasoning_tokens,
+            m.total_tokens,
+            m.cumulative_tokens,
+            m.tokens_used,
+            m.context_limit,
+            m.context_left,
+            m.utilization,
+            m.estimated,
+        )
 
     def refresh_chrome(self) -> None:
+        snapshot = self._chrome_snapshot()
+        if snapshot == self._last_chrome:
+            return
+        self._last_chrome = snapshot
         self._set_status(self.state.status_line(workspace=self.workspace))
 
     def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         payload = payload or {}
+        before = self._chrome_snapshot()
+        if event_type not in _STREAM_EVENT_TYPES:
+            self.flush_stream_paints()
         handler = getattr(self, f"_on_{event_type}", None)
         if handler is None:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
-        self.refresh_chrome()
+        after = self._chrome_snapshot()
+        if after != before:
+            self.refresh_chrome()
 
     def flush_stream_to_log(self) -> None:
-        """Compatibility name: streamed content already updates in place."""
+        """Paint any buffered stream text, then close the live assistant widget."""
+        self.flush_stream_paints()
         self._assistant_open = False
+
+    def flush_stream_paints(self) -> None:
+        """Apply buffered assistant/reasoning widget updates."""
+        pending_reasoning = self._pending_reasoning
+        pending_assistant = self._pending_assistant
+        self._pending_reasoning = None
+        self._pending_assistant = None
+        if pending_reasoning is not None:
+            text, new = pending_reasoning
+            self.view.set_reasoning(text, new=new)
+        if pending_assistant is not None:
+            text, new = pending_assistant
+            self.view.set_assistant(text, new=new)
+
+    def _buffer_assistant(self, text: str, *, new: bool) -> None:
+        if self._pending_assistant is None:
+            self._pending_assistant = (text, new)
+            return
+        _, was_new = self._pending_assistant
+        self._pending_assistant = (text, was_new or new)
+
+    def _buffer_reasoning(self, text: str, *, new: bool) -> None:
+        if self._pending_reasoning is None:
+            self._pending_reasoning = (text, new)
+            return
+        _, was_new = self._pending_reasoning
+        self._pending_reasoning = (text, was_new or new)
 
     def _usage_text(self, prefix: str = "Thinking") -> str:
         m = self.state.metrics
@@ -113,6 +175,8 @@ class EventPresenter:
         self._tool_arguments.clear()
         self._reasoning_parts.clear()
         self._reasoning_active = False
+        self._pending_assistant = None
+        self._pending_reasoning = None
         self.view.set_thinking("Thinking…")
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
@@ -195,6 +259,8 @@ class EventPresenter:
         attempt = int(payload.get("attempt") or 1)
         reason = str(payload.get("reason") or "rate_limit")
         if payload.get("resets_stream"):
+            self._pending_assistant = None
+            self._pending_reasoning = None
             if self._reasoning_active:
                 self.view.set_reasoning("")
             self._finish_reasoning()
@@ -224,8 +290,8 @@ class EventPresenter:
         if is_new:
             self.state.stream_text = ""
         self.state.append_text(delta)
-        self.view.set_assistant(self.state.stream_text, new=is_new)
         self._assistant_open = True
+        self._buffer_assistant(self.state.stream_text, new=is_new)
 
     def _on_reasoning_delta(self, payload: Dict[str, Any]) -> None:
         delta = str(payload.get("delta") or "")
@@ -243,9 +309,14 @@ class EventPresenter:
         self.state.reasoning_text = text
         self.state.phase = "thinking"
         self.state.detail = "reasoning"
-        self.view.set_reasoning(text, new=is_new)
+        self._buffer_reasoning(text, new=is_new)
 
     def _finish_reasoning(self) -> None:
+        pending = self._pending_reasoning
+        if pending is not None:
+            self._pending_reasoning = None
+            text, new = pending
+            self.view.set_reasoning(text, new=new)
         if not self._reasoning_active:
             return
         self.view.finish_reasoning()

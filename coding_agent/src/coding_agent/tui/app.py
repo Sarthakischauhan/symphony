@@ -29,9 +29,10 @@ from coding_agent.tui.runtime.subagent import SubagentSurface
 from coding_agent.tui.runtime.turn import TurnSurface
 from coding_agent.tui.screens.ask import QuestionSurface
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
-from coding_agent.tui.tools import ToolCallWidget
+from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import (
     AssistantMessage,
+    LIVE_TOOL_WIDGET_LIMIT,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
@@ -94,7 +95,7 @@ class CodingAgentApp(
         self._thinking: Optional[ThinkingStatus] = None
         self._reasoning: Optional[ReasoningWidget] = None
         self._process: Optional[RunProcess] = None
-        self._tools: dict[str, ToolCallWidget] = {}
+        self._tools: dict[str, ToolCallWidget | ToolCallSummary] = {}
         self._subagents: dict[str, SubagentRecord] = {}
         self._plan_store = PlanStore(self.workspace)
         self._plan_run_active = False
@@ -102,6 +103,9 @@ class CodingAgentApp(
         self._pending_question_default = ""
         self._model_options = model_options()
         self._command_manager = CommandManager(self)
+        self.live_tool_widget_limit = LIVE_TOOL_WIDGET_LIMIT
+        self._scroll_end_scheduled = False
+        self._pending_scroll_end = False
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
