@@ -1,5 +1,8 @@
 # Harness events
 
+Canonical user-facing catalog:
+**[docs/developer-guide/events.md](../../docs/developer-guide/events.md)**.
+
 `CoreHarness` emits ordered control-plane events with an `event_type` and a
 `payload`. Events marked conditional are emitted only when applicable.
 
