@@ -81,7 +81,7 @@ core_harness/src/core_harness/
   context/            # token estimates, pruning, harness state
   loop/               # turn runner, calls, session
   models.py           # events, tools, result
-  addons/             # persistence, compaction, telemetry seams
+  addons/             # persistence, compaction, telemetry, subagent seams
 
 coding_agent/src/coding_agent/
   agent.py            # CodingAgent + build_agent

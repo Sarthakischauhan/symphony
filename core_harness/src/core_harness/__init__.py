@@ -1,10 +1,12 @@
 from core_harness.addons import (
     Addon,
+    ChildConfig,
     CompactionAddon,
     Compactor,
     KeepSystemRecentCompactor,
     NullTelemetry,
     PersistenceAddon,
+    SubagentAddon,
     Telemetry,
     TelemetryAddon,
     compaction_from_config,
@@ -39,7 +41,7 @@ from core_harness.events import (
     PersistingControlPlane,
 )
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
-from core_harness.harness import ChildConfig, CoreHarness
+from core_harness.harness import CoreHarness
 from core_harness.models import (
     ControlCommand,
     ControlCommandType,
@@ -89,6 +91,7 @@ __all__ = [
     "PersistenceAddon",
     "PersistingControlPlane",
     "RunLimits",
+    "SubagentAddon",
     "Telemetry",
     "TelemetryAddon",
     "Tool",

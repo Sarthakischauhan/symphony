@@ -174,31 +174,6 @@ an implementation of the `Persistence` protocol to save and load conversation
 messages and `Checkpoint` objects as the run progresses. `session_id` is the
 key used by persistence. `CoreHarness` does not invent a store on its own.
 
-## Subagents
-
-`CoreHarness.spawn()` starts a child run. Lifecycle events (`agent_spawned` /
-`agent_completed` / `agent_failed`) stay on the parent plane. The child run
-itself uses `child_config.control_plane` when provided, otherwise the parent's
-plane. Every child event is stamped with the child's `agent_id` and the
-parent's id as `parent_id`.
-
-```python
-from core_harness import ChildConfig, CoreHarness, Tool
-
-parent.register_tool(parent.make_spawn_tool())
-result = await parent.spawn(
-    "Inspect README.md",
-    label="readme",
-    child_config=ChildConfig(model_id="openai:gpt-5.6-mini", max_turns=4),
-)
-```
-
-`make_spawn_tool(configure=...)` lets a product map model arguments onto a
-`ChildConfig` — for example a forked UI control plane that auto-approves child
-tools. Children get a fresh conversation, `NullPersistence`, and the parent
-tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`.
-Multiple `spawn_agent` calls in one turn run concurrently (up to three).
-
 ## Limits and cancellation
 
 Pass a `HarnessConfig` (or a JSON file path) to `CoreHarness`. There is no
@@ -272,13 +247,45 @@ implementations can additionally implement `send_command` and
 ## Add-ons
 
 `CoreHarness` is an extension surface. It does not auto-build compaction,
-persistence, or telemetry. Pass `addons=[...]` or call `register_addon`.
-Optional hooks, when present on an add-on, are `before_turn`, `after_turn`,
-`on_tool`, and `on_compact`. Skills can use this same attach path later;
-there is no directory discovery or loader.
+persistence, telemetry, or a spawn tool. Pass `addons=[...]` or call
+`register_addon`. Optional hooks, when present on an add-on, are
+`before_turn`, `after_turn`, `on_tool`, and `on_compact`. Skills can use this
+same attach path later; there is no directory discovery or loader.
 
-`coding_agent` attaches `PersistenceAddon` (SQLite) and
-`KeepSystemRecentCompactor` by default. A bare harness run has no compaction.
+`coding_agent` attaches `PersistenceAddon` (SQLite),
+`KeepSystemRecentCompactor`, and `SubagentAddon` by default. A bare harness
+run has no compaction and no `spawn_agent` tool.
+
+## Subagents
+
+`CoreHarness.spawn()` starts a child run. Parent/child identity (`agent_id`,
+`parent_id`), `spawn_depth` / `max_spawn_depth`, and control-plane forking
+stay on the harness. Lifecycle events (`agent_spawned` / `agent_completed` /
+`agent_failed`) stay on the parent plane. The child run itself uses
+`child_config.control_plane` when provided, otherwise the parent's plane.
+
+The `spawn_agent` tool is an add-on. Attach `SubagentAddon` (coding_agent
+does this by default). A bare `CoreHarness` has no spawn tool.
+
+```python
+from core_harness import ChildConfig, CoreHarness, SubagentAddon, Tool
+
+parent = CoreHarness(
+    ...,
+    addons=[SubagentAddon()],
+)
+result = await parent.spawn(
+    "Inspect README.md",
+    label="readme",
+    child_config=ChildConfig(model_id="openai:gpt-5.6-mini", max_turns=4),
+)
+```
+
+`SubagentAddon(configure=...)` lets a product map model arguments onto a
+`ChildConfig` — for example a forked UI control plane that auto-approves child
+tools. Children get a fresh conversation, `NullPersistence`, and the parent
+tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`.
+Multiple `spawn_agent` calls in one turn run concurrently (up to three).
 
 ## Context management
 
@@ -321,7 +328,7 @@ harness = CoreHarness(
 The package exports the main types needed to integrate the harness:
 
 `Addon`, `PersistenceAddon`, `CompactionAddon`, `TelemetryAddon`,
-`NullTelemetry`, `CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`,
+`SubagentAddon`, `NullTelemetry`, `CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`,
 `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
 `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `messages_for_model`,

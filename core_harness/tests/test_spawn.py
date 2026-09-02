@@ -6,7 +6,7 @@ import asyncio
 from typing import Any
 
 from core_ai.types import Message, StreamEvent
-from core_harness import ChildConfig, CoreHarness, HarnessConfig, NullControlPlane, Tool
+from core_harness import ChildConfig, CoreHarness, HarnessConfig, NullControlPlane, SubagentAddon, Tool
 
 
 class ScriptedRegistry:
@@ -83,8 +83,8 @@ def test_spawn_emits_parent_and_child_identity() -> None:
         tools=[Tool(inspect_repo)],
         control_plane=plane,
         agent_id="parent-agent",
+        addons=[SubagentAddon()],
     )
-    harness.register_tool(harness.make_spawn_tool())
 
     result = asyncio.run(harness.run("Inspect the repo via a subagent."))
 
@@ -241,8 +241,8 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
         config=HarnessConfig(max_turns=4),
         control_plane=plane,
         agent_id="parent-agent",
+        addons=[SubagentAddon()],
     )
-    harness.register_tool(harness.make_spawn_tool())
     result = asyncio.run(harness.run("Investigate auth and db in parallel."))
 
     assert registry.max_active >= 2
@@ -301,15 +301,6 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
     parent_plane = NullControlPlane()
     child_plane = NullControlPlane()
     seen: list[dict[str, Any]] = []
-    harness = CoreHarness(
-        registry=registry,  # type: ignore[arg-type]
-        model_id="fake:parent-model",
-        system_prompt="parent",
-        config=HarnessConfig(max_turns=4),
-        control_plane=parent_plane,
-        agent_id="parent-agent",
-    )
-
     def configure(**kwargs: Any) -> ChildConfig:
         seen.append(kwargs)
         return ChildConfig(
@@ -318,7 +309,15 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
             control_plane=child_plane,
         )
 
-    harness.register_tool(harness.make_spawn_tool(configure=configure))
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:parent-model",
+        system_prompt="parent",
+        config=HarnessConfig(max_turns=4),
+        control_plane=parent_plane,
+        agent_id="parent-agent",
+        addons=[SubagentAddon(configure=configure)],
+    )
     result = asyncio.run(
         harness.tools["spawn_agent"].execute(
             control_plane=parent_plane,
@@ -344,6 +343,10 @@ def test_make_spawn_tool_configure_merges_partial_override() -> None:
     registry = ScriptedRegistry([_text_turn("merged")])
     parent_plane = NullControlPlane()
     child_plane = NullControlPlane()
+    def configure(**kwargs: Any) -> ChildConfig:
+        del kwargs
+        return ChildConfig(control_plane=child_plane)
+
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:parent-model",
@@ -351,13 +354,8 @@ def test_make_spawn_tool_configure_merges_partial_override() -> None:
         config=HarnessConfig(),
         control_plane=parent_plane,
         agent_id="parent-agent",
+        addons=[SubagentAddon(configure=configure)],
     )
-
-    def configure(**kwargs: Any) -> ChildConfig:
-        del kwargs
-        return ChildConfig(control_plane=child_plane)
-
-    harness.register_tool(harness.make_spawn_tool(configure=configure))
     result = asyncio.run(
         harness.tools["spawn_agent"].execute(
             control_plane=parent_plane,

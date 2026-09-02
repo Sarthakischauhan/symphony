@@ -22,6 +22,7 @@ from core_harness.addons.persistence import (
     Persistence,
     PersistenceAddon,
 )
+from core_harness.addons.subagent import ChildConfig, SubagentAddon
 from core_harness.addons.telemetry import (
     NullTelemetry,
     Telemetry,
@@ -44,6 +45,7 @@ __all__ = [
     "Addon",
     "Checkpoint",
     "CheckpointStatus",
+    "ChildConfig",
     "CompactionAddon",
     "Compactor",
     "KeepSystemRecentCompactor",
@@ -51,6 +53,7 @@ __all__ = [
     "NullTelemetry",
     "Persistence",
     "PersistenceAddon",
+    "SubagentAddon",
     "Telemetry",
     "TelemetryAddon",
     "compaction_from_config",

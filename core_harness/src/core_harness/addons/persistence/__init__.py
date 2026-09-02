@@ -61,6 +61,7 @@ class PersistenceAddon:
     """Mount a ``Persistence`` store onto a harness."""
 
     name = "persistence"
+    inherit_on_spawn = False
 
     def __init__(self, store: Persistence | None = None) -> None:
         self.store = store or NullPersistence()

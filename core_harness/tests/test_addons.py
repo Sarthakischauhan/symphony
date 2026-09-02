@@ -89,6 +89,16 @@ def test_bare_harness_does_not_auto_build_compactor() -> None:
     assert "compaction_started" not in [event.event_type for event in harness.control_plane.events]
 
 
+def test_bare_harness_has_no_spawn_tool() -> None:
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn()]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="system",
+        config=HarnessConfig(),
+    )
+    assert "spawn_agent" not in harness.tools
+
+
 def test_register_addon_mounts_compaction_and_fires_hooks() -> None:
     recorder = RecordingAddon()
     registry = ScriptedRegistry(

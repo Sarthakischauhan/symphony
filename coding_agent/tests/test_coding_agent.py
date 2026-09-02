@@ -50,6 +50,7 @@ def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> 
     )
     assert "spawn_agent" in agent.harness.tools
     assert "read_file" in agent.harness.tools
+    assert any(addon.name == "subagent" for addon in agent.harness.addons)
 
 
 def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
