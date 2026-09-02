@@ -248,6 +248,50 @@ def test_custom_addon_does_not_inherit_without_fork() -> None:
     assert child_names == [[]]
 
 
+def test_parallel_children_get_distinct_compaction_addon_instances() -> None:
+    """Two concurrent spawns must not share one CompactionAddon object."""
+    parent_compaction = CompactionAddon()
+    child_compactions: list[CompactionAddon] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        if self.parent_id is not None:
+            child_compactions.extend(
+                addon
+                for addon in self.addons
+                if isinstance(addon, CompactionAddon)
+            )
+
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn("ok")]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="parent",
+        config=HarnessConfig(),
+        addons=[parent_compaction, SubagentAddon()],
+        agent_id="parent-agent",
+    )
+
+    async def spawn_two() -> None:
+        await asyncio.gather(
+            harness.spawn("task a", label="a"),
+            harness.spawn("task b", label="b"),
+        )
+
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        asyncio.run(spawn_two())
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+
+    assert len(child_compactions) == 2
+    first, second = child_compactions
+    assert first is not second
+    assert first is not parent_compaction
+    assert second is not parent_compaction
+    assert id(first) != id(second)
+
+
 def test_child_config_addon_factory_is_used_instead_of_forks() -> None:
     class FactoryAddon(Addon):
         name = "factory"
