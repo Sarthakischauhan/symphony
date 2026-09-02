@@ -1,18 +1,22 @@
 # symphony-harness
 
-`symphony-harness` is a provider-independent, asynchronous agent loop. It runs a model with Python tools, maintains the conversation for each run, reports lifecycle events, and applies operational limits and context-window policies.
+`symphony-harness` is a provider-independent, asynchronous agent loop. It runs
+a model with Python tools, maintains the conversation for each run, reports
+lifecycle events, and applies operational limits and context-window policies.
 
-> The package is under active development. The public API is exported from the `core_harness` Python module.
-
-## Installation
-
-From this repository:
+> The package is under active development (0.1.0). The public API is exported
+> from the `core_harness` Python module.
 
 ```sh
 uv add symphony-harness
 ```
 
-When using the workspace checkout, install the workspace dependencies with `uv sync` and run commands from the repository root or from this directory.
+Docs: **[symphony-harness](../docs/packages/symphony-harness.md)** ·
+[Control-plane events](../docs/developer-guide/events.md) ·
+[Architecture](../docs/developer-guide/architecture.md)
+
+When using the workspace checkout, install with `uv sync` and run commands
+from the repository root or from this directory.
 
 ## Quick start
 
@@ -85,14 +89,18 @@ Run it with:
 ANTHROPIC_API_KEY=your-key-here uv run python example.py
 ```
 
-`build_default_registry()` recognizes OpenAI, Anthropic, and Gemini credentials.
-`model_id` must use the form `provider:model-name`, and that provider must be
-registered before calling `run`. You can also construct `ModelRegistry` manually
-and register any `BaseProvider` implementation under a matching namespace.
+`build_default_registry()` recognizes OpenAI, Anthropic, and Gemini
+credentials. `model_id` must use the form `provider:model-name`, and that
+provider must be registered before calling `run`. You can also construct
+`ModelRegistry` manually and register any `BaseProvider` implementation under
+a matching namespace.
 
 ## Tools
 
-Wrap synchronous or asynchronous Python callables with `Tool`. The callable's name, docstring, signature, and basic type annotations are used to create the model-facing schema. For full control, provide `name`, `description`, and/or an explicit JSON-schema `parameters` object.
+Wrap synchronous or asynchronous Python callables with `Tool`. The callable's
+name, docstring, signature, and basic type annotations are used to create the
+model-facing schema. For full control, provide `name`, `description`, and/or
+an explicit JSON-schema `parameters` object.
 
 ```python
 async def search_docs(query: str, limit: int = 5) -> list:
@@ -116,7 +124,8 @@ harness.register_tool(
 )
 ```
 
-A tool may declare a `control_plane` parameter. The harness supplies the active control plane automatically; it is not exposed as a model argument:
+A tool may declare a `control_plane` parameter. The harness supplies the
+active control plane automatically; it is not exposed as a model argument:
 
 ```python
 def approve(action: str, control_plane: NullControlPlane) -> str:
@@ -124,21 +133,33 @@ def approve(action: str, control_plane: NullControlPlane) -> str:
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
 
-Tool results are bounded to 4,000 characters at insert time (40/60 head/tail) before being persisted. Image parts in a tool result are not character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or pass `None` to disable the bound. Values below 1 are rejected. Truncation stays in memory: the bounded text is what is stored, and the original payload is discarded.
+Tool results are bounded to 4,000 characters at insert time (40/60 head/tail)
+before being persisted. Image parts in a tool result are not
+character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or
+pass `None` to disable the bound. Values below 1 are rejected. Truncation
+stays in memory: the bounded text is what is stored, and the original payload
+is discarded.
 
-History stays linear until the estimated prompt reaches `tool_result_prune_tokens` (off by default). Only then are older tool bodies replaced with a path-aware one-line stub on a **copy** of the conversation — persisted history is unchanged. Unconditional last-N pruning made the model re-read files it had already seen.
+History stays linear until the estimated prompt reaches
+`tool_result_prune_tokens` (off by default). Only then are older tool bodies
+replaced with a path-aware one-line stub on a **copy** of the conversation —
+persisted history is unchanged. Unconditional last-N pruning made the model
+re-read files it had already seen.
 
 ## Runs, results, and conversations
 
-`await harness.run(user_input)` accepts a string or a list of canonical text/image parts. It returns a `HarnessResult` containing:
+`await harness.run(user_input)` accepts a string or a list of canonical
+text/image parts. It returns a `HarnessResult` containing:
 
 - `output_text` — the assistant's final text
 - `messages` — messages accumulated during the run
 - `tool_calls` — tool calls made during the run
 - `usage` — prompt, completion, reasoning, and total token counts
-- `context_limit` and `context_left` — provider context information when available
+- `context_limit` and `context_left` — provider context information when
+  available
 
-A conversation can be supplied explicitly, and a session can be selected per run:
+A conversation can be supplied explicitly, and a session can be selected per
+run:
 
 ```python
 result = await harness.run(
@@ -148,11 +169,17 @@ result = await harness.run(
 )
 ```
 
-By default, `NullPersistence` discards state. Pass an implementation of the `Persistence` protocol to save and load conversation messages and `Checkpoint` objects as the run progresses. `session_id` is the key used by persistence.
+By default, `NullPersistence` discards state. Pass an implementation of the
+`Persistence` protocol to save and load conversation messages and `Checkpoint`
+objects as the run progresses. `session_id` is the key used by persistence.
 
 ## Subagents
 
-`CoreHarness.spawn()` starts a child run. Lifecycle events (`agent_spawned` / `agent_completed` / `agent_failed`) stay on the parent plane. The child run itself uses `child_config.control_plane` when provided, otherwise the parent's plane. Every child event is stamped with the child's `agent_id` and the parent's id as `parent_id`.
+`CoreHarness.spawn()` starts a child run. Lifecycle events (`agent_spawned` /
+`agent_completed` / `agent_failed`) stay on the parent plane. The child run
+itself uses `child_config.control_plane` when provided, otherwise the parent's
+plane. Every child event is stamped with the child's `agent_id` and the
+parent's id as `parent_id`.
 
 ```python
 from core_harness import ChildConfig, CoreHarness, Tool
@@ -165,13 +192,18 @@ result = await parent.spawn(
 )
 ```
 
-`make_spawn_tool(configure=...)` lets a product map model arguments onto a `ChildConfig` — for example a forked UI control plane that auto-approves child tools. Children get a fresh conversation, `NullPersistence`, and the parent tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`. Multiple `spawn_agent` calls in one turn run concurrently (up to three).
+`make_spawn_tool(configure=...)` lets a product map model arguments onto a
+`ChildConfig` — for example a forked UI control plane that auto-approves child
+tools. Children get a fresh conversation, `NullPersistence`, and the parent
+tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`.
+Multiple `spawn_agent` calls in one turn run concurrently (up to three).
 
 ## Limits and cancellation
 
-Pass a `HarnessConfig` (or a JSON file path) to `CoreHarness`. There is no packaged
-defaults file; omitted keys use the `HarnessConfig` field defaults. Shared product
-config files may put these values under a top-level `harness` object.
+Pass a `HarnessConfig` (or a JSON file path) to `CoreHarness`. There is no
+packaged defaults file; omitted keys use the `HarnessConfig` field defaults.
+Shared product config files may put these values under a top-level `harness`
+object.
 
 ```python
 from core_harness import HarnessConfig, load_harness_config
@@ -190,7 +222,10 @@ harness = CoreHarness(
 # or: config=load_harness_config("harness.json")
 ```
 
-The harness raises `HarnessCancelled` when a run is cancelled and `HarnessLimitExceeded` when a configured limit is reached. An inbound control plane can pause, resume, cancel, or inject a user/system message while a run is active:
+The harness raises `HarnessCancelled` when a run is cancelled and
+`HarnessLimitExceeded` when a configured limit is reached. An inbound control
+plane can pause, resume, cancel, or inject a user/system message while a run
+is active:
 
 ```python
 from core_harness import ControlCommand
@@ -205,32 +240,50 @@ await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
 
 ## Events and control planes
 
-The harness emits run, turn, text-stream, tool, usage, context, compaction, pause/resume, injection, cancellation, limit, and subagent lifecycle events. Event types are available as `ControlPlaneEventType` values. `NullControlPlane` records events in memory and is the default.
+The harness emits run, turn, text-stream, tool, usage, context, compaction,
+pause/resume, injection, cancellation, limit, and subagent lifecycle events.
+Event types are available as `ControlPlaneEventType` values.
+`NullControlPlane` records events in memory and is the default.
+
+The catalog with payload examples is in
+[docs/developer-guide/events.md](../docs/developer-guide/events.md) and
+[docs/events.md](./docs/events.md).
 
 Available control-plane adapters include:
 
 - `NullControlPlane` — records events and supports inbound commands.
-- `InteractiveControlPlane` — records events and optionally forwards them to subscribers or an event log.
+- `InteractiveControlPlane` — records events and optionally forwards them to
+  subscribers or an event log.
 - `FanoutControlPlane` — sends events to multiple control planes in order.
 - `PersistingControlPlane` — appends events to an `EventLog`.
-- `IdentifiedControlPlane` — adds `run_id`, `session_id`, `agent_id`, `parent_id`, sequence, timestamp, and schema-version metadata to each event.
-- `InMemoryEventLog` — a simple event-log implementation for tests and local use.
+- `IdentifiedControlPlane` — adds `run_id`, `session_id`, `agent_id`,
+  `parent_id`, sequence, timestamp, and schema-version metadata to each event.
+- `InMemoryEventLog` — a simple event-log implementation for tests and local
+  use.
 
 For observation-only integrations, implement the `ControlPlane` protocol's
-asynchronous `emit(event_type, payload)` method. Interactive control planes can
-also implement `request_user_input(...)` and `approve_tool_call(...)`; the harness
-calls the approval gate before invoking a registered tool. Inbound implementations
-can additionally implement `send_command` and `drain_commands`.
+asynchronous `emit(event_type, payload)` method. Interactive control planes
+can also implement `request_user_input(...)` and `approve_tool_call(...)`; the
+harness calls the approval gate before invoking a registered tool. Inbound
+implementations can additionally implement `send_command` and
+`drain_commands`.
 
 ## Context management
 
 The harness includes token-estimation helpers and compaction support. Set
 `context_limits`, `context_warn_threshold`, `context_compact_threshold`,
-`context_target_tokens`, `tool_result_keep_recent`, and `tool_result_prune_tokens`
-on `HarnessConfig`. Provide a custom `Compactor` when application-specific
-summarization is needed.
+`context_target_tokens`, `tool_result_keep_recent`, and
+`tool_result_prune_tokens` on `HarnessConfig`. Provide a custom `Compactor`
+when application-specific summarization is needed.
 
-`KeepSystemRecentCompactor` keeps the leading system prompt, the original user task, and the most recent messages. Assistant/tool groups stay together so the provider protocol stays valid. Dropped messages become a short, path-aware summary instead of disappearing. A one-user N-tool loop is not one un-droppable turn: earlier tool groups can be summarised while the last `keep_recent` messages stay. Old tool bodies inside kept messages are stubbed only if the compact is still over the token target. `keep_recent` counts messages, not conversation turns:
+`KeepSystemRecentCompactor` keeps the leading system prompt, the original
+user task, and the most recent messages. Assistant/tool groups stay together
+so the provider protocol stays valid. Dropped messages become a short,
+path-aware summary instead of disappearing. A one-user N-tool loop is not one
+un-droppable turn: earlier tool groups can be summarised while the last
+`keep_recent` messages stay. Old tool bodies inside kept messages are stubbed
+only if the compact is still over the token target. `keep_recent` counts
+messages, not conversation turns:
 
 ```python
 from core_harness import HarnessConfig, KeepSystemRecentCompactor
@@ -254,7 +307,15 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `ContextReport`, `build_context_report`, `bound_tool_result`, `messages_for_model`, `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`, `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`, `NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`, `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`, `HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
+`CoreHarness`, `ChildConfig`, `Tool`, `HarnessResult`, `HarnessConfig`,
+`RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`, `NullPersistence`,
+`Compactor`, `KeepSystemRecentCompactor`, `ContextReport`,
+`build_context_report`, `bound_tool_result`, `messages_for_model`,
+`prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`,
+`ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`,
+`NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`,
+`PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`,
+`HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
 
 ## Development
 

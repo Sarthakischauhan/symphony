@@ -1,15 +1,48 @@
 # Symphony
 
-An open-source agent harness. The published packages are `symphony-core` and
-`symphony-harness`; `symphony-code` is the first product built on them. The
-Python modules retain their compatibility names (`core_ai`, `core_harness`, and
-`coding_agent`). More products are coming (a browser-use agent is next).
+An open-source agent harness. Keep the loop product-agnostic, keep providers
+swappable, and drive every UI from a single control-plane event stream.
 
-Built with a simple philosophy: keep the harness product-agnostic, keep the provider layer swappable, and drive every UI from a single control-plane event stream instead of scraping output. Parent runs can spawn child agents; those children reuse the same stream, tagged with `parent_id` and `agent_id`.
+<p>
+  <a href="./docs/getting-started/installation.md"><strong>Install</strong></a>
+  ·
+  <a href="./docs/getting-started/quickstart.md"><strong>Quickstart</strong></a>
+  ·
+  <a href="./docs/README.md"><strong>Docs</strong></a>
+  ·
+  <a href="https://github.com/Sarthakischauhan/symphony">GitHub</a>
+</p>
 
-## Architecture
+```sh
+git clone https://github.com/Sarthakischauhan/symphony.git
+cd symphony
+uv sync
+export OPENAI_API_KEY=sk-...          # or ANTHROPIC_API_KEY / GEMINI_API_KEY
+uv run --package symphony-code symphony
+```
+
+The published packages are `symphony-core`, `symphony-harness`, and
+`symphony-code`. `core-server` ships in this workspace. Python import names stay
+`core_ai`, `core_harness`, `coding_agent`, and `core_server`.
+
+---
+
+## What it is
 
 Symphony is the harness. Agents are separate consumers that plug into it.
+
+It is not a copilot bolted to an IDE, and it is not a wrapper around a single
+API. A turn is model stream → tool calls → authorize and run → back to the
+model, with every UI reading the same typed events. Parent runs can spawn
+children; those children reuse the stream, tagged with `parent_id` and
+`agent_id`.
+
+`symphony-code` is the first product on the harness (workspace tools, SQLite
+sessions, Textual TUI). A browser-use agent is next.
+
+<div align="center">
+  <img src="./docs/demo.png" alt="Symphony coding agent TUI" height="380">
+</div>
 
 ```mermaid
 flowchart TD
@@ -48,177 +81,166 @@ flowchart TD
     BROW -. "plugs into" .-> SYM
 ```
 
+| Layer | Package | Role |
+| --- | --- | --- |
+| Harness | [`symphony-harness`](./core_harness/README.md) | Turns, tools, control-plane events, compaction |
+| Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, Gemini; catalog; streaming types |
+| Agent | [`symphony-code`](./coding_agent/README.md) | Workspace tools, SQLite sessions, Textual TUI |
+| Server | [`core-server`](./core_server/README.md) | FastAPI wrapper that streams those events over SSE |
+
 ---
 
-| Layer | Package | Role |
-|---|---|---|
-| Harness | [`symphony-harness`](./core_harness/README.md) | The agent loop: turns, tools, control-plane events, compaction |
-| Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, and Gemini providers; model catalog; streaming types |
-| Agent | [`symphony-code`](./coding_agent/README.md) | One consumer of the harness: workspace tools, SQLite sessions, Textual TUI |
-| Server | [`core-server`](./core_server/README.md) | FastAPI wrapper that streams harness control-plane events over SSE |
+## Install
 
-The harness (Symphony) is standalone and product-agnostic. Agents are separate consumers that plug into the harness's tool and control-plane interfaces — `symphony-code` today, a browser-use agent next. `symphony-harness` builds on `symphony-core`; the Python modules remain `core_harness`, `core_ai`, and `coding_agent`.
+**Requirements:** Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/). At least
+one provider key.
 
-### Source layout
-
-Each package is a small set of modules, one concept per file. Leaf packages of 20-line files are avoided.
-
-```
-core_ai/src/core_ai/
-  content.py          # multimodal parts
-  types.py            # Message, StreamEvent
-  registry.py         # provider:model routing
-  models/             # generated catalog (script-owned)
-  providers/
-    openai.py         # chat + responses + images
-    anthropic.py
-    gemini.py
-    http.py           # SSE + 429 retry
-    defaults.py
-
-core_harness/src/core_harness/
-  harness.py          # CoreHarness config + run loop
-  turn.py             # one model turn
-  tools.py            # Tool adapter
-  control_plane.py    # emit / pause / cancel
-  state.py            # context + compaction
-  models.py           # events, tools, result
-  persistence.py      # protocol + checkpoint
-  errors.py
-
-coding_agent/src/coding_agent/
-  agent.py            # CodingAgent + build_agent
-  tools/              # one file per workspace tool
-  tui/
-    app.py            # Textual app
-    commands.py       # slash catalogs + handlers
-    widgets.py        # transcript, composer, tool cards
-    modal.py          # every modal
-    styles.py         # CSS
-    events.py         # harness event → UI
-    images.py         # drop + image modal
-    ...
-```
-
-A turn is `CodingAgent.run` → `CoreHarness.run` → `TurnRunner` → `ModelRegistry.stream` → `WorkspaceTool.execute`. No façade objects in between.
-
-## Features
-
-- **Streaming provider layer** — OpenAI Responses / Chat Completions, Anthropic Messages, and Gemini generateContent all stream through the same `Message` / `StreamEvent` contract. Available credentials can be registered automatically and models are addressed as `provider:model`.
-- **Model catalog** — a generated, package-shipped catalog records each model's provider and API family. Builds refresh it from provider model endpoints when credentials are available and retain the checked-in snapshot otherwise.
-- **Turn-based harness** — multi-turn tool calls, tool schema generation, and a typed control-plane event stream (thinking, `text_delta`, tool calls, usage, context). Every event carries `run_id`, `session_id`, a sequence number, timestamp, and schema version. Runs can cap turns, tool calls, runtime, and tokens.
-- **Control plane** — owns runtime interaction policy as well as the event stream: tool authorization, user questions, always-allow mode, fan-out, event logs, and inbound pause/cancel commands. Cancel stops the active model stream and tool execution, then persists `run_cancelled`.
-- **Coding agent** — workspace tools (`read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`), `@file` composer search, streamed/capped bash, approval prompts before bash/overwrite/broad patch, a Textual TUI (Esc cancels), safer run limits, and 900-token-capped learning.
-
-- **Context management** — warn thresholds, token estimation, and pluggable compaction.
-- **Persistence** — a `Persistence` protocol with checkpoints, plus a SQLite store for conversation resume across runs.
-- **Browser-use agent (upcoming)** — same harness, browser tools and UX on top.
-
-## Quick Start
-
-Set at least one provider credential, then launch the TUI:
+### From source (TUI + all packages)
 
 ```sh
-export OPENAI_API_KEY=...       # or ANTHROPIC_API_KEY / GEMINI_API_KEY
+git clone https://github.com/Sarthakischauhan/symphony.git
+cd symphony
+uv sync
+export OPENAI_API_KEY=sk-...
 uv run --package symphony-code symphony
 ```
 
-Select a model explicitly with a qualified id when needed:
+`symphony`, `symphony-code`, and `coding-agent-tui` are the same entry point.
+
+### As libraries
+
+GitHub Releases publish wheels to PyPI.
 
 ```sh
-uv run --package symphony-code symphony \
-  --model anthropic:claude-sonnet-5
+uv add symphony-core
+uv add symphony-harness
+uv add symphony-code
 ```
 
-Launch against a different workspace:
-
 ```sh
-uv run --package symphony-code symphony --workspace /tmp/coding-agent-workspace
+pip install symphony-core symphony-harness symphony-code
 ```
 
-Learning is enabled by default. Disable it when needed:
+| Package | Import | Install for |
+| --- | --- | --- |
+| [`symphony-core`](./core_ai/README.md) | `core_ai` | Providers, catalog, `Message` / `StreamEvent` |
+| [`symphony-harness`](./core_harness/README.md) | `core_harness` | Agent loop, tools, control plane, compaction |
+| [`symphony-code`](./coding_agent/README.md) | `coding_agent` | Workspace tools + Textual TUI |
+| [`core-server`](./core_server/README.md) | `core_server` | FastAPI SSE of harness events (workspace) |
+
+Full steps: **[Installation](./docs/getting-started/installation.md)**.
+
+---
+
+## Quick start
+
+Launch against a project, pick a model, or resume:
 
 ```sh
-uv run --package symphony-code symphony --no-learning
-```
-
-Resume a previous session interactively:
-
-```sh
+uv run --package symphony-code symphony --workspace /path/to/project
+uv run --package symphony-code symphony --model anthropic:claude-sonnet-5
 uv run --package symphony-code symphony --resume
 ```
 
-The default workspace is the current directory. Use `--workspace` to override it.
+Then, in the TUI:
 
-## Example
+- Type `/` for slash commands. `/model` lists the generated catalog for
+  providers that have credentials.
+- `Tab` toggles **build** vs **plan**. Plan mode writes `.symphony/plans/`.
+- `@` after whitespace inserts a workspace path.
+- `Esc` cancels the in-flight run.
 
-The current reference product on the harness is the coding agent:
+First conversation walkthrough: **[Quickstart](./docs/getting-started/quickstart.md)**.
+
+The same loop as a library:
 
 ```python
 from core_ai import build_default_registry, default_model_id
 from coding_agent import CodingAgent
 
 registry = build_default_registry()
-
 agent = CodingAgent(
     registry=registry,
     model_id=default_model_id(registry),
     workspace=".",
 )
-
 result = await agent.run("Create hello.txt with hi, then read it back.")
 print(result.output_text)
 ```
 
-At the harness level, the same loop runs without any coding-agent assumptions:
+Harness-only, no coding-agent assumptions:
 
 ```python
 from core_ai import build_default_registry, default_model_id
 from core_harness import CoreHarness, Tool
 
-
 def read_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
-
 registry = build_default_registry()
-
 harness = CoreHarness(
     registry=registry,
     model_id=default_model_id(registry),
     system_prompt="You are a concise coding assistant.",
     tools=[Tool(read_file)],
 )
-
 result = await harness.run("Inspect README.md and summarize it.")
 print(result.output_text)
 ```
 
-## Repository Layout
+---
 
-```
-core_ai/            harness: shared model/provider abstractions
-core_harness/       harness: agent loop, control plane, persistence, state
-core_server/        FastAPI SSE server wrapping core_harness
-coding_agent/       product: workspace tools, SQLite sessions, Textual TUI
-plan.md             living roadmap and phase checklist
-```
+## Features
 
-Each package carries its own `README.md`, `pyproject.toml`, and tests.
+| | |
+| --- | --- |
+| **Streaming providers** | OpenAI Responses / Chat Completions, Anthropic Messages, and Gemini generateContent share `Message` / `StreamEvent`. Credentials register automatically. Models are `provider:model`. |
+| **Generated catalog** | Package-shipped list of tool-calling text models, refreshed at build from [models.dev](https://models.dev), with a checked-in snapshot as fallback. |
+| **Turn-based harness** | Multi-turn tool calls, schema generation, run caps (turns, tools, runtime, tokens). |
+| **Control plane** | Typed events (thinking, `text_delta`, tools, usage, context, subagents). Authorization, user questions, always-allow, pause/cancel. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
+| **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning. |
+| **Context** | Warn thresholds, token estimates, pluggable compaction that keeps the system prompt, original task, and recent turns. |
+| **Persistence** | `Persistence` protocol with checkpoints; SQLite sessions for TUI resume. |
+| **SSE server** | FastAPI wrapper that forwards harness events unchanged. |
+
+---
+
+## Documentation
+
+All package docs live under **[`docs/`](./docs/README.md)**:
+
+| Section | What's covered |
+| --- | --- |
+| [Installation](./docs/getting-started/installation.md) | Source install, library install, provider keys |
+| [Quickstart](./docs/getting-started/quickstart.md) | First TUI conversation, then a library run |
+| [symphony-core](./docs/packages/symphony-core.md) | Providers, catalog, streaming types |
+| [symphony-harness](./docs/packages/symphony-harness.md) | Loop, tools, events, limits, subagents |
+| [symphony-code](./docs/packages/symphony-code.md) | Workspace agent and TUI |
+| [core-server](./docs/packages/core-server.md) | FastAPI + SSE |
+| [TUI](./docs/user-guide/tui.md) | Composer, modes, keybindings, images |
+| [Configuration](./docs/user-guide/configuration.md) | `.symphony/config.json`, approvals, context |
+| [Tools](./docs/user-guide/tools.md) | Workspace tool surface |
+| [Learning](./docs/user-guide/learning.md) | Post-run reflection |
+| [Sessions](./docs/user-guide/sessions.md) | SQLite resume |
+| [Architecture](./docs/developer-guide/architecture.md) | How the four packages fit |
+| [Events](./docs/developer-guide/events.md) | Control-plane catalog |
+| [CLI](./docs/reference/cli.md) | Flags for `symphony` and `core-server` |
+| [Environment](./docs/reference/environment.md) | Keys, models, base URLs |
+| [Slash commands](./docs/reference/slash-commands.md) | Every TUI command |
+
+---
 
 ## Development
 
 Requires Python ≥ 3.11 and [`uv`](https://docs.astral.sh/uv/).
 
 ```sh
-uv sync                    # install the workspace
-uv run pytest              # run all package tests from the root
-uv run --package symphony-code symphony   # run the TUI
+uv sync
+uv run pytest
+uv run --package symphony-code symphony
 ```
 
-Run a single package's tests from that package's directory with `uv run pytest`.
-
-## Status
-
-Currently in active development with significant updates being implemented across packages, the APIs will continue to evolve. `coding_agent` is the shipped product on the harness; a browser-use agent is next. See [`plan.md`](./plan.md) for the roadmap and current phase checklist.
+Each package has its own `README.md`, `pyproject.toml`, and tests. The stack is
+**0.1.0** and under active development — APIs will keep evolving. See
+[`plan.md`](./plan.md) for the roadmap.
