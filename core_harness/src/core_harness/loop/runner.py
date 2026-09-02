@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
@@ -14,16 +12,15 @@ from core_ai.types import Message
 from core_harness.events import ControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import UsageTotals
-from core_harness.models import PendingToolCall, ToolCall
+from core_harness.models import ToolCall
 from core_harness.context import (
     HarnessState,
-    estimate_completion_tokens,
     estimate_prompt_tokens,
     message_size_breakdown,
-    messages_for_model,
 )
 from core_harness.tools import Tool
-from core_harness.loop.calls import TurnToolCalls
+from core_harness.loop.calls import build_tool_calls, run_tool_calls
+from core_harness.loop.stream import stream_model_turn
 
 
 async def _ignore_addon_hook(_hook: str, **_payload: Any) -> None:
@@ -42,7 +39,7 @@ class TurnResult:
     message_sizes: List[Dict[str, Any]]
 
 
-class TurnRunner(TurnToolCalls):
+class TurnRunner:
     """Owns provider event handling and tool execution for one turn."""
 
     def __init__(
@@ -129,6 +126,58 @@ class TurnRunner(TurnToolCalls):
     ) -> TurnResult:
         """Process one turn and mutate ``messages`` with its results."""
         self._raise_if_cancelled()
+        estimated_message_tokens = await self.maybe_compact_turn(
+            messages,
+            turn=turn,
+            context_left=context_left,
+        )
+        await self.control_plane.emit(
+            "turn_started",
+            {"turn": turn, "message_count": len(messages)},
+        )
+
+        streamed = await stream_model_turn(
+            self,
+            messages,
+            turn=turn,
+            usage=usage,
+            estimated_message_tokens=estimated_message_tokens,
+        )
+        context_left, message_sizes = await self.emit_context(
+            messages,
+            turn=turn,
+            budget_tokens=streamed.budget_tokens,
+            estimated_message_tokens=estimated_message_tokens,
+        )
+        await self.maybe_emit_context_warning(
+            turn=turn,
+            tokens_used=streamed.budget_tokens,
+            context_left=context_left,
+        )
+
+        tool_calls = build_tool_calls(streamed.pending_calls)
+        if tool_calls:
+            self.state.add_assistant_message(messages, streamed.assistant_text, tool_calls)
+            await run_tool_calls(self, messages, tool_calls)
+        else:
+            self.state.add_assistant_message(messages, streamed.assistant_text)
+
+        return TurnResult(
+            assistant_text=streamed.assistant_text,
+            tool_calls=tool_calls,
+            usage=usage,
+            budget_tokens=streamed.budget_tokens,
+            context_left=context_left,
+            message_sizes=message_sizes,
+        )
+
+    async def maybe_compact_turn(
+        self,
+        messages: List[Message],
+        *,
+        turn: int,
+        context_left: Optional[int],
+    ) -> int:
         estimated_message_tokens = estimate_prompt_tokens(messages)
         previous_request_tokens = (
             self.context_limit - context_left
@@ -160,142 +209,16 @@ class TurnRunner(TurnToolCalls):
                 context_left=compact_context_left,
             )
         messages[:] = compacted
-        estimated_message_tokens = estimate_prompt_tokens(messages)
-        budget_tokens = estimated_message_tokens
-        await self.control_plane.emit(
-            "turn_started",
-            {"turn": turn, "message_count": len(messages)},
-        )
+        return estimate_prompt_tokens(messages)
 
-        assistant_text = ""
-        reasoning_texts: Dict[int, str] = {}
-        pending_calls: Dict[int, PendingToolCall] = {}
-        saw_usage = False
-        attempt_usage = UsageTotals()
-        async for event in self._stream_events(messages):
-            if event.type == "text_delta" and event.delta:
-                assistant_text += event.delta
-                await self.control_plane.emit(
-                    "text_delta",
-                    {"turn": turn, "delta": event.delta},
-                )
-            elif event.type == "reasoning_delta" and event.delta:
-                summary_index = event.content_index
-                reasoning_texts[summary_index] = (
-                    reasoning_texts.get(summary_index, "") + event.delta
-                )
-                await self.control_plane.emit(
-                    "reasoning_delta",
-                    {
-                        "turn": turn,
-                        "summary_index": summary_index,
-                        "delta": event.delta,
-                        "text": reasoning_texts[summary_index],
-                    },
-                )
-            elif event.type == "toolcall_start":
-                pending_calls[event.content_index] = PendingToolCall(
-                    id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}",
-                    name=event.tool_name,
-                )
-                await self.control_plane.emit(
-                    "tool_call_started",
-                    {
-                        "turn": turn,
-                        "tool_call_id": pending_calls[event.content_index].id,
-                        "tool_name": event.tool_name,
-                    },
-                )
-            elif event.type == "toolcall_delta" and event.delta:
-                pending = pending_calls.setdefault(
-                    event.content_index,
-                    PendingToolCall(id=f"toolcall-{turn}-{event.content_index}"),
-                )
-                pending.arguments_json += event.delta
-                await self.control_plane.emit(
-                    "tool_call_delta",
-                    {
-                        "turn": turn,
-                        "tool_call_id": pending.id,
-                        "delta": event.delta,
-                    },
-                )
-            elif event.type == "retry":
-                if event.retry_resets_stream:
-                    assistant_text = ""
-                    reasoning_texts.clear()
-                    pending_calls.clear()
-                    usage.prompt_tokens -= attempt_usage.prompt_tokens
-                    usage.completion_tokens -= attempt_usage.completion_tokens
-                    usage.reasoning_tokens -= attempt_usage.reasoning_tokens
-                    usage.total_tokens -= attempt_usage.total_tokens
-                    attempt_usage = UsageTotals()
-                    saw_usage = False
-                    budget_tokens = estimated_message_tokens
-                await self.control_plane.emit(
-                    "model_retry_scheduled",
-                    {
-                        "turn": turn,
-                        "retry_after": event.retry_after or 0.0,
-                        "attempt": event.retry_attempt or 1,
-                        "reason": event.retry_reason or "rate_limit",
-                        "resets_stream": event.retry_resets_stream,
-                    },
-                )
-            elif event.type == "usage":
-                saw_usage = True
-                usage.prompt_tokens += event.prompt_tokens or 0
-                usage.completion_tokens += event.completion_tokens or 0
-                usage.reasoning_tokens += event.reasoning_tokens or 0
-                usage.total_tokens += event.total_tokens or 0
-                attempt_usage.prompt_tokens += event.prompt_tokens or 0
-                attempt_usage.completion_tokens += event.completion_tokens or 0
-                attempt_usage.reasoning_tokens += event.reasoning_tokens or 0
-                attempt_usage.total_tokens += event.total_tokens or 0
-                budget_tokens = event.prompt_tokens or usage.total_tokens
-                await self.control_plane.emit(
-                    "usage",
-                    {
-                        "turn": turn,
-                        "prompt_tokens": event.prompt_tokens or 0,
-                        "completion_tokens": event.completion_tokens or 0,
-                        "reasoning_tokens": event.reasoning_tokens or 0,
-                        "total_tokens": event.total_tokens or 0,
-                        "cumulative_tokens": usage.total_tokens,
-                        "estimated": False,
-                    },
-                )
-
-        if not saw_usage:
-            prompt_tokens = estimate_prompt_tokens(messages)
-            tool_arguments_json = "".join(
-                pending.arguments_json for pending in pending_calls.values()
-            )
-            completion_tokens = estimate_completion_tokens(
-                assistant_text,
-                tool_arguments_json=tool_arguments_json,
-            )
-            total_tokens = prompt_tokens + completion_tokens
-            usage.prompt_tokens += prompt_tokens
-            usage.completion_tokens += completion_tokens
-            usage.total_tokens += total_tokens
-            budget_tokens = prompt_tokens
-            await self.control_plane.emit(
-                "usage",
-                {
-                    "turn": turn,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                    "cumulative_tokens": usage.total_tokens,
-                    "estimated": True,
-                },
-            )
-
-        await self.control_plane.emit(
-            "turn_completed",
-            {"turn": turn, "had_tool_calls": bool(pending_calls)},
-        )
+    async def emit_context(
+        self,
+        messages: List[Message],
+        *,
+        turn: int,
+        budget_tokens: int,
+        estimated_message_tokens: int,
+    ) -> tuple[Optional[int], List[Dict[str, Any]]]:
         message_sizes = message_size_breakdown(messages)
         context_left = (
             max(self.context_limit - budget_tokens, 0)
@@ -316,127 +239,9 @@ class TurnRunner(TurnToolCalls):
                 "message_sizes": message_sizes,
             },
         )
-        await self._maybe_emit_context_warning(
-            turn=turn,
-            tokens_used=budget_tokens,
-            context_left=context_left,
-        )
+        return context_left, message_sizes
 
-        tool_calls = self._build_tool_calls(pending_calls)
-        if tool_calls:
-            self.state.add_assistant_message(messages, assistant_text, tool_calls)
-            await self._run_tool_calls(messages, tool_calls)
-        else:
-            self.state.add_assistant_message(messages, assistant_text)
-
-        return TurnResult(
-            assistant_text=assistant_text,
-            tool_calls=tool_calls,
-            usage=usage,
-            budget_tokens=budget_tokens,
-            context_left=context_left,
-            message_sizes=message_sizes,
-        )
-
-
-    async def _stream_events(self, messages: List[Message]):
-        stream_options: Dict[str, Any] = {}
-        if self.reasoning_effort is not None:
-            stream_options["reasoning_effort"] = self.reasoning_effort
-        agen = self.registry.stream(
-            self.model_id,
-            messages_for_model(
-                messages,
-                keep_recent=self.tool_result_keep_recent,
-                prune_tokens=self.tool_result_prune_tokens,
-            ),
-            self.tool_schemas,
-            **stream_options,
-        )
-        closed = False
-
-        async def close_stream() -> None:
-            nonlocal closed
-            if closed:
-                return
-            closed = True
-            try:
-                await agen.aclose()
-            except RuntimeError:
-                pass
-
-        async def settle(task: Optional[asyncio.Task]) -> None:
-            if task is None:
-                return
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, StopAsyncIteration, RuntimeError):
-                pass
-
-        next_event: Optional[asyncio.Task] = None
-        cancel_wait: Optional[asyncio.Task] = None
-        try:
-            while True:
-                self._raise_if_cancelled()
-                self._raise_if_runtime_exceeded()
-                cancel_event = getattr(self.control_plane, "cancel_event", None)
-                next_event = asyncio.create_task(agen.__anext__())
-                waiters = {next_event}
-                cancel_wait = None
-                if cancel_event is not None and not cancel_event.is_set():
-                    cancel_wait = asyncio.create_task(cancel_event.wait())
-                    waiters.add(cancel_wait)
-                timeout = self._remaining_runtime()
-                if timeout is not None:
-                    timeout = max(timeout, 0.0)
-                done, _pending = await asyncio.wait(
-                    waiters,
-                    return_when=asyncio.FIRST_COMPLETED,
-                    timeout=None if timeout is None else timeout,
-                )
-                actually_cancelled = self._cancelled() or (
-                    cancel_event is not None and cancel_event.is_set()
-                )
-                if actually_cancelled:
-                    await settle(next_event)
-                    await settle(cancel_wait)
-                    next_event = None
-                    cancel_wait = None
-                    await close_stream()
-                    raise HarnessCancelled(self._cancel_reason())
-                if next_event not in done:
-                    wait_timeout = self._remaining_runtime()
-                    more, _ = await asyncio.wait(
-                        {next_event},
-                        timeout=None if wait_timeout is None else max(wait_timeout, 0.0),
-                    )
-                    if not more:
-                        await settle(next_event)
-                        await settle(cancel_wait)
-                        next_event = None
-                        cancel_wait = None
-                        await close_stream()
-                        raise self._runtime_exceeded_error()
-                await settle(cancel_wait)
-                cancel_wait = None
-                try:
-                    event = next_event.result()
-                except StopAsyncIteration:
-                    next_event = None
-                    break
-                except asyncio.CancelledError:
-                    await close_stream()
-                    raise HarnessCancelled(self._cancel_reason()) from None
-                next_event = None
-                yield event
-        finally:
-            await settle(next_event)
-            await settle(cancel_wait)
-            await close_stream()
-
-    async def _maybe_emit_context_warning(
+    async def maybe_emit_context_warning(
         self,
         *,
         turn: int,
@@ -455,33 +260,3 @@ class TurnRunner(TurnToolCalls):
                 "threshold": self.state.context_warn_threshold,
             },
         )
-
-    def _build_tool_calls(
-        self,
-        pending_calls: Dict[int, PendingToolCall],
-    ) -> List[ToolCall]:
-        tool_calls: List[ToolCall] = []
-        for pending in pending_calls.values():
-            decode_error: Optional[str] = None
-            arguments: Dict[str, Any] = {}
-            raw = pending.arguments_json.strip()
-            if raw:
-                try:
-                    decoded = json.loads(pending.arguments_json)
-                except json.JSONDecodeError as exc:
-                    decode_error = f"Invalid tool arguments: {pending.arguments_json} ({exc})"
-                    decoded = {}
-                if decode_error is None and not isinstance(decoded, dict):
-                    decode_error = "Tool arguments must decode to a JSON object."
-                    decoded = {}
-                arguments = decoded if isinstance(decoded, dict) else {}
-            call = ToolCall(
-                id=pending.id,
-                name=pending.name or "unknown_tool",
-                arguments=arguments,
-            )
-            if decode_error:
-                call.result_status = "error"
-                call.arguments["_decode_error"] = decode_error
-            tool_calls.append(call)
-        return tool_calls
