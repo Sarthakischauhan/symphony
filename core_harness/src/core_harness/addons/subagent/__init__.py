@@ -1,12 +1,19 @@
-"""Subagent add-on: ChildConfig and spawn_agent tool registration."""
+"""Subagent add-on: ChildConfig, child harness construction, and spawn_agent."""
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
-from core_harness.events import ControlPlane
+from core_ai.types import Content
+from core_harness.addons.addon import Addon
+from core_harness.events import ControlPlane, IdentifiedControlPlane
+from core_harness.models import HarnessResult
 from core_harness.tools import Tool
+
+if TYPE_CHECKING:
+    from core_harness.harness import CoreHarness
 
 
 @dataclass
@@ -16,13 +23,34 @@ class ChildConfig:
     model_id: Optional[str] = None
     max_turns: Optional[int] = None
     control_plane: Optional[ControlPlane] = None
+    addons: Optional[Sequence[Addon]] = None
+    addon_factory: Optional[Callable[[CoreHarness], Sequence[Addon]]] = None
 
 
-class SubagentAddon:
-    """Register the ``spawn_agent`` tool. Identity and depth stay on the harness."""
+@dataclass
+class ChildIdentity:
+    """Minted child identity. Does not include a constructed harness."""
+
+    agent_id: str
+    parent_id: Optional[str]
+    spawn_depth: int
+    label: str
+    prompt_text: str
+    control_plane: ControlPlane
+    parent_plane: IdentifiedControlPlane
+    blocked: bool = False
+    blocked_message: str = ""
+
+
+class SubagentAddon(Addon):
+    """Register ``spawn_agent`` and build child harnesses.
+
+    Identity, depth, and lifecycle events stay on the parent harness.
+    ``fork_for_child`` returns ``None`` so children do not get a nested spawn
+    tool unless ``ChildConfig`` passes add-ons or a factory.
+    """
 
     name = "subagent"
-    inherit_on_spawn = False
 
     def __init__(
         self,
@@ -38,8 +66,115 @@ class SubagentAddon:
     def attach(self, harness: Any) -> None:
         harness.register_tool(self.make_spawn_tool(harness))
 
+    def fork_for_child(self, parent_harness: Any) -> None:
+        del parent_harness
+        return None
+
+    def child_addons(self, parent: CoreHarness, child_config: ChildConfig) -> List[Addon]:
+        """Resolve child add-ons. Forks are the only inherit path from the parent."""
+        del self
+        if child_config.addons is not None:
+            return list(child_config.addons)
+        if child_config.addon_factory is not None:
+            return list(child_config.addon_factory(parent))
+        forked: List[Addon] = []
+        for addon in parent.addons:
+            child_addon = addon.fork_for_child(parent)
+            if child_addon is not None:
+                forked.append(child_addon)
+        return forked
+
+    def child_tools(
+        self,
+        parent: CoreHarness,
+        *,
+        tools: Optional[List[Tool]],
+        exclude_tools: Iterable[str],
+    ) -> List[Tool]:
+        del self
+        if tools is not None:
+            return list(tools)
+        blocked = set(exclude_tools)
+        return [tool for name, tool in parent.tools.items() if name not in blocked]
+
+    def build_child(
+        self,
+        parent: CoreHarness,
+        identity: ChildIdentity,
+        *,
+        child_config: ChildConfig,
+        tools: Optional[List[Tool]] = None,
+        exclude_tools: Iterable[str] = ("spawn_agent",),
+        system_prompt: Optional[str] = None,
+        model_id: Optional[str] = None,
+        max_turns: Optional[int] = None,
+    ) -> CoreHarness:
+        """Construct the child ``CoreHarness``. Does not run it."""
+        from core_harness.harness import CoreHarness
+
+        child_turns = max_turns if max_turns is not None else min(
+            parent.max_turns, parent.config.spawn_max_turns
+        )
+        child_turns = max(1, min(child_turns, parent.config.spawn_max_turns))
+        return CoreHarness(
+            registry=parent.registry,
+            model_id=model_id or parent.model_id,
+            system_prompt=system_prompt or parent.config.subagent_system_prompt,
+            config=parent.config.model_copy(update={"max_turns": child_turns}),
+            reasoning_effort=parent.reasoning_effort,
+            tools=self.child_tools(
+                parent, tools=tools, exclude_tools=exclude_tools
+            ),
+            control_plane=identity.control_plane,
+            session_id=str(uuid.uuid4()),
+            addons=self.child_addons(parent, child_config),
+            agent_id=identity.agent_id,
+            parent_id=identity.parent_id,
+            spawn_depth=identity.spawn_depth,
+        )
+
+    async def run_spawn(
+        self,
+        parent: CoreHarness,
+        prompt: Content,
+        *,
+        label: str = "",
+        tools: Optional[List[Tool]] = None,
+        exclude_tools: Iterable[str] = ("spawn_agent",),
+        system_prompt: Optional[str] = None,
+        model_id: Optional[str] = None,
+        max_turns: Optional[int] = None,
+        child_config: Optional[ChildConfig] = None,
+    ) -> HarnessResult:
+        """Build and run a child. Parent harness owns identity and lifecycle events."""
+        cfg = child_config or ChildConfig()
+        model_id = model_id or cfg.model_id
+        max_turns = max_turns if max_turns is not None else cfg.max_turns
+        identity = await parent.begin_child(
+            label=label,
+            prompt=prompt,
+            control_plane=cfg.control_plane,
+        )
+        if identity.blocked:
+            return HarnessResult(
+                output_text=identity.blocked_message,
+                messages=[],
+                tool_calls=[],
+            )
+        child = self.build_child(
+            parent,
+            identity,
+            child_config=cfg,
+            tools=tools,
+            exclude_tools=exclude_tools,
+            system_prompt=system_prompt,
+            model_id=model_id,
+            max_turns=max_turns,
+        )
+        return await parent.run_child(child, prompt, identity=identity)
+
     def make_spawn_tool(self, harness: Any) -> Tool:
-        """Model-facing wrapper around ``CoreHarness.spawn``.
+        """Model-facing wrapper around child construction and ``run_child``.
 
         ``configure`` is a product hook. It receives the model arguments and
         may return a :class:`ChildConfig` (for example a child-specific
@@ -76,10 +211,21 @@ class SubagentAddon:
                             else child_config.max_turns
                         ),
                         control_plane=override.control_plane or child_config.control_plane,
+                        addons=(
+                            override.addons
+                            if override.addons is not None
+                            else child_config.addons
+                        ),
+                        addon_factory=(
+                            override.addon_factory
+                            if override.addon_factory is not None
+                            else child_config.addon_factory
+                        ),
                     )
             if child_config.max_turns is None:
                 child_config.max_turns = default_max_turns
-            result = await harness.spawn(
+            result = await self.run_spawn(
+                harness,
                 prompt,
                 label=label,
                 exclude_tools=exclude_tools,
@@ -125,4 +271,4 @@ class SubagentAddon:
         )
 
 
-__all__ = ["ChildConfig", "SubagentAddon"]
+__all__ = ["ChildConfig", "ChildIdentity", "SubagentAddon"]

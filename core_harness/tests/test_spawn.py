@@ -6,7 +6,16 @@ import asyncio
 from typing import Any
 
 from core_ai.types import Message, StreamEvent
-from core_harness import ChildConfig, CoreHarness, HarnessConfig, NullControlPlane, SubagentAddon, Tool
+from core_harness import (
+    ChildConfig,
+    CompactionAddon,
+    CoreHarness,
+    HarnessConfig,
+    KeepSystemRecentCompactor,
+    NullControlPlane,
+    SubagentAddon,
+    Tool,
+)
 
 
 class ScriptedRegistry:
@@ -421,3 +430,86 @@ def test_looping_child_stops_at_spawn_turn_cap() -> None:
     failed = [event for event in plane.events if event.event_type == "agent_failed"]
     assert len(failed) == 1
     assert failed[0].payload["error_type"] == "HarnessLimitExceeded"
+
+
+def test_parallel_children_get_distinct_compaction_addons() -> None:
+    class ParallelRegistry:
+        def __init__(self) -> None:
+            self.calls = 0
+            self._lock = asyncio.Lock()
+
+        async def stream(
+            self,
+            model_id: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]],
+        ):
+            del model_id, tools
+            async with self._lock:
+                self.calls += 1
+                call_no = self.calls
+            if call_no == 1:
+                yield StreamEvent(
+                    type="toolcall_start",
+                    content_index=0,
+                    tool_call_id="spawn-a",
+                    tool_name="spawn_agent",
+                )
+                yield StreamEvent(
+                    type="toolcall_delta",
+                    content_index=0,
+                    delta='{"prompt": "task a", "label": "a"}',
+                )
+                yield StreamEvent(
+                    type="toolcall_start",
+                    content_index=1,
+                    tool_call_id="spawn-b",
+                    tool_name="spawn_agent",
+                )
+                yield StreamEvent(
+                    type="toolcall_delta",
+                    content_index=1,
+                    delta='{"prompt": "task b", "label": "b"}',
+                )
+                yield StreamEvent(type="done")
+                return
+            await asyncio.sleep(0.02)
+            yield StreamEvent(type="text_delta", delta="ok")
+            yield StreamEvent(type="done")
+
+    parent_compaction = CompactionAddon(KeepSystemRecentCompactor(keep_recent=3))
+    child_compactions: list[CompactionAddon] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        if self.parent_id is not None:
+            child_compactions.extend(
+                addon
+                for addon in self.addons
+                if isinstance(addon, CompactionAddon)
+            )
+
+    harness = CoreHarness(
+        registry=ParallelRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="parent",
+        config=HarnessConfig(max_turns=4),
+        agent_id="parent-agent",
+        addons=[parent_compaction, SubagentAddon()],
+    )
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(harness.run("Investigate a and b in parallel."))
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+
+    assert "ok" in result.output_text
+    assert len(child_compactions) == 2
+    assert child_compactions[0] is not child_compactions[1]
+    assert child_compactions[0] is not parent_compaction
+    assert child_compactions[1] is not parent_compaction
+    assert child_compactions[0].compactor is not child_compactions[1].compactor
+    assert child_compactions[0].compactor is not parent_compaction.compactor
+    assert child_compactions[0].keep_recent == 3
+    assert child_compactions[1].keep_recent == 3

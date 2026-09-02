@@ -1,6 +1,8 @@
 from core_harness.addons import (
     Addon,
+    AddonProtocol,
     ChildConfig,
+    ChildIdentity,
     CompactionAddon,
     Compactor,
     KeepSystemRecentCompactor,
@@ -59,8 +61,10 @@ from core_harness.tools import Tool
 
 __all__ = [
     "Addon",
+    "AddonProtocol",
     "Checkpoint",
     "ChildConfig",
+    "ChildIdentity",
     "CompactionAddon",
     "Compactor",
     "ContextReport",

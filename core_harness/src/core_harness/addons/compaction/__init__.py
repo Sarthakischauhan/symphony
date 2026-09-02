@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from core_harness.addons.addon import Addon
 from core_harness.addons.compaction.policy import Compactor, KeepSystemRecentCompactor
 from core_harness.config import HarnessConfig
 from core_harness.context.compact import DEFAULT_PRUNE_KEEP_RECENT
 
 
-class CompactionAddon:
+class CompactionAddon(Addon):
     """Mount a ``Compactor`` onto ``CoreHarness.state``."""
 
     name = "compaction"
@@ -22,6 +23,9 @@ class CompactionAddon:
         target_tokens: Optional[int] = None,
         keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
     ) -> None:
+        self.keep_recent = keep_recent
+        self.target_tokens = target_tokens
+        self.keep_recent_tool_results = keep_recent_tool_results
         self.compactor = compactor or KeepSystemRecentCompactor(
             keep_recent=keep_recent,
             target_tokens=target_tokens,
@@ -30,6 +34,21 @@ class CompactionAddon:
 
     def attach(self, harness: Any) -> None:
         harness.state.compactor = self.compactor
+
+    def fork_for_child(self, parent_harness: Any) -> CompactionAddon:
+        """New add-on with a fresh compactor using the same settings."""
+        del parent_harness
+        if isinstance(self.compactor, KeepSystemRecentCompactor):
+            return CompactionAddon(
+                keep_recent=self.compactor.keep_recent,
+                target_tokens=self.compactor.target_tokens,
+                keep_recent_tool_results=self.compactor.keep_recent_tool_results,
+            )
+        return CompactionAddon(
+            keep_recent=self.keep_recent,
+            target_tokens=self.target_tokens,
+            keep_recent_tool_results=self.keep_recent_tool_results,
+        )
 
 
 def compaction_from_config(config: HarnessConfig) -> CompactionAddon:

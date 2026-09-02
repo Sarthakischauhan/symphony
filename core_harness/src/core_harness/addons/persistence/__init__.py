@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, Protocol
 from pydantic import BaseModel, Field
 
 from core_ai.types import Message
+from core_harness.addons.addon import Addon
 from core_harness.models import UsageTotals
 
 CheckpointStatus = Literal["running", "completed", "failed", "cancelled"]
@@ -57,17 +58,24 @@ class NullPersistence:
         return None
 
 
-class PersistenceAddon:
-    """Mount a ``Persistence`` store onto a harness."""
+class PersistenceAddon(Addon):
+    """Mount a ``Persistence`` store onto a harness.
+
+    ``fork_for_child`` returns ``None`` so children keep ``NullPersistence``
+    unless ``ChildConfig`` passes add-ons or a factory.
+    """
 
     name = "persistence"
-    inherit_on_spawn = False
 
     def __init__(self, store: Persistence | None = None) -> None:
         self.store = store or NullPersistence()
 
     def attach(self, harness: Any) -> None:
         harness.persistence = self.store
+
+    def fork_for_child(self, parent_harness: Any) -> None:
+        del parent_harness
+        return None
 
 
 __all__ = [

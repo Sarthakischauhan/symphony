@@ -7,8 +7,7 @@ loader; skills can hang off this same attach path later.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
-
+from core_harness.addons.addon import Addon, AddonProtocol
 from core_harness.addons.compaction import (
     CompactionAddon,
     Compactor,
@@ -22,7 +21,7 @@ from core_harness.addons.persistence import (
     Persistence,
     PersistenceAddon,
 )
-from core_harness.addons.subagent import ChildConfig, SubagentAddon
+from core_harness.addons.subagent import ChildConfig, ChildIdentity, SubagentAddon
 from core_harness.addons.telemetry import (
     NullTelemetry,
     Telemetry,
@@ -30,22 +29,13 @@ from core_harness.addons.telemetry import (
 )
 
 
-@runtime_checkable
-class Addon(Protocol):
-    """Tiny attach protocol. Optional hooks: before_turn, after_turn, on_tool, on_compact."""
-
-    name: str
-
-    def attach(self, harness: Any) -> None:
-        """Mount this add-on onto a harness. Called once from ``register_addon``."""
-        ...
-
-
 __all__ = [
     "Addon",
+    "AddonProtocol",
     "Checkpoint",
     "CheckpointStatus",
     "ChildConfig",
+    "ChildIdentity",
     "CompactionAddon",
     "Compactor",
     "KeepSystemRecentCompactor",

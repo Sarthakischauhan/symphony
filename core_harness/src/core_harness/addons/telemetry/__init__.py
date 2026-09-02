@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Protocol
 
+from core_harness.addons.addon import Addon
+
 
 class Telemetry(Protocol):
     """Emit run, tool, and usage observations. Implementations are product-owned."""
@@ -31,7 +33,7 @@ class NullTelemetry:
         return None
 
 
-class TelemetryAddon:
+class TelemetryAddon(Addon):
     """Mount a ``Telemetry`` implementation and forward the tiny addon hooks."""
 
     name = "telemetry"
@@ -41,6 +43,14 @@ class TelemetryAddon:
 
     def attach(self, harness: Any) -> None:
         harness.telemetry = self.telemetry
+
+    def fork_for_child(self, parent_harness: Any) -> TelemetryAddon:
+        """New wrapper around the same telemetry, or a forked implementation."""
+        telemetry = self.telemetry
+        fork = getattr(telemetry, "fork_for_child", None)
+        if callable(fork):
+            telemetry = fork(parent_harness)
+        return TelemetryAddon(telemetry)
 
     async def before_turn(self, **payload: Any) -> None:
         await self.telemetry.emit_run("before_turn", payload)
