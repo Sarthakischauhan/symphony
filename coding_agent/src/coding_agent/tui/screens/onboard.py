@@ -143,7 +143,7 @@ class ProviderWizard(Vertical):
         if self._pending is None:
             return
         try:
-            save_provider_key(self.workspace, self._pending, event.value)
+            save_provider_key(self._pending, event.value)
         except ValueError as exc:
             self.query_one("#onboard-error", Static).update(str(exc))
             return

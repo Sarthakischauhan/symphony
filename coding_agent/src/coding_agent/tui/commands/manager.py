@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import Any, Iterable
 
-from core_ai import find_provider, get_model, get_provider
-from core_ai.providers.catalog import configured_provider_ids
+from core_ai import get_model, get_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
-from coding_agent.tui.screens import ContextModal, DiffModal, LearningModal, PlanModal, ProviderOnboardScreen
+from coding_agent.tui.screens import ContextModal, DiffModal, LearningModal, PlanModal
+from coding_agent.tui.commands.provider import open_provider_onboard
 from coding_agent.tui.commands.catalog import (
     EFFORT_CATALOG,
     MODE_CATALOG,
@@ -243,45 +243,6 @@ async def reload_project(app: Any) -> None:
     except Exception as exc:  # noqa: BLE001
         app._agent = previous_agent
         app.add_notice(f"Reload failed · {exc}", "error")
-
-
-def open_provider_onboard(app: Any, argument: str = "") -> None:
-    initial = None
-    if argument:
-        selected = find_provider(argument)
-        if selected is None:
-            app.add_notice(
-                f"Unknown provider: {argument}. Choose openai, anthropic, or gemini.",
-                "warning",
-            )
-            return
-        initial = selected.id
-    app.push_screen(
-        ProviderOnboardScreen(app.workspace, initial_provider=initial),
-        lambda providers: on_provider_onboard(app, providers),
-    )
-
-
-def on_provider_onboard(app: Any, _providers: tuple[str, ...] | None) -> None:
-    current = set(configured_provider_ids())
-    previous = set(app._agent.registry.namespaces()) if app._agent is not None else set()
-    if not current:
-        if app._agent is None:
-            app.add_notice(OFFLINE_HINT, "warning")
-        return
-    if current == previous:
-        app.query_one("#prompt").focus()
-        return
-    app.run_worker(_reload_after_provider(app), exclusive=False)
-
-
-async def _reload_after_provider(app: Any) -> None:
-    await reload_project(app)
-    current = configured_provider_ids()
-    if not current:
-        return
-    labels = ", ".join(get_provider(provider_id).label for provider_id in current)
-    app.add_notice(f"Providers ready · {labels}. Use /model to switch.", "success")
 
 
 # --- session.py ---

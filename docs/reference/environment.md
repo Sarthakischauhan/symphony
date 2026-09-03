@@ -1,8 +1,9 @@
 # Environment
 
 Keys can live in `.env`. First-run onboarding and `/provider` write
-`<workspace>/.env`. `/reload` in the TUI reloads that file and rebuilds the
-registry.
+`~/.symphony/.env`. Load order is process environment, then workspace
+`.env` if present, then `~/.symphony/.env`. `/reload` in the TUI reloads
+those files and rebuilds the registry.
 
 
 ## Provider credentials

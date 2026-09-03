@@ -11,7 +11,7 @@ uv run --package symphony-code symphony
 
 If no API key is set, Symphony asks which provider to use (OpenAI, Anthropic,
 or Gemini), then for that provider's key. Keys are saved to
-`<workspace>/.env`. Add another provider from the same screen, or later with
+`~/.symphony/.env`. Add another provider from the same screen, or later with
 `/provider`.
 
 You can still export a key yourself before launch:

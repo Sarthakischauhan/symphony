@@ -59,8 +59,9 @@ PyPI names and import names differ on purpose:
 
 ## Provider credentials
 
-Every provider with a key is registered. Set keys in the environment, a `.env`
-file in the workspace, or from the TUI: first-run onboarding and `/provider`.
+Every provider with a key is registered. Set keys in the environment,
+`~/.symphony/.env`, a workspace `.env` (local override), or from the TUI:
+first-run onboarding and `/provider`.
 
 
 | Provider | Credential | Optional |

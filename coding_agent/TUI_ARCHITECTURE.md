@@ -14,7 +14,7 @@ flowchart TD
     RESUME -- No --> RUN
     PICK --> RUN["run_tui(...)"]
 
-    RUN --> ENV["Load cwd + workspace .env"]
+    RUN --> ENV["Load ~/.symphony/.env, then workspace .env"]
     ENV --> KEYS{"Any provider key?"}
     KEYS -- No --> ONBOARD["OnboardApp: pick provider, paste key, optionally add another"]
     ONBOARD --> ENV

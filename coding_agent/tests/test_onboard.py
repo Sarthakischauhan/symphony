@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from textual.widgets import Input, OptionList
 
-from coding_agent.credentials import workspace_env_path
+from coding_agent.credentials import global_env_path, workspace_env_path
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.screens.onboard import OnboardApp, ProviderOnboardScreen
 from core_ai.providers.catalog import configured_provider_ids
@@ -38,6 +38,7 @@ def test_onboard_saves_key_and_continues(tmp_path: Path) -> None:
             await pilot.press("enter")
             await pilot.pause()
             key = app.query_one("#provider-key", Input)
+            assert key.password
             key.value = "sk-test-openai"
             await pilot.press("enter")
             await pilot.pause()
@@ -47,9 +48,10 @@ def test_onboard_saves_key_and_continues(tmp_path: Path) -> None:
     asyncio.run(_run())
 
     assert app.return_value == ("openai",)
-    assert "OPENAI_API_KEY=sk-test-openai" in workspace_env_path(tmp_path).read_text(
-        encoding="utf-8"
-    )
+    env_path = global_env_path()
+    assert env_path == (Path.home() / ".symphony" / ".env").resolve()
+    assert "OPENAI_API_KEY=sk-test-openai" in env_path.read_text(encoding="utf-8")
+    assert not workspace_env_path(tmp_path).exists()
     assert configured_provider_ids() == ("openai",)
 
 
@@ -77,9 +79,10 @@ def test_onboard_adds_two_providers(tmp_path: Path) -> None:
     asyncio.run(_run())
 
     assert app.return_value == ("openai", "anthropic")
-    text = workspace_env_path(tmp_path).read_text(encoding="utf-8")
+    text = global_env_path().read_text(encoding="utf-8")
     assert "OPENAI_API_KEY=sk-openai" in text
     assert "ANTHROPIC_API_KEY=sk-ant-test" in text
+    assert not workspace_env_path(tmp_path).exists()
 
 
 def test_onboard_escape_skips_without_writing(tmp_path: Path) -> None:
@@ -94,6 +97,7 @@ def test_onboard_escape_skips_without_writing(tmp_path: Path) -> None:
     asyncio.run(_run())
 
     assert app.return_value == ()
+    assert not global_env_path().exists()
     assert not workspace_env_path(tmp_path).exists()
 
 
@@ -113,6 +117,7 @@ def test_onboard_escape_on_key_step_returns_to_picker(tmp_path: Path) -> None:
 
     asyncio.run(_run())
     assert app.return_value is None
+    assert not global_env_path().exists()
     assert not workspace_env_path(tmp_path).exists()
 
 

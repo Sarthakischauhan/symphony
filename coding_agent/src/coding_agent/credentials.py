@@ -1,4 +1,4 @@
-"""Workspace `.env` helpers for provider API keys."""
+"""Global `~/.symphony/.env` helpers for provider API keys."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Mapping
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from core_ai.providers.catalog import ProviderSpec, get_provider
 
@@ -17,6 +17,12 @@ _ENV_ASSIGN = re.compile(
     r"^(?P<prefix>\s*(?:export\s+)?)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<eq>\s*=\s*)(?P<value>.*)$"
 )
 _NEEDS_QUOTES = re.compile(r"""[\s#"\\']""")
+_ENV_FILE_MODE = 0o600
+
+
+def global_env_path() -> Path:
+    """Return `~/.symphony/.env`, expanded and resolved."""
+    return (Path.home() / ".symphony" / ".env").expanduser().resolve()
 
 
 def workspace_env_path(workspace: str | Path) -> Path:
@@ -24,22 +30,28 @@ def workspace_env_path(workspace: str | Path) -> Path:
 
 
 def load_provider_env(workspace: str | Path) -> None:
-    """Load cwd `.env`, then workspace `.env` so spawn keys win."""
-    cwd_env = Path.cwd() / ".env"
-    env_path = workspace_env_path(workspace)
-    if cwd_env.exists() and cwd_env.resolve() != env_path.resolve():
-        load_dotenv(cwd_env, override=False)
-    if env_path.exists():
-        load_dotenv(env_path, override=True)
+    """Load provider keys into the process.
+
+    Precedence is process env > workspace `.env` (if present) >
+    `~/.symphony/.env`. Files are merged weakest-first, then applied with
+    `setdefault` so already-set process env always wins.
+    """
+    merged: dict[str, str] = {}
+    global_path = global_env_path()
+    workspace_path = workspace_env_path(workspace)
+    merged.update(_dotenv_entries(global_path))
+    if workspace_path.resolve() != global_path:
+        merged.update(_dotenv_entries(workspace_path))
+    for name, value in merged.items():
+        os.environ.setdefault(name, value)
 
 
-
-def save_provider_key(workspace: str | Path, provider_id: str, api_key: str) -> ProviderSpec:
+def save_provider_key(provider_id: str, api_key: str) -> ProviderSpec:
     spec = get_provider(provider_id)
     key = api_key.strip()
     if not key:
         raise ValueError(f"{spec.label} API key cannot be empty")
-    upsert_dotenv(workspace_env_path(workspace), {spec.env_key: key})
+    upsert_dotenv(global_env_path(), {spec.env_key: key})
     os.environ[spec.env_key] = key
     return spec
 
@@ -71,6 +83,24 @@ def upsert_dotenv(path: str | Path, updates: Mapping[str, str]) -> None:
             lines.append(f"{name}={_quote_env(value)}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _set_private_mode(path)
+
+
+def _dotenv_entries(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    return {
+        name: value
+        for name, value in dotenv_values(path).items()
+        if name and value is not None
+    }
+
+
+def _set_private_mode(path: Path) -> None:
+    try:
+        path.chmod(_ENV_FILE_MODE)
+    except OSError:
+        return
 
 
 def _quote_env(value: str) -> str:
