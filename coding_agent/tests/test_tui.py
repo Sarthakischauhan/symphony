@@ -80,6 +80,18 @@ from coding_agent.tui.transcript import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "SYMPHONY_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 def test_tui_escape_cancels_busy_run_and_restores_composer(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -106,6 +118,9 @@ def test_tui_quit_cancels_pending_learning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
     cancelled: list[str] = []
 
@@ -131,7 +146,15 @@ def test_tui_quit_cancels_pending_learning(
             assert cancelled == ["cancel", "shutdown"]
 
     asyncio.run(_run())
+
+
+def test_tui_offline_without_provider_still_renders(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
 
     async def _run() -> None:
@@ -1074,6 +1097,7 @@ def test_reasoning_title_uses_only_a_standalone_markdown_heading(
 
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
+    assert "provider" in [command.name for command in SLASH_COMMANDS]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
     assert "plan" in [command.name for command in SLASH_COMMANDS]
@@ -1441,14 +1465,14 @@ def test_reload_refreshes_config_without_clearing_conversation(
         set_mode=lambda mode: selected_modes.append(mode),
     )
 
-    def _load_dotenv(*, override: bool) -> None:
-        loaded.append(override)
+    def _load_provider_env(_workspace: Any) -> None:
+        loaded.append(True)
 
     def _build_agent(**kwargs: Any) -> Any:
         built_with.update(kwargs)
         return reloaded_agent
 
-    monkeypatch.setattr("coding_agent.tui.commands.manager.load_dotenv", _load_dotenv)
+    monkeypatch.setattr("coding_agent.tui.commands.manager.load_provider_env", _load_provider_env)
     monkeypatch.setattr("coding_agent.tui.commands.manager.build_agent", _build_agent)
 
     async def _run() -> None:

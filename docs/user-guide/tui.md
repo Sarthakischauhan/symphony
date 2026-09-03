@@ -4,11 +4,16 @@ The TUI is a conversation surface over the harness event stream. It does not
 scrape stdout. Every tool row, token, usage line, and compaction notice is a
 control-plane event.
 
+On first launch with no credentials, a provider screen asks which API to use
+and for a key. That key is saved to `~/.symphony/.env`. Add more providers
+later with `/provider`; `/model` then lists every credentialed catalog.
+
 ```sh
 uv run --package symphony-code symphony
 uv run --package symphony-code symphony --workspace /path/to/project
 uv run --package symphony-code symphony --model gemini:gemini-3.7-flash
 ```
+
 
 <div align="center">
   <img src="../demo.png" alt="Symphony TUI" height="340">

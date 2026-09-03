@@ -9,8 +9,9 @@ menu.
 | `/mode [mode]` | View or switch **build** / **plan** |
 | `/effort [level]` | Set reasoning effort (`none` … `max`) |
 | `/plan [plan]` | Searchable picker for saved workspace plans |
+| `/provider [name]` | Add or update a provider API key (OpenAI, Anthropic, Gemini) |
 | `/new` | Start a fresh persisted session |
-| `/reload` | Reload `.env` and rebuild the provider registry |
+| `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |
 | `/compact` | Keep system prompt, original task, and recent turns |
 | `/status` | Session, model, and context details |
 | `/context` | Stored vs sent tokens by role |

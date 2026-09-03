@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any, Iterable
 
-from dotenv import load_dotenv
-
-from core_ai import get_model
+from core_ai import get_model, get_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
+from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.tui.screens import ContextModal, DiffModal, LearningModal, PlanModal
+from coding_agent.tui.commands.provider import open_provider_onboard
 from coding_agent.tui.commands.catalog import (
     EFFORT_CATALOG,
     MODE_CATALOG,
@@ -201,7 +201,7 @@ async def reload_project(app: Any) -> None:
     )
     session_id = previous_agent.session_id if previous_agent is not None else app.session_id
     try:
-        load_dotenv(override=True)
+        load_provider_env(app.workspace)
         reloaded_config = ensure_spawn_settings(app.workspace)
         reloaded_agent = build_agent(
             workspace=app.workspace,
@@ -244,6 +244,7 @@ async def reload_project(app: Any) -> None:
         app._agent = previous_agent
         app.add_notice(f"Reload failed · {exc}", "error")
 
+
 # --- session.py ---
 def start_new_session(app: Any) -> None:
     agent = app._agent
@@ -284,6 +285,10 @@ def show_status(app: Any) -> None:
             f"cumulative input   {metrics.cumulative_tokens:,} tokens",
         ]
     )
+    namespaces = app._agent.registry.namespaces()
+    if namespaces:
+        labels = ", ".join(get_provider(provider_id).label for provider_id in namespaces)
+        lines.append(f"providers {labels}")
     app.add_notice("\n".join(lines))
 
 
@@ -335,7 +340,7 @@ class CommandManager:
             if app._busy:
                 app.add_notice("/effort is unavailable while a turn is running.", "warning")
             elif app._agent is None:
-                app.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
+                app.add_notice(OFFLINE_HINT, "error")
             elif not model_supports_effort(app._agent.harness.model_id):
                 app.add_notice("The active model does not support effort settings.", "warning")
             elif argument:
@@ -351,8 +356,10 @@ class CommandManager:
             app.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
         elif command == "reload":
             await reload_project(app)
+        elif command == "provider":
+            open_provider_onboard(app, argument)
         elif app._agent is None:
-            app.add_notice("Agent is offline. Configure OPENAI_API_KEY and restart.", "error")
+            app.add_notice(OFFLINE_HINT, "error")
         elif command == "new":
             start_new_session(app)
         elif command == "model":
@@ -373,4 +380,3 @@ class CommandManager:
 
     def on_plan_action(self, action: str | None) -> None:
         on_plan_action(self.app, action)
-

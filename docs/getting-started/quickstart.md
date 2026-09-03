@@ -3,7 +3,18 @@
 Get one clean conversation working before you change config, spawn subagents,
 or wire the HTTP server.
 
-## 1. Set a key and launch
+## 1. Launch and add a provider
+
+```sh
+uv run --package symphony-code symphony
+```
+
+If no API key is set, Symphony asks which provider to use (OpenAI, Anthropic,
+or Gemini), then for that provider's key. Keys are saved to
+`~/.symphony/.env`. Add another provider from the same screen, or later with
+`/provider`.
+
+You can still export a key yourself before launch:
 
 ```sh
 export OPENAI_API_KEY=sk-...
@@ -36,6 +47,7 @@ approval prompt may ask before overwrite or bash.
 ## 3. Try the interface
 
 - Type `/` to open the slash-command menu.
+- `/provider` adds another OpenAI, Anthropic, or Gemini key without restarting.
 - `/model` lists the generated catalog for providers that have credentials.
 - `Tab` toggles **build** vs **plan**. Plan mode writes `.symphony/plans/…_plan.md`.
 - Type `@` after whitespace to insert a workspace path.

@@ -17,6 +17,7 @@ from coding_agent.tui.screens.modal import (
     ModalCloseButton,
     ModalScroll,
 )
+from coding_agent.tui.screens.onboard import OnboardApp, ProviderOnboardScreen, ProviderWizard
 from coding_agent.tui.screens.plan import (
     PlanBuildAction,
     PlanModal,
@@ -40,9 +41,12 @@ __all__ = [
     "ModalBase",
     "ModalCloseButton",
     "ModalScroll",
+    "OnboardApp",
     "PlanBuildAction",
     "PlanModal",
     "PlanSectionCard",
+    "ProviderOnboardScreen",
+    "ProviderWizard",
     "ResumeApp",
     "SessionOption",
     "_plan_sections",

@@ -12,9 +12,12 @@ ran `python -m pytest` — **1 passed**.
 
 ```sh
 uv add symphony-code
-export OPENAI_API_KEY=sk-...          # or ANTHROPIC_API_KEY / GEMINI_API_KEY
 uv run --package symphony-code symphony --workspace .
 ```
+
+If no API key is set, the TUI asks which provider to use. `/provider` adds
+another later.
+
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are the same command.
 
