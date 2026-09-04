@@ -1,16 +1,16 @@
-"""Top bar: `symphony    ~/workspace    branch    model` in muted gray."""
+"""Top bar showing only the current Git branch and selected model."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Optional
 
+from rich.table import Table
 from rich.text import Text
 from textual.widgets import Static
 
-PRODUCT_LABEL = "symphony"
-# Airy spacing between the top-bar clusters (mock uses ~3-4 cells).
 CLUSTER_GAP = " " * 4
+BRANCH_ICON = "⎇"
 
 
 def display_workspace_path(workspace: Path, home: Optional[Path] = None) -> str:
@@ -27,12 +27,7 @@ def display_workspace_path(workspace: Path, home: Optional[Path] = None) -> str:
 
 
 def read_git_branch(workspace: Path) -> str:
-    """Return the checked-out branch for the repository containing `workspace`.
-
-    Reads `.git/HEAD` directly (no subprocess) so the top bar renders instantly
-    and works without a `git` binary. A detached HEAD yields a short SHA; a
-    directory outside any repository yields an empty string.
-    """
+    """Return the checked-out branch for the repository containing `workspace`."""
     git_dir = _locate_git_dir(workspace.resolve())
     if git_dir is None:
         return ""
@@ -41,8 +36,7 @@ def read_git_branch(workspace: Path) -> str:
     except OSError:
         return ""
     if head.startswith("ref:"):
-        ref = head.removeprefix("ref:").strip()
-        return ref.removeprefix("refs/heads/")
+        return head.removeprefix("ref:").strip().removeprefix("refs/heads/")
     return head[:7]
 
 
@@ -52,39 +46,44 @@ def _locate_git_dir(start: Path) -> Optional[Path]:
         if marker.is_dir():
             return marker
         if marker.is_file():
-            # Worktrees and submodules store `gitdir: <path>` in a .git file.
             try:
                 pointer = marker.read_text(encoding="utf-8").strip()
             except OSError:
                 return None
             if pointer.startswith("gitdir:"):
                 target = Path(pointer.removeprefix("gitdir:").strip())
-                if not target.is_absolute():
-                    target = candidate / target
-                return target
+                return target if target.is_absolute() else candidate / target
             return None
     return None
 
 
-def topbar_text(*, workspace: str, branch: str = "", model: str = "") -> Text:
-    """Join the non-empty top-bar clusters with the shared airy gap."""
-    clusters = [PRODUCT_LABEL, workspace, branch, model]
-    return Text(CLUSTER_GAP.join(cluster for cluster in clusters if cluster), no_wrap=True)
+def topbar_text(*, workspace: str = "", branch: str = "", model: str = "") -> Text:
+    """Render only branch and model; workspace remains a compatibility argument."""
+    clusters: list[str] = []
+    if branch:
+        clusters.append(f"{BRANCH_ICON} {branch}")
+    if model:
+        clusters.append(model)
+    return Text(CLUSTER_GAP.join(clusters), no_wrap=True)
 
 
 class TopBar(Static):
-    """Muted single-line header: product, workspace path, git branch, model."""
+    """Header with the branch on the left and active model on the right."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._workspace = ""
         self._branch = ""
         self._model = ""
         super().__init__(*args, **kwargs)
 
     def set_context(self, workspace: Path, model: str = "") -> None:
-        self._workspace = display_workspace_path(workspace)
         self._branch = read_git_branch(workspace)
         self._model = model
-        self.update(
-            topbar_text(workspace=self._workspace, branch=self._branch, model=self._model)
+        row = Table.grid(expand=True, padding=0)
+        row.add_column(ratio=1, no_wrap=True)
+        row.add_column(justify="right", no_wrap=True)
+        branch = Text(
+            f"{BRANCH_ICON} {self._branch}" if self._branch else "",
+            no_wrap=True,
         )
+        row.add_row(branch, Text(self._model, no_wrap=True))
+        self.update(row)

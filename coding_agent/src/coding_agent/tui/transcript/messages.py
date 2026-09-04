@@ -73,12 +73,16 @@ class UserMessage(Static):
         pasted_chunks: tuple[str, ...] = (),
         images: Sequence[ImageAttachment] = (),
     ) -> None:
+        self.message_text = content
         self._hidden_content: dict[str, str] = {}
         self._images = {image.number: image for image in images}
         super().__init__(
             self._with_prompt_glyph(self._compact_content(content, pasted_chunks)),
             classes="message user-message",
         )
+
+    def archive_text(self) -> str:
+        return f"USER\n{self.message_text}"
 
     @staticmethod
     def _with_prompt_glyph(content: Text) -> Table:
@@ -182,18 +186,28 @@ class UserMessage(Static):
 
 
 class AssistantMessage(Static):
-    def __init__(self, content: str = "") -> None:
+    def __init__(self, content: str = "", *, streaming: bool = False) -> None:
+        self._streaming = False
         super().__init__(classes="message assistant-message")
-        self.set_content(content)
+        self.set_content(content, streaming=streaming)
 
-    def set_content(self, content: str) -> None:
+    def set_content(self, content: str, *, streaming: bool = False) -> None:
         self.message_text = content
+        self._streaming = streaming
+        body = Text(content or " ") if streaming else themed_markdown(content or " ")
         self.update(
             Group(
                 Text("◆  SYMPHONY", style="bold #d0d0d0"),
-                themed_markdown(content or " "),
+                body,
             )
         )
+
+    def finish_stream(self) -> None:
+        if self._streaming:
+            self.set_content(self.message_text)
+
+    def archive_text(self) -> str:
+        return f"SYMPHONY\n{self.message_text}"
 
 def _overlaps(start: int, end: int, occupied: Sequence[tuple[int, int]]) -> bool:
     return any(
@@ -211,8 +225,12 @@ class Notice(Static):
     }
 
     def __init__(self, text: str, tone: str = "info") -> None:
+        self.message_text = text
         color = self.COLORS.get(tone, self.COLORS["info"])
         super().__init__(Text(f"  {text}", style=color), classes=f"notice {tone}")
+
+    def archive_text(self) -> str:
+        return self.message_text
 
 
 class RunSummary(Static):
@@ -225,6 +243,11 @@ class RunSummary(Static):
         label: str = "Summary",
         event_type: str = "run_summary",
     ) -> None:
+        self.summary = summary
+        self.label = label
         heading = Text(f"◆  {label}  ·  {event_type}", style="bold #c5a9e6")
         body = Text(summary, style="#c2b5cf")
         super().__init__(Group(heading, body), classes="message run-summary")
+
+    def archive_text(self) -> str:
+        return f"{self.label}\n{self.summary}"

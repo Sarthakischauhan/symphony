@@ -98,6 +98,21 @@ Screen {
     background: $background;
 }
 
+.transcript-archive {
+    width: 100%;
+    height: 1;
+    margin: 1 0 0 1;
+    padding: 0 1;
+    color: $muted;
+    background: $background;
+    pointer: pointer;
+}
+
+.transcript-archive:hover,
+.transcript-archive:focus {
+    background: $panel;
+}
+
 .process-complete {
     width: auto;
     height: 1;

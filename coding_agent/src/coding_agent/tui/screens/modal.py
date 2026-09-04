@@ -59,8 +59,31 @@ class ModalBase(ModalScreen[ResultT], Generic[ResultT]):
         self.dismiss(None)
 
 
+def _numbered_text(content: str) -> Text:
+    """Render plain text with a stable, compact line-number gutter.
+
+    This deliberately uses only Rich/Textual primitives; a full diff library is
+    unnecessary for displaying an existing document. ``difflib`` remains the
+    right stdlib tool for comparing two versions, as used by the diff tool.
+    """
+    # ``splitlines`` handles LF, CRLF, and lone CR without leaving carriage
+    # returns in the rendered source. It also preserves intentional blank lines
+    # between lines; a completely empty document still has one visible row.
+    lines = content.splitlines()
+    if not lines:
+        lines = [""]
+    width = max(2, len(str(len(lines))))
+    rendered = Text(no_wrap=True, overflow="crop")
+    for number, line in enumerate(lines, start=1):
+        rendered.append(f"{number:>{width}} │ ", style="#687e8b")
+        rendered.append(line, style="#d0d0d0")
+        if number != len(lines):
+            rendered.append("\n")
+    return rendered
+
+
 class ContentModal(ModalBase[None]):
-    """Modal used to inspect transcript content hidden behind a compact link."""
+    """Modal used to inspect transcript content with a code-style gutter."""
 
     CSS = CONTENT_MODAL_CSS
 
@@ -71,8 +94,12 @@ class ContentModal(ModalBase[None]):
     def compose(self):  # type: ignore[no-untyped-def]
         with Container(id="content-pane", classes="modal-pane"):
             yield ModalCloseButton("Esc", id="modal-close")
+            yield Static("Text preview", id="content-title")
             with ModalScroll(id="content-body", classes="modal-body"):
+                # Keep the raw node for integrations that inspect modal content;
+                # the numbered node is the visible review surface.
                 yield Static(self.content, id="content-text", markup=False)
+                yield Static(_numbered_text(self.content), id="content-numbered", markup=False)
             yield Static("↑↓ scroll   ·   Esc close", classes="modal-footer")
 
 # --- components.py ---

@@ -49,6 +49,7 @@ OPENAI_MODELS = (
 
 ANTHROPIC_MODELS = (
     ModelInfo(id="claude-fable-5", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max'))),
+    ModelInfo(id="claude-fable-5-1", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max'))),
     ModelInfo(id="claude-haiku-4-5", provider="anthropic", api="messages", reasoning=True),
     ModelInfo(id="claude-haiku-4-5-20251001", provider="anthropic", api="messages", reasoning=True),
     ModelInfo(id="claude-opus-4-5", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
@@ -81,9 +82,9 @@ GEMINI_MODELS = (
     ModelInfo(id="gemini-3.5-flash-lite", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', 'minimal'), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
     ModelInfo(id="gemini-3.6-flash", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', 'minimal'), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
     ModelInfo(id="gemini-3.7-flash", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
+    ModelInfo(id="gemini-3.8-flash", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
     ModelInfo(id="gemini-flash-latest", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
     ModelInfo(id="gemini-flash-lite-latest", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', 'minimal'), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
-    ModelInfo(id="gemini-robotics-er-1.6-preview", provider="gemini", api="generate_content", reasoning=True),
     ModelInfo(id="gemma-4-26b-a4b-it", provider="gemini", api="generate_content", reasoning=True),
     ModelInfo(id="gemma-4-31b-it", provider="gemini", api="generate_content", reasoning=True),
 )

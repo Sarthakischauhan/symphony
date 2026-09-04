@@ -20,6 +20,8 @@ class HistoryView(Protocol):
 
     def set_context_metrics(self, tokens_used: int, context_limit: int) -> None: ...
 
+    def finalize_transcript_history(self) -> None: ...
+
 
 async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     """Load the agent's saved messages and mount their transcript widgets."""
@@ -41,6 +43,7 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
             widget = pending_tools.get(str(message.tool_call_id))
             if widget:
                 widget.set_result(text_from_content(message.content))
+    view.finalize_transcript_history()
 
 
 def _restore_assistant_message(

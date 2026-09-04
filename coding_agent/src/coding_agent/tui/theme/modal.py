@@ -78,10 +78,36 @@ ContentModal {
 }
 
 #content-pane {
-    border: round #38474a;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    border: round #262626;
+}
+
+#content-body {
+    padding: 0;
+    background: #0A0A0A;
+}
+
+#content-pane .modal-footer {
+    padding-left: 1;
+}
+
+#content-title {
+    width: 100%;
+    height: auto;
+    padding: 0 1 1 1;
+    color: #d0d0d0;
+    text-style: bold;
+    background: #0A0A0A;
 }
 
 #content-text {
+    display: none;
+}
+
+#content-numbered {
     width: 100%;
     height: auto;
     padding: 1 2;
@@ -98,7 +124,20 @@ ImageModal {
 }
 
 #content-pane {
-    border: round #38474a;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    border: round #262626;
+}
+
+#content-body {
+    padding: 0;
+    background: #0A0A0A;
+}
+
+#content-pane .modal-footer {
+    padding-left: 1;
 }
 
 #image-title {

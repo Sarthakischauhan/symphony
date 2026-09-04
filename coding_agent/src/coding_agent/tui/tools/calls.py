@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -9,13 +10,14 @@ from rich.console import Group
 from rich.style import Style
 from rich.text import Text
 from textual import events
-from textual.message import Message
 from textual.containers import Horizontal
+from textual.message import Message
 from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.transcript.messages import clip_text, compact_json
+
 
 class BashToolHeader(Horizontal, can_focus=True):
     """Focusable Bash timeline header that toggles its output."""
@@ -31,6 +33,7 @@ class BashToolHeader(Horizontal, can_focus=True):
         if event.key in {"enter", "space"}:
             event.stop()
             self.post_message(self.Toggle())
+
 
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
@@ -54,6 +57,9 @@ class ToolCallWidget(Collapsible):
         self.raw_arguments = ""
         self.result = ""
         self.status = "preparing"
+        self._body_dirty = True
+        self._header_values: tuple[str, str, str] | None = None
+        self._styled_status: str | None = None
         super().__init__(
             self._body,
             title="Tool",
@@ -100,16 +106,19 @@ class ToolCallWidget(Collapsible):
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         self.arguments = dict(arguments or {})
         self.raw_arguments = raw
+        self._body_dirty = True
         self.refresh_content()
 
     def set_running(self, arguments: Mapping[str, Any] | None) -> None:
         self.status = "running"
         self.arguments = dict(arguments or {})
+        self._body_dirty = True
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
         self.status = "failed" if str(result).startswith("error:") else "done"
         self.result = str(result or "")
+        self._body_dirty = True
         self.refresh_content()
 
     def _tool_title(self) -> tuple[str, str]:
@@ -148,51 +157,115 @@ class ToolCallWidget(Collapsible):
             rows.append(Text(f"{icon}  {result}", style=result_color))
         return rows
 
-    def refresh_content(self) -> None:
-        label, _icon = self._tool_title()
-        marker = {
+    def _marker(self) -> str:
+        return {
             "preparing": "○",
             "running": "●",
             "done": "✓",
             "failed": "×",
         }.get(self.status, "○")
-        summary = clip_text(self._summary(), 140)
-        title = f"{marker}  {label}"
-        if summary:
-            title = f"{title}  {summary}"
-        if self.status in {"preparing", "running"}:
-            title = f"{title}   {self.status}"
-        self.title = title
-        self._tool_label.update(f"{self._disclosure_symbol()} {marker}  {label}")
-        self._tool_command.update(summary)
-        self._tool_status.update(self.status)
-        self.remove_class(
-            "status-preparing", "status-running", "status-done", "status-failed"
-        )
+
+    def _refresh_status_class(self) -> None:
+        if self._styled_status == self.status:
+            return
+        if self._styled_status is not None:
+            self.remove_class(f"status-{self._styled_status}")
         self.add_class(f"status-{self.status}")
+        self._styled_status = self.status
+
+    def _refresh_header(self, label: str, summary: str) -> None:
+        values = (
+            f"{self._disclosure_symbol()} {self._marker()}  {label}",
+            summary,
+            self.status,
+        )
+        if values == self._header_values:
+            return
+        old = self._header_values
+        if old is None or old[0] != values[0]:
+            self._tool_label.update(values[0], layout=False)
+        if old is None or old[1] != values[1]:
+            self._tool_command.update(values[1], layout=False)
+        if old is None or old[2] != values[2]:
+            self._tool_status.update(values[2], layout=False)
+        self._header_values = values
+
+    def _refresh_body(self) -> None:
+        if self.collapsed or not self._body_dirty:
+            return
         self._body.update(Group(*self._body_rows()))
+        self._body_dirty = False
+
+    def refresh_content(self) -> None:
+        label, _icon = self._tool_title()
+        summary = clip_text(self._summary(), 140)
+        self._refresh_header(label, summary)
+        self._refresh_status_class()
+        self._refresh_body()
+
+    def snapshot(self) -> ToolCallSnapshot:
+        label, _icon = self._tool_title()
+        return ToolCallSnapshot(
+            call_id=self.call_id,
+            tool_name=self.tool_name,
+            label=label,
+            detail=clip_text(self._summary(), 300),
+            status=self.status,
+            result=self._result_summary(),
+        )
+
+
+@dataclass(frozen=True)
+class ToolCallSnapshot:
+    """Display data retained after a live tool widget is unmounted."""
+
+    call_id: str
+    tool_name: str = "tool"
+    label: str = "Tool"
+    detail: str = ""
+    status: str = "done"
+    result: str = ""
+
+    def as_text(self) -> str:
+        line = f"{self.label}: {self.detail}" if self.detail else self.label
+        if self.result:
+            line = f"{line}\n  {self.result}"
+        return line
 
 
 class ToolCallSummary(Static):
     """One-line stand-in for a group of unmounted ToolCallWidgets."""
 
     def __init__(self) -> None:
-        self.call_ids: list[str] = []
+        self.calls: list[ToolCallSnapshot] = []
         super().__init__(self._line(), classes="tool-call-summary")
 
     @property
-    def count(self) -> int:
-        return len(self.call_ids)
+    def call_ids(self) -> list[str]:
+        return [call.call_id for call in self.calls]
 
-    def add_call(self, call_id: str) -> None:
-        if call_id not in self.call_ids:
-            self.call_ids.append(call_id)
+    @property
+    def count(self) -> int:
+        return len(self.calls)
+
+    def add_call(self, call: str | ToolCallWidget | ToolCallSnapshot) -> None:
+        if isinstance(call, ToolCallWidget):
+            snapshot = call.snapshot()
+        elif isinstance(call, ToolCallSnapshot):
+            snapshot = call
+        else:
+            snapshot = ToolCallSnapshot(call_id=call)
+        if snapshot.call_id not in self.call_ids:
+            self.calls.append(snapshot)
         from textual._context import NoActiveAppError
 
         try:
             self.update(self._line())
         except NoActiveAppError:
             pass
+
+    def archive_text(self) -> str:
+        return "\n\n".join(call.as_text() for call in self.calls)
 
     def _line(self) -> Text:
         line = Text()
@@ -335,20 +408,22 @@ class BashToolWidget(ToolCallWidget):
         yield self._body
 
     def refresh_content(self) -> None:
-        marker = {
-            "preparing": "○",
-            "running": "●",
-            "done": "✓",
-            "failed": "×",
-        }.get(self.status, "○")
-        self._bash_label.update(f"{self._disclosure_symbol()} {marker}  Bash")
-        self._bash_command.update(clip_text(self._summary(), 180))
-        self._bash_status.update(self.status)
-        self.remove_class(
-            "status-preparing", "status-running", "status-done", "status-failed"
+        values = (
+            f"{self._disclosure_symbol()} {self._marker()}  Bash",
+            clip_text(self._summary(), 180),
+            self.status,
         )
-        self.add_class(f"status-{self.status}")
-        self._body.update(Group(*self._body_rows()))
+        if values != self._header_values:
+            old = self._header_values
+            if old is None or old[0] != values[0]:
+                self._bash_label.update(values[0], layout=False)
+            if old is None or old[1] != values[1]:
+                self._bash_command.update(values[1], layout=False)
+            if old is None or old[2] != values[2]:
+                self._bash_status.update(values[2], layout=False)
+            self._header_values = values
+        self._refresh_status_class()
+        self._refresh_body()
 
 # --- patch.py ---
 class PatchDiffWidget(ToolCallWidget):
@@ -357,52 +432,40 @@ class PatchDiffWidget(ToolCallWidget):
     MAX_DIFF_LINES = 80
 
     def __init__(self, call_id: str, tool_name: str) -> None:
+        self._diff_key: tuple[str, str, str] | None = None
+        self._diff_cache: list[str] = []
         super().__init__(call_id, tool_name)
         self.add_class("diff-tool")
 
     def _diff(self) -> list[str]:
         old = str(self.arguments.get("old_str") or "")
         new = str(self.arguments.get("new_str") or "")
-        if not old and not new:
-            return []
         path = str(self.arguments.get("path") or "file")
-        return make_unified_diff(old, new, path)
+        key = (path, old, new)
+        if key == self._diff_key:
+            return self._diff_cache
+        self._diff_key = key
+        if not old and not new:
+            self._diff_cache = []
+            return []
+        self._diff_cache = make_unified_diff(old, new, path)
+        return self._diff_cache
 
     def _stats(self, diff: list[str]) -> tuple[int, int]:
         return diff_stats(diff)
 
     def refresh_content(self) -> None:
-        marker = {
-            "preparing": "○",
-            "running": "●",
-            "done": "✓",
-            "failed": "×",
-        }.get(self.status, "○")
         path = str(self.arguments.get("path") or "")
         diff = self._diff()
         additions, deletions = self._stats(diff)
-
-        title = f"{marker}  Update"
-        if path:
-            title = f"{title} ({path})"
-        if diff:
-            title = f"{title}  +{additions} -{deletions}"
-        if self.status in {"preparing", "running"}:
-            title = f"{title}   {self.status}"
-        self.title = title
         summary = path
         if diff:
             stats = f"+{additions} -{deletions}"
             summary = f"{summary}  {stats}" if summary else stats
-        self._tool_label.update(
-            f"{self._disclosure_symbol()} {marker}  Update"
-        )
-        self._tool_command.update(summary)
-        self._tool_status.update(self.status)
-        self.remove_class(
-            "status-preparing", "status-running", "status-done", "status-failed"
-        )
-        self.add_class(f"status-{self.status}")
+        self._refresh_header("Update", summary)
+        self._refresh_status_class()
+        if self.collapsed or not self._body_dirty:
+            return
         rows: list[Any] = []
 
         visible = diff[: self.MAX_DIFF_LINES]
@@ -423,6 +486,7 @@ class PatchDiffWidget(ToolCallWidget):
             result_color = "#d66b73" if self.status == "failed" else "#626262"
             rows.append(Text(f"└  {clip_text(self.result, 260)}", style=result_color))
         self._body.update(Group(*rows))
+        self._body_dirty = False
 
 # --- factory.py ---
 def make_tool_widget(call_id: str, tool_name: str) -> ToolCallWidget:

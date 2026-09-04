@@ -13,8 +13,10 @@ StatusFn = Callable[[str], None]
 ScheduleFlush = Callable[[Callable[[], None]], None]
 ChromeSnapshot = Tuple[Any, ...]
 
-# High-frequency stream events are buffered and painted on a throttled UI tick.
-_STREAM_EVENT_TYPES = frozenset({"text_delta", "reasoning_delta"})
+# High-frequency events are reduced immediately but painted on one throttled UI tick.
+_BUFFERED_PAINT_EVENT_TYPES = frozenset(
+    {"text_delta", "reasoning_delta", "tool_call_delta"}
+)
 
 
 def _clean_reasoning(text: str) -> str:
@@ -33,6 +35,8 @@ class TranscriptView(Protocol):
     """Small rendering boundary, deliberately free of Textual types."""
 
     def set_assistant(self, text: str, *, new: bool = False) -> None: ...
+
+    def finish_assistant(self) -> None: ...
 
     def set_thinking(self, text: str) -> None: ...
 
@@ -86,11 +90,13 @@ class EventPresenter:
         self._schedule_flush = schedule_flush
         self._assistant_open = False
         self._tool_names: dict[str, str] = {}
-        self._tool_arguments: dict[str, str] = {}
+        self._tool_argument_chunks: dict[str, list[str]] = {}
+        self._tool_argument_tails: dict[str, str] = {}
         self._reasoning_parts: dict[int, str] = {}
         self._reasoning_active = False
         self._pending_assistant: Optional[tuple[str, bool]] = None
         self._pending_reasoning: Optional[tuple[str, bool]] = None
+        self._pending_tool_paints: dict[str, None] = {}
         self._flush_scheduled = False
         self._last_chrome: Optional[ChromeSnapshot] = None
 
@@ -122,14 +128,14 @@ class EventPresenter:
     def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         payload = payload or {}
         before = self._chrome_snapshot()
-        if event_type not in _STREAM_EVENT_TYPES:
+        if event_type not in _BUFFERED_PAINT_EVENT_TYPES:
             self.flush_stream_paints()
         handler = getattr(self, f"_on_{event_type}", None)
         if handler is None:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
-        if event_type in _STREAM_EVENT_TYPES:
+        if event_type in _BUFFERED_PAINT_EVENT_TYPES:
             self._request_stream_flush()
         after = self._chrome_snapshot()
         if after != before:
@@ -138,6 +144,7 @@ class EventPresenter:
     def flush_stream_to_log(self) -> None:
         """Paint any buffered stream text, then close the live assistant widget."""
         self.flush_stream_paints()
+        self.view.finish_assistant()
         self._assistant_open = False
 
     def flush_stream_paints(self) -> None:
@@ -147,16 +154,32 @@ class EventPresenter:
         pending_assistant = self._pending_assistant
         self._pending_reasoning = None
         self._pending_assistant = None
+        pending_tools = tuple(self._pending_tool_paints)
+        self._pending_tool_paints.clear()
         if pending_reasoning is not None:
             text, new = pending_reasoning
             self.view.set_reasoning(text, new=new)
         if pending_assistant is not None:
             text, new = pending_assistant
             self.view.set_assistant(text, new=new)
+        for call_id in pending_tools:
+            raw = "".join(self._tool_argument_chunks.get(call_id, ()))
+            arguments: Optional[dict[str, Any]] = None
+            try:
+                decoded = json.loads(raw)
+                if isinstance(decoded, dict):
+                    arguments = decoded
+            except json.JSONDecodeError:
+                pass
+            self.view.update_tool(call_id, arguments=arguments, raw_arguments=raw)
 
     def _request_stream_flush(self) -> None:
         """Schedule one paint for all deltas received during this interval."""
-        if self._pending_assistant is None and self._pending_reasoning is None:
+        if (
+            self._pending_assistant is None
+            and self._pending_reasoning is None
+            and not self._pending_tool_paints
+        ):
             return
         if self._schedule_flush is None:
             self.flush_stream_paints()
@@ -199,16 +222,19 @@ class EventPresenter:
         self.state.reset_for_run(model_id=str(payload.get("model_id") or self.state.model_id))
         self._assistant_open = False
         self._tool_names.clear()
-        self._tool_arguments.clear()
+        self._tool_argument_chunks.clear()
+        self._tool_argument_tails.clear()
         self._reasoning_parts.clear()
         self._reasoning_active = False
         self._pending_assistant = None
         self._pending_reasoning = None
+        self._pending_tool_paints.clear()
         self._flush_scheduled = False
         self.view.set_thinking("Thinking…")
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
+        self.view.finish_assistant()
         usage = payload.get("usage") or {}
         context = payload.get("context") or {}
         if usage:
@@ -287,6 +313,7 @@ class EventPresenter:
         self._finish_reasoning()
         self.state.detail = "running tools" if payload.get("had_tool_calls") else "finishing"
         if not payload.get("had_tool_calls"):
+            self.view.finish_assistant()
             self._assistant_open = False
 
     def _on_model_retry_scheduled(self, payload: Dict[str, Any]) -> None:
@@ -371,29 +398,26 @@ class EventPresenter:
     # Tools
     def _on_tool_call_started(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
+        self.view.finish_assistant()
         self._assistant_open = False
         call_id = str(payload.get("tool_call_id") or "tool")
         name = str(payload.get("tool_name") or "tool")
         self._tool_names[call_id] = name
-        self._tool_arguments[call_id] = ""
+        self._tool_argument_chunks[call_id] = []
+        self._tool_argument_tails[call_id] = ""
         self.state.phase = "tool"
         self.state.detail = f"preparing {name}"
         self.view.add_tool(call_id, name)
 
     def _on_tool_call_delta(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
-        raw = self._tool_arguments.get(call_id, "") + str(payload.get("delta") or "")
-        self._tool_arguments[call_id] = raw
+        delta = str(payload.get("delta") or "")
+        self._tool_argument_chunks.setdefault(call_id, []).append(delta)
+        tail = (self._tool_argument_tails.get(call_id, "") + delta)[-80:]
+        self._tool_argument_tails[call_id] = tail
         self.state.phase = "tool"
-        self.state.tool_args_preview = raw[-80:]
-        arguments: Optional[dict[str, Any]] = None
-        try:
-            decoded = json.loads(raw)
-            if isinstance(decoded, dict):
-                arguments = decoded
-        except json.JSONDecodeError:
-            pass
-        self.view.update_tool(call_id, arguments=arguments, raw_arguments=raw)
+        self.state.tool_args_preview = tail
+        self._pending_tool_paints[call_id] = None
 
     def _on_tool_execution_started(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
@@ -410,6 +434,8 @@ class EventPresenter:
         self.state.phase = "thinking"
         self.state.detail = f"finished {payload.get('tool_name') or 'tool'}"
         self.view.update_tool(call_id, status="done", result=payload.get("result", ""))
+        self._tool_argument_chunks.pop(call_id, None)
+        self._tool_argument_tails.pop(call_id, None)
 
     # Metrics and context
     def _on_usage(self, payload: Dict[str, Any]) -> None:

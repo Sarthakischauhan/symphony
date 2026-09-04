@@ -1,4 +1,4 @@
-"""Footer: bottom-right `N% context | model | esc cancel` in muted gray."""
+"""Footer with workspace, context utilisation, and the active keyboard hint."""
 
 from __future__ import annotations
 
@@ -37,15 +37,42 @@ def context_percent(metrics: RunMetrics) -> Optional[int]:
 
 
 def footer_segments(state: UiRunState, *, hint: str) -> tuple[str, ...]:
-    """Ordered right-hand footer clusters: context, model, hint."""
-    segments: list[str] = []
-    percent = context_percent(state.metrics)
-    if percent is not None:
-        segments.append(f"{percent}% context")
-    if state.model_id:
-        segments.append(state.model_id)
-    segments.append(hint)
-    return tuple(segments)
+    """Return the context label, meter, and keyboard hint in display order."""
+    metrics = state.metrics
+    percent = context_percent(metrics)
+    label = f"{percent}% context" if percent is not None else "context unknown"
+    return (label, _context_count(metrics), hint)
+
+
+def _context_count(metrics: RunMetrics) -> str:
+    tokens = metrics.tokens_used or metrics.total_tokens or metrics.cumulative_tokens
+    if metrics.context_limit is not None:
+        return f"{tokens:,}/{metrics.context_limit:,}"
+    return f"{tokens:,}" if tokens else "—"
+
+
+def context_bar(state: UiRunState, *, width: int = 18) -> Text:
+    """Render a heavier left-to-right context meter followed by token counts.
+
+    The meter deliberately sits between the context label and its count: the
+    label is its anchor on the left, while the count anchors the right edge of
+    this small cluster. Full block glyphs make the one-line meter read more
+    clearly than the previous thin box-drawing line.
+    """
+    metrics = state.metrics
+    percent = context_percent(metrics) or 0
+    filled = round(max(0, min(percent, 100)) * width / 100)
+    tokens = metrics.tokens_used or metrics.total_tokens or metrics.cumulative_tokens
+    limit = metrics.context_limit
+    count = f"{tokens:,}/{limit:,}" if limit is not None else f"{tokens:,}"
+    result = Text()
+    # Usage fills from left to right; the remaining capacity uses the lighter
+    # muted theme tone so the meter stays visible without competing with the
+    # accent-filled portion.
+    result.append("█" * filled, style=SYMPHONY_COLORS["accent"])
+    result.append("░" * (width - filled), style=SYMPHONY_COLORS["muted_dim"])
+    result.append(f" {count}")
+    return result
 
 
 def phase_label(state: UiRunState) -> str:
@@ -55,17 +82,21 @@ def phase_label(state: UiRunState) -> str:
     return "paused" if state.phase == "paused" else "working"
 
 
-def render_footer(state: UiRunState, *, hint: str) -> Table:
-    """Render the footer row beneath the composer."""
-    separator = Text(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
-    right = Text(no_wrap=True)
-    for index, segment in enumerate(footer_segments(state, hint=hint)):
-        if index:
-            right.append_text(separator)
-        right.append(segment)
-
+def render_footer(state: UiRunState, *, hint: str, workspace: str = "") -> Table:
+    """Render status, directory, and context on the left; hint on the right."""
+    left = Text(phase_label(state), no_wrap=True)
+    if left.plain:
+        left.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
+    if workspace:
+        left.append(workspace, style=SYMPHONY_COLORS["muted"])
+        left.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
+    percent = context_percent(state.metrics)
+    left.append(f"{percent}% context" if percent is not None else "context unknown")
+    left.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
+    left.append_text(context_bar(state))
+    right = Text(hint, no_wrap=True)
     footer = Table.grid(expand=True, padding=0)
     footer.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
     footer.add_column(justify="right", no_wrap=True)
-    footer.add_row(Text(phase_label(state), no_wrap=True), right)
+    footer.add_row(left, right)
     return footer

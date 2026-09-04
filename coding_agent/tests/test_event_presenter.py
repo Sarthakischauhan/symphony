@@ -11,10 +11,12 @@ from coding_agent.tui.runtime.state import UiRunState
 class RecordingView:
     def __init__(self) -> None:
         self.assistant: list[tuple[str, bool]] = []
+        self.finished_assistant = 0
         self.reasoning: list[tuple[str, bool]] = []
         self.finished_reasoning = 0
         self.tools: list[tuple[str, str]] = []
         self.tool_updates: list[str] = []
+        self.tool_payloads: list[tuple[str, Optional[Mapping[str, Any]], str]] = []
         self.notices: list[str] = []
         self.run_summaries: list[tuple[str, str, str]] = []
         self.thinking: list[str] = []
@@ -23,6 +25,9 @@ class RecordingView:
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         self.assistant.append((text, new))
+
+    def finish_assistant(self) -> None:
+        self.finished_assistant += 1
 
     def set_thinking(self, text: str) -> None:
         self.thinking.append(text)
@@ -52,8 +57,9 @@ class RecordingView:
         status: str = "preparing",
         result: Any = None,
     ) -> None:
-        del arguments, raw_arguments, result
+        del result
         self.tool_updates.append(f"{call_id}:{status}")
+        self.tool_payloads.append((call_id, arguments, raw_arguments))
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         del tone
@@ -151,6 +157,27 @@ def test_reasoning_deltas_coalesce_to_one_scheduled_paint() -> None:
     presenter.handle("text_delta", {"delta": "Done."})
     assert view.finished_reasoning == 1
     assert len(scheduled) == 2
+
+
+def test_tool_argument_deltas_coalesce_to_one_scheduled_paint() -> None:
+    scheduled: list = []
+    presenter, view, _chrome = _presenter(schedule=scheduled)
+    presenter.handle(
+        "tool_call_started",
+        {"tool_call_id": "read-1", "tool_name": "read_file"},
+    )
+
+    for delta in ('{"pa', 'th":"src/', 'app.py"}'):
+        presenter.handle("tool_call_delta", {"tool_call_id": "read-1", "delta": delta})
+
+    assert view.tool_updates == []
+    assert len(scheduled) == 1
+
+    scheduled[0]()
+    assert view.tool_updates == ["read-1:preparing"]
+    assert view.tool_payloads == [
+        ("read-1", {"path": "src/app.py"}, '{"path":"src/app.py"}')
+    ]
 
 
 def test_tool_start_flushes_buffered_assistant_before_add_tool() -> None:

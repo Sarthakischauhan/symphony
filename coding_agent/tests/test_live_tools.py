@@ -37,7 +37,7 @@ def test_reconcile_folds_overflow_into_one_explored_summary() -> None:
     assert all(tools[call_id] is summaries[0] for call_id in summaries[0].call_ids)
 
 
-def test_reconcile_starts_new_explored_line_after_reasoning() -> None:
+def test_reconcile_uses_one_global_budget_across_reasoning() -> None:
     tools: dict[str, object] = {}
     timeline: list[object] = []
     for index in range(5):
@@ -54,21 +54,23 @@ def test_reconcile_starts_new_explored_line_after_reasoning() -> None:
 
     summaries = [item for item in timeline if isinstance(item, ToolCallSummary)]
     live = [item for item in timeline if isinstance(item, ToolCallWidget)]
-    assert len(summaries) == 2
-    assert summaries[0].count == 2
-    assert summaries[1].count == 2
-    assert summaries[0].call_ids == ["a-0", "a-1"]
-    assert summaries[1].call_ids == ["b-0", "b-1"]
-    assert _call_ids(live) == ["a-2", "a-3", "a-4", "b-2", "b-3", "b-4"]
+    assert len(summaries) == 1
+    assert summaries[0].count == 7
+    assert summaries[0].call_ids == [
+        "a-0",
+        "a-1",
+        "a-2",
+        "a-3",
+        "a-4",
+        "b-0",
+        "b-1",
+    ]
+    assert _call_ids(live) == ["b-2", "b-3", "b-4"]
     assert any(isinstance(item, ReasoningWidget) for item in timeline)
 
 
-def test_reconcile_does_not_collapse_second_stretch_under_limit() -> None:
-    """Two batches of 5 done tools split by reasoning stay fully live at the default cap.
-
-    ``ThinkingStatus`` is first in ``timeline_items()`` and must not split stretches.
-    A non-widget sentinel stands in here so this test stays App-free.
-    """
+def test_reconcile_keeps_ten_tools_across_reasoning_at_default_limit() -> None:
+    """Reasoning does not reset the default ten-tool budget."""
     thinking = object()
     tools: dict[str, object] = {}
     timeline: list[object] = [thinking]
@@ -129,3 +131,18 @@ def test_tool_call_summary_line_uses_amber_explored_and_muted_count() -> None:
     }
     assert styles["Explored"] == "#d7a84b"
     assert styles["       2 tools]"] == "#666666"
+
+
+def test_collapsed_tool_defers_body_render_until_expanded() -> None:
+    widget = ToolCallWidget("read-1", "read_file")
+
+    widget.set_running({"path": "src/app.py"})
+    widget.set_result("file contents")
+
+    assert widget._body.content == ""
+    assert widget._body_dirty
+
+    widget.collapsed = False
+
+    assert widget._body.content != ""
+    assert not widget._body_dirty
