@@ -9,7 +9,7 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT, reconcile_live_tools
-from coding_agent.tui.transcript.messages import AssistantMessage, Notice, Welcome
+from coding_agent.tui.transcript.messages import AssistantMessage, Notice, RunSummary, Welcome
 from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
 
 
@@ -151,6 +151,19 @@ class TranscriptSurface:
             self._mount_process_item(notice)
         else:
             self._mount_transcript(notice)
+
+    def add_run_summary(
+        self,
+        summary: str,
+        *,
+        label: str = "summary so far",
+        event_type: str = "run_summary",
+    ) -> None:
+        widget = RunSummary(summary, label=label, event_type=event_type)
+        if self._busy and self._process is not None:
+            self._mount_process_item(widget)
+        else:
+            self._mount_transcript(widget)
 
     def finish_process(self, title: str, *, collapse: bool = True) -> None:
         if self._process is not None:

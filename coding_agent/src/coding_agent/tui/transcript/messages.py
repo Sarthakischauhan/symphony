@@ -213,3 +213,18 @@ class Notice(Static):
     def __init__(self, text: str, tone: str = "info") -> None:
         color = self.COLORS.get(tone, self.COLORS["info"])
         super().__init__(Text(f"  {text}", style=color), classes=f"notice {tone}")
+
+
+class RunSummary(Static):
+    """User-message-like purple block for a summary emitted during a run."""
+
+    def __init__(
+        self,
+        summary: str,
+        *,
+        label: str = "Summary",
+        event_type: str = "run_summary",
+    ) -> None:
+        heading = Text(f"◆  {label}  ·  {event_type}", style="bold #c5a9e6")
+        body = Text(summary, style="#c2b5cf")
+        super().__init__(Group(heading, body), classes="message run-summary")

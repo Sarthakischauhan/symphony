@@ -88,6 +88,14 @@ Screen {
     padding: 1 2;
 }
 
+.run-summary {
+    margin: 2 0 0 1;
+    background: $background;
+    border-left: solid #9b7bc3;
+    padding: 1 2;
+    color: #c2b5cf;
+}
+
 .assistant-message {
     padding-left: 2;
     background: $background;

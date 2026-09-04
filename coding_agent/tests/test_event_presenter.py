@@ -59,20 +59,28 @@ class RecordingView:
         self.notices.append(text)
 
 
-def _presenter(*, chrome: list[str] | None = None) -> tuple[EventPresenter, RecordingView, list[str]]:
+def _presenter(
+    *,
+    schedule: list | None = None,
+    chrome: list[str] | None = None,
+) -> tuple[EventPresenter, RecordingView, list[str]]:
     view = RecordingView()
     status_calls = chrome if chrome is not None else []
-    presenter = EventPresenter(
+    kwargs: dict[str, Any] = dict(
         state=UiRunState(),
         view=view,
         set_status=status_calls.append,
         workspace="/tmp/ws",
     )
+    if schedule is not None:
+        kwargs["schedule_flush"] = schedule.append
+    presenter = EventPresenter(**kwargs)
     return presenter, view, status_calls
 
 
-def test_text_deltas_coalesce_until_the_next_real_paint() -> None:
-    presenter, view, chrome = _presenter()
+def test_text_deltas_coalesce_to_one_scheduled_paint() -> None:
+    scheduled: list = []
+    presenter, view, chrome = _presenter(schedule=scheduled)
     presenter.handle("run_started", {"model_id": "openai:test"})
     presenter.handle("turn_started", {"turn": 0})
     chrome.clear()
@@ -82,10 +90,11 @@ def test_text_deltas_coalesce_until_the_next_real_paint() -> None:
         presenter.handle("text_delta", {"delta": f"x{index}"})
 
     assert view.assistant == []
+    assert len(scheduled) == 1
     assert len(chrome) == 1
     assert "phase=streaming" in chrome[0]
 
-    presenter.handle("turn_completed", {})
+    scheduled[0]()
     assert len(view.assistant) == 1
     text, is_new = view.assistant[0]
     assert is_new
@@ -95,14 +104,16 @@ def test_text_deltas_coalesce_until_the_next_real_paint() -> None:
 
     presenter.handle("text_delta", {"delta": "y"})
     assert len(view.assistant) == 1
-    presenter.flush_stream_paints()
+    assert len(scheduled) == 2
+    scheduled[1]()
     assert len(view.assistant) == 2
     assert view.assistant[-1][0].endswith("y")
-    assert view.assistant[-1][1] is True
+    assert view.assistant[-1][1] is False
 
 
-def test_reasoning_deltas_coalesce_until_reasoning_ends() -> None:
-    presenter, view, _chrome = _presenter()
+def test_reasoning_deltas_coalesce_to_one_scheduled_paint() -> None:
+    scheduled: list = []
+    presenter, view, _chrome = _presenter(schedule=scheduled)
     presenter.handle("run_started", {"model_id": "openai:test"})
     presenter.handle("turn_started", {"turn": 0})
     view.reasoning.clear()
@@ -121,11 +132,15 @@ def test_reasoning_deltas_coalesce_until_reasoning_ends() -> None:
     )
     assert view.reasoning == []
     assert view.finished_reasoning == 0
+    assert len(scheduled) == 1
+
+    scheduled[0]()
+    assert view.reasoning == [("Inspecting the file.", True)]
+    assert view.finished_reasoning == 0
 
     presenter.handle("text_delta", {"delta": "Done."})
-    assert view.reasoning == [("Inspecting the file.", True)]
     assert view.finished_reasoning == 1
-    assert view.assistant == []
+    assert len(scheduled) == 2
 
 
 def test_tool_start_flushes_buffered_assistant_before_add_tool() -> None:
