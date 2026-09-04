@@ -11,7 +11,7 @@ from rich.text import Text
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from coding_agent.tui.chrome import TopBar, read_git_branch
+from coding_agent.tui.chrome import TopBar
 from coding_agent.tui.screens.modal import ModalBase
 from coding_agent.tui.theme import APP_CSS
 from coding_agent.tui.transcript import (
@@ -111,58 +111,10 @@ class SubagentRecord:
 class SubagentScreen(ModalBase[None]):
     """Full-screen child transcript using the parent session's visual language."""
 
-    CSS = APP_CSS + """
-    SubagentScreen {
-        layout: vertical;
-        background: $background;
-    }
-
-    SubagentScreen #topbar {
-        display: none;
-    }
-
-    SubagentScreen #transcript > .user-message {
-        display: none;
-    }
-
-    #subagent-header {
-        width: 100%;
-        height: auto;
-        padding: 1 3 0 3;
-        color: $muted;
-        background: $background;
-    }
-
-    #subagent-prompt {
-        width: 100%;
-        height: auto;
-        margin: 2 3 1 3;
-        padding: 1 2;
-        border-left: thick #8aa8d8;
-        color: $foreground;
-        background: $background;
-    }
-
-    #subagent-context {
-        width: 100%;
-        height: auto;
-        padding: 0 3;
-        color: $muted;
-        background: $background;
-    }
-
-    SubagentScreen #transcript {
-        padding-top: 0;
-    }
-
-    SubagentScreen #status {
-        height: auto;
-        margin: 1 3 0 3;
-        padding: 1 0;
-        border-top: solid $panel-edge;
-        color: $muted;
-    }
-    """
+    # Use the same chrome and transcript surface as the parent app.  This is
+    # intentionally not a second, legacy subagent layout: the child prompt is
+    # the first user message and the child run uses the normal process cards.
+    CSS = APP_CSS
 
     def __init__(self, record: SubagentRecord, workspace: Any = None) -> None:
         super().__init__()
@@ -175,13 +127,6 @@ class SubagentScreen(ModalBase[None]):
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield TopBar(id="topbar")
-        yield Static(id="subagent-header")
-        yield Static(
-            self.record.prompt or "No task description was provided.",
-            id="subagent-prompt",
-            markup=False,
-        )
-        yield Static(id="subagent-context")
         with VerticalScroll(id="transcript"):
             yield UserMessage(self.record.prompt or "No task description was provided.")
             yield self._process
@@ -194,34 +139,11 @@ class SubagentScreen(ModalBase[None]):
     def refresh_record(self) -> None:
         """Synchronize live child state into the nested transcript."""
         record = self.record
-        header = self.query_one("#subagent-header", Static)
-        branch = read_git_branch(self.workspace)
-        header_text = Text()
-        header_text.append(branch or "main", style="#d0d0d0")
-        header_text.append("  ›  ", style="#626262")
-        header_text.append(record.label or "subagent", style="#d0d0d0")
-        header_text.append("  •  ", style="#626262")
-        header_text.append("subagent", style="#8ca0cc")
-        header_text.append("  •  ", style="#626262")
-        header_text.append(record.status, style="bold #d66b73" if record.status == "failed" else "#72a57a")
-        if record.model_id:
-            header_text.append(" " * 4 + record.model_id, style="#737373")
-        header.update(header_text)
-
-        status_style = {
-            "running": "bold #d7a84b",
-            "completed": "bold #72a57a",
-            "failed": "bold #d66b73",
-        }.get(record.status, "bold #737373")
-        context = Text()
-        context.append("", style="#626262")
-        context.append(f"  {record.label or 'subagent'}", style="#d0d0d0")
-        context.append(f"  ·  {record.status}", style=status_style)
-        if record.parent_id or record.agent_id:
-            parent = record.parent_id.replace("-", "")[:8] or "—"
-            child = record.agent_id.replace("-", "")[:8] or "—"
-            context.append(f"  ·  {parent} → {child}", style="#626262")
-        self.query_one("#subagent-context", Static).update(context)
+        self.query_one("#topbar", TopBar).set_context(
+            self.workspace,
+            record.model_id,
+            label=record.label,
+        )
 
         for index, tool_data in enumerate(record.tools):
             call_id = str(tool_data.get("id") or f"tool-{index}")
@@ -256,13 +178,17 @@ class SubagentScreen(ModalBase[None]):
 
         self._assistant.display = bool(record.output_text)
         self._assistant.set_content(record.output_text)
+        # Keep the footer consistent with the parent run.  The actual failure
+        # reason is already rendered as the child's assistant output (and may
+        # vary by harness limit/provider), so do not retain the old hard-coded
+        # max-turns message here.
         if record.status == "failed":
-            footer = "Subagent stopped\nHarness exceeded max_turns before producing a final review.\nPartial tool history is preserved."
+            footer = "Subagent stopped"
         elif record.status == "completed":
             footer = "Subagent completed"
         else:
             footer = "Subagent working"
-        self.query_one("#status", Static).update(footer + "\n\nenter inspect result    r retry +2 turns    esc return to parent")
+        self.query_one("#status", Static).update(footer)
 
         transcript = self.query_one("#transcript", VerticalScroll)
         if transcript.is_vertical_scroll_end:

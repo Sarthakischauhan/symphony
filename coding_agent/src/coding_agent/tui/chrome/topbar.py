@@ -75,14 +75,23 @@ class TopBar(Static):
         self._model = ""
         super().__init__(*args, **kwargs)
 
-    def set_context(self, workspace: Path, model: str = "") -> None:
+    def set_context(
+        self,
+        workspace: Path,
+        model: str = "",
+        *,
+        label: str = "",
+    ) -> None:
         self._branch = read_git_branch(workspace)
         self._model = model
+        left = self._branch
+        if label:
+            left = f"{left}  ›  subagent  ›  {label}" if left else f"subagent  ›  {label}"
         row = Table.grid(expand=True, padding=0)
         row.add_column(ratio=1, no_wrap=True)
         row.add_column(justify="right", no_wrap=True)
         branch = Text(
-            f"{BRANCH_ICON} {self._branch}" if self._branch else "",
+            f"{BRANCH_ICON} {left}" if left else "",
             no_wrap=True,
         )
         row.add_row(branch, Text(self._model, no_wrap=True))
