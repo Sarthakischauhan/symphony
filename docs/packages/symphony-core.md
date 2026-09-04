@@ -50,9 +50,9 @@ raises if no credential is set.
 ## Streaming contract
 
 Providers translate streamed text, reasoning, tool calls, usage, completion,
-and rate-limit retry signals into `StreamEvent`. OpenAI selects Responses or
-Chat Completions from the catalog (with an `o1` / `o3` / `o4` fallback).
-Anthropic uses Messages. Gemini uses streamGenerateContent.
+and retry signals (429, SSL MAC, 5xx, connection) into `StreamEvent`. OpenAI
+selects Responses or Chat Completions from the catalog (with an `o1` / `o3` /
+`o4` fallback). Anthropic uses Messages. Gemini uses streamGenerateContent.
 
 ## Model catalog
 
