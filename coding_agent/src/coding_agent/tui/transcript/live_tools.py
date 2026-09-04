@@ -1,4 +1,4 @@
-"""Cap live tool widgets into Explored summary rows."""
+"""Fold older completed tool cards into one Explored summary per run."""
 
 from __future__ import annotations
 
@@ -13,23 +13,21 @@ def reconcile_live_tools(
     *,
     limit: int = LIVE_TOOL_WIDGET_LIMIT,
 ) -> None:
-    """Keep the newest ``limit`` completed tool cards live in a timeline.
+    """Keep the newest ``limit`` completed tool cards live; fold older ones.
 
-    Reasoning is presentation, not a retention boundary. Spawned agents and
-    in-progress tools stay live, while older terminal tools are represented by
-    one lightweight summary row.
+    Compaction is bottom-up within one run timeline: older completed cards
+    collapse into one Explored summary above the remaining live cards.
+    In-progress tools and ``spawn_agent`` cards stay live and never count.
+    """
     """
     if timeline is None or limit < 0:
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
-    completed = [
-        item
-        for item in tuple(snapshot())
-        if _counts_toward_live_cap(item) and not _is_in_progress_tool(item)
-    ]
+    # Copy first: folding mutates the live timeline while we iterate.
+    completed = _completed_tools(tuple(snapshot()))
     for widget in _overflow_past_limit(completed, limit):
-        _collapse_into_explored(widget, snapshot, replace, remove, tools)
+        _fold_into_explored(widget, snapshot, replace, remove, tools)
 
 
 def _timeline_ops(
@@ -65,11 +63,21 @@ def _is_in_progress_tool(widget: Any) -> bool:
     return widget.status in {"preparing", "running"}
 
 
-def _overflow_past_limit(live: Sequence[Any], limit: int) -> list[Any]:
-    return list(live if not limit else live[:-limit])
+def _completed_tools(items: Sequence[Any]) -> list[Any]:
+    """Terminal tool cards in timeline order (oldest first)."""
+    return [
+        item
+        for item in items
+        if _counts_toward_live_cap(item) and not _is_in_progress_tool(item)
+    ]
 
 
-def _collapse_into_explored(
+def _overflow_past_limit(completed: Sequence[Any], limit: int) -> list[Any]:
+    """The older cards that fall outside the newest ``limit`` live slots."""
+    return list(completed if not limit else completed[:-limit])
+
+
+def _fold_into_explored(
     widget: Any,
     snapshot: Callable[[], list[Any]],
     replace: Callable[[Any, Any], None],
@@ -79,12 +87,12 @@ def _collapse_into_explored(
     from coding_agent.tui.tools.calls import ToolCallSummary
 
     items = snapshot()
-    try:
-        index = items.index(widget)
-    except ValueError:
+    if widget not in items:
         return
-    summary = next((item for item in items if isinstance(item, ToolCallSummary)), None)
+    summary = _explored_summary(items)
     if summary is None:
+        # The first fold happens at the oldest completed card, so the summary
+        # lands above every card that stays live.
         summary = ToolCallSummary()
         replace(widget, summary)
     else:
@@ -92,3 +100,11 @@ def _collapse_into_explored(
     summary.add_call(widget)
     if tools is not None:
         tools[widget.call_id] = summary
+
+
+
+def _explored_summary(items: Sequence[Any]) -> Any:
+    """The run's single Explored row, if one has already been created."""
+    from coding_agent.tui.tools.calls import ToolCallSummary
+
+    return next((item for item in items if isinstance(item, ToolCallSummary)), None)

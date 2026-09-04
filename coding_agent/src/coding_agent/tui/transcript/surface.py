@@ -175,11 +175,6 @@ class TranscriptSurface:
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
-        reconcile_live_tools(
-            self._process,
-            self._tools,
-            limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
-        )
 
     def update_tool(
         self,
@@ -209,6 +204,8 @@ class TranscriptSurface:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
         if status == "done":
+            # Only completed cards count toward the live cap, so a run's
+            # timeline can only overflow when a tool reaches a terminal state.
             reconcile_live_tools(
                 self._process,
                 self._tools,
