@@ -14,6 +14,7 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.transcript.messages import clip_text, compact_json
@@ -217,7 +218,7 @@ class ToolCallWidget(Collapsible):
 
 @dataclass(frozen=True)
 class ToolCallSnapshot:
-    """Display data retained after a live tool widget is unmounted."""
+    """Display data retained after a live tool card is folded away."""
 
     call_id: str
     tool_name: str = "tool"
@@ -227,14 +228,20 @@ class ToolCallSnapshot:
     result: str = ""
 
     def as_text(self) -> str:
-        line = f"{self.label}: {self.detail}" if self.detail else self.label
+        marker = "×" if self.status == "failed" else "✓"
+        line = f"{marker}  {self.label}"
+        if self.detail:
+            line = f"{line}  {self.detail}"
         if self.result:
-            line = f"{line}\n  {self.result}"
+            line = f"{line}\n   {self.result}"
         return line
 
 
-class ToolCallSummary(Static):
-    """One-line stand-in for a group of unmounted ToolCallWidgets."""
+class ToolCallSummary(Static, can_focus=True):
+    """One-line Explored row standing in for folded ToolCallWidgets.
+
+    Click or press Enter to open the folded tools' snapshots in a modal.
+    """
 
     def __init__(self) -> None:
         self.calls: list[ToolCallSnapshot] = []
@@ -264,8 +271,24 @@ class ToolCallSummary(Static):
         except NoActiveAppError:
             pass
 
-    def archive_text(self) -> str:
+    def snapshot_text(self) -> str:
         return "\n\n".join(call.as_text() for call in self.calls)
+
+    def archive_text(self) -> str:
+        return self.snapshot_text()
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.open_details()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            self.open_details()
+
+    def open_details(self) -> None:
+        content = self.snapshot_text() or "No folded tool calls."
+        self.app.push_screen(ContentModal(content))
 
     def _line(self) -> Text:
         line = Text()

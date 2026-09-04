@@ -198,4 +198,9 @@ TOOLS_CSS = """
     color: #666666;
     background: $background;
 }
+
+.tool-call-summary:hover,
+.tool-call-summary:focus {
+    background: $panel;
+}
 """
