@@ -159,19 +159,26 @@ class PromptInput(TextArea):
             search_from = end
 
 
+PROMPT_PLACEHOLDER = "Ask Symphony..."
+
+
+def mode_label(mode: str) -> str:
+    """All-caps composer mode badge (`BUILD` / `PLAN`)."""
+    return mode.upper()
+
+
 class Composer(Container):
-    """Input surface with an always-visible interaction hint."""
+    """Borderless prompt under a thin separator, with the mode badge at the right."""
 
     def compose(self):  # type: ignore[no-untyped-def]
         from coding_agent.tui.composer.slash_menu import SlashMenu
 
         yield SlashMenu(id="approval-menu")
-        yield PromptInput(
-            placeholder="Ask Symphony to build, fix, or explain…",
-            id="prompt",
-            soft_wrap=True,
-            show_line_numbers=False,
-        )
-        with Horizontal(id="composer-footer"):
-            yield Static("BUILD · Tab mode", id="composer-mode")
-            yield Static("Ctrl+↵ send   Enter line break   Esc cancel", id="composer-hint")
+        with Horizontal(id="composer-row"):
+            yield PromptInput(
+                placeholder=PROMPT_PLACEHOLDER,
+                id="prompt",
+                soft_wrap=True,
+                show_line_numbers=False,
+            )
+            yield Static(mode_label("build"), id="composer-mode")

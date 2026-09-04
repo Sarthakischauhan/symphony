@@ -7,9 +7,9 @@ from typing import Callable
 from textual import work
 from textual.widgets import Static
 
+from coding_agent.tui.chrome import footer_hint, render_footer
 from coding_agent.tui.composer.input import PromptInput
 from coding_agent.tui.runtime.control_plane import HarnessEvent
-from coding_agent.tui.runtime.status import render_status
 from coding_agent.tui.screens.history import load_session_history
 from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
@@ -21,7 +21,9 @@ class TurnSurface:
     """Harness event routing and the exclusive agent-turn worker."""
 
     def _set_status(self, _value: str) -> None:
-        self.query_one("#status", Static).update(render_status(self._ui_state, self.workspace))
+        """Repaint the footer from run state; the presenter's text summary is unused."""
+        hint = footer_hint(question_pending=self._pending_question_id is not None)
+        self.query_one("#status", Static).update(render_footer(self._ui_state, hint=hint))
 
     def _schedule_stream_flush(self, callback: Callable[[], None]) -> None:
         """Coalesce stream paints to keep Markdown/widget work bounded."""

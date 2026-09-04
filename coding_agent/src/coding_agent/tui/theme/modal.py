@@ -9,14 +9,14 @@ MODAL_BASE_CSS = """
     height: 1;
     color: #737373;
     content-align: right middle;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 #modal-close:hover,
 #modal-close:focus {
     color: #f2d675;
     text-style: bold;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 .modal-pane {
@@ -24,7 +24,7 @@ MODAL_BASE_CSS = """
     max-width: 132;
     height: 84%;
     padding: 2 3;
-    background: #101010;
+    background: #0A0A0A;
     border: round #383838;
 }
 
@@ -36,9 +36,9 @@ MODAL_BASE_CSS = """
     scrollbar-color: #343434;
     scrollbar-color-active: #525252;
     scrollbar-color-hover: #484848;
-    scrollbar-background: #101010;
-    scrollbar-background-active: #101010;
-    scrollbar-background-hover: #101010;
+    scrollbar-background: #0A0A0A;
+    scrollbar-background-active: #0A0A0A;
+    scrollbar-background-hover: #0A0A0A;
 }
 
 .content-card {
@@ -66,7 +66,7 @@ MODAL_BASE_CSS = """
     height: 2;
     padding: 1 1 0 1;
     color: #686868;
-    background: #101010;
+    background: #0A0A0A;
 }
 """
 
@@ -106,7 +106,7 @@ ImageModal {
     height: auto;
     padding: 0 1 1 1;
     color: #d0d0d0;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 #image-preview {
@@ -129,8 +129,8 @@ DiffModal {
     max-width: 180;
     height: 94%;
     padding: 0 1;
-    background: #0b0d0e;
-    border: round #394247;
+    background: #0A0A0A;
+    border: round #262626;
 }
 
 #diff-header {
@@ -138,8 +138,8 @@ DiffModal {
     height: 3;
     min-height: 3;
     padding: 1 1 0 1;
-    border-bottom: solid #394247;
-    background: #0b0d0e;
+    border-bottom: solid #262626;
+    background: #0A0A0A;
 }
 
 #diff-pane > #modal-close {
@@ -151,25 +151,25 @@ DiffModal {
     width: auto;
     color: #d9dde0;
     text-style: bold;
-    background: #0b0d0e;
+    background: #0A0A0A;
 }
 
 #diff-path {
     width: auto;
     padding-left: 2;
     color: #aeb8bc;
-    background: #0b0d0e;
+    background: #0A0A0A;
 }
 
 #diff-header-spacer {
     width: 1fr;
-    background: #0b0d0e;
+    background: #0A0A0A;
 }
 
 #diff-total-stats {
     width: auto;
     margin-left: 2;
-    background: #0b0d0e;
+    background: #0A0A0A;
 }
 
 #diff-file-counter {
@@ -177,7 +177,7 @@ DiffModal {
     margin-left: 2;
     color: #858d91;
     content-align: right middle;
-    background: #0b0d0e;
+    background: #0A0A0A;
 }
 
 #diff-header #modal-close {
@@ -186,7 +186,7 @@ DiffModal {
     min-width: 11;
     margin-left: 2;
     color: #858d91;
-    background: #0b0d0e;
+    background: #0A0A0A;
 }
 
 #diff-pane #modal-close:hover,
@@ -198,13 +198,13 @@ DiffModal {
 #diff-body {
     height: 1fr;
     padding: 0;
-    background: #0b0d0e;
+    background: #0A0A0A;
     scrollbar-color: #343434;
     scrollbar-color-active: #525252;
     scrollbar-color-hover: #484848;
-    scrollbar-background: #101010;
-    scrollbar-background-active: #101010;
-    scrollbar-background-hover: #101010;
+    scrollbar-background: #0A0A0A;
+    scrollbar-background-active: #0A0A0A;
+    scrollbar-background-hover: #0A0A0A;
 }
 
 #diff-hint {
@@ -212,7 +212,7 @@ DiffModal {
     height: 2;
     content-align: center middle;
     color: #737b7f;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 .diff-file-card {
@@ -220,8 +220,8 @@ DiffModal {
     height: auto;
     margin-bottom: 1;
     padding: 0;
-    background: #0b0d0e;
-    border-top: solid #394247;
+    background: #0A0A0A;
+    border-top: solid #262626;
 }
 
 .diff-file-card.inactive {
@@ -240,14 +240,14 @@ DiffModal {
     width: 100%;
     height: 1;
     padding: 0 1;
-    background: #111718;
+    background: #171717;
 }
 
 .diff-file-chevron {
     width: 3;
     color: #8ca0a8;
     content-align: center middle;
-    background: #111718;
+    background: #171717;
 }
 
 .diff-file-path {
@@ -255,7 +255,7 @@ DiffModal {
     height: 1;
     content-align: left middle;
     color: #d0d0d0;
-    background: #111718;
+    background: #171717;
 }
 
 .diff-file-card.selected {
@@ -275,7 +275,7 @@ DiffModal {
     height: 1;
     content-align: right middle;
     color: #737373;
-    background: #111718;
+    background: #171717;
 }
 
 .diff-patch {
@@ -296,11 +296,113 @@ LearningModal {
 }
 
 #learning-pane {
-    border: round #38454b;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    background: #0A0A0A;
+    border: round #262626;
+}
+
+#learning-pane > #modal-close {
+    display: none;
+}
+
+#learning-header {
+    width: 100%;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
+    border-bottom: solid #262626;
+    background: #0A0A0A;
+}
+
+#learning-title {
+    width: auto;
+    color: #d9dde0;
+    text-style: bold;
+    background: #0A0A0A;
+}
+
+#learning-counter {
+    width: 1fr;
+    padding-left: 2;
+    color: #858d91;
+    background: #0A0A0A;
+}
+
+#learning-header #modal-close {
+    dock: none;
+    width: auto;
+    min-width: 11;
+    color: #858d91;
+    background: #0A0A0A;
+}
+
+#learning-header #modal-close:hover,
+#learning-header #modal-close:focus {
+    color: #f2d675;
+    background: #171b1c;
+}
+
+#learning-body {
+    height: 1fr;
+    padding: 0;
+    background: #0A0A0A;
 }
 
 #learning-hint {
-    text-align: right;
+    width: 100%;
+    height: 2;
+    content-align: center middle;
+    color: #737b7f;
+    background: #0A0A0A;
+}
+
+.learning-card {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0;
+    background: #0A0A0A;
+    border-top: solid #262626;
+}
+
+.learning-card:hover {
+    border-top: solid #687b83;
+}
+
+.learning-card-header {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    background: #171717;
+}
+
+.learning-marker {
+    width: 3;
+    color: #c5a9e6;
+    content-align: center middle;
+    background: #171717;
+}
+
+.learning-card-title {
+    width: 1fr;
+    color: #d0d0d0;
+    background: #171717;
+}
+
+.learning-meta {
+    width: auto;
+    background: #171717;
+}
+
+.learning-body-content {
+    width: 100%;
+    height: auto;
+    padding: 1 2 2 2;
+    color: #bdbdbd;
+    background: #0A0A0A;
 }
 
 """
@@ -313,11 +415,65 @@ PlanModal {
 }
 
 #plan-pane {
-    border: round #4a4532;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    background: #0A0A0A;
+    border: round #262626;
+}
+
+#plan-pane > #modal-close {
+    display: none;
 }
 
 #plan-body {
-    padding-top: 0;
+    height: 1fr;
+    padding: 0;
+    background: #0A0A0A;
+}
+
+.plan-section-card {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0;
+    background: #0A0A0A;
+    border-top: solid #262626;
+}
+
+.plan-section-card:hover {
+    border-top: solid #687b83;
+}
+
+.plan-section-header {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    background: #171717;
+}
+
+.plan-section-number {
+    width: 4;
+    color: #c7b66e;
+    text-style: bold;
+    content-align: left middle;
+    background: #171717;
+}
+
+.plan-section-title {
+    width: 1fr;
+    color: #d0d0d0;
+    text-style: bold;
+    background: #171717;
+}
+
+.plan-section-body {
+    width: 100%;
+    height: auto;
+    padding: 1 1 2 1;
+    color: #bdbdbd;
+    background: #0A0A0A;
 }
 
 #plan-hint {
@@ -330,7 +486,7 @@ PlanModal {
 #plan-actions {
     width: 100%;
     height: 3;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 #plan-build {
@@ -364,14 +520,14 @@ ContextModal {
     height: 78%;
     max-height: 44;
     padding: 1 2;
-    background: #101010;
+    background: #0A0A0A;
     border: round #38474a;
 }
 
 #context-header {
     width: 100%;
     height: 2;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 #context-title {
@@ -379,7 +535,7 @@ ContextModal {
     height: 1;
     color: #d8d8d8;
     text-style: bold;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 #context-meters {
@@ -395,7 +551,7 @@ ContextModal {
     width: 100%;
     height: 3;
     margin-bottom: 1;
-    background: #101010;
+    background: #0A0A0A;
     border-bottom: solid #252525;
 }
 
@@ -406,7 +562,7 @@ ContextModal {
     padding: 0 1 1 1;
     color: #9a9a9a;
     content-align: center middle;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 .context-chip:hover,
@@ -418,7 +574,7 @@ ContextModal {
 .context-chip-active {
     color: #f2d675;
     text-style: bold;
-    background: #101010;
+    background: #0A0A0A;
     border-bottom: heavy #8f835a;
 }
 
@@ -427,12 +583,12 @@ ContextModal {
     height: 2;
     padding: 0 1 1 1;
     color: #686868;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 #context-body {
     padding: 0;
-    background: #101010;
+    background: #0A0A0A;
 }
 
 #context-list {

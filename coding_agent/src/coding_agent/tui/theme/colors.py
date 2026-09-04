@@ -23,9 +23,16 @@ from rich.theme import Theme
 # The palette is kept in one place so Rich content and Textual CSS can be
 # changed together.  These are the semantic tokens from the Symphony dark
 # theme (rather than terminal colour names, which vary by terminal).
+#
+# Chrome tokens (background / accent / muted) mirror the `$...` variables in
+# theme/chrome.py so Rich renderables and Textual CSS share one palette.
 SYMPHONY_COLORS = {
     "background": "#0A0A0A",
     "foreground": "#EDEDED",
+    "accent": "#A371F7",
+    "muted": "#737373",
+    "muted_dim": "#737373",
+    "edge": "#262626",
     "comment": "#737373",
     "keyword": "#db6767",
     "type_keywords": "#db6767",

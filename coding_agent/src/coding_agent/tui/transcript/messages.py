@@ -8,12 +8,17 @@ from typing import Any, Mapping, Sequence
 
 from rich.console import Group
 from rich.style import Style
+from rich.table import Table
 from rich.text import Text
 from textual.widgets import Static
 
 from coding_agent.tui.screens.modal import ContentModal
-from coding_agent.tui.theme import themed_markdown
+from coding_agent.tui.theme import SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.tools.images import IMAGE_MARKER_RE, ImageAttachment, ImageModal
+
+# Accent glyph that opens every user prompt in the transcript (mock: purple `>`).
+USER_PROMPT_GLYPH = ">"
+USER_PROMPT_GUTTER = 3
 
 
 def compact_json(value: Mapping[str, Any]) -> str:
@@ -36,40 +41,23 @@ def preview_text(value: Any, limit: int = 180) -> str:
     text = str(value)
     return text if len(text) <= limit else f"{text[:limit]}…"
 
-class TopBar(Static):
-    """Terminal header with a quiet workspace label and model label."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._workspace = ""
-        self._model = ""
-        super().__init__(*args, **kwargs)
-
-    def compose(self):  # type: ignore[no-untyped-def]
-        yield Static("◆  symphony", id="topbar-product")
-        yield Static(id="topbar-workspace")
-        yield Static(id="topbar-model")
-
-    def set_context(self, workspace: Path, model: str = "") -> None:
-        self._workspace = str(workspace)
-        self._model = model
-        self.query_one("#topbar-workspace", Static).update(
-            Text(self._workspace, style="#777777")
-        )
-        self.query_one("#topbar-model", Static).update(
-            Text(f" {model or 'no model'} ", style="#a0a0a0")
-        )
-
-
 class Welcome(Static):
     def __init__(self, workspace: Path) -> None:
         body = Group(
-            Text("Symphony", style="bold #f0f0f0"),
-            Text("Coding agent", style="#858585"),
+            Text("Symphony", style="bold " + SYMPHONY_COLORS["foreground"]),
+            Text("Coding agent", style=SYMPHONY_COLORS["muted"]),
             Text(""),
-            Text(f"  {workspace}", style="#666666"),
+            Text(f"  {workspace}", style=SYMPHONY_COLORS["muted_dim"]),
             Text(""),
-            Text("Describe a task, ask a question, or request a code change.", style="#a0a0a0"),
-            Text("Enter sends  ·  Esc cancels a run  ·  Ctrl+D quits  ·  Ctrl+L clears", style="#575757"),
+            Text(
+                "Describe a task, ask a question, or request a code change.",
+                style=SYMPHONY_COLORS["muted"],
+            ),
+            Text(
+                "Ctrl+↵ sends  ·  Enter adds a line  ·  Tab switches mode  ·  "
+                "Esc cancels a run  ·  Ctrl+D quits  ·  Ctrl+L clears",
+                style=SYMPHONY_COLORS["muted_dim"],
+            ),
         )
         super().__init__(body, classes="welcome")
 
@@ -88,9 +76,21 @@ class UserMessage(Static):
         self._hidden_content: dict[str, str] = {}
         self._images = {image.number: image for image in images}
         super().__init__(
-            self._compact_content(content, pasted_chunks),
+            self._with_prompt_glyph(self._compact_content(content, pasted_chunks)),
             classes="message user-message",
         )
+
+    @staticmethod
+    def _with_prompt_glyph(content: Text) -> Table:
+        """Lay the prompt text beside an accent `>` so wrapped lines stay aligned."""
+        row = Table.grid(expand=True, padding=0)
+        row.add_column(width=USER_PROMPT_GUTTER, no_wrap=True)
+        row.add_column(ratio=1)
+        row.add_row(
+            Text(USER_PROMPT_GLYPH, style="bold " + SYMPHONY_COLORS["accent"]),
+            content,
+        )
+        return row
 
     def _compact_content(self, content: str, pasted_chunks: tuple[str, ...]) -> Text:
         self._hidden_content.clear()
