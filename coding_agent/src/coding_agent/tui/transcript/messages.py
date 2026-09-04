@@ -36,40 +36,23 @@ def preview_text(value: Any, limit: int = 180) -> str:
     text = str(value)
     return text if len(text) <= limit else f"{text[:limit]}…"
 
-class TopBar(Static):
-    """Terminal header with a quiet workspace label and model label."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._workspace = ""
-        self._model = ""
-        super().__init__(*args, **kwargs)
-
-    def compose(self):  # type: ignore[no-untyped-def]
-        yield Static("◆  symphony", id="topbar-product")
-        yield Static(id="topbar-workspace")
-        yield Static(id="topbar-model")
-
-    def set_context(self, workspace: Path, model: str = "") -> None:
-        self._workspace = str(workspace)
-        self._model = model
-        self.query_one("#topbar-workspace", Static).update(
-            Text(self._workspace, style="#777777")
-        )
-        self.query_one("#topbar-model", Static).update(
-            Text(f" {model or 'no model'} ", style="#a0a0a0")
-        )
-
-
 class Welcome(Static):
     def __init__(self, workspace: Path) -> None:
         body = Group(
-            Text("Symphony", style="bold #f0f0f0"),
-            Text("Coding agent", style="#858585"),
+            Text("Symphony", style="bold " + SYMPHONY_COLORS["foreground"]),
+            Text("Coding agent", style=SYMPHONY_COLORS["muted"]),
             Text(""),
-            Text(f"  {workspace}", style="#666666"),
+            Text(f"  {workspace}", style=SYMPHONY_COLORS["muted_dim"]),
             Text(""),
-            Text("Describe a task, ask a question, or request a code change.", style="#a0a0a0"),
-            Text("Enter sends  ·  Esc cancels a run  ·  Ctrl+D quits  ·  Ctrl+L clears", style="#575757"),
+            Text(
+                "Describe a task, ask a question, or request a code change.",
+                style=SYMPHONY_COLORS["muted"],
+            ),
+            Text(
+                "Ctrl+↵ sends  ·  Enter adds a line  ·  Tab switches mode  ·  "
+                "Esc cancels a run  ·  Ctrl+D quits  ·  Ctrl+L clears",
+                style=SYMPHONY_COLORS["muted_dim"],
+            ),
         )
         super().__init__(body, classes="welcome")
 

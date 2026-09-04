@@ -11,13 +11,13 @@ from rich.text import Text
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
+from coding_agent.tui.chrome import TopBar
 from coding_agent.tui.screens.modal import ModalBase
 from coding_agent.tui.theme import APP_CSS
 from coding_agent.tui.transcript import (
     AssistantMessage,
     RunProcess,
     ThinkingStatus,
-    TopBar,
     UserMessage,
 )
 from coding_agent.tui.tools import BashToolHeader, ToolCallWidget, make_tool_widget
@@ -114,15 +114,15 @@ class SubagentScreen(ModalBase[None]):
     CSS = APP_CSS + """
     SubagentScreen {
         layout: vertical;
-        background: #0a0a0a;
+        background: $background;
     }
 
     #subagent-context {
         width: 100%;
         height: 2;
-        padding: 0 10;
-        color: #737373;
-        background: #0a0a0a;
+        padding: 0 4;
+        color: $muted;
+        background: $background;
     }
 
     SubagentScreen #transcript {

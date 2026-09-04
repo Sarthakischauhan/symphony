@@ -16,6 +16,7 @@ from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.plan import PlanStore
+from coding_agent.tui.chrome import TopBar
 from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import Composer, PromptInput, SlashMenu
 from coding_agent.tui.composer.surface import ComposerSurface
@@ -37,7 +38,6 @@ from coding_agent.tui.transcript import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
-    TopBar,
     TranscriptSurface,
     Welcome,
 )
@@ -131,7 +131,6 @@ class CodingAgentApp(
         topbar = self.query_one("#topbar", TopBar)
         topbar.set_context(self.workspace, self.model_id or os.getenv("OPENAI_MODEL", ""))
         self._update_composer_hint()
-        self.set_interval(1, lambda: self._set_status(""))
 
         try:
             self._agent = build_agent(
