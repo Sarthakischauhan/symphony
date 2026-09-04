@@ -96,6 +96,8 @@ class CoreHarness:
                 await addon.before_turn(**payload)
             elif hook == "after_turn":
                 await addon.after_turn(**payload)
+            elif hook == "after_run":
+                await addon.after_run(**payload)
             elif hook == "on_tool":
                 await addon.on_tool(**payload)
             elif hook == "on_compact":

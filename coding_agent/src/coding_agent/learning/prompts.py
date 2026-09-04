@@ -3,8 +3,12 @@
 REVIEWER_SYSTEM_PROMPT = """Review a completed coding-agent run and return JSON only.
 
 Schema:
-{"should_save": boolean, "summary": string, "worked": [string],
- "failed": [string], "applicable_when": [string], "confidence": number}
+{"should_save": boolean, "summary": string, "transcript_summary": string,
+ "worked": [string], "failed": [string], "applicable_when": [string],
+ "confidence": number}
+
+transcript_summary is a two-line recap of this run ("summary so far"): what
+changed and where things stand. Two short lines, no bullets, no secrets.
 
 Save only durable, reusable knowledge. A successful tool call alone does not prove
 the task succeeded. Routine steps, repository contents, secrets, and temporary errors

@@ -200,6 +200,13 @@ class EventPresenter:
         self.view.finish_process(completed)
         self._assistant_open = False
 
+    def _on_run_summary(self, payload: Dict[str, Any]) -> None:
+        summary = str(payload.get("summary") or "").strip()
+        if not summary:
+            return
+        label = str(payload.get("label") or "summary so far").strip() or "summary so far"
+        self.view.add_notice(f"{label}\n{summary}")
+
     def _completed_text(self) -> str:
         m = self.state.metrics
         current = f"{m.tokens_used:,} context" if m.tokens_used else "context unknown"
@@ -275,10 +282,20 @@ class EventPresenter:
             else f"{retry_after:.0f}s"
         )
         self.state.phase = "thinking"
-        label = "rate limited" if reason == "rate_limit" else reason.replace("_", " ")
+        labels = {
+            "rate_limit": "rate limited",
+            "ssl_mac_error": "SSL MAC error",
+            "ssl_error": "SSL error",
+            "server_error": "server error",
+            "stream_error": "stream error",
+            "connection_error": "connection error",
+            "timeout": "timed out",
+        }
+        label = labels.get(reason, reason.replace("_", " "))
         self.state.detail = f"{label}; retrying in {delay}"
+        working = label[0].upper() + label[1:] if label else label
         self.view.set_working(
-            f"{label.capitalize()} · retrying in {delay} · attempt {attempt}"
+            f"{working} · retrying in {delay} · attempt {attempt}"
         )
 
     def _on_text_delta(self, payload: Dict[str, Any]) -> None:

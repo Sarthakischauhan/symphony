@@ -1,13 +1,16 @@
 # Learning
 
-Learning is enabled by default. After a successful run returns, a background
-reflection makes one structured model call capped at 900 output tokens. Useful
-lessons are appended to `<workspace>/.symphony/learning/lessons.jsonl`.
+Learning is enabled by default. After a successful run, the harness
+`after_run` hook starts a background reflection: one structured model call
+capped at 900 output tokens. The reviewer returns durable lessons **and** a
+two-line recap. The recap is emitted as `run_summary` and shown in the agent
+transcript as **summary so far**. Useful lessons are appended to
+`<workspace>/.symphony/learning/lessons.jsonl`.
 
 Reflection never delays or changes the completed run. Future runs receive only
 a small task-relevant selection of lessons. Routine runs can return
-`should_save=false`. Reflection failures are logged without affecting the
-agent.
+`should_save=false` and still show a recap. Reflection failures are logged
+without affecting the agent. Plan mode skips reflection.
 
 ## Disable it
 

@@ -38,6 +38,9 @@ class RecordingAddon(Addon):
     async def after_turn(self, **_: Any) -> None:
         self.hooks.append("after_turn")
 
+    async def after_run(self, **_: Any) -> None:
+        self.hooks.append("after_run")
+
     async def on_tool(self, **_: Any) -> None:
         self.hooks.append("on_tool")
 
@@ -129,6 +132,7 @@ def test_register_addon_mounts_compaction_and_fires_hooks() -> None:
     assert harness.state.compactor is not None
     assert "before_turn" in recorder.hooks
     assert "after_turn" in recorder.hooks
+    assert "after_run" in recorder.hooks
     assert "on_tool" in recorder.hooks
     assert "on_compact" in recorder.hooks
     assert "compaction_started" in [event.event_type for event in plane.events]

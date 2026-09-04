@@ -168,3 +168,18 @@ def test_chrome_does_not_refresh_on_every_token() -> None:
     )
     assert len(chrome) == 2
     assert "tokens=15" in chrome[-1]
+
+
+def test_run_summary_shows_summary_so_far() -> None:
+    presenter, view, _chrome = _presenter()
+    presenter.handle("run_started", {"model_id": "openai:test"})
+    presenter.handle(
+        "run_summary",
+        {
+            "label": "summary so far",
+            "summary": "Patched the retry helper.\nAdded after-run learning recap.",
+        },
+    )
+    assert view.notices == [
+        "summary so far\nPatched the retry helper.\nAdded after-run learning recap."
+    ]

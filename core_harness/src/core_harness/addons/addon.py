@@ -36,6 +36,11 @@ class Addon:
         del payload
         return None
 
+    async def after_run(self, **payload: Any) -> None:
+        """Called after a successful run, before ``CoreHarness.run`` returns."""
+        del payload
+        return None
+
     async def on_tool(self, **payload: Any) -> None:
         del payload
         return None
@@ -61,6 +66,9 @@ class AddonProtocol(Protocol):
         ...
 
     async def after_turn(self, **payload: Any) -> None:
+        ...
+
+    async def after_run(self, **payload: Any) -> None:
         ...
 
     async def on_tool(self, **payload: Any) -> None:

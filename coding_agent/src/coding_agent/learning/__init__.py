@@ -1,10 +1,12 @@
 """Lightweight post-run learning helpers."""
 
-from coding_agent.learning.loop import LearningLoop, LearningReview
+from coding_agent.learning.addon import LearningAddon
+from coding_agent.learning.loop import LearningLoop, LearningReview, two_line_summary
 from coding_agent.learning.sanitize import redact_secrets, sanitize_task, sanitize_text
 from coding_agent.learning.store import LearningStore, Lesson
 
 __all__ = [
+    "LearningAddon",
     "LearningLoop",
     "LearningReview",
     "LearningStore",
@@ -12,4 +14,5 @@ __all__ = [
     "redact_secrets",
     "sanitize_task",
     "sanitize_text",
+    "two_line_summary",
 ]

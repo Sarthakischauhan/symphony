@@ -58,6 +58,9 @@ class TelemetryAddon(Addon):
     async def after_turn(self, **payload: Any) -> None:
         await self.telemetry.emit_run("after_turn", payload)
 
+    async def after_run(self, **payload: Any) -> None:
+        await self.telemetry.emit_run("after_run", payload)
+
     async def on_tool(self, **payload: Any) -> None:
         await self.telemetry.emit_tool("on_tool", payload)
 

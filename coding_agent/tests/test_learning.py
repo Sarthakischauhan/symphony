@@ -7,12 +7,12 @@ import json
 from pathlib import Path
 
 from core_ai.types import Message, StreamEvent
-from core_harness import HarnessResult
+from core_harness import HarnessResult, NullControlPlane
 from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
-from coding_agent.config import LearningConfig
-from coding_agent.learning import LearningLoop, LearningStore
+from coding_agent.config import CodingAgentConfig, LearningConfig
+from coding_agent.learning import LearningLoop, LearningStore, two_line_summary
 
 
 def _result() -> HarnessResult:
@@ -27,11 +27,13 @@ class ReviewRegistry:
     def __init__(self) -> None:
         self.max_output_tokens = None
 
-    async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
+    async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
+        del model_id, messages, tools, kwargs
         self.max_output_tokens = max_output_tokens
         payload = {
             "should_save": True,
             "summary": "Run focused tests after surgical edits",
+            "transcript_summary": "Patched the failing helper.\nTests now pass for the retry path.",
             "worked": ["patch then test"],
             "failed": [],
             "applicable_when": ["editing existing code"],
@@ -39,6 +41,31 @@ class ReviewRegistry:
         }
         yield StreamEvent(type="text_delta", delta=json.dumps(payload))
         yield StreamEvent(type="done")
+
+
+def _agent_turn_events(text: str = "fixed and tests passed") -> list[StreamEvent]:
+    return [
+        StreamEvent(type="text_delta", delta=text),
+        StreamEvent(type="usage", prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        StreamEvent(type="done"),
+    ]
+
+
+class SplitRegistry:
+    """Fast agent turns; learning calls (max_output_tokens set) use ``review``."""
+
+    def __init__(self, review: object | None = None) -> None:
+        self.review = review or ReviewRegistry()
+
+    async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
+        if max_output_tokens is not None:
+            async for event in self.review.stream(
+                model_id, messages, tools=tools, max_output_tokens=max_output_tokens, **kwargs
+            ):
+                yield event
+            return
+        for event in _agent_turn_events():
+            yield event
 
 
 def test_reflection_is_scheduled_and_saved(tmp_path: Path) -> None:
@@ -58,7 +85,7 @@ def test_reflection_is_scheduled_and_saved(tmp_path: Path) -> None:
 
 def test_should_save_false_is_normal(tmp_path: Path) -> None:
     class EmptyRegistry:
-        async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
             yield StreamEvent(type="text_delta", delta='{"should_save": false}')
             yield StreamEvent(type="done")
 
@@ -72,37 +99,105 @@ def test_should_save_false_is_normal(tmp_path: Path) -> None:
     assert asyncio.run(scenario()) == []
 
 
+def test_review_emits_two_line_summary(tmp_path: Path) -> None:
+    emitted: list[tuple[str, dict]] = []
+
+    async def emit(event_type: str, payload: dict) -> None:
+        emitted.append((event_type, payload))
+
+    async def scenario():
+        store = LearningStore(tmp_path)
+        loop = LearningLoop(store, registry=ReviewRegistry(), model_id="test:model")
+        loop.schedule("fix bug", _result(), emit=emit)
+        await loop.wait()
+
+    asyncio.run(scenario())
+    assert emitted
+    event_type, payload = emitted[0]
+    assert event_type == "run_summary"
+    assert payload["label"] == "summary so far"
+    assert "retry path" in payload["summary"]
+    assert len(payload["summary"].splitlines()) <= 2
+
+
 def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
-    class NeverRegistry:
-        async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
+    class NeverReview:
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
             await asyncio.Event().wait()
             yield StreamEvent(type="done")
 
     async def scenario():
         agent = CodingAgent(
-            registry=NeverRegistry(),  # type: ignore[arg-type]
+            registry=SplitRegistry(NeverReview()),  # type: ignore[arg-type]
             model_id="test:model",
             workspace=tmp_path,
+            tools=[],
         )
-
-        async def fake_run(*args, **kwargs):
-            return _result()
-
-        agent.harness.run = fake_run  # type: ignore[method-assign]
-        result = await asyncio.wait_for(agent.run("fix"), timeout=0.1)
+        result = await asyncio.wait_for(agent.run("fix"), timeout=1)
         pending = len(agent.learning_loop._tasks)  # noqa: SLF001
         for task in tuple(agent.learning_loop._tasks):  # noqa: SLF001
             task.cancel()
-        return result, pending
+        return result, pending, [addon.name for addon in agent.harness.addons]
 
-    result, pending = asyncio.run(scenario())
+    result, pending, addon_names = asyncio.run(scenario())
     assert result.output_text == "fixed and tests passed"
     assert pending == 1
+    assert "learning" in addon_names
+
+
+def test_after_run_hook_emits_summary_on_the_control_plane(tmp_path: Path) -> None:
+    async def scenario():
+        plane = NullControlPlane()
+        agent = CodingAgent(
+            registry=SplitRegistry(),  # type: ignore[arg-type]
+            model_id="test:model",
+            workspace=tmp_path,
+            tools=[],
+            control_plane=plane,
+        )
+        result = await agent.run("fix bug")
+        await agent.wait_for_learning()
+        return result, plane.events, agent.learning_store.load()
+
+    result, events, lessons = asyncio.run(scenario())
+    summaries = [event for event in events if event.event_type == "run_summary"]
+    assert result.output_text == "fixed and tests passed"
+    assert summaries
+    assert summaries[0].payload["label"] == "summary so far"
+    assert "Patched the failing helper" in summaries[0].payload["summary"]
+    assert lessons
+    assert "focused tests" in lessons[0].summary
+
+
+def test_plan_mode_skips_learning_hook(tmp_path: Path) -> None:
+    class CountingReview:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
+            self.calls += 1
+            yield StreamEvent(type="text_delta", delta='{"should_save": false}')
+            yield StreamEvent(type="done")
+
+    async def scenario():
+        review = CountingReview()
+        agent = CodingAgent(
+            registry=SplitRegistry(review),  # type: ignore[arg-type]
+            model_id="test:model",
+            workspace=tmp_path,
+            tools=[],
+            mode="plan",
+        )
+        await agent.run("plan a change")
+        await agent.wait_for_learning()
+        return review.calls
+
+    assert asyncio.run(scenario()) == 0
 
 
 def test_learning_cancel_finishes_pending_reflection(tmp_path: Path) -> None:
     class NeverRegistry:
-        async def stream(self, model_id, messages, tools=None, max_output_tokens=None):
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
             await asyncio.Event().wait()
             yield StreamEvent(type="done")
 
@@ -146,3 +241,8 @@ def test_learning_store_renders_markdown(tmp_path: Path) -> None:
     assert "Prefer patch for indented edits" in markdown
     assert "**What worked:**" in markdown
     assert "exact whitespace match" in markdown
+
+
+def test_two_line_summary_clamps_to_two_lines() -> None:
+    recap = two_line_summary("first line\nsecond line\nthird line that should drop")
+    assert recap == "first line\nsecond line"

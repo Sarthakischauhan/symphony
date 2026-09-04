@@ -816,6 +816,39 @@ def test_tui_labels_stream_error_retry(
     asyncio.run(_run())
 
 
+def test_tui_labels_ssl_mac_retry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:test"})
+            app._presenter.handle("turn_started", {"turn": 0, "message_count": 2})
+            app._presenter.handle(
+                "model_retry_scheduled",
+                {
+                    "turn": 0,
+                    "retry_after": 1,
+                    "attempt": 2,
+                    "reason": "ssl_mac_error",
+                    "resets_stream": True,
+                },
+            )
+            await pilot.pause()
+
+            thinking = app.query_one(ThinkingStatus).render()
+            assert "SSL MAC error" in thinking.plain
+            assert "retrying in 1s" in thinking.plain
+            assert "attempt 2" in thinking.plain
+            assert app._ui_state.detail == "SSL MAC error; retrying in 1s"
+
+    asyncio.run(_run())
+
+
 def test_bash_tool_uses_timeline_header_with_right_aligned_status(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

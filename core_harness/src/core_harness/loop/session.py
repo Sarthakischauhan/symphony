@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from typing import TYPE_CHECKING, List, Optional
 
+from core_ai.content import text_from_content
 from core_ai.types import Content, Message
 
 from core_harness.events import IdentifiedControlPlane
@@ -15,6 +17,8 @@ from core_harness.loop.runner import TurnRunner
 
 if TYPE_CHECKING:
     from core_harness.harness import CoreHarness
+
+logger = logging.getLogger(__name__)
 
 
 async def run_session(
@@ -138,7 +142,7 @@ async def run_session(
                         },
                     },
                 )
-                return HarnessResult(
+                completed = HarnessResult(
                     output_text=result.assistant_text,
                     messages=messages,
                     tool_calls=all_tool_calls,
@@ -146,6 +150,17 @@ async def run_session(
                     context_limit=context_limit,
                     context_left=context_left,
                 )
+                try:
+                    await harness.notify_addons(
+                        "after_run",
+                        task=text_from_content(user_input),
+                        result=completed,
+                        messages=messages,
+                        emit=plane.emit,
+                    )
+                except Exception:
+                    logger.exception("after_run addon failed; completed run is unaffected")
+                return completed
 
             await harness._persist_state(
                 session_id=active_session,
