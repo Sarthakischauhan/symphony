@@ -219,13 +219,13 @@ def test_read_git_branch_reads_head_without_git_binary(tmp_path: Path) -> None:
     assert read_git_branch(plain) == ""
 
 
-def test_topbar_text_joins_clusters_with_airy_gap() -> None:
+def test_topbar_text_joins_branch_and_model_with_airy_gap() -> None:
     line = topbar_text(workspace="~/src/symphony", branch="main", model="gpt-5.6")
-    assert line.plain == "symphony    ~/src/symphony    main    gpt-5.6"
-    assert topbar_text(workspace="~/src/symphony").plain == "symphony    ~/src/symphony"
+    assert line.plain == "⎇ main    gpt-5.6"
+    assert topbar_text(workspace="~/src/symphony").plain == ""
 
 
-def test_topbar_renders_workspace_branch_and_model(
+def test_topbar_renders_branch_and_right_aligned_model(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".git").mkdir()
@@ -237,11 +237,10 @@ def test_topbar_renders_workspace_branch_and_model(
             await pilot.pause()
             topbar = app.query_one(TopBar)
             topbar.set_context(tmp_path, "anthropic:claude-sonnet-5")
-            rendered = str(topbar.render())
-            assert rendered.startswith("symphony    ")
-            assert display_workspace_path(tmp_path) in rendered
-            assert "    main    anthropic:claude-sonnet-5" in rendered
-            assert "◆" not in rendered
+            rendered = _render_plain(topbar.content, width=80).rstrip("\n")
+            assert rendered.startswith("⎇ main")
+            assert rendered.endswith("anthropic:claude-sonnet-5")
+            assert display_workspace_path(tmp_path) not in rendered
 
     asyncio.run(_run())
 
@@ -265,19 +264,25 @@ def test_footer_segments_follow_mock_order() -> None:
     state.metrics = RunMetrics(context_limit=200_000, tokens_used=130_000)
     assert footer_segments(state, hint="esc cancel") == (
         "65% context",
-        "gpt-5.6",
+        "130,000/200,000",
         "esc cancel",
     )
     offline = UiRunState()
-    assert footer_segments(offline, hint="esc cancel") == ("esc cancel",)
+    assert footer_segments(offline, hint="esc cancel") == (
+        "context unknown",
+        "—",
+        "esc cancel",
+    )
 
 
-def test_render_footer_right_aligns_muted_segments() -> None:
+def test_render_footer_shows_context_meter_and_right_aligned_hint() -> None:
     state = UiRunState(model_id="gpt-5.6")
     state.metrics = RunMetrics(context_limit=200_000, tokens_used=130_000)
     line = _render_plain(render_footer(state, hint="esc cancel"), width=80).rstrip("\n")
-    assert line.endswith("65% context   |   gpt-5.6   |   esc cancel")
-    assert line.strip() == "65% context   |   gpt-5.6   |   esc cancel"
+    assert line.startswith(
+        "65% context   |   ████████████░░░░░░ 130,000/200,000"
+    )
+    assert line.endswith("esc cancel")
 
     state.phase = "streaming"
     assert _render_plain(render_footer(state, hint="esc cancel"), width=80).startswith("working")

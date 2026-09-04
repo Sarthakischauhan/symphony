@@ -168,6 +168,6 @@ Screen {
 .reasoning-text {
     width: 100%;
     height: auto;
-    color: #5b9bd5;
+    color: #858585;
 }
 """
