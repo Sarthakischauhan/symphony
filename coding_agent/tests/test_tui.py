@@ -2291,9 +2291,10 @@ def test_old_tool_widgets_collapse_to_one_explored_summary(
     asyncio.run(_run())
 
 
-def test_explored_summary_splits_when_reasoning_separates_tool_batches(
+def test_explored_is_per_run_across_reasoning_and_sits_above_live_cards(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Reasoning does not split the cap: one Explored per run, newest cards live."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
     app.live_tool_widget_limit = 3
@@ -2318,16 +2319,23 @@ def test_explored_summary_splits_when_reasoning_separates_tool_batches(
             await pilot.pause()
 
             summaries = list(app.query(ToolCallSummary))
-            assert len(summaries) == 2
-            assert summaries[0].count == 2
-            assert summaries[1].count == 2
-            assert "[ Explored       2 tools]" in str(summaries[0].render())
-            assert "[ Explored       2 tools]" in str(summaries[1].render())
-            assert len(list(app.query(ToolCallWidget))) == 6
+            assert len(summaries) == 1
+            assert summaries[0].call_ids == [
+                "a-0", "a-1", "a-2", "a-3", "a-4", "b-0", "b-1",
+            ]
+            assert "[ Explored       7 tools]" in str(summaries[0].render())
+            live = list(app.query(ToolCallWidget))
+            assert [node.call_id for node in live] == ["b-2", "b-3", "b-4"]
             assert len(list(app.query(ReasoningWidget))) == 1
 
+            assert app._process is not None
+            order = app._process.timeline_items()
+            assert order.index(summaries[0]) < min(order.index(node) for node in live)
 
-def test_explored_does_not_collapse_second_stretch_under_limit(
+    asyncio.run(_run())
+
+
+def test_explored_does_not_collapse_under_limit_across_reasoning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2345,7 +2353,7 @@ def test_explored_does_not_collapse_second_stretch_under_limit(
                 )
             app.set_reasoning("Considering the next batch.", new=True)
             app.finish_reasoning()
-            for index in range(5):
+            for index in range(3):
                 call_id = f"b-{index}"
                 app.add_tool(call_id, "read_file")
                 app.update_tool(
@@ -2361,9 +2369,97 @@ def test_explored_does_not_collapse_second_stretch_under_limit(
             ]
             assert [node.call_id for node in live] == [
                 f"a-{index}" for index in range(5)
-            ] + [f"b-{index}" for index in range(5)]
-            assert len(list(app.query(ToolCallWidget))) == 10
+            ] + [f"b-{index}" for index in range(3)]
+            assert len(list(app.query(ToolCallWidget))) == 8
             assert len(list(app.query(ReasoningWidget))) == 1
+
+    asyncio.run(_run())
+
+
+def test_explored_keeps_in_progress_tools_live_and_uncounted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Parallel calls: running cards never fold and never evict completed ones."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app.live_tool_widget_limit = 2
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for index in range(5):
+                app.add_tool(f"call-{index}", "read_file")
+                app.update_tool(
+                    f"call-{index}", arguments={"path": f"f{index}.py"}, status="running"
+                )
+            await pilot.pause()
+            assert not list(app.query(ToolCallSummary))
+            assert len(list(app.query(ToolCallWidget))) == 5
+
+            app.update_tool("call-3", status="done", result="ok")
+            app.update_tool("call-4", status="done", result="ok")
+            await pilot.pause()
+            assert not list(app.query(ToolCallSummary))
+            assert len(list(app.query(ToolCallWidget))) == 5
+
+            app.update_tool("call-1", status="done", result="ok")
+            await pilot.pause()
+            summaries = list(app.query(ToolCallSummary))
+            assert len(summaries) == 1
+            assert summaries[0].call_ids == ["call-1"]
+            live = list(app.query(ToolCallWidget))
+            assert [node.call_id for node in live] == [
+                "call-0", "call-2", "call-3", "call-4",
+            ]
+            assert [node.status for node in live] == [
+                "running", "running", "done", "done",
+            ]
+
+            app.update_tool("call-0", status="done", result="ok")
+            await pilot.pause()
+            summaries = list(app.query(ToolCallSummary))
+            assert len(summaries) == 1
+            assert summaries[0].call_ids == ["call-1", "call-0"]
+            assert isinstance(app._tools["call-0"], ToolCallSummary)
+            assert [node.call_id for node in app.query(ToolCallWidget)] == [
+                "call-2", "call-3", "call-4",
+            ]
+
+    asyncio.run(_run())
+
+
+def test_explored_click_opens_folded_tool_snapshots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app.live_tool_widget_limit = 1
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for index in range(3):
+                call_id = f"read-{index}"
+                app.add_tool(call_id, "read_file")
+                app.update_tool(
+                    call_id, arguments={"path": f"src/f{index}.py"}, status="running"
+                )
+                app.update_tool(call_id, status="done", result="alpha\nbeta")
+            await pilot.pause()
+
+            summary = app.query_one(ToolCallSummary)
+            assert summary.call_ids == ["read-0", "read-1"]
+            summary.open_details()
+            await pilot.pause()
+            modal = app.screen
+            assert isinstance(modal, ContentModal)
+            assert "src/f0.py" in modal.content
+            assert "src/f1.py" in modal.content
+            assert "src/f2.py" not in modal.content
+            assert "Read 2 lines" in modal.content
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ContentModal)
 
     asyncio.run(_run())
 

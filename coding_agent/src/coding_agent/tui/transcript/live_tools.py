@@ -1,8 +1,8 @@
-"""Cap live tool widgets into Explored summary rows."""
+"""Fold older completed tool cards into one Explored summary per run."""
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, MutableMapping, Sequence
+from typing import Any, Callable, MutableMapping, Sequence
 
 LIVE_TOOL_WIDGET_LIMIT = 8
 
@@ -13,24 +13,22 @@ def reconcile_live_tools(
     *,
     limit: int = LIVE_TOOL_WIDGET_LIMIT,
 ) -> None:
-    """Keep the last ``limit`` tool cards live per stretch; fold older ones.
+    """Keep the newest ``limit`` completed tool cards live; fold older ones.
 
-    A stretch is a run of timeline items split by ``ReasoningWidget``.
-    ``ThinkingStatus`` does not split stretches. Each stretch gets at most one
-    Explored summary. ``spawn_agent`` cards stay live and do not count toward
-    the cap. In-progress tools are not collapsed.
+    Compaction is bottom-up within one run timeline (a ``RunProcess`` or a
+    plain list): ``completed[-limit:]`` stay mounted and ``completed[:-limit]``
+    collapse into the run's single Explored summary, which sits above the
+    remaining live cards. In-progress tools and ``spawn_agent`` cards stay live
+    and never count toward the fold. Reasoning does not split the run.
     """
     if timeline is None or limit < 0:
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
-    # Copy first: collapsing mutates the live timeline, which would skip
-    # later stretch items if we iterated the same list.
-    for live in _live_tools_by_stretch(tuple(snapshot())):
-        for widget in _overflow_past_limit(live, limit):
-            if _is_in_progress_tool(widget):
-                continue
-            _collapse_into_explored(widget, snapshot, replace, remove, tools)
+    # Copy first: folding mutates the live timeline while we iterate.
+    completed = _completed_tools(tuple(snapshot()))
+    for widget in _overflow_past_limit(completed, limit):
+        _fold_into_explored(widget, snapshot, replace, remove, tools)
 
 
 def _timeline_ops(
@@ -56,13 +54,6 @@ def _timeline_ops(
     return snapshot, replace, remove
 
 
-def _is_reasoning_boundary(item: Any) -> bool:
-    """Only ``ReasoningWidget`` splits stretches; ``ThinkingStatus`` does not."""
-    from coding_agent.tui.transcript.process import ReasoningWidget
-
-    return isinstance(item, ReasoningWidget)
-
-
 def _counts_toward_live_cap(item: Any) -> bool:
     from coding_agent.tui.tools.calls import ToolCallWidget
 
@@ -73,23 +64,21 @@ def _is_in_progress_tool(widget: Any) -> bool:
     return widget.status in {"preparing", "running"}
 
 
-def _overflow_past_limit(live: Sequence[Any], limit: int) -> list[Any]:
-    return list(live if not limit else live[:-limit])
+def _completed_tools(items: Sequence[Any]) -> list[Any]:
+    """Terminal tool cards in timeline order (oldest first)."""
+    return [
+        item
+        for item in items
+        if _counts_toward_live_cap(item) and not _is_in_progress_tool(item)
+    ]
 
 
-def _live_tools_by_stretch(items: Sequence[Any]) -> Iterable[list[Any]]:
-    live: list[Any] = []
-    for item in items:
-        if _is_reasoning_boundary(item):
-            yield live
-            live = []
-            continue
-        if _counts_toward_live_cap(item):
-            live.append(item)
-    yield live
+def _overflow_past_limit(completed: Sequence[Any], limit: int) -> list[Any]:
+    """The older cards that fall outside the newest ``limit`` live slots."""
+    return list(completed if not limit else completed[:-limit])
 
 
-def _collapse_into_explored(
+def _fold_into_explored(
     widget: Any,
     snapshot: Callable[[], list[Any]],
     replace: Callable[[Any, Any], None],
@@ -99,30 +88,23 @@ def _collapse_into_explored(
     from coding_agent.tui.tools.calls import ToolCallSummary
 
     items = snapshot()
-    try:
-        index = items.index(widget)
-    except ValueError:
+    if widget not in items:
         return
-    summary = _explored_summary_for_stretch(items, index)
+    summary = _explored_summary(items)
     if summary is None:
+        # The first fold happens at the oldest completed card, so the summary
+        # lands above every card that stays live.
         summary = ToolCallSummary()
         replace(widget, summary)
     else:
         remove(widget)
-    summary.add_call(widget.call_id)
+    summary.add_call(widget)
     if tools is not None:
         tools[widget.call_id] = summary
 
 
-def _explored_summary_for_stretch(items: Sequence[Any], index: int) -> Any:
-    from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
-    from coding_agent.tui.transcript.process import ReasoningWidget
+def _explored_summary(items: Sequence[Any]) -> Any:
+    """The run's single Explored row, if one has already been created."""
+    from coding_agent.tui.tools.calls import ToolCallSummary
 
-    for item in reversed(items[:index]):
-        if isinstance(item, ReasoningWidget):
-            return None
-        if isinstance(item, ToolCallSummary):
-            return item
-        if isinstance(item, ToolCallWidget):
-            return None
-    return None
+    return next((item for item in items if isinstance(item, ToolCallSummary)), None)
