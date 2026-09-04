@@ -17,14 +17,16 @@ from coding_agent.tui.theme import DIFF_MODAL_CSS
 from coding_agent.tui.tools.diff import diff_stats
 
 
-_HUNK_RE = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+_HUNK_RE = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)")
 
 
 def read_workspace_diff(workspace: Path) -> str:
     """Return the current workspace diff, or a user-facing failure message."""
     try:
         result = subprocess.run(
-            ["git", "-C", str(workspace), "diff", "--unified=0", "--", "."],
+            # Context is intentional: the modal is a code review surface, not just a
+            # change counter. It also makes the line-number gutter useful.
+            ["git", "-C", str(workspace), "diff", "--unified=3", "--", "."],
             check=False,
             capture_output=True,
             text=True,
@@ -64,60 +66,57 @@ def split_diff(diff_text: str) -> list[tuple[str, str]]:
 
 
 def _numbered_diff(body: str) -> Text:
-    """Render a patch with old/new line numbers and a colored change gutter."""
-    rendered = Text()
+    """Render a unified patch with the compact gutter used by the diff modal."""
+    # Diff rows must stay on one terminal line. Wrapping long generated source
+    # makes continuation rows look like unnumbered diff lines.
+    rendered = Text(no_wrap=True, overflow="crop")
+    hunks = [match for line in body.splitlines() if (match := _HUNK_RE.match(line))]
+    number_width = max(
+        2,
+        *(len(match.group(1)) for match in hunks),
+        *(len(match.group(3)) for match in hunks),
+    )
+    # A patch can start with a hunk header followed by no context. Keep the
+    # gutter stable and reserve one extra column for the change marker.
     old_line = new_line = 0
-    old_width = new_width = 1
 
-    # Determine widths from all hunk headers so the gutter doesn't jump between hunks.
-    for line in body.splitlines():
-        match = _HUNK_RE.match(line)
-        if match:
-            old_line = int(match.group(1))
-            new_line = int(match.group(3))
-            old_width = max(old_width, len(match.group(1)))
-            new_width = max(new_width, len(match.group(3)))
-
-    old_line = new_line = 0
     for source in body.splitlines():
         match = _HUNK_RE.match(source)
         if match:
             old_line = int(match.group(1))
             new_line = int(match.group(3))
-            rendered.append(f"{'':>{old_width}} {'':>{new_width}}   ")
+            # Keep the hunk marker aligned with the source below it. The section
+            # name is retained because it is useful when scanning a large file.
+            rendered.append(" " * (number_width + 5), style="#687e8b")
             rendered.append(source, style="bold #83a9bd")
             rendered.append("\n")
             continue
 
         if source.startswith("+"):
-            old_number, new_number = "", str(new_line)
+            line_number = new_line
             new_line += 1
-            style = "#a8d58d on #19301d"
             marker = "+"
+            style = "#a8d58d on #19301d"
         elif source.startswith("-"):
-            old_number, new_number = str(old_line), ""
+            line_number = old_line
             old_line += 1
-            style = "#e49a9d on #321c20"
             marker = "-"
+            style = "#e49a9d on #321c20"
         elif source.startswith(" "):
-            old_number, new_number = str(old_line), str(new_line)
+            line_number = new_line
             old_line += 1
             new_line += 1
+            marker = " "
             style = "#b8bec1"
-            marker = " "
         else:
-            # Metadata such as a no-newline marker is useful, but has no line number.
-            old_number = new_number = ""
-            style = "#737b7f"
+            line_number = 0
             marker = " "
+            style = "#737b7f"
 
-        gutter = (
-            f"{old_number:>{old_width}} {new_number:>{new_width}} {marker} "
-        )
-        rendered.append(
-            gutter + source[1:] if source[:1] in {"+", "-", " "} else gutter + source,
-            style=style,
-        )
+        number = str(line_number) if line_number else ""
+        gutter = f"{number:>{number_width}} {marker} │ "
+        content = source[1:] if source[:1] in {"+", "-", " "} else source
+        rendered.append(gutter + content, style=style)
         rendered.append("\n")
 
     if rendered.plain.endswith("\n"):
@@ -126,7 +125,7 @@ def _numbered_diff(body: str) -> Text:
 
 
 class DiffFileCard(Container):
-    """One changed file with a clear header, stats, and numbered patch."""
+    """One changed file with its compact header and patch."""
 
     def __init__(self, path: str, body: str) -> None:
         self.path = path
@@ -146,13 +145,17 @@ class DiffFileCard(Container):
 
     def toggle_collapsed(self) -> bool:
         """Toggle this card and return whether it is now collapsed."""
-        collapsed = self.toggle_class("collapsed")
-        self.query_one(".diff-file-chevron", Static).update("▸" if collapsed else "▾")
-        return collapsed
+        collapsed = self.has_class("collapsed")
+        if collapsed:
+            self.remove_class("collapsed")
+        else:
+            self.add_class("collapsed")
+        self.query_one(".diff-file-chevron", Static).update("▸" if not collapsed else "▾")
+        return not collapsed
 
 
 class DiffModal(ModalBase[None]):
-    """Fullscreen modal for inspecting the current git diff."""
+    """Fullscreen modal for inspecting one changed file at a time."""
 
     CSS = DIFF_MODAL_CSS
     BINDINGS = [
@@ -165,39 +168,50 @@ class DiffModal(ModalBase[None]):
     def __init__(self, workspace: Path) -> None:
         super().__init__()
         self.workspace = workspace
-        self._files: list[DiffFileCard] = []
+        self._file_data: list[tuple[str, str]] = []
         self._file_index = 0
+        self._cards: list[DiffFileCard] = []
 
     def compose(self):  # type: ignore[no-untyped-def]
         diff_text = read_workspace_diff(self.workspace)
-        files = split_diff(diff_text)
-        total_additions = sum(diff_stats(body.splitlines())[0] for _path, body in files)
-        total_deletions = sum(diff_stats(body.splitlines())[1] for _path, body in files)
+        self._file_data = split_diff(diff_text)
+        path, first_body = self._file_data[0] if self._file_data else ("", "")
+        additions, deletions = diff_stats(first_body.splitlines())
+
         with Container(id="diff-pane", classes="modal-pane"):
-            with Horizontal(id="diff-header"):
-                yield Static("diff", id="diff-title")
-                yield Static("", id="diff-path")
-                yield Static(
+            # Keep the left side compact, then use a dedicated spacer to pin the
+            # file count and close affordance to the right edge.
+            yield Horizontal(
+                Static("diff", id="diff-title"),
+                Static(path, id="diff-path"),
+                Static(
                     Text.assemble(
-                        (f"+{total_additions}", "bold #8fc49a"),
+                        (f"+{additions}", "bold #8fc49a"),
                         ("  ", "#777777"),
-                        (f"−{total_deletions}", "bold #df8b91"),
+                        (f"−{deletions}", "bold #df8b91"),
                     ),
                     id="diff-total-stats",
-                )
-                yield Static(f"1 of {len(files)} files", id="diff-file-counter")
-                yield ModalCloseButton("esc  close", id="modal-close")
+                ),
+                Static("", id="diff-header-spacer"),
+                Static(
+                    f"1 of {len(self._file_data)} files" if self._file_data else "0 files",
+                    id="diff-file-counter",
+                ),
+                ModalCloseButton("esc  close", id="modal-close"),
+                id="diff-header",
+            )
             with ModalScroll(id="diff-body", classes="modal-body"):
-                if not files:
+                if not self._file_data:
                     is_clean = diff_text.strip() in {"", "No local changes found."}
                     yield EmptyState(
                         "Working tree is clean" if is_clean else "Diff unavailable",
                         diff_text.strip() or "There are no uncommitted changes to review.",
                     )
-                for path, body in files:
-                    card = DiffFileCard(path, body)
-                    self._files.append(card)
-                    yield card
+                else:
+                    for current_path, current_body in self._file_data:
+                        card = DiffFileCard(current_path, current_body)
+                        self._cards.append(card)
+                        yield card
             yield Static(
                 "↑↓ scroll    n next file    p previous file    enter collapse    esc close",
                 id="diff-hint",
@@ -205,46 +219,55 @@ class DiffModal(ModalBase[None]):
             )
 
     def on_mount(self) -> None:
-        if self._files:
-            self._files[0].add_class("selected")
-            self._update_header()
+        if self._cards:
+            self._show_file(0, scroll=False)
 
     def on_key(self, event: events.Key) -> None:
-        """Handle controls at the modal level even when the scroll view has focus."""
-        actions = {"n": self.action_next_file, "p": self.action_previous_file, "enter": self.action_toggle_collapse}
+        """Keep modal shortcuts active while the scroll container has focus."""
+        actions = {
+            "n": self.action_next_file,
+            "p": self.action_previous_file,
+            "enter": self.action_toggle_collapse,
+        }
         action = actions.get(event.key)
         if action is not None:
             event.stop()
             action()
 
-    def _update_header(self) -> None:
-        if not self._files:
+    def _show_file(self, index: int, *, scroll: bool = True) -> None:
+        if not self._cards:
             return
-        self.query_one("#diff-file-counter", Static).update(
-            f"{self._file_index + 1} of {len(self._files)} files"
-        )
-        self.query_one("#diff-path", Static).update(self._files[self._file_index].path)
-
-    def _select_file(self, index: int) -> None:
-        if not self._files:
-            return
-        self._files[self._file_index].remove_class("selected")
-        self._file_index = index
-        card = self._files[self._file_index]
+        for card in self._cards:
+            card.remove_class("selected")
+            card.add_class("inactive")
+        self._file_index = index % len(self._cards)
+        card = self._cards[self._file_index]
+        card.remove_class("inactive")
         card.add_class("selected")
-        card.scroll_visible(animate=False, top=True)
-        self._update_header()
+        path, body = self._file_data[self._file_index]
+        additions, deletions = diff_stats(body.splitlines())
+        self.query_one("#diff-path", Static).update(path)
+        self.query_one("#diff-file-counter", Static).update(
+            f"{self._file_index + 1} of {len(self._cards)} files"
+        )
+        self.query_one("#diff-total-stats", Static).update(
+            Text.assemble(
+                (f"+{additions}", "bold #8fc49a"),
+                ("  ", "#777777"),
+                (f"−{deletions}", "bold #df8b91"),
+            )
+        )
+        if scroll:
+            card.scroll_visible(animate=False, top=True)
 
     def action_next_file(self) -> None:
-        if self._files:
-            self._select_file(min(self._file_index + 1, len(self._files) - 1))
+        if self._cards:
+            self._show_file(self._file_index + 1)
 
     def action_previous_file(self) -> None:
-        if self._files:
-            self._select_file(max(self._file_index - 1, 0))
+        if self._cards:
+            self._show_file(self._file_index - 1)
 
     def action_toggle_collapse(self) -> None:
-        if self._files:
-            card = self._files[self._file_index]
-            card.toggle_collapsed()
-            self.set_focus(card)
+        if self._cards:
+            self._cards[self._file_index].toggle_collapsed()

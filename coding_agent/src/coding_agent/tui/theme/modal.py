@@ -125,21 +125,27 @@ DiffModal {
 }
 
 #diff-pane {
-    width: 96%;
+    width: 98%;
     max-width: 180;
     height: 94%;
-    padding: 0 2;
-    background: #0d1011;
+    padding: 0 1;
+    background: #0b0d0e;
     border: round #394247;
 }
 
 #diff-header {
     width: 100%;
-    height: 4;
-    padding: 1 1;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
     border-bottom: solid #394247;
-    background: #0d1011;
+    background: #0b0d0e;
 }
+
+#diff-pane > #modal-close {
+    display: none;
+}
+
 
 #diff-title {
     width: auto;
@@ -149,15 +155,20 @@ DiffModal {
 }
 
 #diff-path {
-    width: 1fr;
+    width: auto;
     padding-left: 2;
     color: #aeb8bc;
     background: #0b0d0e;
 }
 
+#diff-header-spacer {
+    width: 1fr;
+    background: #0b0d0e;
+}
+
 #diff-total-stats {
     width: auto;
-    margin-left: 1;
+    margin-left: 2;
     background: #0b0d0e;
 }
 
@@ -165,11 +176,14 @@ DiffModal {
     width: auto;
     margin-left: 2;
     color: #858d91;
+    content-align: right middle;
     background: #0b0d0e;
 }
 
-#diff-pane #modal-close {
-    width: 12;
+#diff-header #modal-close {
+    dock: none;
+    width: auto;
+    min-width: 11;
     margin-left: 2;
     color: #858d91;
     background: #0b0d0e;
@@ -182,8 +196,9 @@ DiffModal {
 }
 
 #diff-body {
-    padding: 1 1 0 1;
-    background: #0d1011;
+    height: 1fr;
+    padding: 0;
+    background: #0b0d0e;
     scrollbar-color: #343434;
     scrollbar-color-active: #525252;
     scrollbar-color-hover: #484848;
@@ -193,7 +208,10 @@ DiffModal {
 }
 
 #diff-hint {
-    text-align: right;
+    width: 100%;
+    height: 2;
+    content-align: center middle;
+    color: #737b7f;
     background: #101010;
 }
 
@@ -202,8 +220,12 @@ DiffModal {
     height: auto;
     margin-bottom: 1;
     padding: 0;
-    background: #0d1112;
+    background: #0b0d0e;
     border-top: solid #394247;
+}
+
+.diff-file-card.inactive {
+    display: none;
 }
 
 .diff-file-card.collapsed .diff-patch {
@@ -216,8 +238,8 @@ DiffModal {
 
 .diff-file-header {
     width: 100%;
-    height: 4;
-    padding: 1 1;
+    height: 1;
+    padding: 0 1;
     background: #111718;
 }
 
@@ -230,7 +252,7 @@ DiffModal {
 
 .diff-file-path {
     width: 1fr;
-    height: 2;
+    height: 1;
     content-align: left middle;
     color: #d0d0d0;
     background: #111718;
@@ -240,13 +262,17 @@ DiffModal {
     border-top: solid #f2d675;
 }
 
+.diff-file-card.selected .diff-file-chevron {
+    color: #f2d675;
+}
+
 .diff-file-card.selected .diff-file-path {
     color: #f2d675;
 }
 
 .diff-file-stats {
     width: auto;
-    height: 2;
+    height: 1;
     content-align: right middle;
     color: #737373;
     background: #111718;
