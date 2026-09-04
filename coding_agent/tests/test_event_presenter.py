@@ -16,6 +16,7 @@ class RecordingView:
         self.tools: list[tuple[str, str]] = []
         self.tool_updates: list[str] = []
         self.notices: list[str] = []
+        self.run_summaries: list[tuple[str, str, str]] = []
         self.thinking: list[str] = []
         self.working: list[str] = []
         self.finished_process: list[str] = []
@@ -57,6 +58,15 @@ class RecordingView:
     def add_notice(self, text: str, tone: str = "info") -> None:
         del tone
         self.notices.append(text)
+
+    def add_run_summary(
+        self,
+        summary: str,
+        *,
+        label: str = "summary so far",
+        event_type: str = "run_summary",
+    ) -> None:
+        self.run_summaries.append((label, summary, event_type))
 
 
 def _presenter(
@@ -144,13 +154,17 @@ def test_reasoning_deltas_coalesce_to_one_scheduled_paint() -> None:
 
 
 def test_tool_start_flushes_buffered_assistant_before_add_tool() -> None:
-    presenter, view, _chrome = _presenter()
+    # A scheduler is required to observe buffering: without one the presenter
+    # paints deltas immediately (the intended fallback for non-Textual hosts).
+    scheduled: list = []
+    presenter, view, _chrome = _presenter(schedule=scheduled)
     presenter.handle("run_started", {"model_id": "openai:test"})
     presenter.handle("turn_started", {"turn": 0})
     for chunk in ("Hello ", "world"):
         presenter.handle("text_delta", {"delta": chunk})
     assert view.assistant == []
     assert view.tools == []
+    assert len(scheduled) == 1
 
     presenter.handle(
         "tool_call_started",
@@ -159,6 +173,19 @@ def test_tool_start_flushes_buffered_assistant_before_add_tool() -> None:
     assert view.assistant == [("Hello world", True)]
     assert view.tools == [("read-1", "read_file")]
     assert view.finished_reasoning == 0
+
+    # The deferred paint is now a no-op: the buffer was drained before add_tool.
+    scheduled[0]()
+    assert view.assistant == [("Hello world", True)]
+
+
+def test_stream_deltas_paint_immediately_without_scheduler() -> None:
+    presenter, view, _chrome = _presenter()
+    presenter.handle("run_started", {"model_id": "openai:test"})
+    presenter.handle("turn_started", {"turn": 0})
+    presenter.handle("text_delta", {"delta": "Hello "})
+    presenter.handle("text_delta", {"delta": "world"})
+    assert view.assistant == [("Hello ", True), ("Hello world", False)]
 
 
 def test_chrome_does_not_refresh_on_every_token() -> None:
@@ -195,6 +222,11 @@ def test_run_summary_shows_summary_so_far() -> None:
             "summary": "Patched the retry helper.\nAdded after-run learning recap.",
         },
     )
-    assert view.notices == [
-        "summary so far\nPatched the retry helper.\nAdded after-run learning recap."
+    assert view.notices == []
+    assert view.run_summaries == [
+        (
+            "summary so far",
+            "Patched the retry helper.\nAdded after-run learning recap.",
+            "run_summary",
+        )
     ]
