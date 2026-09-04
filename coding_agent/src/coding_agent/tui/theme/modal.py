@@ -148,15 +148,22 @@ DiffModal {
     background: #0b0d0e;
 }
 
+#diff-path {
+    width: 1fr;
+    padding-left: 2;
+    color: #aeb8bc;
+    background: #0b0d0e;
+}
+
 #diff-total-stats {
     width: auto;
-    margin-left: 2;
+    margin-left: 1;
     background: #0b0d0e;
 }
 
 #diff-file-counter {
-    width: 1fr;
-    content-align: right middle;
+    width: auto;
+    margin-left: 2;
     color: #858d91;
     background: #0b0d0e;
 }
@@ -214,18 +221,32 @@ DiffModal {
     background: #101516;
 }
 
+.diff-file-chevron {
+    width: 3;
+    color: #8ca0a8;
+    background: #101516;
+}
+
 .diff-file-path {
     width: 1fr;
     height: 1;
     color: #d0d0d0;
-    background: #0d0d0d;
+    background: #101516;
+}
+
+.diff-file-card.selected {
+    border-top: solid #f2d675;
+}
+
+.diff-file-card.selected .diff-file-path {
+    color: #f2d675;
 }
 
 .diff-file-stats {
     width: auto;
     height: 1;
     color: #737373;
-    background: #0d0d0d;
+    background: #101516;
 }
 
 .diff-patch {

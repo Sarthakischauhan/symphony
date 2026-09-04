@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
-from rich.syntax import Syntax
 from rich.text import Text
+from textual import events
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.widgets import Static
@@ -14,6 +15,10 @@ from textual.widgets import Static
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import DIFF_MODAL_CSS, SYMPHONY_CODE_THEME
 from coding_agent.tui.tools.diff import diff_stats
+
+
+_HUNK_RE = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
 
 def read_workspace_diff(workspace: Path) -> str:
     """Return the current workspace diff, or a user-facing failure message."""
@@ -58,8 +63,67 @@ def split_diff(diff_text: str) -> list[tuple[str, str]]:
     return files
 
 
+def _numbered_diff(body: str) -> Text:
+    """Render a patch with old/new line numbers and a colored change gutter."""
+    rendered = Text()
+    old_line = new_line = 0
+    old_width = new_width = 1
+
+    # Determine widths from all hunk headers so the gutter doesn't jump between hunks.
+    for line in body.splitlines():
+        match = _HUNK_RE.match(line)
+        if match:
+            old_line = int(match.group(1))
+            new_line = int(match.group(3))
+            old_width = max(old_width, len(match.group(1)))
+            new_width = max(new_width, len(match.group(3)))
+
+    old_line = new_line = 0
+    for source in body.splitlines():
+        match = _HUNK_RE.match(source)
+        if match:
+            old_line = int(match.group(1))
+            new_line = int(match.group(3))
+            rendered.append(f"{'':>{old_width}}   {'':>{new_width}}  ")
+            rendered.append(source, style="bold #83a9bd")
+            rendered.append("\n")
+            continue
+
+        if source.startswith("+"):
+            old_number, new_number = "", str(new_line)
+            new_line += 1
+            style = "#a8d58d on #19301d"
+            marker = "+"
+        elif source.startswith("-"):
+            old_number, new_number = str(old_line), ""
+            old_line += 1
+            style = "#e49a9d on #321c20"
+            marker = "-"
+        elif source.startswith(" "):
+            old_number, new_number = str(old_line), str(new_line)
+            old_line += 1
+            new_line += 1
+            style = "#b8bec1"
+            marker = " "
+        else:
+            # Metadata such as a no-newline marker is useful, but has no line number.
+            old_number = new_number = ""
+            style = "#737b7f"
+            marker = " "
+
+        gutter = (
+            f"{old_number:>{old_width}} {new_number:>{new_width}} {marker} "
+        )
+        rendered.append(gutter + source[1:] if source[:1] in {"+", "-", " "} else gutter + source, style=style)
+        rendered.append("\n")
+
+    if rendered.plain.endswith("\n"):
+        rendered = rendered[:-1]
+    return rendered
+
+
 class DiffFileCard(Container):
-    """One changed file with a clear header, stats, and highlighted patch."""
+    """One changed file with a clear header, stats, and numbered patch."""
 
     def __init__(self, path: str, body: str) -> None:
         self.path = path
@@ -72,18 +136,16 @@ class DiffFileCard(Container):
         stats.append(f"+{self.additions}", style="bold #8fc49a")
         stats.append(f"  −{self.deletions}", style="bold #df8b91")
         with Horizontal(classes="diff-file-header"):
+            yield Static("▾", classes="diff-file-chevron")
             yield Static(Text(self.path, style="bold #d0d0d0"), classes="diff-file-path")
             yield Static(stats, classes="diff-file-stats")
-        yield Static(
-            Syntax(
-                self.body,
-                "diff",
-                theme=SYMPHONY_CODE_THEME,  # type: ignore[arg-type]
-                line_numbers=False,
-                word_wrap=False,
-            ),
-            classes="diff-patch",
-        )
+        yield Static(_numbered_diff(self.body), classes="diff-patch", markup=False)
+
+    def toggle_collapsed(self) -> bool:
+        """Toggle this card and return whether it is now collapsed."""
+        collapsed = self.toggle_class("collapsed")
+        self.query_one(".diff-file-chevron", Static).update("▸" if collapsed else "▾")
+        return collapsed
 
 
 class DiffModal(ModalBase[None]):
@@ -92,9 +154,9 @@ class DiffModal(ModalBase[None]):
     CSS = DIFF_MODAL_CSS
     BINDINGS = [
         Binding("escape", "close_modal", "Close", show=False, priority=True),
-        Binding("n", "next_file", "Next file", show=False),
-        Binding("p", "previous_file", "Previous file", show=False),
-        Binding("enter", "toggle_collapse", "Collapse", show=False),
+        Binding("n", "next_file", "Next file", show=False, priority=True),
+        Binding("p", "previous_file", "Previous file", show=False, priority=True),
+        Binding("enter", "toggle_collapse", "Collapse", show=False, priority=True),
     ]
 
     def __init__(self, workspace: Path) -> None:
@@ -111,6 +173,7 @@ class DiffModal(ModalBase[None]):
         with Container(id="diff-pane", classes="modal-pane"):
             with Horizontal(id="diff-header"):
                 yield Static("diff", id="diff-title")
+                yield Static("", id="diff-path")
                 yield Static(
                     Text.assemble(
                         (f"+{total_additions}", "bold #8fc49a"),
@@ -133,31 +196,52 @@ class DiffModal(ModalBase[None]):
                     self._files.append(card)
                     yield card
             yield Static(
-                "↑↓ scroll   n next file   p previous file   enter collapse   esc close",
+                "↑↓ scroll    n next file    p previous file    enter collapse    esc close",
                 id="diff-hint",
                 classes="modal-footer",
             )
 
-    def _update_counter(self) -> None:
+    def on_mount(self) -> None:
         if self._files:
-            self.query_one("#diff-file-counter", Static).update(
-                f"{self._file_index + 1} of {len(self._files)} files"
-            )
+            self._files[0].add_class("selected")
+            self._update_header()
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle controls at the modal level even when the scroll view has focus."""
+        actions = {"n": self.action_next_file, "p": self.action_previous_file, "enter": self.action_toggle_collapse}
+        action = actions.get(event.key)
+        if action is not None:
+            event.stop()
+            action()
+
+    def _update_header(self) -> None:
+        if not self._files:
+            return
+        self.query_one("#diff-file-counter", Static).update(
+            f"{self._file_index + 1} of {len(self._files)} files"
+        )
+        self.query_one("#diff-path", Static).update(self._files[self._file_index].path)
+
+    def _select_file(self, index: int) -> None:
+        if not self._files:
+            return
+        self._files[self._file_index].remove_class("selected")
+        self._file_index = index
+        card = self._files[self._file_index]
+        card.add_class("selected")
+        card.scroll_visible(animate=False, top=True)
+        self._update_header()
 
     def action_next_file(self) -> None:
-        if not self._files:
-            return
-        self._file_index = min(self._file_index + 1, len(self._files) - 1)
-        self._files[self._file_index].scroll_visible()
-        self._update_counter()
+        if self._files:
+            self._select_file(min(self._file_index + 1, len(self._files) - 1))
 
     def action_previous_file(self) -> None:
-        if not self._files:
-            return
-        self._file_index = max(self._file_index - 1, 0)
-        self._files[self._file_index].scroll_visible()
-        self._update_counter()
+        if self._files:
+            self._select_file(max(self._file_index - 1, 0))
 
     def action_toggle_collapse(self) -> None:
         if self._files:
-            self._files[self._file_index].toggle_class("collapsed")
+            card = self._files[self._file_index]
+            card.toggle_collapsed()
+            self.set_focus(card)
