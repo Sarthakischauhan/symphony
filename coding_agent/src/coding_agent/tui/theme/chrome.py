@@ -3,63 +3,43 @@
 from __future__ import annotations
 
 CHROME_CSS = """
-$background: #0A0A0A;
-$panel: #171717;
-$panel-light: #262626;
-$panel-edge: #262626;
-$panel-edge-focus: #8ca0cc;
-$muted: #737373;
-$blue: #7186c7;
+/* Mock palette: deep dark canvas, purple accent, muted gray chrome.
+   Keep in sync with SYMPHONY_COLORS in theme/colors.py. */
+$background: #0D1117;
+$foreground: #E6EDF3;
+$accent: #A371F7;
+$accent-plan: #D8BD62;
+$muted: #8B949E;
+$muted-dim: #6E7681;
+$panel: #161B22;
+$panel-light: #21262D;
+$panel-edge: #30363D;
+$panel-edge-focus: #484F58;
 
 Screen {
     layout: vertical;
     background: $background;
-    color: #EDEDED;
+    color: $foreground;
 }
 
 #topbar {
-    layout: horizontal;
-    height: 5;
+    width: 100%;
+    height: 2;
     padding: 1 3 0 3;
-    background: $background;
-}
-
-#topbar-product {
-    width: auto;
-    height: 2;
-    color: #e6e6e6;
-    text-style: bold;
-    content-align: left middle;
-    background: $background;
-}
-
-#topbar-workspace {
-    width: 1fr;
-    height: 2;
-    padding: 0 0 0 4;
-    content-align: left middle;
-    background: $background;
-}
-
-#topbar-model {
-    width: auto;
-    height: 2;
-    padding: 0 1;
-    content-align: center middle;
-    color: #a0a0a0;
+    color: $muted-dim;
     background: $background;
 }
 
 #transcript {
     width: 100%;
     height: 1fr;
-    padding: 1 8 2 8;
+    padding: 0 3 1 3;
     /* Keep scrollbars out of the way until the user interacts with them. */
     scrollbar-size: 1 1;
     scrollbar-size-vertical: 1;
     scrollbar-color: transparent;
-    scrollbar-color-hover: #606060;
-    scrollbar-color-active: #707070;
+    scrollbar-color-hover: $panel-edge;
+    scrollbar-color-active: $panel-edge-focus;
     scrollbar-background: transparent;
     scrollbar-background-hover: transparent;
     scrollbar-background-active: transparent;
@@ -69,10 +49,10 @@ Screen {
     width: 72;
     height: auto;
     min-height: 10;
-    margin: 3 0 1 2;
+    margin: 2 0 1 1;
     padding: 1 2;
-    border-left: thick #3f3f3f;
-    color: #bcbcbc;
+    border-left: thick $panel-edge;
+    color: $muted;
 }
 
 .message {
@@ -82,10 +62,11 @@ Screen {
     padding: 0 2;
 }
 
+/* The user prompt is rendered as an accent `>` glyph plus the prompt text
+   (see UserMessage); the glyph replaces the old coloured left border. */
 .user-message {
     background: $background;
-    border-left: solid #7197e8;
-    padding: 1 2;
+    padding: 0;
 }
 
 .run-summary {
@@ -97,7 +78,7 @@ Screen {
 }
 
 .assistant-message {
-    padding-left: 2;
+    padding-left: 3;
     background: $background;
 }
 
@@ -105,7 +86,7 @@ Screen {
     width: auto;
     max-width: 72;
     height: 1;
-    padding: 0 1 0 2;
+    padding: 0 1 0 3;
     color: $muted;
 }
 
@@ -148,7 +129,7 @@ Screen {
 
 .reasoning-block > CollapsibleTitle:hover {
     color: #83b8e8;
-    background: #202020;
+    background: $panel;
 }
 
 .reasoning-block > Contents {

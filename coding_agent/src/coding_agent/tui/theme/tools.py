@@ -35,7 +35,7 @@ TOOLS_CSS = """
 
 .tool-call-header:hover,
 .tool-call-header:focus {
-    background: #202020;
+    background: $panel;
 }
 
 .tool-call-label {
@@ -115,7 +115,7 @@ TOOLS_CSS = """
 
 .bash-tool-header:hover,
 .bash-tool-header:focus {
-    background: #202020;
+    background: $panel;
 }
 
 .bash-tool-label {
@@ -188,7 +188,7 @@ TOOLS_CSS = """
 
 .diff-tool .tool-call-header:hover,
 .diff-tool .tool-call-header:focus {
-    background: #202020;
+    background: $panel;
 }
 
 .tool-call-summary {
