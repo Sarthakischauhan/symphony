@@ -70,12 +70,22 @@ from coding_agent.tui.tools import (
     ToolCallSummary,
     ToolCallWidget,
 )
+from coding_agent.tui.chrome import (
+    TopBar,
+    context_percent,
+    display_workspace_path,
+    footer_hint,
+    footer_segments,
+    read_git_branch,
+    render_footer,
+    topbar_text,
+)
 from coding_agent.tui.composer import PromptInput, SlashMenu
+from coding_agent.tui.runtime import RunMetrics, UiRunState
 from coding_agent.tui.transcript import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
-    TopBar,
     UserMessage,
 )
 
@@ -172,22 +182,144 @@ def test_tui_offline_without_provider_still_renders(
 def test_markdown_code_theme_matches_tui_surface() -> None:
     background = SYMPHONY_CODE_THEME.get_background_style().bgcolor
     assert background is not None
-    assert background.get_truecolor().hex == "#0a0a0a"
+    assert background.get_truecolor().hex == "#0d1117"
 
 
-def test_topbar_renders_borderless_model_label(
+def test_display_workspace_path_collapses_home(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "src" / "symphony"
+    project.mkdir(parents=True)
+    assert display_workspace_path(project, home=home) == "~/src/symphony"
+    assert display_workspace_path(home, home=home) == "~"
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    assert display_workspace_path(outside, home=home) == str(outside.resolve())
+
+
+def test_read_git_branch_reads_head_without_git_binary(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/feat/chrome\n", encoding="utf-8")
+    nested = repo / "coding_agent" / "src"
+    nested.mkdir(parents=True)
+    assert read_git_branch(repo) == "feat/chrome"
+    assert read_git_branch(nested) == "feat/chrome"
+
+    (repo / ".git" / "HEAD").write_text("0123456789abcdef0123456789abcdef01234567\n", encoding="utf-8")
+    assert read_git_branch(repo) == "0123456"
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {repo / '.git'}\n", encoding="utf-8")
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    assert read_git_branch(worktree) == "main"
+
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert read_git_branch(plain) == ""
+
+
+def test_topbar_text_joins_clusters_with_airy_gap() -> None:
+    line = topbar_text(workspace="~/src/symphony", branch="main", model="gpt-5.6")
+    assert line.plain == "symphony    ~/src/symphony    main    gpt-5.6"
+    assert topbar_text(workspace="~/src/symphony").plain == "symphony    ~/src/symphony"
+
+
+def test_topbar_renders_workspace_branch_and_model(
     tmp_path: Path,
 ) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
     async def _run() -> None:
         app = CodingAgentApp(workspace=tmp_path, model_id="anthropic:claude-sonnet-5")
         async with app.run_test() as pilot:
             await pilot.pause()
             topbar = app.query_one(TopBar)
             topbar.set_context(tmp_path, "anthropic:claude-sonnet-5")
-            model_label = topbar.query_one("#topbar-model")
-            assert str(model_label.render()) == " anthropic:claude-sonnet-5 "
+            rendered = str(topbar.render())
+            assert rendered.startswith("symphony    ")
+            assert display_workspace_path(tmp_path) in rendered
+            assert "    main    anthropic:claude-sonnet-5" in rendered
+            assert "◆" not in rendered
 
     asyncio.run(_run())
+
+
+def test_footer_hint_switches_for_pending_question() -> None:
+    assert footer_hint(question_pending=False) == "esc cancel"
+    assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"
+
+
+def test_context_percent_prefers_reported_utilization() -> None:
+    assert context_percent(RunMetrics()) is None
+    assert context_percent(RunMetrics(context_limit=200_000)) == 0
+    assert context_percent(RunMetrics(context_limit=200_000, tokens_used=130_000)) == 65
+    assert context_percent(RunMetrics(context_limit=1000, context_left=250)) == 75
+    assert context_percent(RunMetrics(utilization=0.654, context_limit=1)) == 65
+    assert context_percent(RunMetrics(utilization=1.7)) == 100
+
+
+def test_footer_segments_follow_mock_order() -> None:
+    state = UiRunState(model_id="gpt-5.6")
+    state.metrics = RunMetrics(context_limit=200_000, tokens_used=130_000)
+    assert footer_segments(state, hint="esc cancel") == (
+        "65% context",
+        "gpt-5.6",
+        "esc cancel",
+    )
+    offline = UiRunState()
+    assert footer_segments(offline, hint="esc cancel") == ("esc cancel",)
+
+
+def test_render_footer_right_aligns_muted_segments() -> None:
+    state = UiRunState(model_id="gpt-5.6")
+    state.metrics = RunMetrics(context_limit=200_000, tokens_used=130_000)
+    line = _render_plain(render_footer(state, hint="esc cancel"), width=80).rstrip("\n")
+    assert line.endswith("65% context   |   gpt-5.6   |   esc cancel")
+    assert line.strip() == "65% context   |   gpt-5.6   |   esc cancel"
+
+    state.phase = "streaming"
+    assert _render_plain(render_footer(state, hint="esc cancel"), width=80).startswith("working")
+
+
+def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt", PromptInput)
+            assert prompt.placeholder == "Ask Symphony..."
+            assert str(app.query_one("#composer-mode", Static).render()) == "BUILD"
+            assert not app.query("#composer-hint")
+            composer = app.query_one("#composer")
+            assert composer.styles.border_top[0] == "solid"
+            assert "esc cancel" in _footer_text(app)
+
+            app.mode = "plan"
+            app._update_composer_hint()
+            assert str(app.query_one("#composer-mode", Static).render()) == "PLAN"
+            assert app.query_one("#composer").has_class("plan-mode")
+
+            app._pending_question_id = "q-1"
+            app._update_composer_hint()
+            assert "esc deny" in _footer_text(app)
+
+    asyncio.run(_run())
+
+
+def _render_plain(renderable: Any, *, width: int) -> str:
+    import io
+
+    from rich.console import Console
+
+    console = Console(width=width, file=io.StringIO(), force_terminal=False, color_system=None)
+    console.print(renderable)
+    return console.file.getvalue()
+
+
+def _footer_text(app: App[Any]) -> str:
+    return _render_plain(app.query_one("#status", Static).content, width=120)
 
 
 def test_themed_markdown_avoids_rich_monokai_default() -> None:
