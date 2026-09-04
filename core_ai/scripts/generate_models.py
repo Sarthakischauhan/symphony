@@ -20,6 +20,7 @@ MODELS_DEV_PROVIDERS = {
     "openai": "openai",
     "anthropic": "anthropic",
     "gemini": "google",
+    "grok": "xai",
 }
 
 # models.dev is already curated for model capability. These are the API
@@ -33,6 +34,7 @@ def models_dev_api(provider: str, model_id: str) -> str:
         "openai": "responses",
         "anthropic": "messages",
         "gemini": "generate_content",
+        "grok": "chat_completions",
     }[provider]
 
 
@@ -128,6 +130,12 @@ FALLBACK_MODELS: dict[str, tuple[tuple[str, str], ...]] = {
         ("gemini-3.5-flash", "generate_content"),
         ("gemini-3.6-flash", "generate_content"),
         ("gemini-3.7-flash", "generate_content"),
+    ),
+    "grok": (
+        ("grok-4.3", "chat_completions"),
+        ("grok-4.5", "chat_completions"),
+        ("grok-4.6", "chat_completions"),
+        ("grok-build-0.1", "chat_completions"),
     ),
 }
 
@@ -254,6 +262,7 @@ def read_existing_catalog(path: Path = OUTPUT) -> dict[str, list[tuple[str, str]
         "openai": [],
         "anthropic": [],
         "gemini": [],
+        "grok": [],
     }
     if path.exists():
         for model_id, provider, api in EXISTING_MODEL_RE.findall(path.read_text()):

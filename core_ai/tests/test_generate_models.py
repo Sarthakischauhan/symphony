@@ -25,6 +25,7 @@ def test_generate_without_existing_file_uses_fallbacks(tmp_path: Path, monkeypat
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.setenv("CORE_AI_MODELS_DEV", "0")
 
     generate_models.generate(output=output)
@@ -33,7 +34,8 @@ def test_generate_without_existing_file_uses_fallbacks(tmp_path: Path, monkeypat
     assert catalog["openai"] == list(generate_models.FALLBACK_MODELS["openai"])
     assert catalog["anthropic"] == list(generate_models.FALLBACK_MODELS["anthropic"])
     assert catalog["gemini"] == list(generate_models.FALLBACK_MODELS["gemini"])
-    assert "ALL_MODELS = OPENAI_MODELS + ANTHROPIC_MODELS + GEMINI_MODELS" in output.read_text()
+    assert catalog["grok"] == list(generate_models.FALLBACK_MODELS["grok"])
+    assert "ALL_MODELS = OPENAI_MODELS + ANTHROPIC_MODELS + GEMINI_MODELS + GROK_MODELS" in output.read_text()
 
 
 def test_generate_without_keys_keeps_existing_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,6 +47,7 @@ def test_generate_without_keys_keeps_existing_catalog(tmp_path: Path, monkeypatc
                 "openai": [("gpt-custom", "responses")],
                 "anthropic": [("claude-custom", "messages")],
                 "gemini": [("gemini-custom", "generate_content")],
+                "grok": [("grok-custom", "chat_completions")],
             }
         )
     )
@@ -52,6 +55,7 @@ def test_generate_without_keys_keeps_existing_catalog(tmp_path: Path, monkeypatc
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.setenv("CORE_AI_MODELS_DEV", "0")
 
     generate_models.generate(output=output)
@@ -60,6 +64,7 @@ def test_generate_without_keys_keeps_existing_catalog(tmp_path: Path, monkeypatc
     assert catalog["openai"] == [("gpt-custom", "responses")]
     assert catalog["anthropic"] == [("claude-custom", "messages")]
     assert catalog["gemini"] == [("gemini-custom", "generate_content")]
+    assert catalog["grok"] == [("grok-custom", "chat_completions")]
 
 
 def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,23 +75,52 @@ def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: p
         return type("Response", (), {
             "raise_for_status": lambda self: None,
             "json": lambda self: {
-                "openai/gpt-4.1-mini": {
-                    "tool_call": True, "modalities": {"output": ["text"]}
+                "openai": {
+                    "id": "openai",
+                    "models": {
+                        "gpt-4.1-mini": {
+                            "tool_call": True, "modalities": {"output": ["text"]}
+                        },
+                        "o3": {
+                            "tool_call": True, "modalities": {"output": ["text"]}
+                        },
+                        "whisper-1": {
+                            "tool_call": False, "modalities": {"output": ["audio"]}
+                        },
+                    },
                 },
-                "openai/o3": {
-                    "tool_call": True, "modalities": {"output": ["text"]}
+                "anthropic": {
+                    "id": "anthropic",
+                    "models": {
+                        "claude-sonnet-5": {
+                            "tool_call": True, "modalities": {"output": ["text"]}
+                        },
+                    },
                 },
-                "openai/whisper-1": {
-                    "tool_call": False, "modalities": {"output": ["audio"]}
+                "google": {
+                    "id": "google",
+                    "models": {
+                        "gemini-3.7-flash": {
+                            "tool_call": True, "modalities": {"output": ["text"]}
+                        },
+                        "gemini-3.7-flash-image": {
+                            "tool_call": True, "modalities": {"output": ["image"]}
+                        },
+                    },
                 },
-                "anthropic/claude-sonnet-5": {
-                    "tool_call": True, "modalities": {"output": ["text"]}
-                },
-                "google/gemini-3.7-flash": {
-                    "tool_call": True, "modalities": {"output": ["text"]}
-                },
-                "google/gemini-3.7-flash-image": {
-                    "tool_call": True, "modalities": {"output": ["image"]}
+                "xai": {
+                    "id": "xai",
+                    "models": {
+                        "grok-4.6": {
+                            "tool_call": True,
+                            "reasoning": True,
+                            "modalities": {"output": ["text"]},
+                            "reasoning_options": [{"type": "effort", "values": ["low", "medium", "high", "xhigh"]}],
+                        },
+                        "grok-imagine-image": {
+                            "tool_call": False, "modalities": {"output": ["image"]}
+                        },
+                    },
                 },
             },
         })()
@@ -101,6 +135,8 @@ def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: p
     assert 'ModelInfo(id="claude-sonnet-5", provider="anthropic", api="messages")' in text
     assert 'ModelInfo(id="gemini-3.7-flash", provider="gemini", api="generate_content")' in text
     assert "gemini-3.7-flash-image" not in text
+    assert 'ModelInfo(id="grok-4.6", provider="grok", api="chat_completions", reasoning=True' in text
+    assert "grok-imagine-image" not in text
 
 
 def test_hatch_build_hook_regenerates_catalog_on_package() -> None:

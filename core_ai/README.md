@@ -17,7 +17,7 @@ Docs: **[symphony-core](../docs/packages/symphony-core.md)** ·
 ## What it provides
 
 - `ModelRegistry` for routing `provider:model` requests
-- `OpenAIProvider`, `AnthropicProvider`, and `GeminiProvider` for streaming
+- `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, and `GrokProvider` for streaming
   model output
 - `build_default_registry()` to register every provider that has credentials
   in the environment
@@ -46,19 +46,20 @@ Set one or more provider credentials. Every provider with a key is registered:
 | OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | `OPENAI_MODEL` |
 | Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_BASE_URL` | `GEMINI_MODEL` |
+| Grok | `XAI_API_KEY` | `XAI_BASE_URL` | `GROK_MODEL` or `XAI_MODEL` |
 
 `SYMPHONY_MODEL` has priority over provider-specific model variables. Model
 ids should use `provider:model`; an unqualified explicit id is assigned to
 OpenAI when OpenAI is registered, otherwise to the first registered provider.
 With no model override, `default_model_id()` chooses the default for the first
-available provider in OpenAI, Anthropic, Gemini order. It raises if no
+available provider in OpenAI, Anthropic, Gemini, Grok order. It raises if no
 credential is set.
 
 The providers translate streamed text, reasoning, tool calls, usage,
 completion, and retry signals (429, SSL MAC, 5xx, connection) into the shared
 `StreamEvent` format. OpenAI selects Responses or Chat Completions from the
-catalog (with an `o1` / `o3` / `o4` fallback); Anthropic uses Messages and
-Gemini uses streamGenerateContent.
+catalog (with an `o1` / `o3` / `o4` fallback); Anthropic uses Messages,
+Gemini uses streamGenerateContent, and Grok uses Chat Completions.
 
 ## Model catalog
 
@@ -70,7 +71,7 @@ hook:
 - the curated `https://models.dev/models.json` catalog is used as the source
   of model ids
 - only text-output models with tool-calling support are emitted for OpenAI,
-  Anthropic, and Gemini
+  Anthropic, Gemini, and Grok
 - the existing generated snapshot (or a small fallback) is kept when the
   catalog is unavailable, so builds remain resilient
 

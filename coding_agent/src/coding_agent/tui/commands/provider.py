@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core_ai import find_provider, get_provider
-from core_ai.providers.catalog import configured_provider_ids
+from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.credentials import OFFLINE_HINT
 from coding_agent.tui.screens import ProviderOnboardScreen
 
@@ -16,7 +16,7 @@ def open_provider_onboard(app: Any, argument: str = "") -> None:
         selected = find_provider(argument)
         if selected is None:
             app.add_notice(
-                f"Unknown provider: {argument}. Choose openai, anthropic, or gemini.",
+                f"Unknown provider: {argument}. Choose {', '.join(spec.id for spec in PROVIDERS)}.",
                 "warning",
             )
             return

@@ -10,6 +10,7 @@ from core_ai.providers.catalog import (
     provider_api_key,
 )
 from core_ai.providers.gemini import GeminiProvider
+from core_ai.providers.grok import GrokProvider
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.registry import ModelRegistry
 
@@ -19,6 +20,7 @@ _PROVIDER_TYPES = {
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,
     "gemini": GeminiProvider,
+    "grok": GrokProvider,
 }
 
 
@@ -27,20 +29,24 @@ def build_default_registry(
     openai_api_key: Optional[str] = None,
     anthropic_api_key: Optional[str] = None,
     gemini_api_key: Optional[str] = None,
+    grok_api_key: Optional[str] = None,
     openai_base_url: Optional[str] = None,
     anthropic_base_url: Optional[str] = None,
     gemini_base_url: Optional[str] = None,
+    grok_base_url: Optional[str] = None,
 ) -> ModelRegistry:
     """Register every provider that has credentials in the environment."""
     explicit_keys = {
         "openai": openai_api_key,
         "anthropic": anthropic_api_key,
         "gemini": gemini_api_key,
+        "grok": grok_api_key,
     }
     explicit_base_urls = {
         "openai": openai_base_url,
         "anthropic": anthropic_base_url,
         "gemini": gemini_base_url,
+        "grok": grok_base_url,
     }
     registry = ModelRegistry()
     for spec in PROVIDERS:
@@ -72,6 +78,8 @@ def default_model_id(registry: ModelRegistry, model_id: Optional[str] = None) ->
         or os.getenv("OPENAI_MODEL")
         or os.getenv("ANTHROPIC_MODEL")
         or os.getenv("GEMINI_MODEL")
+        or os.getenv("GROK_MODEL")
+        or os.getenv("XAI_MODEL")
     )
     namespaces = registry.namespaces()
     if selected:

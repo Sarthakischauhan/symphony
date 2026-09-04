@@ -81,15 +81,15 @@ the server allowlist.
 
 ## Environment configuration
 
-The default registry recognizes `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and
-`GEMINI_API_KEY` / `GOOGLE_API_KEY`, along with `OPENAI_BASE_URL`,
-`ANTHROPIC_BASE_URL`, and `GEMINI_BASE_URL`. Every provider with a credential
+The default registry recognizes `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`GEMINI_API_KEY` / `GOOGLE_API_KEY`, and `XAI_API_KEY`, along with `OPENAI_BASE_URL`,
+`ANTHROPIC_BASE_URL`, `GEMINI_BASE_URL`, and `XAI_BASE_URL`. Every provider with a credential
 is registered.
 
 The server selects its model in this order: an explicit `model_id` / `--model`,
-`SYMPHONY_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`, then
-`openai:gpt-5.6-luna`. Unqualified names beginning with `claude-` or
-`gemini-` are assigned to the corresponding provider; other unqualified names
+`SYMPHONY_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`, `GROK_MODEL`, then
+`openai:gpt-5.6-luna`. Unqualified names beginning with `claude-`, `gemini-`, or
+`grok-` are assigned to the corresponding provider; other unqualified names
 are assigned to OpenAI. Ensure the selected model's provider has a
 credential. For custom deployments, pass an explicit `ModelRegistry` to
 `build_config()` or construct `ServerConfig` directly.
