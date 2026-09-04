@@ -19,7 +19,6 @@ def reconcile_live_tools(
     collapse into one Explored summary above the remaining live cards.
     In-progress tools and ``spawn_agent`` cards stay live and never count.
     """
-    """
     if timeline is None or limit < 0:
         return
 
