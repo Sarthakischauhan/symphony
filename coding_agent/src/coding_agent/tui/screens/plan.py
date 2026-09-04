@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from rich.console import Group
 from rich.text import Text
 from textual import events
 from textual.containers import Container, Horizontal
@@ -14,20 +13,39 @@ from textual.widgets import Static
 
 from coding_agent.plan import PlanStore
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
-from coding_agent.tui.theme import PLAN_MODAL_CSS, themed_markdown
+from coding_agent.tui.theme import PLAN_MODAL_CSS
 
-class PlanSectionCard(Static):
-    """A plan section presented as a numbered, readable card."""
+def _numbered_plan(body: str) -> Text:
+    """Render plan text with a stable line-number gutter like the diff view."""
+    lines = (body or "_No details provided._").splitlines()
+    width = max(2, len(str(len(lines))))
+    rendered = Text(no_wrap=True, overflow="crop")
+    for number, line in enumerate(lines, start=1):
+        rendered.append(
+            f"{number:>{width}} │ ",
+            style="#687e8b",
+        )
+        rendered.append(line, style="#b8bec1")
+        rendered.append("\n")
+    if rendered.plain.endswith("\n"):
+        rendered = rendered[:-1]
+    return rendered
+
+
+class PlanSectionCard(Container):
+    """A plan section with a compact header and line-numbered body."""
 
     def __init__(self, title: str, body: str, index: int) -> None:
-        super().__init__(
-            Group(
-                Text(f"{index:02}  {title}", style="#8f835a"),
-                Text(""),
-                themed_markdown(body or "_No details provided._"),
-            ),
-            classes="content-card plan-section-card",
-        )
+        self.title = title
+        self.body = body
+        self.index = index
+        super().__init__(classes="plan-section-card")
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        with Horizontal(classes="plan-section-header"):
+            yield Static(f"{self.index:02}", classes="plan-section-number")
+            yield Static(self.title, classes="plan-section-title")
+        yield Static(_numbered_plan(self.body), classes="plan-section-body", markup=False)
 
 # --- plan.py ---
 PlanAction = Literal["build"]

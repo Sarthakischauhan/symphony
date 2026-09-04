@@ -296,11 +296,113 @@ LearningModal {
 }
 
 #learning-pane {
-    border: round #38454b;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    background: #0b0d0e;
+    border: round #394247;
+}
+
+#learning-pane > #modal-close {
+    display: none;
+}
+
+#learning-header {
+    width: 100%;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
+    border-bottom: solid #394247;
+    background: #0b0d0e;
+}
+
+#learning-title {
+    width: auto;
+    color: #d9dde0;
+    text-style: bold;
+    background: #0b0d0e;
+}
+
+#learning-counter {
+    width: 1fr;
+    padding-left: 2;
+    color: #858d91;
+    background: #0b0d0e;
+}
+
+#learning-header #modal-close {
+    dock: none;
+    width: auto;
+    min-width: 11;
+    color: #858d91;
+    background: #0b0d0e;
+}
+
+#learning-header #modal-close:hover,
+#learning-header #modal-close:focus {
+    color: #f2d675;
+    background: #171b1c;
+}
+
+#learning-body {
+    height: 1fr;
+    padding: 0;
+    background: #0b0d0e;
 }
 
 #learning-hint {
-    text-align: right;
+    width: 100%;
+    height: 2;
+    content-align: center middle;
+    color: #737b7f;
+    background: #101010;
+}
+
+.learning-card {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0;
+    background: #0b0d0e;
+    border-top: solid #394247;
+}
+
+.learning-card:hover {
+    border-top: solid #687b83;
+}
+
+.learning-card-header {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    background: #111718;
+}
+
+.learning-marker {
+    width: 3;
+    color: #c5a9e6;
+    content-align: center middle;
+    background: #111718;
+}
+
+.learning-card-title {
+    width: 1fr;
+    color: #d0d0d0;
+    background: #111718;
+}
+
+.learning-meta {
+    width: auto;
+    background: #111718;
+}
+
+.learning-body-content {
+    width: 100%;
+    height: auto;
+    padding: 1 2 2 2;
+    color: #bdbdbd;
+    background: #0b0d0e;
 }
 
 """
@@ -313,11 +415,65 @@ PlanModal {
 }
 
 #plan-pane {
-    border: round #4a4532;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    background: #0b0d0e;
+    border: round #394247;
+}
+
+#plan-pane > #modal-close {
+    display: none;
 }
 
 #plan-body {
-    padding-top: 0;
+    height: 1fr;
+    padding: 0;
+    background: #0b0d0e;
+}
+
+.plan-section-card {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0;
+    background: #0b0d0e;
+    border-top: solid #394247;
+}
+
+.plan-section-card:hover {
+    border-top: solid #687b83;
+}
+
+.plan-section-header {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    background: #111718;
+}
+
+.plan-section-number {
+    width: 4;
+    color: #c7b66e;
+    text-style: bold;
+    content-align: left middle;
+    background: #111718;
+}
+
+.plan-section-title {
+    width: 1fr;
+    color: #d0d0d0;
+    text-style: bold;
+    background: #111718;
+}
+
+.plan-section-body {
+    width: 100%;
+    height: auto;
+    padding: 1 1 2 1;
+    color: #bdbdbd;
+    background: #0b0d0e;
 }
 
 #plan-hint {

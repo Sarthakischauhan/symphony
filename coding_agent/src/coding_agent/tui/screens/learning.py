@@ -7,7 +7,7 @@ from pathlib import Path
 
 from rich.console import Group
 from rich.text import Text
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
 from coding_agent.learning import LearningStore, Lesson
@@ -22,24 +22,32 @@ def _human_date(value: str) -> str:
     return parsed.strftime("%b %d, %Y")
 
 
-class LearningCard(Static):
-    """Structured lesson card with context, outcomes, and confidence."""
+class LearningCard(Container):
+    """A diff-modal-style lesson row with a compact header and body."""
 
     def __init__(self, lesson: Lesson, index: int) -> None:
-        rows: list[object] = []
-        meta = Text()
-        confidence_color = "#79a985" if lesson.confidence >= 0.7 else "#d0a85c"
-        meta.append(f"{round(lesson.confidence * 100)}% confidence", style=confidence_color)
-        if lesson.created_at:
-            meta.append(f"  ·  {_human_date(lesson.created_at)}", style="#686868")
-        if lesson.source_task:
-            meta.append(f"  ·  {lesson.source_task}", style="#777777")
-        rows.append(meta)
+        self.lesson = lesson
+        self.index = index
+        super().__init__(classes="learning-card")
 
+    def compose(self):  # type: ignore[no-untyped-def]
+        lesson = self.lesson
+        confidence_color = "#79a985" if lesson.confidence >= 0.7 else "#d0a85c"
+        meta = Text()
+        meta.append(f"{round(lesson.confidence * 100)}%", style=f"bold {confidence_color}")
+        if lesson.created_at:
+            meta.append(f"  {_human_date(lesson.created_at)}", style="#858d91")
+        if lesson.source_task:
+            meta.append(f"  ·  {lesson.source_task}", style="#858d91")
+        with Horizontal(classes="learning-card-header"):
+            yield Static("◆", classes="learning-marker")
+            yield Static(f"lesson {self.index}", classes="learning-card-title")
+            yield Static(meta, classes="learning-meta")
+        rows: list[object] = []
         self._append_items(rows, "WHEN TO USE", lesson.applicable_when, "#8eafc2", "›")
         self._append_items(rows, "WORKED", lesson.worked, "#79a985", "+")
         self._append_items(rows, "WATCH OUT", lesson.failed, "#c67b82", "−")
-        super().__init__(Group(*rows), classes="content-card learning-card")
+        yield Static(Group(*rows), classes="learning-body-content")
 
     @staticmethod
     def _append_items(
@@ -68,7 +76,13 @@ class LearningModal(ModalBase[None]):
     def compose(self):  # type: ignore[no-untyped-def]
         lessons = list(reversed(LearningStore(self.workspace).load()))
         with Container(id="learning-pane", classes="modal-pane"):
-            yield ModalCloseButton("Esc", id="modal-close")
+            with Horizontal(id="learning-header"):
+                yield Static("learning", id="learning-title")
+                yield Static(
+                    f"{len(lessons)} lessons",
+                    id="learning-counter",
+                )
+                yield ModalCloseButton("esc  close", id="modal-close")
             with ModalScroll(id="learning-body", classes="modal-body"):
                 if not lessons:
                     yield EmptyState(
