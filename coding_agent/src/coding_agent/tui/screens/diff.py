@@ -13,7 +13,7 @@ from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
-from coding_agent.tui.theme import DIFF_MODAL_CSS, SYMPHONY_CODE_THEME
+from coding_agent.tui.theme import DIFF_MODAL_CSS
 from coding_agent.tui.tools.diff import diff_stats
 
 
@@ -84,7 +84,7 @@ def _numbered_diff(body: str) -> Text:
         if match:
             old_line = int(match.group(1))
             new_line = int(match.group(3))
-            rendered.append(f"{'':>{old_width}}   {'':>{new_width}}  ")
+            rendered.append(f"{'':>{old_width}} {'':>{new_width}}   ")
             rendered.append(source, style="bold #83a9bd")
             rendered.append("\n")
             continue
@@ -114,7 +114,10 @@ def _numbered_diff(body: str) -> Text:
         gutter = (
             f"{old_number:>{old_width}} {new_number:>{new_width}} {marker} "
         )
-        rendered.append(gutter + source[1:] if source[:1] in {"+", "-", " "} else gutter + source, style=style)
+        rendered.append(
+            gutter + source[1:] if source[:1] in {"+", "-", " "} else gutter + source,
+            style=style,
+        )
         rendered.append("\n")
 
     if rendered.plain.endswith("\n"):
