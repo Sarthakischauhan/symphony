@@ -18,14 +18,14 @@ COMPOSER_CSS = """
     height: auto;
     min-height: 2;
     margin: 0 3;
-    padding: 0;
+    padding: 0 1;
     layout: vertical;
     background: $background;
-    border-top: solid $panel-edge;
+    border: solid $panel-edge;
 }
 
 #composer:focus-within {
-    border-top: solid $panel-edge-focus;
+    border: solid $panel-edge-focus;
 }
 
 #composer-row {
@@ -37,6 +37,7 @@ COMPOSER_CSS = """
 
 #prompt {
     width: 1fr;
+    max-width: 100%;
     height: auto;
     min-height: 1;
     max-height: 10;
@@ -114,7 +115,7 @@ COMPOSER_CSS = """
     pointer: pointer;
 }
 
-/* Footer: bottom-right muted `N% context | model | esc cancel`. */
+/* Footer: workspace and context meter on the left, keyboard hint on the right. */
 #status {
     width: 100%;
     height: 2;

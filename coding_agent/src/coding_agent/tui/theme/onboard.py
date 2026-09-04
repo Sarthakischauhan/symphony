@@ -94,23 +94,20 @@ ProviderOnboardScreen {
     background: rgba(0, 0, 0, 0.52);
 }
 
+/* Keep provider setup on the same full-size modal chrome as text, image,
+   and diff previews. The old fixed 28-row pane clipped the key step on
+   smaller terminals and made this screen look like a separate dialog. */
 #provider-pane {
-    width: 72%;
-    max-width: 88;
-    height: 28;
-    padding: 1 2 1 2;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    background: #0A0A0A;
+    border: round #262626;
 }
 
-#provider-pane #onboard-title {
-    height: 1;
-    color: #ededed;
-    text-style: bold;
-}
-
-#provider-pane #onboard-subtitle {
-    height: 2;
-    padding-top: 1;
-    color: #737373;
+#provider-pane > #modal-close {
+    background: #0A0A0A;
 }
 
 #provider-pane ProviderWizard {
@@ -118,12 +115,35 @@ ProviderOnboardScreen {
     height: 1fr;
 }
 
+#provider-pane #onboard-title {
+    width: 100%;
+    height: 3;
+    min-height: 3;
+    padding: 1 8 0 1;
+    color: #d9dde0;
+    text-style: bold;
+    background: #0A0A0A;
+    border-bottom: solid #262626;
+}
+
+#provider-pane #onboard-subtitle {
+    width: 100%;
+    height: 2;
+    padding: 1 1 0 1;
+    color: #858d91;
+    background: #0A0A0A;
+}
+
 #provider-pane #provider-list {
     width: 100%;
     height: 1fr;
     margin-top: 1;
-    background: #101010;
+    padding: 0;
+    background: #0d0d0d;
     border: none;
+    scrollbar-size: 1 1;
+    scrollbar-color: #343434;
+    scrollbar-background: #0d0d0d;
 }
 
 #provider-pane #provider-list:focus {
@@ -132,19 +152,22 @@ ProviderOnboardScreen {
 
 #provider-pane #provider-list > .option-list--option {
     height: 3;
-    padding: 0 1;
-    background: #101010;
+    padding: 0 2;
+    background: #0d0d0d;
+    color: #bdbdbd;
 }
 
 #provider-pane #provider-list > .option-list--option-highlighted {
     background: #1c1b17;
     color: #e1c16e;
+    border-left: wide #e1c16e;
+    padding-left: 1;
 }
 
 #provider-pane #provider-key {
     width: 100%;
     height: 3;
-    margin-top: 1;
+    margin: 1 1 0 1;
     background: #141414;
     color: #ededed;
     border: tall #2a2a2a;
@@ -156,11 +179,16 @@ ProviderOnboardScreen {
 
 #provider-pane #onboard-error {
     height: 1;
+    margin: 1 1 0 1;
     color: #db6767;
 }
 
 #provider-pane #onboard-hint {
-    height: 1;
-    color: #656565;
+    width: 100%;
+    height: 2;
+    padding: 1 1 0 1;
+    color: #686868;
+    background: #0A0A0A;
+    border-top: solid #262626;
 }
 """

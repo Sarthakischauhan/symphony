@@ -127,6 +127,17 @@ returned `HarnessResult`. The result is used for post-run behavior such as savin
 or scheduling learning. Persistence occurs after the new user message, after relevant
 turns, and on terminal paths rather than only once at the end.
 
+High-frequency text, reasoning, and tool-argument deltas share one throttled paint
+boundary. Assistant and reasoning bodies remain plain text while streaming, then receive
+their full Markdown rendering once complete. Tool cards update fixed one-line fields
+without requesting layout and build expandable bodies only when opened.
+
+The visible transcript has a global budget of ten completed tool cards. Reasoning does
+not reset that budget. Older cards become one `Explored` snapshot row, and completed
+turns beyond the budget are removed from the widget tree and accumulated into one
+`Archived` row. Opening the archive creates its detail modal on demand; restored session
+history goes through the same compaction path.
+
 In plan mode, plan storage has two layers: the TUI initializes the selected plan before
 the worker starts and appends root `text_delta` events as they arrive; `CodingAgent.run()`
 also initializes the plan and saves the final result after a successful run. Plan deltas

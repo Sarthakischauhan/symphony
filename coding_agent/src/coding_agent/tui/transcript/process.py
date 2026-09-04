@@ -97,70 +97,92 @@ class RunProcess(Container):
     """One run's flat timeline of live status, thoughts, and tools."""
 
     def __init__(self, thinking: ThinkingStatus) -> None:
-        self._pending_items: list[Widget] = []
-        self._items: list[Widget] = []
+        # ``_items`` is the single source of truth for timeline order. Items
+        # added before this container is composed are yielded by ``compose``;
+        # items added afterwards are mounted directly.
+        self._items: list[Widget] = [thinking]
         self._thinking = thinking
         self._completed = False
+        self.archiveable = True
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
-        pending, self._pending_items = self._pending_items, []
-        self._items = list(pending)
-        yield self._thinking
-        yield from pending
+        yield from self._items
 
     def add_item(self, widget: Widget) -> None:
-        if not self.is_attached:
-            self._pending_items.append(widget)
-            return
         self._items.append(widget)
-        self.mount(widget)
+        if self.is_mounted:
+            self.mount(widget)
 
     def timeline_items(self) -> list[Widget]:
         """Timeline order, including items not yet flushed to the DOM."""
-        if self.is_attached:
-            return [self._thinking, *self._items]
-        return [self._thinking, *self._pending_items]
+        return list(self._items)
 
     def replace_item(self, old: Widget, new: Widget) -> None:
         """Swap a mounted or pending child without dropping surrounding timeline items."""
-        if old in self._pending_items:
-            self._pending_items[self._pending_items.index(old)] = new
+
+        try:
+            index = self._items.index(old)
+        except ValueError:
             return
-        if old in self._items:
-            self._items[self._items.index(old)] = new
+        self._items[index] = new
         if old.is_attached:
             self.mount(new, after=old)
             old.remove()
 
     def remove_item(self, widget: Widget) -> None:
-        if widget in self._pending_items:
-            self._pending_items.remove(widget)
-            return
         if widget in self._items:
             self._items.remove(widget)
         if widget.is_attached:
             widget.remove()
 
     def on_mount(self) -> None:
-        self.call_after_refresh(self._flush_pending_items)
-
-    def _flush_pending_items(self) -> None:
-        if not self._pending_items:
-            return
-        pending, self._pending_items = self._pending_items, []
-        self._items.extend(pending)
-        self.mount(*pending)
+        # Anything added after compose ran but before Mount was handled has
+        # not reached the DOM yet; mount it now in timeline order.
+        pending = [item for item in self._items if item.parent is None]
+        if pending:
+            self.mount(*pending)
 
     def complete(self, title: str, *, collapse: bool = True) -> None:
-        del collapse
         if self._completed:
             return
         self._completed = True
+        self.archiveable = collapse
         self._thinking.set_visible(False)
         self.add_item(
             Static(Text(f"✓  {title}", style="#5f6a62"), classes="process-complete")
         )
+
+    def tool_count(self) -> int:
+        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+
+        count = 0
+        for item in self.timeline_items():
+            if isinstance(item, ToolCallWidget):
+                count += 1
+            elif isinstance(item, ToolCallSummary):
+                count += item.count
+        return count
+
+    def archive_text(self) -> str:
+        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+
+        chunks: list[str] = []
+        for item in self.timeline_items():
+            if isinstance(item, ThinkingStatus):
+                continue
+            if isinstance(item, ReasoningWidget):
+                if item.reasoning_text:
+                    chunks.append(f"THOUGHT\n{item.reasoning_text}")
+            elif isinstance(item, ToolCallWidget):
+                chunks.append(item.snapshot().as_text())
+            elif isinstance(item, ToolCallSummary):
+                chunks.append(item.archive_text())
+            else:
+                archive = getattr(item, "archive_text", None)
+                if callable(archive):
+                    chunks.append(str(archive()))
+        return "\n\n".join(chunk for chunk in chunks if chunk)
 
 
 class ReasoningWidget(Collapsible):
@@ -186,7 +208,9 @@ class ReasoningWidget(Collapsible):
         self._summary_heading, self._content_without_heading = (
             self._extract_summary_heading(content)
         )
-        self._body.update(themed_markdown(content or " ", style="#858585"))
+        # Rich Markdown parsing is deferred until completion. During a stream,
+        # plain text is both cheaper and resilient to incomplete markup.
+        self._body.update(content or " ")
         if self.is_mounted:
             self._scroll.scroll_end(animate=False, force=True)
 
@@ -220,6 +244,7 @@ class ReasoningWidget(Collapsible):
             )
         else:
             self.title = "Thought"
+            self._body.update(themed_markdown(self.reasoning_text or " ", style="#858585"))
         self.collapsed = True
         self.remove_class("is-live")
         self.add_class("is-complete")

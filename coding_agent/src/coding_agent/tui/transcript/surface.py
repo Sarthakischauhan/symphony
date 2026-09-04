@@ -9,7 +9,14 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT, reconcile_live_tools
-from coding_agent.tui.transcript.messages import AssistantMessage, Notice, RunSummary, Welcome
+from coding_agent.tui.transcript.archive import TranscriptArchive, TranscriptTurn
+from coding_agent.tui.transcript.messages import (
+    AssistantMessage,
+    Notice,
+    RunSummary,
+    UserMessage,
+    Welcome,
+)
 from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
 
 
@@ -36,24 +43,87 @@ class TranscriptSurface:
         transcript = self.query_one("#transcript", VerticalScroll)
         transcript.scroll_end(animate=False)
 
-    def _mount_transcript(self, widget: Static) -> None:
+    def _mount_transcript(self, widget: Widget) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
         was_at_end = transcript.is_vertical_scroll_end
         welcome = self.query(".welcome")
         if welcome:
             welcome.first().remove()
-        transcript.mount(widget)
+        if isinstance(widget, UserMessage):
+            if self._current_transcript_turn is not None:
+                self._current_transcript_turn.completed = True
+            turn = TranscriptTurn(widget)
+            self._transcript_turns.append(turn)
+            self._current_transcript_turn = turn
+            transcript.mount(widget)
+            self._compact_transcript()
+        elif self._current_transcript_turn is not None:
+            self._current_transcript_turn.add_item(widget)
+            transcript.mount(widget)
+        else:
+            transcript.mount(widget)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
+
+    def _compact_transcript(self) -> None:
+        """Bound live transcript widgets while retaining readable archive data."""
+        limit = getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT)
+        if limit < 0:
+            return
+
+        for turn in self._transcript_turns:
+            reconcile_live_tools(turn, limit=limit)
+            for item in turn.timeline_items():
+                if isinstance(item, RunProcess):
+                    tools = self._tools if item is self._process else None
+                    reconcile_live_tools(item, tools, limit=limit)
+
+        while sum(turn.tool_count() for turn in self._transcript_turns) > limit:
+            candidate = next(
+                (
+                    turn
+                    for turn in self._transcript_turns
+                    if turn.completed and turn is not self._current_transcript_turn
+                ),
+                None,
+            )
+            if candidate is None:
+                break
+            self._archive_turn(candidate)
+
+    def _archive_turn(self, turn: TranscriptTurn) -> None:
+        transcript = self.query_one("#transcript", VerticalScroll)
+        if self._transcript_archive is None:
+            self._transcript_archive = TranscriptArchive()
+            anchor = next((item for item in turn.timeline_items() if item.is_attached), None)
+            if anchor is not None:
+                transcript.mount(self._transcript_archive, before=anchor)
+            else:
+                transcript.mount(self._transcript_archive)
+        self._transcript_archive.add_turn(turn.snapshot())
+        self._transcript_turns.remove(turn)
+        for item in turn.timeline_items():
+            if item.is_attached:
+                item.remove()
+
+    def finalize_transcript_history(self) -> None:
+        """Mark restored turns complete and apply the normal live-widget budget."""
+        for turn in self._transcript_turns:
+            turn.completed = True
+        self._compact_transcript()
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         if new or self._assistant is None:
-            self._assistant = AssistantMessage(text)
+            self._assistant = AssistantMessage(text, streaming=True)
             self._mount_transcript(self._assistant)
         else:
             transcript = self.query_one("#transcript", VerticalScroll)
             was_at_end = transcript.is_vertical_scroll_end
-            self._assistant.set_content(text)
+            self._assistant.set_content(text, streaming=True)
             self._follow_transcript_tail(transcript, was_at_end=was_at_end)
+
+    def finish_assistant(self) -> None:
+        if self._assistant is not None:
+            self._assistant.finish_stream()
 
     def set_thinking(self, text: str) -> None:
         if self._thinking is None:
@@ -105,11 +175,6 @@ class TranscriptSurface:
         widget = make_tool_widget(call_id, name)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
-        reconcile_live_tools(
-            self._process,
-            self._tools,
-            limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
-        )
 
     def update_tool(
         self,
@@ -139,11 +204,14 @@ class TranscriptSurface:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
         if status == "done":
+            # Only completed cards count toward the live cap, so a run's
+            # timeline can only overflow when a tool reaches a terminal state.
             reconcile_live_tools(
                 self._process,
                 self._tools,
                 limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
             )
+            self._compact_transcript()
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)
@@ -168,8 +236,11 @@ class TranscriptSurface:
     def finish_process(self, title: str, *, collapse: bool = True) -> None:
         if self._process is not None:
             self._process.complete(title, collapse=collapse)
+        if self._current_transcript_turn is not None:
+            self._current_transcript_turn.completed = collapse
+        self._compact_transcript()
 
-    def mount_transcript(self, widget: Static) -> None:
+    def mount_transcript(self, widget: Widget) -> None:
         """Public adapter used by the persisted-history loader."""
         self._mount_transcript(widget)
 
@@ -183,4 +254,6 @@ class TranscriptSurface:
         self._process = None
         self._tools.clear()
         self._subagents.clear()
-
+        self._transcript_turns.clear()
+        self._current_transcript_turn = None
+        self._transcript_archive = None

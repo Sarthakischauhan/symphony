@@ -7,7 +7,7 @@ from typing import Callable
 from textual import work
 from textual.widgets import Static
 
-from coding_agent.tui.chrome import footer_hint, render_footer
+from coding_agent.tui.chrome import display_workspace_path, footer_hint, render_footer
 from coding_agent.tui.composer.input import PromptInput
 from coding_agent.tui.runtime.control_plane import HarnessEvent
 from coding_agent.tui.screens.history import load_session_history
@@ -23,7 +23,13 @@ class TurnSurface:
     def _set_status(self, _value: str) -> None:
         """Repaint the footer from run state; the presenter's text summary is unused."""
         hint = footer_hint(question_pending=self._pending_question_id is not None)
-        self.query_one("#status", Static).update(render_footer(self._ui_state, hint=hint))
+        self.query_one("#status", Static).update(
+            render_footer(
+                self._ui_state,
+                hint=hint,
+                workspace=display_workspace_path(self.workspace),
+            )
+        )
 
     def _schedule_stream_flush(self, callback: Callable[[], None]) -> None:
         """Coalesce stream paints to keep Markdown/widget work bounded."""
