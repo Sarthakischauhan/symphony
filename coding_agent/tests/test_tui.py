@@ -182,7 +182,7 @@ def test_tui_offline_without_provider_still_renders(
 def test_markdown_code_theme_matches_tui_surface() -> None:
     background = SYMPHONY_CODE_THEME.get_background_style().bgcolor
     assert background is not None
-    assert background.get_truecolor().hex == "#0d1117"
+    assert background.get_truecolor().hex == "#0a0a0a"
 
 
 def test_display_workspace_path_collapses_home(tmp_path: Path) -> None:

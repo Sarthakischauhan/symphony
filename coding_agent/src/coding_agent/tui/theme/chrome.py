@@ -5,15 +5,15 @@ from __future__ import annotations
 CHROME_CSS = """
 /* Mock palette: deep dark canvas, purple accent, muted gray chrome.
    Keep in sync with SYMPHONY_COLORS in theme/colors.py. */
-$background: #0D1117;
-$foreground: #E6EDF3;
+$background: #0A0A0A;
+$foreground: #EDEDED;
 $accent: #A371F7;
 $accent-plan: #D8BD62;
-$muted: #8B949E;
-$muted-dim: #6E7681;
-$panel: #161B22;
-$panel-light: #21262D;
-$panel-edge: #30363D;
+$muted: #737373;
+$muted-dim: #737373;
+$panel: #171717;
+$panel-light: #262626;
+$panel-edge: #262626;
 $panel-edge-focus: #484F58;
 
 Screen {

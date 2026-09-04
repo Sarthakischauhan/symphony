@@ -27,13 +27,13 @@ from rich.theme import Theme
 # Chrome tokens (background / accent / muted) mirror the `$...` variables in
 # theme/chrome.py so Rich renderables and Textual CSS share one palette.
 SYMPHONY_COLORS = {
-    "background": "#0D1117",
-    "foreground": "#E6EDF3",
+    "background": "#0A0A0A",
+    "foreground": "#EDEDED",
     "accent": "#A371F7",
-    "muted": "#8B949E",
-    "muted_dim": "#6E7681",
-    "edge": "#30363D",
-    "comment": "#8B949E",
+    "muted": "#737373",
+    "muted_dim": "#737373",
+    "edge": "#262626",
+    "comment": "#737373",
     "keyword": "#db6767",
     "type_keywords": "#db6767",
     "string": "#799e7c",
@@ -46,8 +46,8 @@ SYMPHONY_COLORS = {
     "tag": "#5a9a95",
     "attribute": "#8ca0cc",
     "constant": "#d08a61",
-    "surface": "#161B22",
-    "overlay": "#21262D",
+    "surface": "#171717",
+    "overlay": "#262626",
     "subtext": "#A3A3A3",
 }
 
