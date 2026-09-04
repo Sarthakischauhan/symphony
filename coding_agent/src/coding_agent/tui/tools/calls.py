@@ -321,7 +321,7 @@ class GenerateImageWidget(ToolCallWidget):
 
     def set_result(self, result: Any) -> None:
         super().set_result(result)
-        if self.status == "done" and self.is_attached:
+        if self.status == "done":
             self.collapsed = False
 
     def _body_rows(self) -> list[Any]:

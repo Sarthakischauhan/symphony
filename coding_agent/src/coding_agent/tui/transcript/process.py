@@ -97,6 +97,9 @@ class RunProcess(Container):
     """One run's flat timeline of live status, thoughts, and tools."""
 
     def __init__(self, thinking: ThinkingStatus) -> None:
+        # ``_items`` is the single source of truth for timeline order. Items
+        # added before this container is composed are yielded by ``compose``;
+        # items added afterwards are mounted directly.
         self._items: list[Widget] = [thinking]
         self._thinking = thinking
         self._completed = False
@@ -108,13 +111,16 @@ class RunProcess(Container):
 
     def add_item(self, widget: Widget) -> None:
         self._items.append(widget)
-        if self.is_attached:
+        if self.is_mounted:
             self.mount(widget)
 
     def timeline_items(self) -> list[Widget]:
+        """Timeline order, including items not yet flushed to the DOM."""
         return list(self._items)
 
     def replace_item(self, old: Widget, new: Widget) -> None:
+        """Swap a mounted or pending child without dropping surrounding timeline items."""
+
         try:
             index = self._items.index(old)
         except ValueError:
@@ -131,8 +137,9 @@ class RunProcess(Container):
             widget.remove()
 
     def on_mount(self) -> None:
-        mounted = set(self.children)
-        pending = [item for item in self._items if item not in mounted]
+        # Anything added after compose ran but before Mount was handled has
+        # not reached the DOM yet; mount it now in timeline order.
+        pending = [item for item in self._items if item.parent is None]
         if pending:
             self.mount(*pending)
 
