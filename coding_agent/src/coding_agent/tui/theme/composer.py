@@ -1,4 +1,4 @@
-"""Composer, menus, and status CSS."""
+"""Composer, menus, and footer CSS."""
 
 from __future__ import annotations
 
@@ -11,15 +11,68 @@ COMPOSER_CSS = """
     color: $muted;
 }
 
+/* Composer: a thin muted separator above a borderless prompt, with the
+   all-caps mode label sitting on the prompt's first row at the right edge. */
 #composer {
     width: 1fr;
     height: auto;
-    min-height: 6;
-    margin: 0 8 1 8;
+    min-height: 2;
+    margin: 0 3;
     padding: 0;
     layout: vertical;
-    background: #101010;
-    border: round $blue;
+    background: $background;
+    border-top: solid $panel-edge;
+}
+
+#composer:focus-within {
+    border-top: solid $panel-edge-focus;
+}
+
+#composer-row {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+    background: $background;
+}
+
+#prompt {
+    width: 1fr;
+    height: auto;
+    min-height: 1;
+    max-height: 10;
+    padding: 0;
+    border: none;
+    background: $background;
+    color: $foreground;
+    pointer: text;
+}
+
+#prompt:focus {
+    border: none;
+}
+
+#prompt.-disabled {
+    color: $muted-dim;
+}
+
+#prompt .text-area--placeholder {
+    color: $muted;
+}
+
+#prompt .text-area--cursor-line {
+    background: $background;
+}
+
+#composer-mode {
+    width: auto;
+    height: 1;
+    padding: 0 0 0 3;
+    color: $accent;
+    background: $background;
+}
+
+#composer.plan-mode #composer-mode {
+    color: $accent-plan;
 }
 
 #slash-menu {
@@ -27,9 +80,9 @@ COMPOSER_CSS = """
     width: 1fr;
     height: auto;
     max-height: 10;
-    margin: 0 10;
+    margin: 0 3;
     padding: 1 1 0 1;
-    background: #202020;
+    background: $panel;
     border: round $panel-edge;
     overflow-y: auto;
     scrollbar-size-vertical: 1;
@@ -41,91 +94,33 @@ COMPOSER_CSS = """
 
 #slash-menu > .option-list--option {
     padding: 0;
-    background: #202020;
+    background: $panel;
 }
 
 #slash-menu > .option-list--option-highlighted {
-    background: #383838;
+    background: $panel-light;
 }
 
 #slash-menu > .option-list--option-hover {
-    background: #383838;
+    background: $panel-light;
 }
 
 #slash-menu > .option-list--option-disabled {
     padding: 0;
-    background: #202020;
-}
-
-#composer:focus-within {
-    border: round #91a7ed;
-}
-
-#composer.plan-mode {
-    border: round #9d8950;
-}
-
-#composer.plan-mode:focus-within {
-    border: round #d8bd62;
-}
-
-#prompt {
-    width: 100%;
-    height: auto;
-    min-height: 3;
-    max-height: 10;
-    padding: 0 2;
-    border: none;
-    background: #101010;
-    color: #eeeeee;
-    pointer: text;
-}
-
-#composer-footer {
-    width: 100%;
-    height: 1;
-    padding: 0 2;
-    background: #101010;
+    background: $panel;
 }
 
 #transcript ScrollBar {
     pointer: pointer;
 }
 
-#prompt:focus {
-    border: none;
-}
-
-#prompt.-disabled {
-    color: #777777;
-}
-
-#composer-hint {
-    width: 1fr;
-    height: 1;
-    color: #595959;
-    text-align: right;
-    background: #101010;
-}
-
-#composer-mode {
-    width: auto;
-    height: 1;
-    color: #596585;
-    background: #101010;
-}
-
-#composer.plan-mode #composer-mode {
-    color: #9d8950;
-    background: #101010;
-}
-
+/* Footer: bottom-right muted `N% context | model | esc cancel`. */
 #status {
     width: 100%;
-    height: 1;
-    padding: 0 3;
-    background: #111111;
-    color: #686868;
+    height: 2;
+    padding: 1 3 0 3;
+    background: $background;
+    color: $muted-dim;
 }
 
 #approval-menu.permission-menu {
@@ -133,48 +128,48 @@ COMPOSER_CSS = """
     max-width: 100%;
     height: auto;
     max-height: 14;
-    margin: 0;
+    margin: 0 0 1 0;
     offset-x: 0;
     padding: 1 1 0 1;
-    border: round #3d3d3d;
-    background: #101010;
+    border: round $panel-edge;
+    background: $background;
 }
 
 #approval-menu.permission-menu > .option-list--option {
     padding: 0 1;
-    background: #101010;
+    background: $background;
 }
 
 #approval-menu.permission-menu > .option-list--option-disabled {
-    background: #101010;
+    background: $background;
 }
 
 #approval-menu.permission-menu > .option-list--option-highlighted {
-    background: #242a3c;
+    background: $panel-light;
 }
 
 #approval-menu.permission-menu > .option-list--option-hover {
-    background: #242a3c;
+    background: $panel-light;
 }
 
 #slash-menu.file-menu {
     width: 1fr;
     max-height: 12;
-    margin: 0 8 1 8;
+    margin: 0 3 1 3;
     padding: 1 1 0 1;
-    background: #101010;
-    border: round #343434;
+    background: $panel;
+    border: round $panel-edge;
 }
 
 #slash-menu.file-menu > .option-list--option,
 #slash-menu.file-menu > .option-list--option-disabled {
     padding: 0 1;
-    background: #101010;
+    background: $panel;
 }
 
 #slash-menu.file-menu > .option-list--option-highlighted,
 #slash-menu.file-menu > .option-list--option-hover {
-    color: #e4e4e4;
-    background: #20283c;
+    color: $foreground;
+    background: $panel-light;
 }
 """

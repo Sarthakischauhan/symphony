@@ -15,7 +15,7 @@ from coding_agent.tui.commands import (
     model_supports_effort,
     toggle_mode,
 )
-from coding_agent.tui.composer.input import Composer, PromptInput
+from coding_agent.tui.composer.input import Composer, PromptInput, mode_label
 from coding_agent.tui.composer.slash_menu import SlashMenu
 from coding_agent.tui.screens.file_selector import (
     active_file_mention,
@@ -68,7 +68,7 @@ class ComposerSurface:
             self._plan_run_active = True
         self._busy = True
         event.input.disabled = True
-        self.query_one("#composer-hint", Static).update("Working…   Esc cancel")
+        self._set_status("")
         self.run_agent(user_content)
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
@@ -208,12 +208,9 @@ class ComposerSurface:
         await self._command_manager.run(value)
 
     def _update_composer_hint(self) -> None:
-        label = self.mode.upper()
+        """Refresh the mode badge and the footer keyboard hint for the current state."""
         self.query_one("#composer", Composer).set_class(
             self.mode == "plan", "plan-mode"
         )
-        self.query_one("#composer-mode", Static).update(f"{label} · Tab mode")
-        hint = "Ctrl+↵ send   Enter line break   Esc cancel"
-        if self._pending_question_id is not None:
-            hint = "↵ approve   ↑↓ choose   Esc deny"
-        self.query_one("#composer-hint", Static).update(hint)
+        self.query_one("#composer-mode", Static).update(mode_label(self.mode))
+        self._set_status("")
