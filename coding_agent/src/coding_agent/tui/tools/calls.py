@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -13,6 +14,7 @@ from textual.message import Message
 from textual.containers import Horizontal
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.transcript.messages import clip_text, compact_json
@@ -172,27 +174,88 @@ class ToolCallWidget(Collapsible):
         self.add_class(f"status-{self.status}")
         self._body.update(Group(*self._body_rows()))
 
+    def snapshot(self) -> ToolCallSnapshot:
+        label, _icon = self._tool_title()
+        return ToolCallSnapshot(
+            call_id=self.call_id,
+            tool_name=self.tool_name,
+            label=label,
+            detail=clip_text(self._summary(), 300),
+            status=self.status,
+            result=self._result_summary(),
+        )
 
-class ToolCallSummary(Static):
-    """One-line stand-in for a group of unmounted ToolCallWidgets."""
+
+@dataclass(frozen=True)
+class ToolCallSnapshot:
+    """Display data retained after a live tool card is folded away."""
+
+    call_id: str
+    tool_name: str = "tool"
+    label: str = "Tool"
+    detail: str = ""
+    status: str = "done"
+    result: str = ""
+
+    def as_text(self) -> str:
+        marker = "×" if self.status == "failed" else "✓"
+        line = f"{marker}  {self.label}"
+        if self.detail:
+            line = f"{line}  {self.detail}"
+        if self.result:
+            line = f"{line}\n   {self.result}"
+        return line
+
+
+class ToolCallSummary(Static, can_focus=True):
+    """One-line Explored row standing in for folded ToolCallWidgets.
+
+    Click or press Enter to open the folded tools' snapshots in a modal.
+    """
 
     def __init__(self) -> None:
-        self.call_ids: list[str] = []
+        self.calls: list[ToolCallSnapshot] = []
         super().__init__(self._line(), classes="tool-call-summary")
 
     @property
-    def count(self) -> int:
-        return len(self.call_ids)
+    def call_ids(self) -> list[str]:
+        return [call.call_id for call in self.calls]
 
-    def add_call(self, call_id: str) -> None:
-        if call_id not in self.call_ids:
-            self.call_ids.append(call_id)
+    @property
+    def count(self) -> int:
+        return len(self.calls)
+
+    def add_call(self, call: str | ToolCallWidget | ToolCallSnapshot) -> None:
+        if isinstance(call, ToolCallWidget):
+            snapshot = call.snapshot()
+        elif isinstance(call, ToolCallSnapshot):
+            snapshot = call
+        else:
+            snapshot = ToolCallSnapshot(call_id=call)
+        if snapshot.call_id not in self.call_ids:
+            self.calls.append(snapshot)
         from textual._context import NoActiveAppError
 
         try:
             self.update(self._line())
         except NoActiveAppError:
             pass
+
+    def snapshot_text(self) -> str:
+        return "\n\n".join(call.as_text() for call in self.calls)
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.open_details()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            self.open_details()
+
+    def open_details(self) -> None:
+        content = self.snapshot_text() or "No folded tool calls."
+        self.app.push_screen(ContentModal(content))
 
     def _line(self) -> Text:
         line = Text()
