@@ -125,16 +125,53 @@ DiffModal {
 }
 
 #diff-pane {
-    width: 92%;
-    max-width: 150;
-    height: 88%;
+    width: 94%;
+    max-width: 160;
+    height: 90%;
     padding: 1 2;
-    background: #101010;
-    border: round #3d3d3d;
+    background: #0b0d0e;
+    border: round #394247;
+}
+
+#diff-header {
+    width: 100%;
+    height: 3;
+    padding: 1 1;
+    border-bottom: solid #394247;
+    background: #0b0d0e;
+}
+
+#diff-title {
+    width: auto;
+    color: #d9dde0;
+    text-style: bold;
+    background: #0b0d0e;
+}
+
+#diff-total-stats {
+    width: auto;
+    margin-left: 2;
+    background: #0b0d0e;
+}
+
+#diff-file-counter {
+    width: 1fr;
+    content-align: right middle;
+    color: #858d91;
+    background: #0b0d0e;
 }
 
 #diff-pane #modal-close {
-    background: #101010;
+    width: 12;
+    margin-left: 2;
+    color: #858d91;
+    background: #0b0d0e;
+}
+
+#diff-pane #modal-close:hover,
+#diff-pane #modal-close:focus {
+    color: #f2d675;
+    background: #171b1c;
 }
 
 #diff-body {
@@ -158,15 +195,23 @@ DiffModal {
     height: auto;
     margin-bottom: 1;
     padding: 1 0 0 0;
-    background: #0d0d0d;
-    border-top: solid #333333;
+    background: #101516;
+    border-top: solid #394247;
+}
+
+.diff-file-card.collapsed .diff-patch {
+    display: none;
+}
+
+.diff-file-card:hover {
+    border-top: solid #687b83;
 }
 
 .diff-file-header {
     width: 100%;
-    height: 1;
+    height: 2;
     padding: 0 1;
-    background: #0d0d0d;
+    background: #101516;
 }
 
 .diff-file-path {

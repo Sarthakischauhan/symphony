@@ -7,6 +7,7 @@ from pathlib import Path
 
 from rich.syntax import Syntax
 from rich.text import Text
+from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
@@ -89,16 +90,37 @@ class DiffModal(ModalBase[None]):
     """Fullscreen modal for inspecting the current git diff."""
 
     CSS = DIFF_MODAL_CSS
+    BINDINGS = [
+        Binding("escape", "close_modal", "Close", show=False, priority=True),
+        Binding("n", "next_file", "Next file", show=False),
+        Binding("p", "previous_file", "Previous file", show=False),
+        Binding("enter", "toggle_collapse", "Collapse", show=False),
+    ]
 
     def __init__(self, workspace: Path) -> None:
         super().__init__()
         self.workspace = workspace
+        self._files: list[DiffFileCard] = []
+        self._file_index = 0
 
     def compose(self):  # type: ignore[no-untyped-def]
         diff_text = read_workspace_diff(self.workspace)
         files = split_diff(diff_text)
+        total_additions = sum(diff_stats(body.splitlines())[0] for _path, body in files)
+        total_deletions = sum(diff_stats(body.splitlines())[1] for _path, body in files)
         with Container(id="diff-pane", classes="modal-pane"):
-            yield ModalCloseButton("Esc", id="modal-close")
+            with Horizontal(id="diff-header"):
+                yield Static("diff", id="diff-title")
+                yield Static(
+                    Text.assemble(
+                        (f"+{total_additions}", "bold #8fc49a"),
+                        ("  ", "#777777"),
+                        (f"−{total_deletions}", "bold #df8b91"),
+                    ),
+                    id="diff-total-stats",
+                )
+                yield Static(f"1 of {len(files)} files", id="diff-file-counter")
+                yield ModalCloseButton("esc  close", id="modal-close")
             with ModalScroll(id="diff-body", classes="modal-body"):
                 if not files:
                     is_clean = diff_text.strip() in {"", "No local changes found."}
@@ -107,9 +129,35 @@ class DiffModal(ModalBase[None]):
                         diff_text.strip() or "There are no uncommitted changes to review.",
                     )
                 for path, body in files:
-                    yield DiffFileCard(path, body)
+                    card = DiffFileCard(path, body)
+                    self._files.append(card)
+                    yield card
             yield Static(
-                "↑↓ scroll   ·   Esc close",
+                "↑↓ scroll   n next file   p previous file   enter collapse   esc close",
                 id="diff-hint",
                 classes="modal-footer",
             )
+
+    def _update_counter(self) -> None:
+        if self._files:
+            self.query_one("#diff-file-counter", Static).update(
+                f"{self._file_index + 1} of {len(self._files)} files"
+            )
+
+    def action_next_file(self) -> None:
+        if not self._files:
+            return
+        self._file_index = min(self._file_index + 1, len(self._files) - 1)
+        self._files[self._file_index].scroll_visible()
+        self._update_counter()
+
+    def action_previous_file(self) -> None:
+        if not self._files:
+            return
+        self._file_index = max(self._file_index - 1, 0)
+        self._files[self._file_index].scroll_visible()
+        self._update_counter()
+
+    def action_toggle_collapse(self) -> None:
+        if self._files:
+            self._files[self._file_index].toggle_class("collapsed")
