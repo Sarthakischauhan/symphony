@@ -89,4 +89,13 @@ GEMINI_MODELS = (
     ModelInfo(id="gemma-4-31b-it", provider="gemini", api="generate_content", reasoning=True),
 )
 
-ALL_MODELS = OPENAI_MODELS + ANTHROPIC_MODELS + GEMINI_MODELS
+GROK_MODELS = (
+    ModelInfo(id="grok-4.20-0309-non-reasoning", provider="grok", api="chat_completions"),
+    ModelInfo(id="grok-4.20-0309-reasoning", provider="grok", api="chat_completions", reasoning=True),
+    ModelInfo(id="grok-4.3", provider="grok", api="chat_completions", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
+    ModelInfo(id="grok-4.5", provider="grok", api="chat_completions", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None))),
+    ModelInfo(id="grok-4.6", provider="grok", api="chat_completions", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', None))),
+    ModelInfo(id="grok-build-0.1", provider="grok", api="chat_completions", reasoning=True),
+)
+
+ALL_MODELS = OPENAI_MODELS + ANTHROPIC_MODELS + GEMINI_MODELS + GROK_MODELS

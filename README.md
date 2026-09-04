@@ -85,7 +85,7 @@ flowchart TD
 | Layer | Package | Role |
 | --- | --- | --- |
 | Harness | [`symphony-harness`](./core_harness/README.md) | Turns, tools, control-plane events, compaction |
-| Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, Gemini; catalog; streaming types |
+| Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, Gemini, Grok; catalog; streaming types |
 | Agent | [`symphony-code`](./coding_agent/README.md) | Workspace tools, SQLite sessions, Textual TUI |
 | Server | [`core-server`](./core_server/README.md) | FastAPI wrapper that streams those events over SSE |
 
@@ -107,7 +107,7 @@ uv run --package symphony-code symphony
 ```
 
 If no key is set, the TUI asks which provider to use. You can still export one
-yourself (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY`).
+yourself (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `XAI_API_KEY`).
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are the same entry point.
 
@@ -199,7 +199,7 @@ print(result.output_text)
 
 | | |
 | --- | --- |
-| **Streaming providers** | OpenAI Responses / Chat Completions, Anthropic Messages, and Gemini generateContent share `Message` / `StreamEvent`. Credentials register automatically. Models are `provider:model`. |
+| **Streaming providers** | OpenAI Responses / Chat Completions, Anthropic Messages, Gemini generateContent, and Grok Chat Completions share `Message` / `StreamEvent`. Credentials register automatically. Models are `provider:model`. |
 | **Generated catalog** | Package-shipped list of tool-calling text models, refreshed at build from [models.dev](https://models.dev), with a checked-in snapshot as fallback. |
 | **Turn-based harness** | Multi-turn tool calls, schema generation, run caps (turns, tools, runtime, tokens). |
 | **Control plane** | Typed events (thinking, `text_delta`, tools, usage, context, subagents). Authorization, user questions, always-allow, pause/cancel. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |

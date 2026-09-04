@@ -79,6 +79,7 @@ def test_build_agent_writes_spawn_settings(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     agent = build_agent(
         workspace=tmp_path,
         control_plane=TextualControlPlane(workspace=tmp_path),

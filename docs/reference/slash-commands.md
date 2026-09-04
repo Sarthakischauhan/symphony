@@ -9,7 +9,7 @@ menu.
 | `/mode [mode]` | View or switch **build** / **plan** |
 | `/effort [level]` | Set reasoning effort (`none` … `max`) |
 | `/plan [plan]` | Searchable picker for saved workspace plans |
-| `/provider [name]` | Add or update a provider API key (OpenAI, Anthropic, Gemini) |
+| `/provider [name]` | Add or update a provider API key (OpenAI, Anthropic, Gemini, Grok) |
 | `/new` | Start a fresh persisted session |
 | `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |
 | `/compact` | Keep system prompt, original task, and recent turns |

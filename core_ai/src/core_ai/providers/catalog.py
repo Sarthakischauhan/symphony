@@ -26,7 +26,7 @@ class MissingProviderCredentials(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__(
-            "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY / GOOGLE_API_KEY"
+            "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY / GOOGLE_API_KEY, or XAI_API_KEY"
         )
 
 
@@ -65,6 +65,17 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_base_url="https://generativelanguage.googleapis.com/v1beta",
         base_url_env="GEMINI_BASE_URL",
     ),
+    ProviderSpec(
+        id="grok",
+        label="Grok",
+        description="Grok 4 and the xAI API",
+        env_key="XAI_API_KEY",
+        default_model="grok:grok-4.6",
+        docs_url="https://console.x.ai/",
+        key_placeholder="xai-...",
+        default_base_url="https://api.x.ai/v1",
+        base_url_env="XAI_BASE_URL",
+    ),
 )
 
 
@@ -82,7 +93,12 @@ def find_provider(value: str) -> Optional[ProviderSpec]:
     matches = [
         spec
         for spec in PROVIDERS
-        if needle in {spec.id, spec.label.lower(), spec.env_key.lower()}
+        if needle in {
+            spec.id,
+            spec.label.lower(),
+            spec.env_key.lower(),
+            spec.env_key.lower().removesuffix("_api_key"),
+        }
     ]
     return matches[0] if len(matches) == 1 else None
 

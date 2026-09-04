@@ -13,6 +13,7 @@ those files and rebuilds the registry.
 | `OPENAI_API_KEY` | OpenAI |
 | `ANTHROPIC_API_KEY` | Anthropic |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini |
+| `XAI_API_KEY` | Grok |
 
 ## Model selection
 
@@ -22,6 +23,7 @@ those files and rebuilds the registry.
 | `OPENAI_MODEL` | OpenAI default when that provider is registered |
 | `ANTHROPIC_MODEL` | Anthropic default |
 | `GEMINI_MODEL` | Gemini default |
+| `GROK_MODEL` or `XAI_MODEL` | Grok default |
 
 ## Base URLs
 
@@ -30,6 +32,7 @@ those files and rebuilds the registry.
 | `OPENAI_BASE_URL` | Compatible OpenAI-style endpoints |
 | `ANTHROPIC_BASE_URL` | Anthropic-compatible endpoints |
 | `GEMINI_BASE_URL` | Gemini-compatible endpoints |
+| `XAI_BASE_URL` | xAI-compatible endpoints |
 
 ## Catalog generation
 

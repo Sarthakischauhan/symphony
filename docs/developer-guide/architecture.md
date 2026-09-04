@@ -12,7 +12,7 @@ stream, tagged with `parent_id` and `agent_id`.
 | Layer | Package | Role |
 | --- | --- | --- |
 | Harness | `symphony-harness` | Turns, tools, control-plane events, compaction |
-| Harness | `symphony-core` | OpenAI, Anthropic, Gemini; catalog; streaming types |
+| Harness | `symphony-core` | OpenAI, Anthropic, Gemini, Grok; catalog; streaming types |
 | Agent | `symphony-code` | Workspace tools, SQLite sessions, Textual TUI |
 | Server | `core-server` | FastAPI wrapper that streams those events over SSE |
 

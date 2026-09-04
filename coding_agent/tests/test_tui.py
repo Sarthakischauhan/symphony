@@ -97,6 +97,7 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ANTHROPIC_API_KEY",
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
+        "XAI_API_KEY",
         "SYMPHONY_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)

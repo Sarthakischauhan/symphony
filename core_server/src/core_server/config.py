@@ -140,6 +140,8 @@ def _qualify_model(model_name: str) -> str:
         return f"anthropic:{model_name}"
     if model_name.startswith("gemini-"):
         return f"gemini:{model_name}"
+    if model_name.startswith("grok-"):
+        return f"grok:{model_name}"
     return f"openai:{model_name}"
 
 

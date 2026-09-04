@@ -6,8 +6,8 @@ are libraries you can import on their own.
 
 > **Requirements:** Python **3.11+** and uv. You need at least one provider
 > credential. If none is set, the TUI walks you through choosing a provider
-> and pasting an API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or
-> `GEMINI_API_KEY` / `GOOGLE_API_KEY`).
+> and pasting an API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+> `GEMINI_API_KEY` / `GOOGLE_API_KEY`, or `XAI_API_KEY`).
 
 ## Install from source
 
@@ -69,6 +69,7 @@ first-run onboarding and `/provider`.
 | OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL`, `OPENAI_BASE_URL` |
 | Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
+| Grok | `XAI_API_KEY` | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL` |
 
 `SYMPHONY_MODEL` overrides all of the provider-specific model variables. Model
 ids are `provider:model`, for example `anthropic:claude-sonnet-5`.
