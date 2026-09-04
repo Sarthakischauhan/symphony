@@ -11,7 +11,7 @@ from rich.text import Text
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from coding_agent.tui.chrome import TopBar
+from coding_agent.tui.chrome import TopBar, read_git_branch
 from coding_agent.tui.screens.modal import ModalBase
 from coding_agent.tui.theme import APP_CSS
 from coding_agent.tui.transcript import (
@@ -117,10 +117,36 @@ class SubagentScreen(ModalBase[None]):
         background: $background;
     }
 
+    SubagentScreen #topbar {
+        display: none;
+    }
+
+    SubagentScreen #transcript > .user-message {
+        display: none;
+    }
+
+    #subagent-header {
+        width: 100%;
+        height: auto;
+        padding: 1 3 0 3;
+        color: $muted;
+        background: $background;
+    }
+
+    #subagent-prompt {
+        width: 100%;
+        height: auto;
+        margin: 2 3 1 3;
+        padding: 1 2;
+        border-left: thick #8aa8d8;
+        color: $foreground;
+        background: $background;
+    }
+
     #subagent-context {
         width: 100%;
-        height: 2;
-        padding: 0 4;
+        height: auto;
+        padding: 0 3;
         color: $muted;
         background: $background;
     }
@@ -130,7 +156,11 @@ class SubagentScreen(ModalBase[None]):
     }
 
     SubagentScreen #status {
-        text-align: right;
+        height: auto;
+        margin: 1 3 0 3;
+        padding: 1 0;
+        border-top: solid $panel-edge;
+        color: $muted;
     }
     """
 
@@ -145,6 +175,12 @@ class SubagentScreen(ModalBase[None]):
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield TopBar(id="topbar")
+        yield Static(id="subagent-header")
+        yield Static(
+            self.record.prompt or "No task description was provided.",
+            id="subagent-prompt",
+            markup=False,
+        )
         yield Static(id="subagent-context")
         with VerticalScroll(id="transcript"):
             yield UserMessage(self.record.prompt or "No task description was provided.")
@@ -158,8 +194,19 @@ class SubagentScreen(ModalBase[None]):
     def refresh_record(self) -> None:
         """Synchronize live child state into the nested transcript."""
         record = self.record
-        topbar = self.query_one("#topbar", TopBar)
-        topbar.set_context(self.workspace, record.model_id)
+        header = self.query_one("#subagent-header", Static)
+        branch = read_git_branch(self.workspace)
+        header_text = Text()
+        header_text.append(branch or "main", style="#d0d0d0")
+        header_text.append("  ›  ", style="#626262")
+        header_text.append(record.label or "subagent", style="#d0d0d0")
+        header_text.append("  •  ", style="#626262")
+        header_text.append("subagent", style="#8ca0cc")
+        header_text.append("  •  ", style="#626262")
+        header_text.append(record.status, style="bold #d66b73" if record.status == "failed" else "#72a57a")
+        if record.model_id:
+            header_text.append(" " * 4 + record.model_id, style="#737373")
+        header.update(header_text)
 
         status_style = {
             "running": "bold #d7a84b",
@@ -167,7 +214,7 @@ class SubagentScreen(ModalBase[None]):
             "failed": "bold #d66b73",
         }.get(record.status, "bold #737373")
         context = Text()
-        context.append("↳  SUBAGENT", style="bold #8ca0cc")
+        context.append("", style="#626262")
         context.append(f"  {record.label or 'subagent'}", style="#d0d0d0")
         context.append(f"  ·  {record.status}", style=status_style)
         if record.parent_id or record.agent_id:
@@ -209,8 +256,13 @@ class SubagentScreen(ModalBase[None]):
 
         self._assistant.display = bool(record.output_text)
         self._assistant.set_content(record.output_text)
-        footer = "live · Esc close" if record.status == "running" else "Esc close"
-        self.query_one("#status", Static).update(footer)
+        if record.status == "failed":
+            footer = "Subagent stopped\nHarness exceeded max_turns before producing a final review.\nPartial tool history is preserved."
+        elif record.status == "completed":
+            footer = "Subagent completed"
+        else:
+            footer = "Subagent working"
+        self.query_one("#status", Static).update(footer + "\n\nenter inspect result    r retry +2 turns    esc return to parent")
 
         transcript = self.query_one("#transcript", VerticalScroll)
         if transcript.is_vertical_scroll_end:
