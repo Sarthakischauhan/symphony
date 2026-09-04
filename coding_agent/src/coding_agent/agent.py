@@ -30,7 +30,7 @@ from coding_agent.config import (
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
-from coding_agent.learning import LearningLoop, LearningStore
+from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import SqlitePersistence
 from coding_agent.plan import PlanStore
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
@@ -105,6 +105,19 @@ class CodingAgent:
             config=self.config.tools,
         )
         include_subagent = tools is None
+        addons = default_addons(
+            persistence=self.persistence,
+            harness_config=self.config.harness,
+            spawn_configure=self._spawn_child_config if include_subagent else None,
+            include_subagent=include_subagent,
+        )
+        if self.learning_loop is not None:
+            addons.append(
+                LearningAddon(
+                    self.learning_loop,
+                    should_review=lambda: self.mode != "plan",
+                )
+            )
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -113,12 +126,7 @@ class CodingAgent:
             tools=self.tools,
             control_plane=self.control_plane,
             session_id=self.session_id,
-            addons=default_addons(
-                persistence=self.persistence,
-                harness_config=self.config.harness,
-                spawn_configure=self._spawn_child_config if include_subagent else None,
-                include_subagent=include_subagent,
-            ),
+            addons=addons,
         )
 
     def _spawn_child_config(
@@ -155,7 +163,7 @@ class CodingAgent:
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
     ) -> HarnessResult:
-        """Run the agent and schedule reflection only after successful completion."""
+        """Run the agent; learning is scheduled from the after_run add-on hook."""
         mode = self.mode
         task_text = text_from_content(user_input)
         lessons = (
@@ -193,8 +201,6 @@ class CodingAgent:
 
         if mode == "plan":
             self.plan_store.save(task_text, result.output_text)
-        elif self.learning_loop is not None:
-            self.learning_loop.schedule(task_text, result)
         return result
 
     def set_mode(self, mode: AgentMode) -> None:

@@ -57,11 +57,13 @@ flowchart TD
     NORMAL --> LOOP
     LOOP --> EVENTS["Stream events through control plane"]
     LOOP --> PERSIST["Persist initial, turn, and terminal state"]
-    LOOP --> RESULT["Return HarnessResult"]
+    LOOP --> AFTER["after_run add-on hook"]
+    AFTER --> LEARN["Schedule learning + emit summary so far"]
+    AFTER --> RESULT["Return HarnessResult"]
     RESULT --> POST{"Mode used for run"}
     POST -- Plan --> OPENPLAN["Save final plan and open PlanModal"]
-    POST -- Build --> LEARN["Optionally schedule learning reflection"]
-    OPENPLAN --> ENABLE["Re-enable and focus prompt"]
+    POST -- Build --> ENABLE["Re-enable and focus prompt"]
+    OPENPLAN --> ENABLE
     LEARN --> ENABLE
     ENABLE --> WAIT
 ```

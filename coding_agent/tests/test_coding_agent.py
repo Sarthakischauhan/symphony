@@ -24,6 +24,7 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
         tools=[],
     )
     assert agent.learning_loop is not None
+    assert any(addon.name == "learning" for addon in agent.harness.addons)
     defaults = CodingAgentConfig().harness
     assert agent.harness.max_turns == defaults.max_turns == 24
     assert agent.harness.limits.max_tool_calls == defaults.max_tool_calls

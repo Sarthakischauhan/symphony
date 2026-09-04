@@ -60,10 +60,10 @@ Canonical user-facing catalog:
 ## `model_retry_scheduled` (conditional)
 
 Emitted when a provider keeps the current turn alive after a retryable rate
-limit, server, connection, or in-stream error. Providers honor `Retry-After`
-and otherwise use capped exponential backoff. Retries are bounded. When
-`resets_stream` is true, consumers should discard partial output from the
-failed attempt.
+limit, SSL MAC error, server, connection, or in-stream error. Providers honor
+`Retry-After` and otherwise use capped exponential backoff. Hard errors are
+retried up to three times. When `resets_stream` is true, consumers should
+discard partial output from the failed attempt.
 
 ```json
 {
@@ -293,6 +293,22 @@ failed attempt.
       "message_sizes": []
     },
     "session_id": "session-123"
+  }
+}
+```
+
+## `run_summary` (conditional)
+
+Emitted by a product add-on after `run_completed` when a two-line recap of
+the run is available. The coding agent shows this in the transcript as
+**summary so far**.
+
+```json
+{
+  "event_type": "run_summary",
+  "payload": {
+    "label": "summary so far",
+    "summary": "Patched the retry helper.\\nAdded after-run learning recap."
   }
 }
 ```

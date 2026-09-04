@@ -16,6 +16,7 @@ Payload examples for every event also live in
 | `turn_started` | Each model turn (`turn`, `message_count`) |
 | `turn_completed` | Turn finished (`had_tool_calls`) |
 | `run_completed` | Final text, usage, context, session |
+| `run_summary` | Two-line recap (`label`, `summary`). Conditional; after-run learning. |
 | `run_cancelled` | Cancel command landed (conditional) |
 | `run_failed` | Unhandled error or limit (conditional) |
 
@@ -25,7 +26,7 @@ Payload examples for every event also live in
 | --- | --- |
 | `text_delta` | `turn`, `delta` |
 | `reasoning_delta` | `summary_index`, `delta`, `text` |
-| `model_retry_scheduled` | Rate-limit / server retry. Honor `Retry-After`. If `resets_stream`, discard partial output. |
+| `model_retry_scheduled` | Rate-limit, SSL MAC, 5xx, or connection retry. Honor `Retry-After`. If `resets_stream`, discard partial output. |
 | `usage` | Per-turn and cumulative tokens |
 
 ```json

@@ -125,21 +125,80 @@ DiffModal {
 }
 
 #diff-pane {
-    width: 92%;
-    max-width: 150;
-    height: 88%;
-    padding: 1 2;
-    background: #101010;
-    border: round #3d3d3d;
+    width: 98%;
+    max-width: 180;
+    height: 94%;
+    padding: 0 1;
+    background: #0b0d0e;
+    border: round #394247;
 }
 
-#diff-pane #modal-close {
-    background: #101010;
+#diff-header {
+    width: 100%;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
+    border-bottom: solid #394247;
+    background: #0b0d0e;
+}
+
+#diff-pane > #modal-close {
+    display: none;
+}
+
+
+#diff-title {
+    width: auto;
+    color: #d9dde0;
+    text-style: bold;
+    background: #0b0d0e;
+}
+
+#diff-path {
+    width: auto;
+    padding-left: 2;
+    color: #aeb8bc;
+    background: #0b0d0e;
+}
+
+#diff-header-spacer {
+    width: 1fr;
+    background: #0b0d0e;
+}
+
+#diff-total-stats {
+    width: auto;
+    margin-left: 2;
+    background: #0b0d0e;
+}
+
+#diff-file-counter {
+    width: auto;
+    margin-left: 2;
+    color: #858d91;
+    content-align: right middle;
+    background: #0b0d0e;
+}
+
+#diff-header #modal-close {
+    dock: none;
+    width: auto;
+    min-width: 11;
+    margin-left: 2;
+    color: #858d91;
+    background: #0b0d0e;
+}
+
+#diff-pane #modal-close:hover,
+#diff-pane #modal-close:focus {
+    color: #f2d675;
+    background: #171b1c;
 }
 
 #diff-body {
-    padding: 0 1;
-    background: #101010;
+    height: 1fr;
+    padding: 0;
+    background: #0b0d0e;
     scrollbar-color: #343434;
     scrollbar-color-active: #525252;
     scrollbar-color-hover: #484848;
@@ -149,7 +208,10 @@ DiffModal {
 }
 
 #diff-hint {
-    text-align: right;
+    width: 100%;
+    height: 2;
+    content-align: center middle;
+    color: #737b7f;
     background: #101010;
 }
 
@@ -157,38 +219,72 @@ DiffModal {
     width: 100%;
     height: auto;
     margin-bottom: 1;
-    padding: 1 0 0 0;
-    background: #0d0d0d;
-    border-top: solid #333333;
+    padding: 0;
+    background: #0b0d0e;
+    border-top: solid #394247;
+}
+
+.diff-file-card.inactive {
+    display: none;
+}
+
+.diff-file-card.collapsed .diff-patch {
+    display: none;
+}
+
+.diff-file-card:hover {
+    border-top: solid #687b83;
 }
 
 .diff-file-header {
     width: 100%;
     height: 1;
     padding: 0 1;
-    background: #0d0d0d;
+    background: #111718;
+}
+
+.diff-file-chevron {
+    width: 3;
+    color: #8ca0a8;
+    content-align: center middle;
+    background: #111718;
 }
 
 .diff-file-path {
     width: 1fr;
     height: 1;
+    content-align: left middle;
     color: #d0d0d0;
-    background: #0d0d0d;
+    background: #111718;
+}
+
+.diff-file-card.selected {
+    border-top: solid #f2d675;
+}
+
+.diff-file-card.selected .diff-file-chevron {
+    color: #f2d675;
+}
+
+.diff-file-card.selected .diff-file-path {
+    color: #f2d675;
 }
 
 .diff-file-stats {
     width: auto;
     height: 1;
+    content-align: right middle;
     color: #737373;
-    background: #0d0d0d;
+    background: #111718;
 }
 
 .diff-patch {
     width: 100%;
     height: auto;
-    margin-top: 1;
+    margin: 0;
     padding: 0 1 1 1;
-    background: #0a0a0a;
+    color: #b8bec1;
+    background: #080a0b;
 }
 """
 

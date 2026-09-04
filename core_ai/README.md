@@ -55,10 +55,10 @@ available provider in OpenAI, Anthropic, Gemini order. It raises if no
 credential is set.
 
 The providers translate streamed text, reasoning, tool calls, usage,
-completion, and rate-limit retry signals into the shared `StreamEvent`
-format. OpenAI selects Responses or Chat Completions from the catalog (with
-an `o1` / `o3` / `o4` fallback); Anthropic uses Messages and Gemini uses
-streamGenerateContent.
+completion, and retry signals (429, SSL MAC, 5xx, connection) into the shared
+`StreamEvent` format. OpenAI selects Responses or Chat Completions from the
+catalog (with an `o1` / `o3` / `o4` fallback); Anthropic uses Messages and
+Gemini uses streamGenerateContent.
 
 ## Model catalog
 

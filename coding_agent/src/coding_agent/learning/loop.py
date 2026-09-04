@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Awaitable, Callable, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,13 +19,25 @@ from coding_agent.learning.sanitize import sanitize_task, sanitize_text
 from coding_agent.learning.store import LearningStore, Lesson
 
 logger = logging.getLogger(__name__)
+
+Emit = Callable[[str, dict[str, object]], Awaitable[None]]
+
+
 class LearningReview(BaseModel):
     should_save: bool = False
     summary: str = ""
+    transcript_summary: str = ""
     worked: list[str] = Field(default_factory=list)
     failed: list[str] = Field(default_factory=list)
     applicable_when: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+def two_line_summary(text: str) -> str:
+    """Clamp a recap to two short lines for the agent transcript."""
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    cleaned = [sanitize_text(line, max_chars=140) for line in lines[:2]]
+    return "\n".join(line for line in cleaned if line)
 
 
 class LearningLoop:
@@ -43,9 +55,15 @@ class LearningLoop:
         self.max_output_tokens = max_output_tokens
         self._tasks: set[asyncio.Task[None]] = set()
 
-    def schedule(self, task: str, result: HarnessResult) -> None:
+    def schedule(
+        self,
+        task: str,
+        result: HarnessResult,
+        *,
+        emit: Optional[Emit] = None,
+    ) -> None:
         """Start reflection after a completed run without delaying its result."""
-        background = asyncio.create_task(self._review_and_store(task, result))
+        background = asyncio.create_task(self._review_and_store(task, result, emit=emit))
         self._tasks.add(background)
         background.add_done_callback(self._tasks.discard)
 
@@ -64,9 +82,21 @@ class LearningLoop:
         self.cancel()
         await self.wait()
 
-    async def _review_and_store(self, task: str, result: HarnessResult) -> None:
+    async def _review_and_store(
+        self,
+        task: str,
+        result: HarnessResult,
+        *,
+        emit: Optional[Emit] = None,
+    ) -> None:
         try:
             review = await self.review(task, result)
+            recap = two_line_summary(review.transcript_summary)
+            if recap and emit is not None:
+                await emit(
+                    "run_summary",
+                    {"label": "summary so far", "summary": recap},
+                )
             if review.should_save and review.summary.strip():
                 self.store.append(
                     Lesson(

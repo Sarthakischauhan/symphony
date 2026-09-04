@@ -10,9 +10,10 @@ from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
+ScheduleFlush = Callable[[Callable[[], None]], None]
 ChromeSnapshot = Tuple[Any, ...]
 
-# High-frequency stream events are buffered and painted with the next real UI update.
+# High-frequency stream events are buffered and painted on a throttled UI tick.
 _STREAM_EVENT_TYPES = frozenset({"text_delta", "reasoning_delta"})
 
 
@@ -57,6 +58,14 @@ class TranscriptView(Protocol):
 
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
+    def add_run_summary(
+        self,
+        summary: str,
+        *,
+        label: str = "summary so far",
+        event_type: str = "run_summary",
+    ) -> None: ...
+
 
 class EventPresenter:
     """Stateful event reducer that updates a transcript view."""
@@ -68,11 +77,13 @@ class EventPresenter:
         view: TranscriptView,
         set_status: StatusFn,
         workspace: str = "",
+        schedule_flush: Optional[ScheduleFlush] = None,
     ) -> None:
         self.state = state
         self.view = view
         self._set_status = set_status
         self.workspace = workspace
+        self._schedule_flush = schedule_flush
         self._assistant_open = False
         self._tool_names: dict[str, str] = {}
         self._tool_arguments: dict[str, str] = {}
@@ -80,6 +91,7 @@ class EventPresenter:
         self._reasoning_active = False
         self._pending_assistant: Optional[tuple[str, bool]] = None
         self._pending_reasoning: Optional[tuple[str, bool]] = None
+        self._flush_scheduled = False
         self._last_chrome: Optional[ChromeSnapshot] = None
 
     def _chrome_snapshot(self) -> ChromeSnapshot:
@@ -117,6 +129,8 @@ class EventPresenter:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
+        if event_type in _STREAM_EVENT_TYPES:
+            self._request_stream_flush()
         after = self._chrome_snapshot()
         if after != before:
             self.refresh_chrome()
@@ -128,6 +142,7 @@ class EventPresenter:
 
     def flush_stream_paints(self) -> None:
         """Apply buffered assistant/reasoning widget updates."""
+        self._flush_scheduled = False
         pending_reasoning = self._pending_reasoning
         pending_assistant = self._pending_assistant
         self._pending_reasoning = None
@@ -138,6 +153,18 @@ class EventPresenter:
         if pending_assistant is not None:
             text, new = pending_assistant
             self.view.set_assistant(text, new=new)
+
+    def _request_stream_flush(self) -> None:
+        """Schedule one paint for all deltas received during this interval."""
+        if self._pending_assistant is None and self._pending_reasoning is None:
+            return
+        if self._schedule_flush is None:
+            self.flush_stream_paints()
+            return
+        if self._flush_scheduled:
+            return
+        self._flush_scheduled = True
+        self._schedule_flush(self.flush_stream_paints)
 
     def _buffer_assistant(self, text: str, *, new: bool) -> None:
         if self._pending_assistant is None:
@@ -177,6 +204,7 @@ class EventPresenter:
         self._reasoning_active = False
         self._pending_assistant = None
         self._pending_reasoning = None
+        self._flush_scheduled = False
         self.view.set_thinking("Thinking…")
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
@@ -199,6 +227,13 @@ class EventPresenter:
         self.view.set_thinking(completed)
         self.view.finish_process(completed)
         self._assistant_open = False
+
+    def _on_run_summary(self, payload: Dict[str, Any]) -> None:
+        summary = str(payload.get("summary") or "").strip()
+        if not summary:
+            return
+        label = str(payload.get("label") or "summary so far").strip() or "summary so far"
+        self.view.add_run_summary(summary, label=label, event_type="run_summary")
 
     def _completed_text(self) -> str:
         m = self.state.metrics
@@ -275,10 +310,20 @@ class EventPresenter:
             else f"{retry_after:.0f}s"
         )
         self.state.phase = "thinking"
-        label = "rate limited" if reason == "rate_limit" else reason.replace("_", " ")
+        labels = {
+            "rate_limit": "rate limited",
+            "ssl_mac_error": "SSL MAC error",
+            "ssl_error": "SSL error",
+            "server_error": "server error",
+            "stream_error": "stream error",
+            "connection_error": "connection error",
+            "timeout": "timed out",
+        }
+        label = labels.get(reason, reason.replace("_", " "))
         self.state.detail = f"{label}; retrying in {delay}"
+        working = label[0].upper() + label[1:] if label else label
         self.view.set_working(
-            f"{label.capitalize()} · retrying in {delay} · attempt {attempt}"
+            f"{working} · retrying in {delay} · attempt {attempt}"
         )
 
     def _on_text_delta(self, payload: Dict[str, Any]) -> None:

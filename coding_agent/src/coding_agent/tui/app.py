@@ -108,6 +108,7 @@ class CodingAgentApp(
         self.live_tool_widget_limit = LIVE_TOOL_WIDGET_LIMIT
         self._scroll_end_scheduled = False
         self._pending_scroll_end = False
+        self._stream_flush_timer = None
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
@@ -125,6 +126,7 @@ class CodingAgentApp(
             view=self,
             set_status=self._set_status,
             workspace=str(self.workspace),
+            schedule_flush=self._schedule_stream_flush,
         )
         topbar = self.query_one("#topbar", TopBar)
         topbar.set_context(self.workspace, self.model_id or os.getenv("OPENAI_MODEL", ""))

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import ssl
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, AsyncGenerator, Callable, Dict, Optional
@@ -8,6 +9,8 @@ import httpx
 
 from core_ai.types import StreamEvent
 
+
+HARD_ERROR_MAX_RETRIES = 3
 
 _NON_RETRYABLE_STREAM_ERROR_CODES = {
     "authentication_error",
@@ -28,6 +31,16 @@ _NON_RETRYABLE_STREAM_ERROR_CODES = {
     "unauthenticated",
 }
 
+_SSL_MAC_MARKERS = (
+    "bad record mac",
+    "bad_record_mac",
+    "decryption failed or bad record mac",
+    "mac verify failure",
+    "sslv3 alert bad record mac",
+)
+
+_RETRYABLE_HTTP_STATUSES = {408, 409, 429}
+
 
 class RetryableStreamError(RuntimeError):
     """A provider-reported stream failure that is safe to request again."""
@@ -42,6 +55,68 @@ class RetryableStreamError(RuntimeError):
         super().__init__(message)
         self.retry_after = retry_after
         self.reason = reason
+
+
+def _exception_chain(exc: BaseException) -> tuple[BaseException, ...]:
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        chain.append(current)
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return tuple(chain)
+
+
+def is_ssl_mac_error(exc: BaseException) -> bool:
+    """True when the error (or its cause) is an SSL MAC / bad-record failure."""
+    for item in _exception_chain(exc):
+        message = str(item).lower()
+        if any(marker in message for marker in _SSL_MAC_MARKERS):
+            return True
+        if isinstance(item, ssl.SSLError) and "mac" in message:
+            return True
+    return False
+
+
+def _http_status(exc: BaseException) -> Optional[int]:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code
+    return None
+
+
+def is_retryable(exc: BaseException) -> bool:
+    """429, SSL MAC, transport, 5xx, and other hard stream failures can be retried."""
+    if is_ssl_mac_error(exc):
+        return True
+    if any(isinstance(item, ssl.SSLError) for item in _exception_chain(exc)):
+        return True
+    if isinstance(exc, RetryableStreamError):
+        return True
+    if isinstance(exc, httpx.TransportError):
+        return True
+    status = _http_status(exc)
+    if status is None:
+        return False
+    return status in _RETRYABLE_HTTP_STATUSES or status >= 500
+
+
+def retry_reason_for(exc: BaseException) -> str:
+    """Stable reason string surfaced on ``StreamEvent.retry_reason``."""
+    if is_ssl_mac_error(exc):
+        return "ssl_mac_error"
+    if any(isinstance(item, ssl.SSLError) for item in _exception_chain(exc)):
+        return "ssl_error"
+    if isinstance(exc, RetryableStreamError):
+        return exc.reason
+    status = _http_status(exc)
+    if status == 429:
+        return "rate_limit"
+    if status is not None and (status >= 500 or status in {408, 409}):
+        return "server_error"
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    return "connection_error"
 
 
 def _raise_stream_error(
@@ -78,7 +153,7 @@ def _raise_stream_error(
             continue
         break
 
-    retryable_status = numeric_status in {408, 409, 429} or (
+    retryable_status = numeric_status in _RETRYABLE_HTTP_STATUSES or (
         numeric_status is not None and numeric_status >= 500
     )
     terminal_status = (
@@ -111,12 +186,25 @@ def retry_after(response: httpx.Response, attempt: int) -> float:
     return float(min(2 ** (attempt - 1), 60))
 
 
+def _retry_delay(exc: BaseException, attempt: int) -> float:
+    if isinstance(exc, RetryableStreamError) and exc.retry_after is not None:
+        return exc.retry_after
+    if isinstance(exc, httpx.HTTPStatusError):
+        return retry_after(exc.response, attempt)
+    return float(min(2 ** (attempt - 1), 60))
+
+
 async def stream_with_retries(
     factory: Callable[[], AsyncGenerator[StreamEvent, None]],
     *,
-    max_retries: int = 3,
+    max_retries: int = HARD_ERROR_MAX_RETRIES,
 ) -> AsyncGenerator[StreamEvent, None]:
-    """Retry transient HTTP, transport, and provider-reported stream failures."""
+    """Retry 429, SSL MAC, transport, and other hard stream failures.
+
+    Rate limits, SSL MAC errors, and 5xx/connection failures are retried up to
+    ``max_retries`` times (three by default) with ``Retry-After`` or capped
+    exponential backoff. Terminal 4xx errors are not retried.
+    """
     attempt = 0
     while True:
         yielded_output = False
@@ -126,35 +214,16 @@ async def stream_with_retries(
                     yielded_output = True
                 yield event
             return
-        except (httpx.HTTPStatusError, httpx.TransportError, RetryableStreamError) as exc:
-            response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
-            status = response.status_code if response is not None else None
-            retryable_status = status in {408, 409, 429} or (
-                status is not None and status >= 500
-            )
-            if isinstance(exc, httpx.HTTPStatusError) and not retryable_status:
-                raise
-            if attempt >= max_retries:
+        except Exception as exc:
+            if not is_retryable(exc) or attempt >= max_retries:
                 raise
             attempt += 1
-            if isinstance(exc, RetryableStreamError):
-                delay = (
-                    exc.retry_after
-                    if exc.retry_after is not None
-                    else float(min(2 ** (attempt - 1), 60))
-                )
-                reason = exc.reason
-            elif response is not None:
-                delay = retry_after(response, attempt)
-                reason = "rate_limit" if status == 429 else "server_error"
-            else:
-                delay = float(min(2 ** (attempt - 1), 60))
-                reason = "connection_error"
+            delay = _retry_delay(exc, attempt)
             yield StreamEvent(
                 type="retry",
                 retry_after=delay,
                 retry_attempt=attempt,
-                retry_reason=reason,
+                retry_reason=retry_reason_for(exc),
                 retry_resets_stream=yielded_output,
             )
             await asyncio.sleep(delay)

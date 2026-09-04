@@ -203,7 +203,7 @@ print(result.output_text)
 | **Generated catalog** | Package-shipped list of tool-calling text models, refreshed at build from [models.dev](https://models.dev), with a checked-in snapshot as fallback. |
 | **Turn-based harness** | Multi-turn tool calls, schema generation, run caps (turns, tools, runtime, tokens). |
 | **Control plane** | Typed events (thinking, `text_delta`, tools, usage, context, subagents). Authorization, user questions, always-allow, pause/cancel. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
-| **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning. |
+| **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning with a two-line **summary so far**. |
 | **Context** | Warn thresholds, token estimates, pluggable compaction that keeps the system prompt, original task, and recent turns. |
 | **Persistence** | `Persistence` protocol with checkpoints; SQLite sessions for TUI resume. |
 | **SSE server** | FastAPI wrapper that forwards harness events unchanged. |

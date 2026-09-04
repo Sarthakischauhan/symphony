@@ -3,6 +3,7 @@
 from coding_agent.tui.transcript.messages import (
     AssistantMessage,
     Notice,
+    RunSummary,
     TopBar,
     UserMessage,
     Welcome,
@@ -17,6 +18,7 @@ from coding_agent.tui.transcript.surface import TranscriptSurface
 __all__ = [
     "AssistantMessage",
     "Notice",
+    "RunSummary",
     "ReasoningWidget",
     "RunProcess",
     "ThinkingStatus",

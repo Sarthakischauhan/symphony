@@ -71,7 +71,7 @@ core_ai/src/core_ai/
     openai.py         # chat + responses + images
     anthropic.py
     gemini.py
-    http.py           # SSE + 429 retry
+    http.py           # SSE + 429 / SSL MAC / hard-error retry
     defaults.py
 
 core_harness/src/core_harness/
@@ -87,7 +87,7 @@ coding_agent/src/coding_agent/
   agent.py            # CodingAgent + build_agent
   tools/              # one file per workspace tool
   tui/                # Textual app, driven by CP events
-  learning/           # post-run reflection
+  learning/           # after-run reflection + transcript recap
   persistence/        # SQLite sessions
 ```
 
