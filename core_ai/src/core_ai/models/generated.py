@@ -34,6 +34,7 @@ OPENAI_MODELS = (
     ModelInfo(id="gpt-5.6-luna", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max'))),
     ModelInfo(id="gpt-5.6-sol", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max'))),
     ModelInfo(id="gpt-5.6-terra", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max'))),
+    ModelInfo(id="gpt-6-astra", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max'))),
     ModelInfo(id="gpt-image-1", provider="openai", api="responses"),
     ModelInfo(id="gpt-image-1-mini", provider="openai", api="responses"),
     ModelInfo(id="gpt-image-1.5", provider="openai", api="responses"),
