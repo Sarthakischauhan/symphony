@@ -66,29 +66,45 @@ core_ai/src/core_ai/
   content.py          # multimodal parts
   types.py            # Message, StreamEvent
   registry.py         # provider:model routing
-  models/             # generated catalog (script-owned)
+  models/             # generated catalog snapshot (scripts/generate_models.py owns generated.py)
   providers/
+    base.py           # BaseProvider contract
     openai.py         # chat + responses + images
     anthropic.py
     gemini.py
+    grok.py
     http.py           # SSE + 429 / SSL MAC / hard-error retry
-    defaults.py
+    catalog.py        # provider catalog helpers
+    defaults.py       # credential-aware default registry
 
 core_harness/src/core_harness/
-  harness.py          # CoreHarness: tools, limits, run loop, attach add-ons
+  harness.py          # CoreHarness: tools, limits, run loop, attach add-ons, spawn
   tools.py            # Tool adapter
-  events.py           # control planes
-  context/            # token estimates, pruning, harness state
-  loop/               # turn runner, calls, session
-  models.py           # events, tools, result
+  events.py           # control planes (Null, Interactive, Fanout, Persisting, Identified)
+  models.py           # ControlPlaneEventType, ControlCommand, ToolCall, HarnessResult
+  config.py           # HarnessConfig, load_harness_config
+  errors.py           # HarnessCancelled, HarnessLimitExceeded
+  context/            # token estimates, pruning, HarnessState, keep/drop planner
+  loop/               # TurnRunner, tool calls, run session, stream handling
   addons/             # Addon base, persistence, compaction, telemetry, subagent
 
 coding_agent/src/coding_agent/
-  agent.py            # CodingAgent + build_agent
+  agent.py            # CodingAgent + default_addons
+  config.py           # .symphony/config.json model
+  credentials.py      # ~/.symphony/.env handling
+  prompts.py          # system + plan-mode prompts
+  plan.py             # plan mode (.symphony/plans/)
   tools/              # one file per workspace tool
-  tui/                # Textual app, driven by CP events
-  learning/           # after-run reflection + transcript recap
+  compaction/         # AiCompactionAddon + InferenceCompactor
+  learning/           # after-run reflection, lesson store, run_summary
   persistence/        # SQLite sessions
+  tui/                # Textual app, driven by CP events
+
+core_server/src/core_server/
+  app.py              # FastAPI app, /runs, /models, /health
+  sse.py              # SSE control plane
+  config.py           # ServerConfig / build_config
+  request_limits.py   # body / message / history caps
 ```
 
 Each package is a small set of modules, one concept per file. Leaf packages of
@@ -98,15 +114,16 @@ Each package is a small set of modules, one concept per file. Leaf packages of
 
 1. One tool per file. Same shape everywhere (`WorkspaceTool` + `run` + register).
 2. Harness stays product-agnostic. Coding-agent specifics live in `coding_agent`.
-3. Workspace sandbox. All FS tools resolve under a root; escapes raise.
+3. Workspace root, not a sandbox. File tools resolve paths under the workspace
+   root and reject escapes. `bash` runs with the user's permissions behind an
+   approval prompt; there is no container or OS-level isolation.
 4. Control plane for UX. UIs subscribe to CP events; they do not scrape stdout.
 5. Tests without keys first. Unit-test tools and harness; keep live tests opt-in.
 
 ## What's next
 
-A browser-use agent is the next consumer of the same harness. Pause/resume
-bindings in the TUI, richer lesson synthesis, and multi-language AST are the
-near-term product gaps. See [`plan.md`](../../plan.md).
+A browser-use agent is the next consumer of the same harness. See
+[`plan.md`](../../plan.md) for what exists today and the open backlog.
 
 ## Development
 
