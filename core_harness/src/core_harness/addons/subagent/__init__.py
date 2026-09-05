@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
 from core_ai.types import Content
@@ -25,6 +25,23 @@ class ChildConfig:
     control_plane: Optional[ControlPlane] = None
     addons: Optional[Sequence[Addon]] = None
     addon_factory: Optional[Callable[[CoreHarness], Sequence[Addon]]] = None
+
+    def merge(self, override: ChildConfig) -> ChildConfig:
+        """Fill empty fields from ``override``; keep this instance's values otherwise."""
+        return replace(
+            self,
+            model_id=override.model_id or self.model_id,
+            max_turns=(
+                override.max_turns if override.max_turns is not None else self.max_turns
+            ),
+            control_plane=override.control_plane or self.control_plane,
+            addons=override.addons if override.addons is not None else self.addons,
+            addon_factory=(
+                override.addon_factory
+                if override.addon_factory is not None
+                else self.addon_factory
+            ),
+        )
 
 
 @dataclass
@@ -219,25 +236,7 @@ class SubagentAddon(Addon):
                     max_turns=max_turns or None,
                 )
                 if override is not None:
-                    child_config = ChildConfig(
-                        model_id=override.model_id or child_config.model_id,
-                        max_turns=(
-                            override.max_turns
-                            if override.max_turns is not None
-                            else child_config.max_turns
-                        ),
-                        control_plane=override.control_plane or child_config.control_plane,
-                        addons=(
-                            override.addons
-                            if override.addons is not None
-                            else child_config.addons
-                        ),
-                        addon_factory=(
-                            override.addon_factory
-                            if override.addon_factory is not None
-                            else child_config.addon_factory
-                        ),
-                    )
+                    child_config = child_config.merge(override)
             if child_config.max_turns is None:
                 child_config.max_turns = default_max_turns
             result = await self.run_spawn(

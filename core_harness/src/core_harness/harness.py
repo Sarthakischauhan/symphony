@@ -138,7 +138,7 @@ class CoreHarness:
         for addon in self.addons:
             if isinstance(addon, SubagentAddon):
                 return addon
-        return SubagentAddon()
+        raise RuntimeError("spawn requires a registered SubagentAddon")
 
     async def begin_child(
         self,

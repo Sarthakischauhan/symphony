@@ -65,12 +65,9 @@ class InteractiveControlPlaneProtocol(ControlPlane, Protocol):
 
 
 class EventLog(Protocol):
-    """Append-only adapter for control-plane events."""
+    """Append-only journal for identified control-plane events."""
 
-    async def append(self, event: ControlPlaneEvent) -> None:
-        ...
-
-    async def list_events(self) -> List[ControlPlaneEvent]:
+    async def append_event(self, *, event_type: str, payload: Dict[str, Any]) -> None:
         ...
 
 
@@ -87,8 +84,8 @@ class InMemoryEventLog:
     def __init__(self) -> None:
         self._events: List[ControlPlaneEvent] = []
 
-    async def append(self, event: ControlPlaneEvent) -> None:
-        self._events.append(event)
+    async def append_event(self, *, event_type: str, payload: Dict[str, Any]) -> None:
+        self._events.append(ControlPlaneEvent.typed(event_type, payload))
 
     async def list_events(self) -> List[ControlPlaneEvent]:
         return list(self._events)
@@ -110,7 +107,7 @@ class IdentifiedControlPlane:
         schema_version: int = EVENT_SCHEMA_VERSION,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
-        persistence: Any = None,
+        persistence: Optional[EventLog] = None,
     ) -> None:
         self.inner = inner
         self.run_id = run_id
@@ -138,9 +135,8 @@ class IdentifiedControlPlane:
             "parent_id": self.parent_id,
         }
         event_name = normalize_event_type(event_type)
-        append = getattr(self.persistence, "append_event", None)
-        if callable(append):
-            await append(event_type=event_name, payload=stamped)
+        if self.persistence is not None:
+            await self.persistence.append_event(event_type=event_name, payload=stamped)
         await self.inner.emit(event_name, stamped)
 
     async def request_user_input(
@@ -334,8 +330,9 @@ class PersistingControlPlane:
         event_type: Union[str, ControlPlaneEventType],
         payload: Dict[str, Any],
     ) -> None:
-        await self.event_log.append(
-            ControlPlaneEvent.typed(normalize_event_type(event_type), payload)
+        await self.event_log.append_event(
+            event_type=normalize_event_type(event_type),
+            payload=payload,
         )
 
 
@@ -361,7 +358,7 @@ class InteractiveControlPlane(NullControlPlane):
         event = ControlPlaneEvent.typed(normalized, payload)
         self.events.append(event)
         if self.event_log is not None:
-            await self.event_log.append(event)
+            await self.event_log.append_event(event_type=normalized, payload=payload)
         for subscriber in self._extra_subscribers:
             await subscriber.emit(normalized, payload)
 
