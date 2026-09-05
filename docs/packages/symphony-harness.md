@@ -78,7 +78,7 @@ at insert time (40/60 head/tail) unless you set `tool_result_max_chars=None`.
 text/image parts. It returns `HarnessResult` with `output_text`, `messages`,
 `tool_calls`, `usage`, and context fields. Pass `conversation=` and
 `session_id=` to continue a previous run. Default persistence is
-`NullPersistence`. `Persistence.append_event` is the event journal.
+`NullPersistence`.
 
 ## Subagents
 
@@ -91,8 +91,7 @@ parent's id as `parent_id`. Multiple `spawn_agent` calls in one turn run
 concurrently (up to three). Nested spawns stop at `max_spawn_depth`.
 
 The `spawn_agent` tool comes from `SubagentAddon`. coding_agent attaches it
-by default. A bare `CoreHarness` has no spawn tool; `spawn()` raises until
-that addon is registered.
+by default. A bare `CoreHarness` has no spawn tool.
 
 ```python
 from core_harness import ChildConfig, SubagentAddon

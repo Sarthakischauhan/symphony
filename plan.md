@@ -66,12 +66,9 @@ UI is driven by one typed control-plane event stream:
   `on_compact` / `fork_for_child`): `PersistenceAddon`, `CompactionAddon`
   (+ template `KeepSystemRecentCompactor` and exported `plan_keep_drop`),
   `TelemetryAddon` (protocol seam only; `NullTelemetry`), `SubagentAddon`.
-  `Persistence` is conversations, checkpoints, and `append_event`
-  (`EventLog` is that journal method).
-- Subagents: `CoreHarness.spawn()` / `spawn_agent` share a registered
-  `SubagentAddon` (`spawn()` raises if none is attached); lifecycle events
-  on the parent plane; child events tagged with `agent_id` / `parent_id`;
-  parallel children (up to three per turn); `max_spawn_depth`.
+- Subagents: `CoreHarness.spawn()` / `spawn_agent`; lifecycle events on the
+  parent plane; child events tagged with `agent_id` / `parent_id`; parallel
+  children (up to three per turn); `max_spawn_depth`.
 - Parallel tool execution for tools that opt in (`max_parallel_tool_calls`).
 - Approval gate: an interactive plane can implement `approve_tool_call` and
   `request_user_input`; the harness calls the gate before invoking a tool.

@@ -170,9 +170,9 @@ result = await harness.run(
 ```
 
 By default, `NullPersistence` discards state. Attach a `PersistenceAddon` with
-an implementation of the `Persistence` protocol to save conversations,
-`Checkpoint` objects, and the event journal (`append_event`). `session_id` is
-the key used by persistence. `CoreHarness` does not invent a store on its own.
+an implementation of the `Persistence` protocol to save and load conversation
+messages and `Checkpoint` objects as the run progresses. `session_id` is the
+key used by persistence. `CoreHarness` does not invent a store on its own.
 
 ## Limits and cancellation
 
@@ -278,8 +278,7 @@ children keep `NullPersistence` and cannot spawn further agents. Parallel
 children never share those forked instances.
 
 The `spawn_agent` tool is an add-on. Attach `SubagentAddon` (coding_agent
-does this by default). A bare `CoreHarness` has no spawn tool; `spawn()`
-raises until that addon is registered.
+does this by default). A bare `CoreHarness` has no spawn tool.
 
 ```python
 from core_harness import ChildConfig, CoreHarness, SubagentAddon, Tool

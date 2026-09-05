@@ -23,12 +23,13 @@ identity. Parent lifecycle events also include the originating `tool_call_id`
 and `child_session_id`, so views do not need to match prompts or labels.
 Lifecycle events use the active parent event sequencer.
 
-`Persistence.append_event` is the journal. Identified updates are written
-there before they reach the UI. `NullPersistence.append_event` is a no-op.
-coding_agent's SQLite backend batches streaming deltas, flushes lifecycle
-boundaries, indexes child metadata, and supports transcript reload by child
-session ID. Child persistence is selected through `ChildConfig`; coding_agent
-supplies the same backend in separate child persistence and compaction add-ons.
+Conversation/checkpoint persistence remains pluggable. A persistence backend
+may additionally implement `append_event(event_type=..., payload=...)` to
+journal identified updates before they reach the UI. coding_agent's SQLite
+backend batches streaming deltas, flushes lifecycle boundaries, indexes child
+metadata, and supports transcript reload by child session ID. Child persistence
+is selected through `ChildConfig`; coding_agent supplies the same backend in
+separate child persistence and compaction add-ons.
 
 These are application-owned asynchronous tasks, not detached OS processes.
 Persisted history does not imply that a task keeps executing after host exit.
