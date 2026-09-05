@@ -1,35 +1,35 @@
-"""Harness add-on that mounts model-backed compaction."""
+"""Harness add-on that mounts ``InferenceCompactor``."""
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
 from core_harness.addons import Addon
-from core_harness.addons.compaction import KeepSystemRecentCompactor
 from core_harness.config import HarnessConfig
 from core_harness.context.compact import DEFAULT_PRUNE_KEEP_RECENT
 
-from coding_agent.compaction.summarizer import (
+from coding_agent.compaction.compactor import (
     DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS,
-    DEFAULT_TRANSCRIPT_MAX_CHARS,
-    ModelTurnSummarizer,
+    InferenceCompactor,
 )
+from coding_agent.compaction.transcript import DEFAULT_TRANSCRIPT_MAX_CHARS
 from coding_agent.config import CompactionConfig
 
 
 class AiCompactionAddon(Addon):
-    """Mount a ``KeepSystemRecentCompactor`` whose summary is written by the model.
+    """Mount an ``InferenceCompactor`` on ``harness.state.compactor``.
 
-    Keep/drop stays the harness policy (system prompt, pinned first task,
-    atomic assistant/tool groups, recent window). This add-on only supplies the
-    ``TurnSummarizer`` that turns the dropped turns into one compacted-context
-    message, using the harness registry and its *current* ``model_id`` so the
-    summary follows ``/model`` switches.
+    Compaction is a before-model hook: the harness runs the mounted compactor
+    from ``maybe_compact`` ahead of each model turn and from ``/compact`` on
+    demand, then fires ``on_compact`` for the other add-ons. This add-on only
+    decides *which* compactor is mounted. It binds the compactor to the
+    harness registry and its *current* ``model_id`` so the summary follows
+    ``/model`` switches.
 
     It occupies the ``compaction`` add-on slot, so it replaces the harness
     ``CompactionAddon`` rather than sitting beside it. Children fork a fresh
-    add-on with the same settings, matching ``CompactionAddon``; the child then
-    binds the summarizer to its own registry and model.
+    add-on with the same settings; the child then binds to its own registry
+    and model on attach.
     """
 
     name = "compaction"
@@ -50,21 +50,17 @@ class AiCompactionAddon(Addon):
         self.max_output_tokens = max_output_tokens
         self.max_transcript_chars = max_transcript_chars
         self.model_id = model_id
-        self.summarizer: Optional[ModelTurnSummarizer] = None
-        self.compactor: Optional[KeepSystemRecentCompactor] = None
+        self.compactor: Optional[InferenceCompactor] = None
 
     def attach(self, harness: Any) -> None:
-        self.summarizer = ModelTurnSummarizer(
+        self.compactor = InferenceCompactor(
             registry=harness.registry,
             model_id=self.model_id or (lambda: str(harness.model_id)),
-            max_output_tokens=self.max_output_tokens,
-            max_transcript_chars=self.max_transcript_chars,
-        )
-        self.compactor = KeepSystemRecentCompactor(
             keep_recent=self.keep_recent,
             target_tokens=self.target_tokens,
             keep_recent_tool_results=self.keep_recent_tool_results,
-            summarizer=self.summarizer,
+            max_output_tokens=self.max_output_tokens,
+            max_transcript_chars=self.max_transcript_chars,
         )
         harness.state.compactor = self.compactor
 
@@ -85,7 +81,7 @@ def ai_compaction_from_config(
     harness_config: HarnessConfig,
     compaction: CompactionConfig,
 ) -> AiCompactionAddon:
-    """Build the model-backed add-on from harness limits plus summary settings."""
+    """Build the add-on from harness keep/drop limits plus summary settings."""
     return AiCompactionAddon(
         keep_recent=harness_config.compaction_keep_recent,
         target_tokens=harness_config.context_target_tokens,

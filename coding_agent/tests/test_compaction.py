@@ -1,4 +1,4 @@
-"""Model-backed compaction: summarizer, add-on, and the manual compact path."""
+"""AI compaction: InferenceCompactor, its add-on, and the manual compact path."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from typing import Any
 import pytest
 from core_ai.types import Message, StreamEvent
 from core_harness import CompactionAddon, CoreHarness, HarnessConfig, NullControlPlane
-from core_harness.addons.compaction import KeepSystemRecentCompactor, TemplateTurnSummarizer
+from core_harness.addons.compaction import KeepSystemRecentCompactor
 from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
 from coding_agent import CodingAgent
 from coding_agent.agent import default_addons
 from coding_agent.compaction import (
     AiCompactionAddon,
-    ModelTurnSummarizer,
+    InferenceCompactor,
     ai_compaction_from_config,
     render_dropped_turns,
 )
@@ -82,7 +82,7 @@ def _conversation() -> list[Message]:
     return messages
 
 
-def _compact(compactor: KeepSystemRecentCompactor, messages: list[Message]) -> list[Message]:
+def _compact(compactor: Any, messages: list[Message]) -> list[Message]:
     return asyncio.run(
         compactor.compact(
             messages,
@@ -94,10 +94,11 @@ def _compact(compactor: KeepSystemRecentCompactor, messages: list[Message]) -> l
     )
 
 
-def test_model_summarizer_turns_dropped_history_into_one_marked_message() -> None:
+def test_inference_compactor_turns_dropped_history_into_one_marked_message() -> None:
     registry = StubRegistry()
-    summarizer = ModelTurnSummarizer(registry=registry, model_id="fake:model", max_output_tokens=321)
-    compactor = KeepSystemRecentCompactor(keep_recent=4, summarizer=summarizer)
+    compactor = InferenceCompactor(
+        registry=registry, model_id="fake:model", keep_recent=4, max_output_tokens=321
+    )
     messages = _conversation()
 
     compacted = _compact(compactor, messages)
@@ -129,12 +130,9 @@ def test_model_summarizer_turns_dropped_history_into_one_marked_message() -> Non
     assert "follow-up 2" not in transcript
 
 
-def test_model_summarizer_keeps_tool_groups_atomic_at_window_edge() -> None:
+def test_inference_compactor_keeps_tool_groups_atomic_at_window_edge() -> None:
     registry = StubRegistry()
-    compactor = KeepSystemRecentCompactor(
-        keep_recent=2,
-        summarizer=ModelTurnSummarizer(registry=registry, model_id="fake:model"),
-    )
+    compactor = InferenceCompactor(registry=registry, model_id="fake:model", keep_recent=2)
     messages = [
         Message(role="system", content="system"),
         Message(role="user", content="task"),
@@ -152,47 +150,92 @@ def test_model_summarizer_keeps_tool_groups_atomic_at_window_edge() -> None:
     transcript = str(registry.calls[0]["messages"][1].content)
     assert "read_file" in transcript and "tool[read_file]: body" in transcript
 
-    roomier = KeepSystemRecentCompactor(
-        keep_recent=3,
-        summarizer=ModelTurnSummarizer(registry=registry, model_id="fake:model"),
-    )
+    roomier = InferenceCompactor(registry=registry, model_id="fake:model", keep_recent=3)
     compacted = _compact(roomier, messages)
     assert [m.role for m in compacted] == ["system", "user", "user", "assistant", "tool", "assistant"]
     assert compacted[3].tool_calls and compacted[4].tool_call_id == "call-x"
 
 
-def test_model_summarizer_follows_current_harness_model_id() -> None:
+def test_inference_compactor_shares_keep_drop_plan_with_harness_compactor() -> None:
+    """Same rule as KeepSystemRecentCompactor; only the summary message differs."""
+    registry = StubRegistry()
+    messages = _conversation()
+    ai = _compact(InferenceCompactor(registry=registry, model_id="fake:model", keep_recent=4), messages)
+    template = _compact(KeepSystemRecentCompactor(keep_recent=4), messages)
+
+    assert len(ai) == len(template)
+    assert ai[:2] == template[:2]
+    assert ai[3:] == template[3:]
+    assert str(ai[2].content).startswith(COMPACTED_CONTEXT_MARK)
+    assert str(template[2].content).startswith(COMPACTED_CONTEXT_MARK)
+    assert "Summary of the dropped work" in str(ai[2].content)
+    assert "Summary of the dropped work" not in str(template[2].content)
+
+
+def test_inference_compactor_skips_model_when_nothing_is_dropped() -> None:
+    registry = StubRegistry()
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="task"),
+        Message(role="assistant", content="done"),
+    ]
+
+    compacted = _compact(InferenceCompactor(registry=registry, model_id="fake:model"), messages)
+
+    assert compacted == messages
+    assert registry.calls == []
+
+
+def test_inference_compactor_follows_current_model_id() -> None:
     registry = StubRegistry()
     current = {"model_id": "fake:first"}
-    summarizer = ModelTurnSummarizer(registry=registry, model_id=lambda: current["model_id"])
-    turns = [[Message(role="user", content="hello")]]
+    compactor = InferenceCompactor(
+        registry=registry, model_id=lambda: current["model_id"], keep_recent=1
+    )
+    messages = [Message(role="user", content=text) for text in ("hello", "again", "latest")]
 
-    asyncio.run(summarizer.summarize(turns, tokens=3))
+    _compact(compactor, messages)
     current["model_id"] = "fake:second"
-    asyncio.run(summarizer.summarize(turns, tokens=3))
+    _compact(compactor, messages)
 
+    assert compactor.model_id == "fake:second"
     assert [call["model_id"] for call in registry.calls] == ["fake:first", "fake:second"]
 
 
-def test_model_summarizer_falls_back_to_template_when_model_fails() -> None:
-    summarizer = ModelTurnSummarizer(registry=FailingRegistry(), model_id="fake:model")
-    turns = [[Message(role="user", content="please fix the bug")]]
+def test_inference_compactor_falls_back_to_template_when_model_fails() -> None:
+    messages = [
+        Message(role="user", content="please fix the bug"),
+        Message(role="user", content="second"),
+        Message(role="user", content="third"),
+    ]
 
-    message = asyncio.run(summarizer.summarize(turns, tokens=5))
-    template = asyncio.run(TemplateTurnSummarizer().summarize(turns, tokens=5))
+    compacted = _compact(
+        InferenceCompactor(registry=FailingRegistry(), model_id="fake:model", keep_recent=1),
+        messages,
+    )
+    template = _compact(KeepSystemRecentCompactor(keep_recent=1), messages)
 
-    assert message == template
-    assert str(message.content).startswith(COMPACTED_CONTEXT_MARK)
+    assert compacted == template
+    assert str(compacted[1].content).startswith(COMPACTED_CONTEXT_MARK)
+    assert compacted[-1].content == "third"
 
 
-def test_model_summarizer_falls_back_when_model_returns_nothing() -> None:
-    summarizer = ModelTurnSummarizer(registry=StubRegistry(narrative="   "), model_id="fake:model")
-    turns = [[Message(role="user", content="please fix the bug")]]
+def test_inference_compactor_falls_back_when_model_returns_nothing() -> None:
+    messages = [
+        Message(role="user", content="please fix the bug"),
+        Message(role="user", content="second"),
+        Message(role="user", content="third"),
+    ]
 
-    message = asyncio.run(summarizer.summarize(turns, tokens=5))
+    compacted = _compact(
+        InferenceCompactor(registry=StubRegistry(narrative="   "), model_id="fake:model", keep_recent=1),
+        messages,
+    )
 
-    assert "Summary of the dropped work" not in str(message.content)
-    assert 'User asks: "please fix the bug"' in str(message.content)
+    summary = str(compacted[1].content)
+    assert summary.startswith(COMPACTED_CONTEXT_MARK)
+    assert "Summary of the dropped work" not in summary
+    assert 'User asks: "second"' in summary
 
 
 def test_render_dropped_turns_elides_middle_when_over_budget() -> None:
@@ -225,14 +268,17 @@ def test_ai_compaction_addon_mounts_and_forks_with_same_settings() -> None:
     )
 
     assert harness.state.compactor is addon.compactor
-    assert isinstance(addon.compactor, KeepSystemRecentCompactor)
+    assert isinstance(addon.compactor, InferenceCompactor)
+    assert not isinstance(addon.compactor, KeepSystemRecentCompactor)
+    assert addon.compactor.registry is registry
     assert addon.compactor.keep_recent == 3
     assert addon.compactor.target_tokens == 5_000
     assert addon.compactor.keep_recent_tool_results == 2
-    assert isinstance(addon.summarizer, ModelTurnSummarizer)
-    assert addon.summarizer.model_id == "fake:parent"
+    assert addon.compactor.max_output_tokens == 150
+    assert addon.compactor.max_transcript_chars == 1_000
+    assert addon.compactor.model_id == "fake:parent"
     harness.model_id = "fake:switched"
-    assert addon.summarizer.model_id == "fake:switched"
+    assert addon.compactor.model_id == "fake:switched"
 
     child = addon.fork_for_child(harness)
     assert isinstance(child, AiCompactionAddon) and child is not addon
@@ -246,12 +292,14 @@ def test_ai_compaction_addon_mounts_and_forks_with_same_settings() -> None:
         addons=[child],
     )
     assert child_harness.state.compactor is child.compactor
+    assert isinstance(child.compactor, InferenceCompactor)
     assert child.compactor is not addon.compactor
     assert child.compactor.keep_recent == 3
     assert child.compactor.target_tokens == 5_000
-    assert child.summarizer.max_output_tokens == 150
-    assert child.summarizer.max_transcript_chars == 1_000
-    assert child.summarizer.model_id == "fake:child"
+    assert child.compactor.keep_recent_tool_results == 2
+    assert child.compactor.max_output_tokens == 150
+    assert child.compactor.max_transcript_chars == 1_000
+    assert child.compactor.model_id == "fake:child"
 
 
 def test_ai_compaction_addon_occupies_compaction_slot() -> None:
@@ -266,30 +314,33 @@ def test_ai_compaction_addon_occupies_compaction_slot() -> None:
         harness.register_addon(CompactionAddon())
 
 
-def test_default_addons_prefer_ai_compaction_and_honour_opt_out(tmp_path: Path) -> None:
+def test_default_addons_mount_only_ai_compaction(tmp_path: Path) -> None:
     persistence = SqlitePersistence(tmp_path / "sessions.sqlite3")
     harness_config = HarnessConfig(compaction_keep_recent=6, context_target_tokens=9_000)
 
-    ai_addons = default_addons(
+    addons = default_addons(
         persistence=persistence,
         harness_config=harness_config,
         compaction=CompactionConfig(max_output_tokens=222),
         include_subagent=False,
     )
-    template_addons = default_addons(
-        persistence=persistence,
-        harness_config=harness_config,
-        compaction=CompactionConfig(ai_summary=False),
-        include_subagent=False,
-    )
 
-    ai = next(addon for addon in ai_addons if addon.name == "compaction")
+    compaction = [addon for addon in addons if addon.name == "compaction"]
+    assert len(compaction) == 1
+    ai = compaction[0]
     assert isinstance(ai, AiCompactionAddon)
     assert ai.keep_recent == 6 and ai.target_tokens == 9_000 and ai.max_output_tokens == 222
-    template = next(addon for addon in template_addons if addon.name == "compaction")
-    assert isinstance(template, CompactionAddon)
-    assert isinstance(template.compactor, KeepSystemRecentCompactor)
-    assert isinstance(template.compactor.summarizer, TemplateTurnSummarizer)
+    assert not any(isinstance(addon, CompactionAddon) for addon in addons)
+
+
+def test_coding_agent_mounts_inference_compactor_not_keep_system_recent(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, StubRegistry())
+
+    compactor = agent.harness.state.compactor
+    assert isinstance(compactor, InferenceCompactor)
+    assert not isinstance(compactor, KeepSystemRecentCompactor)
+    assert compactor.model_id == "fake:test-model"
+    assert not any(isinstance(addon, CompactionAddon) for addon in agent.harness.addons)
 
 
 def test_ai_compaction_from_config_reads_harness_and_summary_settings() -> None:
@@ -371,7 +422,7 @@ def test_compact_conversation_calls_mounted_compactor_and_persists(tmp_path: Pat
     assert completed["context_limit"] == 1_000
 
 
-def test_compact_conversation_uses_ai_summary_by_default(tmp_path: Path) -> None:
+def test_compact_conversation_runs_inference_compactor_by_default(tmp_path: Path) -> None:
     registry = StubRegistry(narrative="- earlier messages numbered 1 to 7")
     agent = _agent(tmp_path, registry, compaction_keep_recent=4)
     history = [Message(role="system", content="sys")] + [

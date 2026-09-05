@@ -1,29 +1,18 @@
-"""Model-backed summary of dropped conversation turns."""
+"""Render dropped turns for the model and build the compacted-context message."""
 
 from __future__ import annotations
 
 import json
-import logging
-from typing import Callable, List, Optional, Sequence, Union
+from typing import List, Sequence
 
 from core_ai.content import text_from_content
-from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 from core_harness.addons.compaction import (
     COMPACTION_CONTINUATION,
-    TemplateTurnSummarizer,
-    TurnSummarizer,
     compaction_header,
     dropped_turn_facts,
 )
 
-from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
-
-logger = logging.getLogger(__name__)
-
-ModelIdSource = Union[str, Callable[[], str]]
-
-DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS = 700
 DEFAULT_TRANSCRIPT_MAX_CHARS = 24_000
 _MESSAGE_PREVIEW_CHARS = 700
 _TOOL_RESULT_PREVIEW_CHARS = 400
@@ -122,80 +111,8 @@ def build_compacted_message(
     return Message(role="user", content="\n".join(lines))
 
 
-class ModelTurnSummarizer:
-    """``TurnSummarizer`` that asks the active model to write the handoff.
-
-    ``model_id`` may be a callable so the summary follows ``/model`` switches on
-    the harness. When the provider call fails or returns nothing, the template
-    summary is used instead so a compact never leaves the conversation broken.
-    """
-
-    def __init__(
-        self,
-        *,
-        registry: ModelRegistry,
-        model_id: ModelIdSource,
-        max_output_tokens: int = DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS,
-        max_transcript_chars: int = DEFAULT_TRANSCRIPT_MAX_CHARS,
-        fallback: Optional[TurnSummarizer] = None,
-    ) -> None:
-        self.registry = registry
-        self._model_id = model_id
-        self.max_output_tokens = max_output_tokens
-        self.max_transcript_chars = max_transcript_chars
-        self.fallback: TurnSummarizer = fallback or TemplateTurnSummarizer()
-
-    @property
-    def model_id(self) -> str:
-        source = self._model_id
-        return source() if callable(source) else source
-
-    async def summarize(
-        self,
-        turns: Sequence[Sequence[Message]],
-        *,
-        tokens: int,
-    ) -> Message:
-        transcript = render_dropped_turns(turns, max_chars=self.max_transcript_chars)
-        try:
-            narrative = await self.narrate(transcript)
-        except Exception:  # noqa: BLE001
-            logger.warning("model compaction summary failed; using template summary", exc_info=True)
-            narrative = ""
-        if not narrative.strip():
-            return await self.fallback.summarize(turns, tokens=tokens)
-        return build_compacted_message(turns, narrative=narrative, tokens=tokens)
-
-    async def narrate(self, transcript: str) -> str:
-        """One tool-free model call that returns the summary text."""
-        messages = [
-            Message(role="system", content=COMPACTION_SYSTEM_PROMPT),
-            Message(
-                role="user",
-                content=(
-                    "Transcript turns being removed from context:\n\n"
-                    f"{transcript}\n\n"
-                    "Write the handoff summary."
-                ),
-            ),
-        ]
-        chunks: List[str] = []
-        async for event in self.registry.stream(
-            self.model_id,
-            messages,
-            tools=[],
-            max_output_tokens=self.max_output_tokens,
-        ):
-            if event.type == "text_delta" and event.delta:
-                chunks.append(event.delta)
-        return "".join(chunks).strip()
-
-
 __all__ = [
-    "DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS",
     "DEFAULT_TRANSCRIPT_MAX_CHARS",
-    "ModelIdSource",
-    "ModelTurnSummarizer",
     "build_compacted_message",
     "render_dropped_turns",
 ]
