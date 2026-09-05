@@ -15,17 +15,17 @@ from core_harness import (
     CoreHarness,
     HarnessConfig,
     HarnessResult,
-    KeepSystemRecentCompactor,
     NullControlPlane,
     Persistence,
     Tool,
 )
-from core_harness.addons.compaction import compaction_from_config
 from core_harness.addons.persistence import PersistenceAddon
 from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
+from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
+    CompactionConfig,
     SettingsSource,
     ensure_spawn_settings,
     resolve_coding_agent_config,
@@ -43,13 +43,19 @@ def default_addons(
     *,
     persistence: Persistence,
     harness_config: HarnessConfig,
+    compaction: Optional[CompactionConfig] = None,
     spawn_configure: Any = None,
     include_subagent: bool = True,
 ) -> list:
-    """Product defaults: persistence, compaction, and spawn_agent."""
+    """Product defaults: persistence, AI compaction, and spawn_agent.
+
+    Compaction is always ``AiCompactionAddon`` (``InferenceCompactor``); the
+    harness template compactor is not mounted by coding_agent.
+    """
+    compaction = compaction or CompactionConfig()
     addons: list = [
         PersistenceAddon(persistence),
-        compaction_from_config(harness_config),
+        ai_compaction_from_config(harness_config, compaction),
     ]
     if include_subagent:
         addons.append(SubagentAddon(configure=spawn_configure))
@@ -108,6 +114,7 @@ class CodingAgent:
         addons = default_addons(
             persistence=self.persistence,
             harness_config=self.config.harness,
+            compaction=self.config.compaction,
             spawn_configure=self._spawn_child_config if include_subagent else None,
             include_subagent=include_subagent,
         )
@@ -216,54 +223,47 @@ class CodingAgent:
         if self.learning_loop is not None:
             await self.learning_loop.shutdown()
 
-    async def compact_conversation(self, *, keep_recent: Optional[int] = None) -> tuple[int, int]:
-        """Manually compact the persisted conversation for the active session."""
-        keep_recent = (
-            keep_recent
-            if keep_recent is not None
-            else self.config.harness.compaction_keep_recent
-        )
+    async def compact_conversation(self) -> tuple[int, int]:
+        """Compact the persisted conversation through the harness-mounted compactor.
+
+        Emits ``compaction_started`` / ``compaction_completed`` (``manual`` set)
+        with message and estimated token counts, fires ``on_compact`` for the
+        other add-ons, and persists the result. Returns
+        ``(messages_before, messages_after)``.
+        """
+        state = self.harness.state
+        if state.compactor is None:
+            raise RuntimeError("No compactor is mounted on the harness.")
         messages = await self.persistence.load_conversation(session_id=self.session_id)
         before = len(messages)
         if not messages:
             return (0, 0)
 
-        before_tokens = estimate_prompt_tokens(messages)
-        await self.control_plane.emit(
-            "compaction_started",
-            {
-                "turn": 0,
-                "message_count": before,
-                "tokens_used": before_tokens,
-                "context_left": None,
-                "manual": True,
-            },
+        context_limit = state.context_limit(self.harness.model_id)
+        tokens_used = estimate_prompt_tokens(messages)
+        context_left = (
+            max(context_limit - tokens_used, 0) if context_limit is not None else None
         )
-        compacted = await KeepSystemRecentCompactor(
-            keep_recent=keep_recent,
-            target_tokens=self.harness.context_target_tokens,
-            keep_recent_tool_results=self.harness.tool_result_keep_recent,
-        ).compact(
+        compacted = await state.compact(
             messages,
             turn=0,
-            context_limit=self.harness.state.context_limit(self.harness.model_id),
-            tokens_used=before_tokens,
-            context_left=None,
+            context_limit=context_limit,
+            tokens_used=tokens_used,
+            context_left=context_left,
+            emit=self.control_plane.emit,
+            manual=True,
+        )
+        await self.harness.notify_addons(
+            "on_compact",
+            turn=0,
+            messages=compacted,
+            context_limit=context_limit,
+            tokens_used=tokens_used,
+            context_left=context_left,
         )
         await self.persistence.save_conversation(
             session_id=self.session_id,
             messages=compacted,
-        )
-        await self.control_plane.emit(
-            "compaction_completed",
-            {
-                "turn": 0,
-                "message_count_before": before,
-                "message_count_after": len(compacted),
-                "estimated_tokens_before": before_tokens,
-                "estimated_tokens_after": estimate_prompt_tokens(compacted),
-                "manual": True,
-            },
         )
         return (before, len(compacted))
 

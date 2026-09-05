@@ -68,6 +68,15 @@ class LearningConfig(BaseModel):
     context_max_chars: int = Field(default=1400, ge=1)
 
 
+class CompactionConfig(BaseModel):
+    """Bounds for the model-written compaction summary. Keep/drop limits live on ``harness``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_output_tokens: int = Field(default=700, ge=1)
+    max_transcript_chars: int = Field(default=24_000, ge=1)
+
+
 def default_coding_agent_harness() -> HarnessConfig:
     """Product harness settings. Engine field defaults fill the rest."""
     return HarnessConfig(
@@ -89,6 +98,7 @@ class CodingAgentConfig(BaseModel):
     approvals: ApprovalConfig = Field(default_factory=ApprovalConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    compaction: CompactionConfig = Field(default_factory=CompactionConfig)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -190,6 +200,7 @@ __all__ = [
     "ApprovalConfig",
     "BashConfig",
     "CodingAgentConfig",
+    "CompactionConfig",
     "LearningConfig",
     "ReadFileConfig",
     "SPAWN_SETTINGS_NAME",

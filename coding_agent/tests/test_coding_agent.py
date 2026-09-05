@@ -12,6 +12,8 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
 from core_harness import NullControlPlane
 from coding_agent import CodingAgent
+from coding_agent.compaction import InferenceCompactor
+from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 from coding_agent.config import CodingAgentConfig, LearningConfig, spawn_settings_path
 from coding_agent.persistence import SqlitePersistence
 
@@ -37,7 +39,7 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert saved.harness.tool_result_prune_tokens == 48_000
     assert saved.harness.context_compact_threshold == 16_000
     assert saved.harness.compaction_keep_recent == 10
-    assert agent.harness.state.compactor is not None
+    assert isinstance(agent.harness.state.compactor, InferenceCompactor)
     assert isinstance(agent.persistence, SqlitePersistence)
     assert agent.harness.persistence is agent.persistence
 
@@ -108,10 +110,24 @@ load_dotenv(override=True)
 
 
 class CapturingRegistry:
+    """Records turn calls; answers compaction summary calls with a fixed narrative."""
+
     def __init__(self) -> None:
         self.calls: list[list[Message]] = []
+        self.summary_calls: list[list[Message]] = []
 
-    async def stream(self, model_id: str, messages: list[Message], tools: list[dict]):
+    async def stream(
+        self,
+        model_id: str,
+        messages: list[Message],
+        tools: list[dict],
+        **kwargs: object,
+    ):
+        if messages and messages[0].content == COMPACTION_SYSTEM_PROMPT:
+            self.summary_calls.append(list(messages))
+            yield StreamEvent(type="text_delta", delta="- earlier asks handled")
+            yield StreamEvent(type="done")
+            return
         self.calls.append(list(messages))
         yield StreamEvent(type="text_delta", delta="done")
         yield StreamEvent(
@@ -165,6 +181,8 @@ def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> No
         assert sent[0].role == "system"
         assert sent[1].content == history[0].content
         assert str(sent[2].content).startswith("[compacted earlier context]")
+        assert "- earlier asks handled" in str(sent[2].content)
+        assert len(registry.summary_calls) == 1
         assert sent[-2].content == history[-1].content
         assert sent[-1].content == "new request"
         assert len(result.messages) == len(sent) + 1

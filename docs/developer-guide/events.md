@@ -62,7 +62,7 @@ Payload examples for every event also live in
 
 - `context` — limit, tokens used, left, utilization, per-message sizes.
 - `context_warning` — crossed `context_warn_threshold`.
-- `compaction_started` / `compaction_completed` — before/after counts and estimates.
+- `compaction_started` / `compaction_completed` — before/after message counts, token estimates, `context_limit`; `manual: true` for `/compact`.
 
 ## Control
 

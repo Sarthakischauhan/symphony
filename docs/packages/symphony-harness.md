@@ -134,8 +134,14 @@ The full catalog is on [Control-plane events](../developer-guide/events.md).
 ## Context
 
 Compaction is an add-on. Attach `CompactionAddon` / `KeepSystemRecentCompactor`
-when a product run should compact. A bare `CoreHarness` does not. coding_agent
-attaches keep-system-recent compaction by default. Dropped work becomes a
-path-aware summary. coding_agent auto-compacts when 16,000 or fewer context
-tokens remain. Disable with `context_compact_threshold=None` (and
-`context_target_tokens=None` if you also use a token target).
+when a bare harness run should compact with a template summary and no provider
+call. A bare `CoreHarness` does not compact at all. The harness owns the
+keep/drop rule (`plan_keep_drop`: system prompt, pinned task, atomic tool
+groups, recent window, token target) and exports it so products can build their
+own `Compactor` on it. coding_agent does not mount `KeepSystemRecentCompactor`;
+it mounts `AiCompactionAddon`, whose `InferenceCompactor` runs the same
+keep/drop plan and then writes the dropped-work summary with the active model.
+coding_agent auto-compacts when 16,000 or fewer context tokens remain, and
+`/compact` runs the same mounted compactor on demand. Disable with
+`context_compact_threshold=None` (and `context_target_tokens=None` if you also
+use a token target).

@@ -5,6 +5,7 @@ from core_harness.addons import (
     ChildIdentity,
     CompactionAddon,
     Compactor,
+    KeepDropPlan,
     KeepSystemRecentCompactor,
     NullTelemetry,
     PersistenceAddon,
@@ -12,6 +13,7 @@ from core_harness.addons import (
     Telemetry,
     TelemetryAddon,
     compaction_from_config,
+    plan_keep_drop,
 )
 from core_harness.addons.persistence import (
     Checkpoint,
@@ -86,6 +88,7 @@ __all__ = [
     "InMemoryEventLog",
     "InteractiveControlPlane",
     "InteractiveControlPlaneProtocol",
+    "KeepDropPlan",
     "KeepSystemRecentCompactor",
     "NullControlPlane",
     "NullPersistence",
@@ -108,5 +111,6 @@ __all__ = [
     "load_harness_config",
     "resolve_harness_config",
     "messages_for_model",
+    "plan_keep_drop",
     "prune_stale_tool_results",
 ]

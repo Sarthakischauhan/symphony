@@ -24,6 +24,7 @@ from core_harness import (
     NullControlPlane,
     PersistingControlPlane,
     Tool,
+    plan_keep_drop,
 )
 from core_harness.context import (
     HarnessState,
@@ -930,6 +931,113 @@ def test_compactor_keeps_last_messages_in_one_user_tool_loop() -> None:
         f"BODY-{index}-" + ("Z" * 40) not in [message.content for message in compacted]
         for index in range(15)
     )
+
+
+def test_plan_keep_drop_pins_leading_and_enforces_token_target() -> None:
+    messages = [Message(role="system", content="system"), Message(role="user", content="task")]
+    for index in range(8):
+        messages.append(Message(role="user", content=f"follow-up {index} " * 30))
+        messages.append(Message(role="assistant", content=f"ack {index} " * 30))
+
+    plan = plan_keep_drop(messages, keep_recent=6, target_tokens=400)
+
+    assert plan.leading == messages[:2]
+    kept = [message for group in plan.kept for message in group]
+    assert kept[-1] == messages[-1]
+    # Target enforcement dropped more than keep_recent alone would have.
+    assert len(kept) < 6
+    assert plan.dropped_messages == messages[2 : len(messages) - len(kept)]
+    assert plan.dropped_tokens > 0
+
+    custom = Message(role="user", content=f"{COMPACTED_CONTEXT_MARK} custom")
+    assembled = plan.assemble(custom)
+    assert assembled[:2] == messages[:2]
+    assert assembled[2] is custom
+    assert assembled[3:] == kept
+
+    template = plan.template_summary()
+    assert template is not None and str(template.content).startswith(COMPACTED_CONTEXT_MARK)
+    compacted = asyncio.run(
+        KeepSystemRecentCompactor(keep_recent=6, target_tokens=400).compact(
+            messages, turn=0, context_limit=None, tokens_used=0, context_left=None
+        )
+    )
+    assert compacted == plan.assemble(template)
+
+
+def test_plan_keep_drop_keeps_tool_groups_atomic_and_no_summary_when_nothing_dropped() -> None:
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="task"),
+        Message(role="assistant", content="old"),
+        *_tool_group("call-x", "read_file", "body", arguments={"path": "x.py"}),
+        Message(role="assistant", content="done"),
+    ]
+
+    tight = plan_keep_drop(messages, keep_recent=2)
+    assert [len(group) for group in tight.dropped] == [1, 2]
+    assert [m.role for group in tight.kept for m in group] == ["assistant"]
+
+    roomy = plan_keep_drop(messages, keep_recent=3)
+    assert [len(group) for group in roomy.dropped] == [1]
+    assert [m.role for group in roomy.kept for m in group] == ["assistant", "tool", "assistant"]
+
+    short = plan_keep_drop(messages[:3], keep_recent=10)
+    assert short.dropped == []
+    assert short.template_summary() is None
+    assert short.assemble(None) == messages[:3]
+    assert short.assemble(Message(role="user", content="ignored")) == messages[:3]
+
+
+def test_compaction_addon_fork_uses_fresh_compactor_with_same_settings() -> None:
+    parent = CompactionAddon(KeepSystemRecentCompactor(keep_recent=4, target_tokens=900))
+    child = parent.fork_for_child(None)
+    assert isinstance(child.compactor, KeepSystemRecentCompactor)
+    assert child.compactor is not parent.compactor
+    assert child.compactor.keep_recent == 4
+    assert child.compactor.target_tokens == 900
+    assert child.keep_recent == 4
+
+
+def test_state_compact_marks_manual_and_reports_context_limit() -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit(event_type: str, payload: dict[str, Any]) -> None:
+        events.append((event_type, payload))
+
+    messages = [Message(role="system", content="system")]
+    messages.extend(Message(role="user", content=f"m{index}") for index in range(6))
+    state = HarnessState(compactor=KeepSystemRecentCompactor(keep_recent=2))
+
+    compacted = asyncio.run(
+        state.compact(
+            messages,
+            turn=0,
+            context_limit=5_000,
+            tokens_used=40,
+            context_left=4_960,
+            emit=emit,
+            manual=True,
+        )
+    )
+
+    assert len(compacted) < len(messages)
+    assert [name for name, _ in events] == ["compaction_started", "compaction_completed"]
+    started, completed = events[0][1], events[1][1]
+    assert started["manual"] is True
+    assert completed["manual"] is True
+    assert completed["context_limit"] == 5_000
+    assert completed["message_count_before"] == len(messages)
+    assert completed["message_count_after"] == len(compacted)
+    assert completed["estimated_tokens_before"] == estimate_prompt_tokens(messages)
+    assert completed["estimated_tokens_after"] == estimate_prompt_tokens(compacted)
+
+    with pytest.raises(RuntimeError, match="no compactor is mounted"):
+        asyncio.run(
+            HarnessState().compact(
+                messages, turn=0, context_limit=None, tokens_used=0, context_left=None, emit=emit
+            )
+        )
 
 
 def test_harness_turn_path_summarises_one_user_tool_loop() -> None:

@@ -58,6 +58,10 @@ for the user-facing shape.
     "max_lessons": 200,
     "context_limit": 6,
     "context_max_chars": 1400
+  },
+  "compaction": {
+    "max_output_tokens": 700,
+    "max_transcript_chars": 24000
   }
 }
 ```
@@ -70,10 +74,15 @@ for the user-facing shape.
 
 ## Context policy
 
-coding_agent attaches keep-system-recent compaction by default. When a model
-has 16,000 or fewer context tokens left, it keeps the system prompt, the
-original task, and the ten most recent messages. Dropped messages are
-summarized with paths already observed. Tool results are capped at 4,000
+coding_agent attaches AI compaction (`InferenceCompactor`) by default. When a
+model has 16,000 or fewer context tokens left, it keeps the system prompt, the
+original task, and the ten most recent messages (the same keep/drop rule as
+the harness template compactor). Dropped messages are summarized by the active
+model into one compacted-context message that also lists the tools used and
+paths already observed; if the model call fails, the template summary is used
+for that slice instead. `/compact` runs the same compactor on demand and
+refreshes the footer's context meter. `compaction.max_output_tokens` and
+`compaction.max_transcript_chars` bound the summary request. Tool results are capped at 4,000
 characters when they enter history. Older tool bodies are stubbed only after
 the estimated prompt reaches `tool_result_prune_tokens` (48,000 by default).
 

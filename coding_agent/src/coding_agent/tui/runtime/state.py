@@ -87,6 +87,29 @@ class UiRunState:
         util = payload.get("utilization")
         m.utilization = float(util) if util is not None else None
 
+    def update_after_compaction(self, payload: Dict[str, Any]) -> bool:
+        """Re-derive context metrics from a ``compaction_completed`` payload.
+
+        The harness reports the post-compact prompt size as an estimate; the
+        footer should reflect it immediately instead of waiting for the next
+        ``context`` event. Returns False when the payload carries no estimate.
+        """
+        after = payload.get("estimated_tokens_after")
+        if after is None:
+            return False
+        m = self.metrics
+        limit = payload.get("context_limit")
+        if limit is not None:
+            m.context_limit = int(limit)
+        m.tokens_used = int(after)
+        if m.context_limit:
+            m.context_left = max(m.context_limit - m.tokens_used, 0)
+            m.utilization = min(m.tokens_used / m.context_limit, 1.0)
+        else:
+            m.context_left = None
+            m.utilization = None
+        return True
+
     def status_line(self, *, workspace: str = "") -> str:
         m = self.metrics
         parts: list[str] = []

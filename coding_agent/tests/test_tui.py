@@ -16,7 +16,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from core_ai import ModelRegistry
-from core_ai.types import Message
+from core_ai.types import Message, StreamEvent
 from coding_agent.tui.screens import ContextModal
 from core_harness import HarnessResult
 from core_harness.context import COMPACTED_CONTEXT_MARK, build_context_report
@@ -1877,6 +1877,57 @@ def test_slash_menu_and_commands(
     asyncio.run(_run())
 
 
+def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    class FakeAgent:
+        def __init__(self, plane: TextualControlPlane) -> None:
+            self.plane = plane
+            self.session_id = "s"
+            self.harness = SimpleNamespace(model_id="openai:gpt-4o-mini", session_id="s")
+            self.learning_loop = None
+
+        async def compact_conversation(self) -> tuple[int, int]:
+            await self.plane.emit(
+                "compaction_started",
+                {"turn": 0, "message_count": 40, "manual": True},
+            )
+            await self.plane.emit(
+                "compaction_completed",
+                {
+                    "turn": 0,
+                    "message_count_before": 40,
+                    "message_count_after": 12,
+                    "estimated_tokens_before": 90_000,
+                    "estimated_tokens_after": 30_000,
+                    "context_limit": 120_000,
+                    "manual": True,
+                },
+            )
+            return (40, 12)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent(app.control_plane)  # type: ignore[assignment]
+            app.set_context_metrics(90_000, 120_000)
+            assert "75% context" in _footer_text(app)
+
+            await app._run_slash_command("/compact")
+            await pilot.pause()
+
+            metrics = app._ui_state.metrics
+            assert metrics.tokens_used == 30_000
+            assert metrics.context_left == 90_000
+            assert metrics.utilization == 0.25
+            footer = _footer_text(app)
+            assert "25% context" in footer
+            assert "75% context" not in footer
+            assert "████░░░░░░░░░░░░░░" in footer
+
+    asyncio.run(_run())
+
+
 def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
     class CapturingControlPlane:
         def __init__(self) -> None:
@@ -1885,13 +1936,28 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
         async def emit(self, event_type: str, payload: dict[str, Any]) -> None:
             self.events.append((event_type, payload))
 
+    class SummaryRegistry:
+        def __init__(self) -> None:
+            self.model_ids: list[str] = []
+
+        async def stream(self, model_id: str, messages, tools, **kwargs):
+            del messages, tools, kwargs
+            self.model_ids.append(model_id)
+            yield StreamEvent(type="text_delta", delta="- user sent twelve numbered messages")
+            yield StreamEvent(type="done")
+
     control_plane = CapturingControlPlane()
+    registry = SummaryRegistry()
+    config = CodingAgentConfig(learning=LearningConfig(enabled=False))
+    config = config.model_copy(
+        update={"harness": config.harness.model_copy(update={"compaction_keep_recent": 8})}
+    )
     agent = CodingAgent(
-        registry=ModelRegistry(),
+        registry=registry,  # type: ignore[arg-type]
         model_id="openai:gpt-4o-mini",
         workspace=tmp_path,
         control_plane=control_plane,
-        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
+        config=config,
         tools=[],
     )
     messages = [Message(role="system", content="system")]
@@ -1902,19 +1968,28 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
             session_id=agent.session_id,
             messages=messages,
         )
-        assert await agent.compact_conversation(keep_recent=8) == (13, 11)
+        assert await agent.compact_conversation() == (13, 11)
         saved = await agent.persistence.load_conversation(session_id=agent.session_id)
         assert len(saved) == 11
         assert saved[0].role == "system"
         assert saved[1].content == "message 0"
         assert str(saved[2].content).startswith(COMPACTED_CONTEXT_MARK)
+        assert "- user sent twelve numbered messages" in str(saved[2].content)
         assert saved[-1].content == "message 11"
 
     asyncio.run(_run())
+    assert registry.model_ids == ["openai:gpt-4o-mini"]
     assert [event for event, _ in control_plane.events] == [
         "compaction_started",
         "compaction_completed",
     ]
+    completed = control_plane.events[1][1]
+    assert completed["manual"] is True
+    assert completed["message_count_before"] == 13
+    assert completed["message_count_after"] == 11
+    assert isinstance(completed["estimated_tokens_before"], int)
+    assert isinstance(completed["estimated_tokens_after"], int)
+    assert completed["context_limit"] == agent.harness.state.context_limit("openai:gpt-4o-mini")
 
 
 def test_context_modal_filters_buckets() -> None:
