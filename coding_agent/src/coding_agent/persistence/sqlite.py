@@ -82,7 +82,7 @@ class SqlitePersistence:
             )
 
     async def append_event(self, *, event_type: str, payload: dict[str, Any]) -> None:
-        """Optional harness journal. Batch token deltas; flush lifecycle boundaries."""
+        """Journal identified events. Batch token deltas; flush lifecycle boundaries."""
         self._pending_events.append((event_type, dict(payload)))
         if (event_type not in {"text_delta", "reasoning_delta", "tool_call_delta"}
                 or len(self._pending_events) >= 64

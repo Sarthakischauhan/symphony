@@ -104,6 +104,8 @@ def test_bare_harness_has_no_spawn_tool() -> None:
         config=HarnessConfig(),
     )
     assert "spawn_agent" not in harness.tools
+    with pytest.raises(RuntimeError, match="spawn requires a registered SubagentAddon"):
+        asyncio.run(harness.spawn("go"))
 
 
 def test_register_addon_mounts_compaction_and_fires_hooks() -> None:
@@ -161,6 +163,33 @@ def test_persistence_addon_saves_conversation() -> None:
     asyncio.run(harness.run("one"))
     assert store.saved
     assert any(message.content == "one" for message in store.saved[-1])
+
+
+def test_persistence_append_event_journals_identified_events() -> None:
+    class Journal(NullPersistence):
+        def __init__(self) -> None:
+            self.events: list[tuple[str, dict[str, Any]]] = []
+
+        async def append_event(self, *, event_type: str, payload: dict[str, Any]) -> None:
+            self.events.append((event_type, dict(payload)))
+
+    store = Journal()
+    harness = CoreHarness(
+        registry=ScriptedRegistry([_text_turn("hello")]),  # type: ignore[arg-type]
+        model_id="fake:test",
+        system_prompt="system",
+        config=HarnessConfig(),
+        addons=[PersistenceAddon(store)],
+        session_id="s1",
+        agent_id="agent-1",
+    )
+    asyncio.run(harness.run("one"))
+    types = [event_type for event_type, _ in store.events]
+    assert "run_started" in types
+    assert "run_completed" in types
+    assert all(payload["session_id"] == "s1" for _, payload in store.events)
+    assert all(payload["agent_id"] == "agent-1" for _, payload in store.events)
+    assert all("run_id" in payload and "seq" in payload for _, payload in store.events)
 
 
 def test_telemetry_addon_is_a_noop_seam() -> None:

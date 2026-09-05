@@ -150,6 +150,7 @@ def test_spawn_depth_limit_returns_error_without_child_run() -> None:
         control_plane=plane,
         agent_id="parent-agent",
         spawn_depth=1,
+        addons=[SubagentAddon()],
     )
     result = asyncio.run(harness.spawn("go deeper", label="too deep"))
     assert result.output_text.startswith("error: spawn depth")
@@ -168,6 +169,7 @@ def test_direct_spawn_uses_shared_control_plane() -> None:
         control_plane=plane,
         agent_id="parent-agent",
         session_id="session-parent",
+        addons=[SubagentAddon()],
     )
     result = asyncio.run(harness.spawn("do the work", label="worker"))
     assert result.output_text == "isolated answer"
@@ -280,6 +282,7 @@ def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
         config=HarnessConfig(),
         control_plane=parent_plane,
         agent_id="parent-agent",
+        addons=[SubagentAddon()],
     )
     result = asyncio.run(
         harness.spawn(
@@ -388,6 +391,7 @@ def test_spawn_caps_child_max_turns() -> None:
         system_prompt="parent",
         config=HarnessConfig(),
         agent_id="parent-agent",
+        addons=[SubagentAddon()],
     )
     turns: list[int] = []
     orig_init = CoreHarness.__init__
@@ -421,6 +425,7 @@ def test_looping_child_stops_at_spawn_turn_cap() -> None:
         tools=[Tool(inspect_repo)],
         control_plane=plane,
         agent_id="parent-agent",
+        addons=[SubagentAddon()],
     )
 
     result = asyncio.run(harness.spawn("keep inspecting"))
