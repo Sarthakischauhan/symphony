@@ -192,15 +192,12 @@ TOOLS_CSS = """
 }
 
 .tool-call-summary {
-    width: 100%;
-    height: 1;
-    padding: 0 1 0 2;
-    color: #666666;
+    width: 1fr;
+    height: auto;
+    margin: 1 0 0 0;
+    padding: 0 1;
+    color: #777777;
     background: $background;
-}
-
-.tool-call-summary:hover,
-.tool-call-summary:focus {
-    background: $panel;
+    pointer: pointer;
 }
 """
