@@ -60,6 +60,8 @@ class ControlPlaneEventType(str, Enum):
     TURN_STARTED = "turn_started"
     TURN_COMPLETED = "turn_completed"
     TEXT_DELTA = "text_delta"
+    REASONING_DELTA = "reasoning_delta"
+    MODEL_RETRY_SCHEDULED = "model_retry_scheduled"
     TOOL_CALL_STARTED = "tool_call_started"
     TOOL_CALL_DELTA = "tool_call_delta"
     TOOL_EXECUTION_STARTED = "tool_execution_started"

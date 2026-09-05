@@ -1,33 +1,40 @@
 # Control-plane events
 
 `CoreHarness` emits ordered control-plane events with an `event_type` and a
-`payload`. Every event carries `run_id`, `session_id`, a sequence number,
-timestamp, and schema version. Events marked conditional fire only when
-applicable. The SSE server forwards these names and bodies unchanged.
+`payload`. When the harness runs behind `IdentifiedControlPlane` (the default
+inside `CoreHarness.run`), every payload also carries `run_id`, `session_id`,
+`seq`, `ts`, `schema_version`, `agent_id`, and `parent_id`. Events marked
+conditional fire only when applicable. The SSE server forwards these names and
+bodies unchanged.
 
-Payload examples for every event also live in
-[`core_harness/docs/events.md`](../../core_harness/docs/events.md).
+The authoritative list of harness event names is
+`core_harness.ControlPlaneEventType` (`core_harness/src/core_harness/models.py`).
+The tables below cover every member of that enum. Payload examples for each
+event live in [`core_harness/docs/events.md`](../../core_harness/docs/events.md).
 
 ## Lifecycle
 
-| Event | When |
-| --- | --- |
-| `run_started` | A run begins (`model_id`, `tool_names`, `session_id`) |
-| `turn_started` | Each model turn (`turn`, `message_count`) |
-| `turn_completed` | Turn finished (`had_tool_calls`) |
-| `run_completed` | Final text, usage, context, session |
-| `run_summary` | Two-line recap (`label`, `summary`). Conditional; after-run learning. |
-| `run_cancelled` | Cancel command landed (conditional) |
-| `run_failed` | Unhandled error or limit (conditional) |
+| Enum member | `event_type` | When |
+| --- | --- | --- |
+| `RUN_STARTED` | `run_started` | A run begins (`model_id`, `tool_names`, `session_id`) |
+| `TURN_STARTED` | `turn_started` | Each model turn (`turn`, `message_count`) |
+| `TURN_COMPLETED` | `turn_completed` | Turn finished (`had_tool_calls`) |
+| `RUN_COMPLETED` | `run_completed` | Final text, usage, context, session |
+| `RUN_CANCELLED` | `run_cancelled` | Cancel command landed (conditional; `reason`) |
+| `RUN_LIMIT_EXCEEDED` | `run_limit_exceeded` | A `HarnessConfig` cap was hit (conditional; `limit`, `value`, `max`, `message`) |
+| `RUN_FAILED` | `run_failed` | Unhandled error (conditional; `error_type`, `message`) |
+
+A run ends with exactly one of `run_completed`, `run_cancelled`,
+`run_limit_exceeded`, or `run_failed`.
 
 ## Stream
 
-| Event | Payload notes |
-| --- | --- |
-| `text_delta` | `turn`, `delta` |
-| `reasoning_delta` | `summary_index`, `delta`, `text` |
-| `model_retry_scheduled` | Rate-limit, SSL MAC, 5xx, or connection retry. Honor `Retry-After`. If `resets_stream`, discard partial output. |
-| `usage` | Per-turn and cumulative tokens |
+| Enum member | `event_type` | Payload notes |
+| --- | --- | --- |
+| `TEXT_DELTA` | `text_delta` | `turn`, `delta` |
+| `REASONING_DELTA` | `reasoning_delta` | `turn`, `summary_index`, `delta`, `text` (conditional; reasoning models only) |
+| `MODEL_RETRY_SCHEDULED` | `model_retry_scheduled` | Rate-limit, SSL MAC, 5xx, or connection retry. Honor `retry_after`. If `resets_stream`, discard partial output. (conditional) |
+| `USAGE` | `usage` | Per-turn and cumulative tokens |
 
 ```json
 {
@@ -51,24 +58,56 @@ Payload examples for every event also live in
 
 ## Tools
 
-| Event | Payload notes |
-| --- | --- |
-| `tool_call_started` | `tool_call_id`, `tool_name` |
-| `tool_call_delta` | Argument JSON delta |
-| `tool_execution_started` | `arguments` (conditional) |
-| `tool_execution_completed` | `result`, `truncated`, `original_chars` |
+| Enum member | `event_type` | Payload notes |
+| --- | --- | --- |
+| `TOOL_CALL_STARTED` | `tool_call_started` | `turn`, `tool_call_id`, `tool_name` |
+| `TOOL_CALL_DELTA` | `tool_call_delta` | Argument JSON `delta` |
+| `TOOL_EXECUTION_STARTED` | `tool_execution_started` | `tool_call_id`, `tool_name`, `arguments` |
+| `TOOL_EXECUTION_COMPLETED` | `tool_execution_completed` | `result`, `truncated`, `original_chars`. A denied or unknown tool still produces both events; the denial is the `result`. |
 
 ## Context
 
-- `context` — limit, tokens used, left, utilization, per-message sizes.
-- `context_warning` — crossed `context_warn_threshold`.
-- `compaction_started` / `compaction_completed` — before/after message counts, token estimates, `context_limit`; `manual: true` for `/compact`.
+| Enum member | `event_type` | Payload notes |
+| --- | --- | --- |
+| `CONTEXT` | `context` | Limit, tokens used, left, utilization, per-message sizes |
+| `CONTEXT_WARNING` | `context_warning` | Crossed `context_warn_threshold` (conditional) |
+| `COMPACTION_STARTED` | `compaction_started` | Before-compaction message count and token estimate (conditional) |
+| `COMPACTION_COMPLETED` | `compaction_completed` | Before/after counts and estimates, `context_limit` (conditional) |
+
+A user-requested compact (`/compact` in the TUI) adds `"manual": true` to both
+compaction events.
 
 ## Control
 
-- `paused` / `resumed` — inbound pause/resume.
-- `message_injected` — user or system message inserted mid-run.
-- `agent_spawned` / `agent_completed` / `agent_failed` — child lifecycle on the parent plane.
+| Enum member | `event_type` | Payload notes |
+| --- | --- | --- |
+| `PAUSED` | `paused` | Inbound pause command (conditional) |
+| `RESUMED` | `resumed` | Inbound resume command (conditional) |
+| `MESSAGE_INJECTED` | `message_injected` | User or system message inserted mid-run (`role`, `content`; conditional) |
 
-Over SSE, the same body is sent with `event: text_delta` and
+## Subagents
+
+Emitted on the **parent's** plane when a run spawns a child via
+`CoreHarness.spawn()` / the `spawn_agent` tool. The child's own events are
+emitted with the child's `agent_id` and the parent's id as `parent_id`.
+
+| Enum member | `event_type` | Payload notes |
+| --- | --- | --- |
+| `AGENT_SPAWNED` | `agent_spawned` | `child_id`, `label`, `prompt`, `model_id`, `depth` |
+| `AGENT_COMPLETED` | `agent_completed` | `child_id`, `label`, `output_text`, `usage` |
+| `AGENT_FAILED` | `agent_failed` | `child_id`, `label`, `message`, `error_type` |
+
+## Product events (not in the harness enum)
+
+Add-ons and products may emit their own events through the same plane. These
+are **not** members of `ControlPlaneEventType`; consumers should treat unknown
+`event_type` strings as pass-through.
+
+| `event_type` | Emitted by | Payload notes |
+| --- | --- | --- |
+| `run_summary` | `symphony-code` learning add-on, after `run_completed` | `label`, `summary` — the two-line **summary so far** shown in the TUI (conditional) |
+
+## Transport
+
+Over SSE (`core-server`), the same body is sent with `event: <event_type>` and
 `id: <run_id>:<seq>`.
