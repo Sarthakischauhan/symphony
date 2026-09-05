@@ -18,7 +18,6 @@ from core_harness import (
     NullPersistence,
     PersistenceAddon,
     SubagentAddon,
-    TelemetryAddon,
     Tool,
 )
 
@@ -190,19 +189,6 @@ def test_persistence_append_event_journals_identified_events() -> None:
     assert all(payload["session_id"] == "s1" for _, payload in store.events)
     assert all(payload["agent_id"] == "agent-1" for _, payload in store.events)
     assert all("run_id" in payload and "seq" in payload for _, payload in store.events)
-
-
-def test_telemetry_addon_is_a_noop_seam() -> None:
-    harness = CoreHarness(
-        registry=ScriptedRegistry([_text_turn()]),  # type: ignore[arg-type]
-        model_id="fake:test",
-        system_prompt="system",
-        config=HarnessConfig(),
-        addons=[TelemetryAddon()],
-    )
-    result = asyncio.run(harness.run("hi"))
-    assert result.output_text == "ok"
-    assert any(addon.name == "telemetry" for addon in harness.addons)
 
 
 def test_register_addon_rejects_duplicate_name() -> None:

@@ -1,10 +1,10 @@
-"""Control-plane protocols, event logs, and concrete emitters."""
+"""Control-plane base, event logs, and concrete emitters."""
 
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Sequence, Union
 
 from core_harness.models import (
     EVENT_SCHEMA_VERSION,
@@ -14,30 +14,23 @@ from core_harness.models import (
     ControlPlaneEventType,
 )
 
-# --- base.py ---
-class ControlPlane(Protocol):
-    """Runtime orchestration boundary; ``emit`` is its minimum capability."""
+Emit = Callable[[str, Dict[str, Any]], Awaitable[None]]
+
+
+class ControlPlane:
+    """Runtime orchestration boundary with typed interaction methods.
+
+    Callers invoke these methods directly. Missing overrides use the
+    fail-closed defaults here; do not ``getattr``-probe for optional hooks.
+    """
 
     async def emit(
         self,
         event_type: Union[str, ControlPlaneEventType],
         payload: Dict[str, Any],
     ) -> None:
-        ...
-
-
-class InboundControlPlane(ControlPlane, Protocol):
-    """Control plane that also accepts commands from a caller or UI."""
-
-    async def send_command(self, command: ControlCommand) -> None:
-        ...
-
-
-Emit = Callable[[str, Dict[str, Any]], Awaitable[None]]
-
-
-class InteractiveControlPlaneProtocol(ControlPlane, Protocol):
-    """Control plane that owns user interaction and tool authorization."""
+        del event_type, payload
+        return None
 
     async def request_user_input(
         self,
@@ -49,7 +42,8 @@ class InteractiveControlPlaneProtocol(ControlPlane, Protocol):
         metadata: Optional[Dict[str, Any]] = None,
         emit: Optional[Emit] = None,
     ) -> str:
-        ...
+        del question, choices, kind, metadata, emit
+        return default
 
     async def approve_tool_call(
         self,
@@ -58,10 +52,23 @@ class InteractiveControlPlaneProtocol(ControlPlane, Protocol):
         arguments: Dict[str, Any],
         emit: Optional[Emit] = None,
     ) -> bool:
-        ...
+        del tool_name, arguments, emit
+        return False
+
+    async def send_command(self, command: ControlCommand) -> None:
+        del command
+        return None
 
     async def drain_commands(self) -> List[ControlCommand]:
-        ...
+        return []
+
+    async def wait_if_paused(self) -> None:
+        return None
+
+    cancelled: bool = False
+    cancel_reason: str = "cancelled"
+    cancel_event: Optional[asyncio.Event] = None
+    paused: bool = False
 
 
 class EventLog(Protocol):
@@ -77,7 +84,7 @@ def normalize_event_type(event_type: Union[str, ControlPlaneEventType]) -> str:
         return event_type.value
     return event_type
 
-# --- event_log.py ---
+
 class InMemoryEventLog:
     """Store control-plane events in process memory."""
 
@@ -94,8 +101,8 @@ class InMemoryEventLog:
     def events(self) -> List[ControlPlaneEvent]:
         return self._events
 
-# --- identity.py ---
-class IdentifiedControlPlane:
+
+class IdentifiedControlPlane(ControlPlane):
     """Wrap an inner plane and attach run_id, session_id, seq, ts, schema_version."""
 
     def __init__(
@@ -149,11 +156,8 @@ class IdentifiedControlPlane:
         metadata: Optional[Dict[str, Any]] = None,
         emit: Optional[Emit] = None,
     ) -> str:
-        request = getattr(self.inner, "request_user_input", None)
-        if not callable(request):
-            return default
         return str(
-            await request(
+            await self.inner.request_user_input(
                 question=question,
                 choices=choices,
                 default=default,
@@ -171,22 +175,41 @@ class IdentifiedControlPlane:
         arguments: Dict[str, Any],
         emit: Optional[Emit] = None,
     ) -> bool:
-        approve = getattr(self.inner, "approve_tool_call", None)
-        if not callable(approve):
-            return True
         return bool(
-            await approve(
+            await self.inner.approve_tool_call(
                 tool_name=tool_name,
                 arguments=arguments,
                 emit=emit or self.emit,
             )
         )
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.inner, name)
+    async def send_command(self, command: ControlCommand) -> None:
+        await self.inner.send_command(command)
 
-# --- emitter.py ---
-class NullControlPlane:
+    async def drain_commands(self) -> List[ControlCommand]:
+        return await self.inner.drain_commands()
+
+    async def wait_if_paused(self) -> None:
+        await self.inner.wait_if_paused()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.inner.cancelled
+
+    @property
+    def cancel_reason(self) -> str:
+        return self.inner.cancel_reason
+
+    @property
+    def cancel_event(self) -> Optional[asyncio.Event]:
+        return self.inner.cancel_event
+
+    @property
+    def paused(self) -> bool:
+        return self.inner.paused
+
+
+class NullControlPlane(ControlPlane):
     """Recording default emitter that also supports inbound commands."""
 
     events: List[ControlPlaneEvent]
@@ -301,77 +324,11 @@ class NullControlPlane:
         return self._paused
 
 
-class FanoutControlPlane:
-    """Send every event to an ordered set of subscriber planes."""
-
-    def __init__(self, subscribers: Sequence[ControlPlane]) -> None:
-        if not subscribers:
-            raise ValueError("FanoutControlPlane requires at least one subscriber.")
-        self.subscribers = list(subscribers)
-
-    async def emit(
-        self,
-        event_type: Union[str, ControlPlaneEventType],
-        payload: Dict[str, Any],
-    ) -> None:
-        normalized = normalize_event_type(event_type)
-        for subscriber in self.subscribers:
-            await subscriber.emit(normalized, payload)
-
-
-class PersistingControlPlane:
-    """Append every emitted event to an event-log adapter."""
-
-    def __init__(self, event_log: EventLog) -> None:
-        self.event_log = event_log
-
-    async def emit(
-        self,
-        event_type: Union[str, ControlPlaneEventType],
-        payload: Dict[str, Any],
-    ) -> None:
-        await self.event_log.append_event(
-            event_type=normalize_event_type(event_type),
-            payload=payload,
-        )
-
-
-class InteractiveControlPlane(NullControlPlane):
-    """Recording emitter with optional event-log and subscriber fan-out."""
-
-    def __init__(
-        self,
-        *,
-        event_log: Optional[EventLog] = None,
-        subscribers: Optional[Iterable[ControlPlane]] = None,
-    ) -> None:
-        super().__init__()
-        self.event_log = event_log
-        self._extra_subscribers = list(subscribers or [])
-
-    async def emit(
-        self,
-        event_type: Union[str, ControlPlaneEventType],
-        payload: Dict[str, Any],
-    ) -> None:
-        normalized = normalize_event_type(event_type)
-        event = ControlPlaneEvent.typed(normalized, payload)
-        self.events.append(event)
-        if self.event_log is not None:
-            await self.event_log.append_event(event_type=normalized, payload=payload)
-        for subscriber in self._extra_subscribers:
-            await subscriber.emit(normalized, payload)
-
 __all__ = [
     "ControlPlane",
     "EventLog",
-    "FanoutControlPlane",
     "IdentifiedControlPlane",
-    "InboundControlPlane",
     "InMemoryEventLog",
-    "InteractiveControlPlane",
-    "InteractiveControlPlaneProtocol",
     "NullControlPlane",
-    "PersistingControlPlane",
     "normalize_event_type",
 ]

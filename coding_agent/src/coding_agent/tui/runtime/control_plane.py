@@ -14,7 +14,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
 from textual.message import Message
 
-from core_harness import ControlCommand, ControlCommandType, ControlPlaneEventType
+from core_harness import ControlCommand, ControlCommandType, ControlPlane, ControlPlaneEventType
 from coding_agent.config import ApprovalConfig, ensure_spawn_settings
 
 ALLOW_ALWAYS = "Always allow"
@@ -40,7 +40,7 @@ class HarnessEvent(Message):
 ControlPlaneEvent = HarnessEvent
 
 
-class TextualControlPlane:
+class TextualControlPlane(ControlPlane):
     """Interactive control plane for events, questions, and tool authorization."""
 
     def __init__(

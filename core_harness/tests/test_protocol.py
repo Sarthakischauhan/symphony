@@ -11,16 +11,19 @@ import pytest
 from core_ai.types import Message, StreamEvent
 from core_harness import (
     ControlCommand,
+    ControlPlane,
     CoreHarness,
     EVENT_SCHEMA_VERSION,
     HarnessCancelled,
     HarnessConfig,
     HarnessLimitExceeded,
+    IdentifiedControlPlane,
     NullControlPlane,
     NullPersistence,
     Tool,
 )
 from core_harness.addons.persistence import Checkpoint, PersistenceAddon
+from core_harness.models import ControlPlaneEvent
 
 
 IDENTITY_KEYS = ("run_id", "session_id", "agent_id", "parent_id", "seq", "ts", "schema_version")
@@ -191,6 +194,48 @@ def test_control_plane_can_deny_tool_before_execution() -> None:
     assert result.tool_calls[0].result_status == "error"
     completed = [e for e in plane.events if e.event_type == "tool_execution_completed"]
     assert "PermissionError" in completed[0].payload["result"]
+
+
+def test_control_plane_without_approve_override_denies_tool() -> None:
+    registry = ScriptedRegistry([_tool_turn("mutate"), _text_turn("denied")])
+    executed: list[bool] = []
+
+    def mutate() -> str:
+        executed.append(True)
+        return "changed"
+
+    class RecordingPlane(ControlPlane):
+        def __init__(self) -> None:
+            self.events: list[Any] = []
+
+        async def emit(self, event_type: Any, payload: dict[str, Any]) -> None:
+            self.events.append(ControlPlaneEvent.typed(event_type, payload))
+
+    _, plane, harness = _harness(
+        registry,
+        tools=[Tool(mutate)],
+        control_plane=RecordingPlane(),
+    )
+    result = asyncio.run(harness.run("go"))
+
+    assert executed == []
+    assert result.output_text == "denied"
+    assert result.tool_calls[0].result_status == "error"
+    completed = [e for e in plane.events if e.event_type == "tool_execution_completed"]
+    assert completed[0].payload["status"] == "error"
+    assert "PermissionError" in completed[0].payload["result"]
+
+
+def test_identified_plane_does_not_auto_allow_missing_approve() -> None:
+    class EmitOnly(ControlPlane):
+        async def emit(self, event_type: Any, payload: dict[str, Any]) -> None:
+            del event_type, payload
+
+    plane = IdentifiedControlPlane(EmitOnly(), run_id="r", session_id="s")
+    allowed = asyncio.run(
+        plane.approve_tool_call(tool_name="bash", arguments={"command": "id"})
+    )
+    assert allowed is False
 
 
 def test_every_parallel_tool_call_gets_a_result_on_cancel() -> None:

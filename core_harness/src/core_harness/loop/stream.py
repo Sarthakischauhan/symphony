@@ -15,6 +15,7 @@ from core_harness.context import (
     messages_for_model,
 )
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
+from core_harness.events import ControlPlane
 from core_harness.models import PendingToolCall, UsageTotals
 
 
@@ -25,7 +26,7 @@ class TurnStreamHost(Protocol):
     model_id: str
     reasoning_effort: Optional[str]
     tool_schemas: List[Dict[str, Any]]
-    control_plane: Any
+    control_plane: ControlPlane
     tool_result_keep_recent: int
     tool_result_prune_tokens: Optional[int]
 
@@ -91,7 +92,7 @@ async def dispatch_stream_event(
     turn: int,
     usage: UsageTotals,
     streamed: StreamedTurn,
-    control_plane: Any,
+    control_plane: ControlPlane,
 ) -> None:
     """Apply one provider event to stream state and the control plane."""
     if event.type == "text_delta" and event.delta:
@@ -275,7 +276,7 @@ async def iter_provider_events(
         while True:
             runner._raise_if_cancelled()
             runner._raise_if_runtime_exceeded()
-            cancel_event = getattr(runner.control_plane, "cancel_event", None)
+            cancel_event = runner.control_plane.cancel_event
             next_event = asyncio.create_task(agen.__anext__())
             waiters = {next_event}
             cancel_wait = None

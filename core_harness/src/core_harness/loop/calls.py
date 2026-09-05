@@ -12,6 +12,7 @@ from core_ai.types import Content, Message
 
 from core_harness.context import bound_tool_result
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
+from core_harness.events import ControlPlane
 from core_harness.models import PendingToolCall, ToolCall, ToolResult
 from core_harness.tools import Tool, current_tool_call_id
 
@@ -20,7 +21,7 @@ class TurnCallsHost(Protocol):
     """Surface ``run_tool_calls`` needs from the active turn."""
 
     tools: Dict[str, Tool]
-    control_plane: Any
+    control_plane: ControlPlane
     state: Any
     tool_result_max_chars: Optional[int]
     max_tool_calls: Optional[int]
@@ -191,20 +192,18 @@ async def execute_tool(runner: TurnCallsHost, tool_call: ToolCall) -> ToolResult
         await emit_tool_result(runner, tool_call, result)
         return result
 
-    approve = getattr(runner.control_plane, "approve_tool_call", None)
-    if callable(approve):
-        allowed = await approve(
-            tool_name=tool_call.name,
-            arguments=dict(tool_call.arguments),
+    allowed = await runner.control_plane.approve_tool_call(
+        tool_name=tool_call.name,
+        arguments=dict(tool_call.arguments),
+    )
+    if not allowed:
+        result = ToolResult(
+            status="error",
+            content="tool call denied by user",
+            error_type="PermissionError",
         )
-        if not allowed:
-            result = ToolResult(
-                status="error",
-                content="tool call denied by user",
-                error_type="PermissionError",
-            )
-            await emit_tool_result(runner, tool_call, result)
-            return result
+        await emit_tool_result(runner, tool_call, result)
+        return result
 
     await runner.control_plane.emit(
         "tool_execution_started",
@@ -234,7 +233,7 @@ async def invoke_tool(runner: TurnCallsHost, tool_call: ToolCall) -> ToolResult:
     finally:
         current_tool_call_id.reset(token)
     waiters = {exec_task}
-    cancel_event = getattr(runner.control_plane, "cancel_event", None)
+    cancel_event = runner.control_plane.cancel_event
     cancel_wait = None
     if cancel_event is not None and not cancel_event.is_set():
         cancel_wait = asyncio.create_task(cancel_event.wait())

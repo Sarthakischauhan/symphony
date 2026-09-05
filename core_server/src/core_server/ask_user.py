@@ -43,10 +43,7 @@ async def ask_user(
     if control_plane is None:
         return "error: ask_user requires a control plane"
 
-    request = getattr(control_plane, "request_user_input", None)
-    if not callable(request):
-        return "error: ask_user requires an interactive control plane"
-    await request(
+    await control_plane.request_user_input(
         question=question,
         choices=list(choices or ()),
         default=default,

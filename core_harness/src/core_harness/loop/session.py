@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, List, Optional
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
 
-from core_harness.events import IdentifiedControlPlane
+from core_harness.events import ControlPlane, IdentifiedControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import ControlCommandType, HarnessResult, ToolCall, UsageTotals
 from core_harness.loop.runner import TurnRunner
@@ -300,23 +300,18 @@ async def _apply_inbound_commands(
     messages: List[Message],
     *,
     turn: int,
-    control_plane,
+    control_plane: ControlPlane,
 ) -> List[Message]:
     del harness
-    if getattr(control_plane, "cancelled", False):
-        raise HarnessCancelled(getattr(control_plane, "cancel_reason", "cancelled"))
+    if control_plane.cancelled:
+        raise HarnessCancelled(control_plane.cancel_reason)
 
-    wait_if_paused = getattr(control_plane, "wait_if_paused", None)
-    if wait_if_paused is not None and getattr(control_plane, "paused", False):
+    if control_plane.paused:
         await control_plane.emit("paused", {"turn": turn})
-        await wait_if_paused()
+        await control_plane.wait_if_paused()
         await control_plane.emit("resumed", {"turn": turn})
 
-    drain = getattr(control_plane, "drain_commands", None)
-    if drain is None:
-        return messages
-
-    for command in await drain():
+    for command in await control_plane.drain_commands():
         if command.type == ControlCommandType.CANCEL:
             raise HarnessCancelled(str(command.payload.get("reason", "cancelled")))
         if command.type == ControlCommandType.INJECT_MESSAGE:

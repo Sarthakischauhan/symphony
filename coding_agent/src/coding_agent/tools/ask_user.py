@@ -35,11 +35,10 @@ class AskUserTool(WorkspaceTool):
         if not question:
             return "error: question must be a non-empty string"
 
-        request = getattr(control_plane, "request_user_input", None)
-        if not callable(request):
+        if control_plane is None:
             return "error: interactive user questions require an interactive control plane"
 
-        answer = await request(
+        answer = await control_plane.request_user_input(
             question=question,
             choices=list(choices),
             default=default,

@@ -15,14 +15,10 @@ from core_harness import (
     ControlCommand,
     ControlPlaneEventType,
     CoreHarness,
-    FanoutControlPlane,
     HarnessCancelled,
     HarnessConfig,
-    InMemoryEventLog,
-    InteractiveControlPlane,
     KeepSystemRecentCompactor,
     NullControlPlane,
-    PersistingControlPlane,
     Tool,
     plan_keep_drop,
 )
@@ -1113,23 +1109,6 @@ def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
     assert len(last_sent_tools) <= 5
 
 
-def test_control_plane_fanout_and_event_log() -> None:
-    primary = NullControlPlane()
-    event_log = InMemoryEventLog()
-    plane = FanoutControlPlane(
-        [primary, PersistingControlPlane(event_log)],
-    )
-
-    async def _emit() -> None:
-        await plane.emit(ControlPlaneEventType.RUN_STARTED, {"model_id": "fake:test"})
-        await plane.emit("usage", {"turn": 0, "total_tokens": 3})
-
-    asyncio.run(_emit())
-    assert [event.event_type for event in primary.events] == ["run_started", "usage"]
-    assert [event.event_type for event in event_log.events] == ["run_started", "usage"]
-    assert event_log.events[0].payload["model_id"] == "fake:test"
-
-
 class ImageEchoRegistry:
     def __init__(self) -> None:
         self.calls: list[list[Message]] = []
@@ -1239,7 +1218,7 @@ def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
 
 def test_control_plane_cancel_stops_harness() -> None:
     registry = FakeRegistry()
-    control_plane = InteractiveControlPlane()
+    control_plane = NullControlPlane()
 
     async def _run() -> None:
         await control_plane.send_command(ControlCommand.cancel(reason="stop-now"))
@@ -1264,12 +1243,7 @@ def test_control_plane_cancel_stops_harness() -> None:
 def test_e2e_two_tool_loop_answers_three_times_five() -> None:
     """Full loop: call_tool_a → call_tool_b → answer 3 * 5 as a number only."""
     registry = TwoToolLoopRegistry()
-    event_log = InMemoryEventLog()
-    recorder = NullControlPlane()
-    control_plane = InteractiveControlPlane(
-        event_log=event_log,
-        subscribers=[recorder],
-    )
+    control_plane = NullControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:math-model",
@@ -1312,10 +1286,6 @@ def test_e2e_two_tool_loop_answers_three_times_five() -> None:
     assert completed_tools == ["call_tool_a", "call_tool_b"]
     assert control_plane.events[-1].payload["output_text"] == "15"
 
-    logged_types = [event.event_type for event in event_log.events]
-    assert logged_types == event_types
-    assert [event.event_type for event in recorder.events] == event_types
-
 
 def call_live_core_harness() -> tuple[NullControlPlane, object]:
     api_key = os.getenv("OPENAI_API_KEY")
@@ -1353,7 +1323,7 @@ def call_live_core_harness() -> tuple[NullControlPlane, object]:
     return control_plane, result
 
 
-def call_live_two_tool_math_harness() -> tuple[InteractiveControlPlane, object]:
+def call_live_two_tool_math_harness() -> tuple[NullControlPlane, object]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         pytest.skip("Set OPENAI_API_KEY to run the core harness integration test.")
@@ -1369,8 +1339,7 @@ def call_live_two_tool_math_harness() -> tuple[InteractiveControlPlane, object]:
             base_url="https://api.openai.com/v1",
         ),
     )
-    event_log = InMemoryEventLog()
-    control_plane = InteractiveControlPlane(event_log=event_log)
+    control_plane = NullControlPlane()
     harness = CoreHarness(
         registry=registry,
         model_id=f"openai:{model_name}",
@@ -1427,7 +1396,3 @@ def test_e2e_live_two_tool_loop_answers_three_times_five() -> None:
         if event.event_type == "tool_execution_completed"
     ]
     assert completed_tools == ["call_tool_a", "call_tool_b"]
-    assert control_plane.event_log is not None
-    assert len(asyncio.run(control_plane.event_log.list_events())) == len(
-        control_plane.events
-    )
