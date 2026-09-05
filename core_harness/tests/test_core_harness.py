@@ -932,6 +932,101 @@ def test_compactor_keeps_last_messages_in_one_user_tool_loop() -> None:
     )
 
 
+def test_compactor_calls_custom_summarizer_once_after_planning() -> None:
+    class RecordingSummarizer:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        async def summarize(self, turns, *, tokens):
+            self.calls.append((sum(len(turn) for turn in turns), tokens))
+            return Message(role="user", content=f"{COMPACTED_CONTEXT_MARK} custom")
+
+    messages = [Message(role="system", content="system"), Message(role="user", content="task")]
+    for index in range(8):
+        messages.append(Message(role="user", content=f"follow-up {index} " * 30))
+        messages.append(Message(role="assistant", content=f"ack {index} " * 30))
+
+    summarizer = RecordingSummarizer()
+    compacted = asyncio.run(
+        KeepSystemRecentCompactor(
+            keep_recent=6, target_tokens=400, summarizer=summarizer
+        ).compact(
+            messages,
+            turn=0,
+            context_limit=None,
+            tokens_used=0,
+            context_left=None,
+        )
+    )
+
+    assert len(summarizer.calls) == 1
+    dropped_count, dropped_tokens = summarizer.calls[0]
+    assert dropped_count == len(messages) - len(compacted) + 1
+    assert dropped_tokens > 0
+    assert compacted[:2] == messages[:2]
+    assert compacted[2].content == f"{COMPACTED_CONTEXT_MARK} custom"
+    assert compacted[-1] == messages[-1]
+    # Target enforcement dropped more than keep_recent alone would have.
+    assert len(compacted) - 3 < 6
+
+
+def test_compaction_addon_fork_keeps_custom_summarizer() -> None:
+    class CustomSummarizer:
+        async def summarize(self, turns, *, tokens):
+            del turns, tokens
+            return Message(role="user", content=COMPACTED_CONTEXT_MARK)
+
+    summarizer = CustomSummarizer()
+    parent = CompactionAddon(KeepSystemRecentCompactor(keep_recent=4, summarizer=summarizer))
+    child = parent.fork_for_child(None)
+    assert isinstance(child.compactor, KeepSystemRecentCompactor)
+    assert child.compactor is not parent.compactor
+    assert child.compactor.keep_recent == 4
+    assert child.compactor.summarizer is summarizer
+    assert child.keep_recent == 4
+
+
+def test_state_compact_marks_manual_and_reports_context_limit() -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit(event_type: str, payload: dict[str, Any]) -> None:
+        events.append((event_type, payload))
+
+    messages = [Message(role="system", content="system")]
+    messages.extend(Message(role="user", content=f"m{index}") for index in range(6))
+    state = HarnessState(compactor=KeepSystemRecentCompactor(keep_recent=2))
+
+    compacted = asyncio.run(
+        state.compact(
+            messages,
+            turn=0,
+            context_limit=5_000,
+            tokens_used=40,
+            context_left=4_960,
+            emit=emit,
+            manual=True,
+        )
+    )
+
+    assert len(compacted) < len(messages)
+    assert [name for name, _ in events] == ["compaction_started", "compaction_completed"]
+    started, completed = events[0][1], events[1][1]
+    assert started["manual"] is True
+    assert completed["manual"] is True
+    assert completed["context_limit"] == 5_000
+    assert completed["message_count_before"] == len(messages)
+    assert completed["message_count_after"] == len(compacted)
+    assert completed["estimated_tokens_before"] == estimate_prompt_tokens(messages)
+    assert completed["estimated_tokens_after"] == estimate_prompt_tokens(compacted)
+
+    with pytest.raises(RuntimeError, match="no compactor is mounted"):
+        asyncio.run(
+            HarnessState().compact(
+                messages, turn=0, context_limit=None, tokens_used=0, context_left=None, emit=emit
+            )
+        )
+
+
 def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
     class CountingLoopRegistry:
         """One user prompt, many tool calls, then a final answer."""

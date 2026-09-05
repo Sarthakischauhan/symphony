@@ -231,10 +231,17 @@ discard partial output from the failed attempt.
     "message_count_before": 18,
     "message_count_after": 4,
     "estimated_tokens_before": 360000,
-    "estimated_tokens_after": 24000
+    "estimated_tokens_after": 24000,
+    "context_limit": 400000
   }
 }
 ```
+
+A user-requested compact (for example `/compact` in the TUI) adds
+`"manual": true` to both `compaction_started` and `compaction_completed`.
+Surfaces can re-derive `tokens_used` / `context_left` from
+`estimated_tokens_after` and `context_limit` without waiting for the next
+`context` event.
 
 ## `paused` (conditional)
 

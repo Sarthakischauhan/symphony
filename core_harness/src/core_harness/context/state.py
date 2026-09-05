@@ -274,20 +274,45 @@ class HarnessState:
         """Compact messages when the configured context threshold is reached."""
         if not self.should_compact(context_left, estimate_prompt_tokens(messages)):
             return messages
+        return await self.compact(
+            messages,
+            turn=turn,
+            context_limit=context_limit,
+            tokens_used=tokens_used,
+            context_left=context_left,
+            emit=emit,
+        )
 
-        assert self.compactor is not None
+    async def compact(
+        self,
+        messages: List[Message],
+        *,
+        turn: int,
+        context_limit: Optional[int],
+        tokens_used: int,
+        context_left: Optional[int],
+        emit: EmitEvent,
+        manual: bool = False,
+    ) -> List[Message]:
+        """Run the mounted compactor now, emitting ``compaction_*`` around it.
+
+        ``manual`` marks a user-requested compact (for example ``/compact``) so
+        surfaces can tell it apart from the per-turn threshold trigger.
+        """
+        if self.compactor is None:
+            raise RuntimeError("no compactor is mounted on the harness state")
         before_count = len(messages)
         before_tokens = estimate_prompt_tokens(messages)
-        await emit(
-            "compaction_started",
-            {
-                "turn": turn,
-                "message_count": before_count,
-                "tokens_used": tokens_used,
-                "context_left": context_left,
-                "threshold": self.context_compact_threshold,
-            },
-        )
+        started: Dict[str, Any] = {
+            "turn": turn,
+            "message_count": before_count,
+            "tokens_used": tokens_used,
+            "context_left": context_left,
+            "threshold": self.context_compact_threshold,
+        }
+        if manual:
+            started["manual"] = True
+        await emit("compaction_started", started)
         compacted = await self.compactor.compact(
             messages,
             turn=turn,
@@ -296,14 +321,15 @@ class HarnessState:
             context_left=context_left,
         )
         after_tokens = estimate_prompt_tokens(compacted)
-        await emit(
-            "compaction_completed",
-            {
-                "turn": turn,
-                "message_count_before": before_count,
-                "message_count_after": len(compacted),
-                "estimated_tokens_before": before_tokens,
-                "estimated_tokens_after": after_tokens,
-            },
-        )
+        completed: Dict[str, Any] = {
+            "turn": turn,
+            "message_count_before": before_count,
+            "message_count_after": len(compacted),
+            "estimated_tokens_before": before_tokens,
+            "estimated_tokens_after": after_tokens,
+            "context_limit": context_limit,
+        }
+        if manual:
+            completed["manual"] = True
+        await emit("compaction_completed", completed)
         return compacted

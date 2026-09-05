@@ -11,6 +11,8 @@ from core_harness.addons import (
     SubagentAddon,
     Telemetry,
     TelemetryAddon,
+    TemplateTurnSummarizer,
+    TurnSummarizer,
     compaction_from_config,
 )
 from core_harness.addons.persistence import (
@@ -98,7 +100,9 @@ __all__ = [
     "SubagentAddon",
     "Telemetry",
     "TelemetryAddon",
+    "TemplateTurnSummarizer",
     "Tool",
+    "TurnSummarizer",
     "ToolCall",
     "ToolResult",
     "UsageTotals",

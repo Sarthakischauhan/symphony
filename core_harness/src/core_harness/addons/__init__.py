@@ -12,6 +12,8 @@ from core_harness.addons.compaction import (
     CompactionAddon,
     Compactor,
     KeepSystemRecentCompactor,
+    TemplateTurnSummarizer,
+    TurnSummarizer,
     compaction_from_config,
 )
 from core_harness.addons.persistence import (
@@ -46,5 +48,7 @@ __all__ = [
     "SubagentAddon",
     "Telemetry",
     "TelemetryAddon",
+    "TemplateTurnSummarizer",
+    "TurnSummarizer",
     "compaction_from_config",
 ]
