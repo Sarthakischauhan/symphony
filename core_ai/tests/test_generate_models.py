@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -139,11 +140,72 @@ def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: p
     assert "grok-imagine-image" not in text
 
 
-def test_hatch_build_hook_regenerates_catalog_on_package() -> None:
-    source = (CORE_AI / "hatch_build.py").read_text()
+def load_hatch_build():
+    spec = importlib.util.spec_from_file_location("hatch_build", CORE_AI / "hatch_build.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _hook(hatch_build, root: Path):
+    """Build a hook without hatchling's constructor; only ``root`` and ``app`` are used."""
+
+    class TestHook(hatch_build.CustomBuildHook):
+        @property
+        def root(self) -> str:
+            return str(root)
+
+        @property
+        def app(self):
+            return SimpleNamespace(display_info=lambda *_: None)
+
+    return TestHook.__new__(TestHook)
+
+
+def test_hatch_build_hook_is_wired_in_pyproject() -> None:
     pyproject = (CORE_AI / "pyproject.toml").read_text()
-    assert "class CustomBuildHook" in source
-    assert "from generate_models import generate" in source
-    assert "generate(strict=False)" in source
     assert 'path = "hatch_build.py"' in pyproject
     assert 'build-backend = "hatchling.build"' in pyproject
+    # Default builds must not need network clients in the build environment.
+    assert "httpx" not in pyproject.split("[build-system]")[1].split("[tool.hatch")[0]
+
+
+def test_hatch_build_hook_ships_snapshot_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    hatch_build = load_hatch_build()
+    monkeypatch.delenv(hatch_build.REFRESH_ENV, raising=False)
+    calls: list[Path] = []
+    monkeypatch.setattr(hatch_build, "refresh_catalog", lambda root: calls.append(root))
+
+    _hook(hatch_build, tmp_path).initialize("standard", {})
+
+    assert calls == []
+    assert not hatch_build.refresh_requested({})
+    assert not hatch_build.refresh_requested({hatch_build.REFRESH_ENV: "0"})
+
+
+def test_hatch_build_hook_refreshes_only_when_asked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    hatch_build = load_hatch_build()
+    monkeypatch.setenv(hatch_build.REFRESH_ENV, "1")
+    calls: list[Path] = []
+    monkeypatch.setattr(hatch_build, "refresh_catalog", lambda root: calls.append(root))
+
+    _hook(hatch_build, tmp_path).initialize("standard", {})
+
+    assert calls == [tmp_path]
+    assert hatch_build.refresh_requested({hatch_build.REFRESH_ENV: "true"})
+
+
+def test_hatch_build_refresh_is_strict(monkeypatch: pytest.MonkeyPatch) -> None:
+    hatch_build = load_hatch_build()
+
+    def failing_get(url: str, *args, **kwargs):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(httpx, "get", failing_get)
+    monkeypatch.delenv("CORE_AI_MODELS_DEV", raising=False)
+    snapshot = CORE_AI / "src" / "core_ai" / "models" / "generated.py"
+    before = snapshot.read_text()
+    with pytest.raises(httpx.ConnectError):
+        hatch_build.refresh_catalog(CORE_AI)
+    assert snapshot.read_text() == before

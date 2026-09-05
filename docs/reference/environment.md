@@ -34,10 +34,15 @@ those files and rebuilds the registry.
 | `GEMINI_BASE_URL` | Gemini-compatible endpoints |
 | `XAI_BASE_URL` | xAI-compatible endpoints |
 
-## Catalog generation
+## Catalog generation (maintainers)
+
+These only affect `core_ai/scripts/generate_models.py` and the opt-in build
+refresh. A normal install or build never reads them and never contacts
+models.dev.
 
 | Variable | Role |
 | --- | --- |
-| `CORE_AI_MODELS_DEV` | Set to `0` to skip the models.dev refresh |
-| `MODELS_DEV_URL` | Mirror or test endpoint for the catalog |
-| `CORE_AI_GENERATE_STRICT` | Fail manual refresh on provider errors |
+| `CORE_AI_GENERATE_STRICT` | `1`: the script fails instead of keeping the old snapshot when models.dev is unreachable |
+| `CORE_AI_MODELS_DEV` | `0`: the script skips the network and rewrites from the existing snapshot |
+| `MODELS_DEV_URL` | Mirror or test endpoint instead of `https://models.dev/api.json` |
+| `CORE_AI_REFRESH_CATALOG` | `1` at build time: the Hatch hook refreshes the catalog (strict). Unset by default |

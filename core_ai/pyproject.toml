@@ -1,8 +1,10 @@
 [project]
 name = "symphony-core"
 version = "0.1.0"
-description = "Add your description here"
+description = "Symphony provider layer: model registry, generated model catalog, and streaming message types (import as core_ai)"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Sarthak Chauhan", email = "sarthakchauhann@gmail.com" }
 ]
@@ -13,8 +15,15 @@ dependencies = [
     "pydantic>=2.13.4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Sarthakischauhan/symphony"
+Documentation = "https://github.com/Sarthakischauhan/symphony/blob/main/docs/packages/symphony-core.md"
+Source = "https://github.com/Sarthakischauhan/symphony/tree/main/core_ai"
+
 [build-system]
-requires = ["hatchling", "httpx>=0.28.1", "dotenv>=0.9.9"]
+# The build hook ships the checked-in catalog snapshot and does not touch the
+# network unless CORE_AI_REFRESH_CATALOG=1 is set (see hatch_build.py).
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -29,6 +38,7 @@ include = [
     "/scripts",
     "/hatch_build.py",
     "/README.md",
+    "/LICENSE",
 ]
 
 [tool.hatch.build.hooks.custom]
@@ -39,6 +49,3 @@ dev = [
     "hatchling",
     "pytest>=9.1.1",
 ]
-
-[tool.pytest.ini_options]
-addopts = "-s"
