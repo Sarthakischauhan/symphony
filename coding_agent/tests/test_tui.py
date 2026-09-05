@@ -58,6 +58,7 @@ from coding_agent.tui.screens import (
     _plan_sections,
 )
 from coding_agent.tui.runtime import SubagentRecord, SubagentScreen, SubagentWidget
+from coding_agent.tui.screens.history import load_session_history
 from coding_agent.tui.screens.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.tools import (
@@ -670,6 +671,51 @@ def test_resume_app_selects_with_arrow_keys() -> None:
     asyncio.run(_run())
 
 
+def test_history_hides_compaction_summary() -> None:
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            return [
+                Message(role="user", content="Original task"),
+                Message(role="user", content=f"{COMPACTED_CONTEXT_MARK}\nold context"),
+                Message(role="assistant", content="Current answer"),
+            ]
+
+    class View:
+        mounted: list[Any]
+
+        def __init__(self) -> None:
+            self.mounted = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+
+    assert [type(widget).__name__ for widget in view.mounted] == [
+        "UserMessage",
+        "AssistantMessage",
+    ]
+    assert all(COMPACTED_CONTEXT_MARK not in str(widget.render()) for widget in view.mounted)
+
+
 def test_resume_options_use_existing_persistence_api() -> None:
     class Persistence:
         async def list_sessions(self) -> list[SimpleNamespace]:
@@ -684,6 +730,7 @@ def test_resume_options_use_existing_persistence_api() -> None:
             assert session_id == "saved-1"
             return [
                 Message(role="system", content="system"),
+                Message(role="user", content=f"{COMPACTED_CONTEXT_MARK}\nold context"),
                 Message(role="user", content="Fix the login flow"),
                 Message(role="assistant", content="Done"),
             ]
@@ -691,7 +738,7 @@ def test_resume_options_use_existing_persistence_api() -> None:
     options = asyncio.run(load_session_options(Persistence()))
 
     assert options[0].first_message == "Fix the login flow"
-    assert options[0].message_count == 3
+    assert options[0].message_count == 4
 
 
 def test_resume_app_escape_exits_without_selection() -> None:

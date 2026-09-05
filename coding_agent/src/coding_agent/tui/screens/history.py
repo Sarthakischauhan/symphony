@@ -10,7 +10,7 @@ from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.tools import ToolCallWidget, make_tool_widget
 from coding_agent.tui.transcript import UserMessage
 from core_ai.content import text_from_content
-from core_harness.context import estimate_prompt_tokens
+from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
 
 class HistoryView(Protocol):
@@ -33,6 +33,10 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
 
     for message in messages:
         if message.role == "user":
+            # Compaction summaries are internal context-management messages.
+            # Keep them in the model history, but do not expose them as user turns.
+            if text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK):
+                continue
             text, images = display_from_content(message.content)
             view.mount_transcript(UserMessage(text, images=images))
         elif message.role == "assistant":

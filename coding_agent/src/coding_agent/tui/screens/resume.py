@@ -15,6 +15,8 @@ from textual.widgets.option_list import Option
 
 from coding_agent.tui.theme import RESUME_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.transcript import clip_text
+from core_ai.content import text_from_content
+from core_harness.context import COMPACTED_CONTEXT_MARK
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,9 @@ async def load_session_options(persistence: Any) -> list[SessionOption]:
             (
                 str(message.content).strip()
                 for message in messages
-                if message.role == "user" and message.content
+                if message.role == "user"
+                and message.content
+                and not text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK)
             ),
             "Untitled conversation",
         )
