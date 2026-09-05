@@ -87,16 +87,25 @@ def render_footer(state: UiRunState, *, hint: str, workspace: str = "") -> Table
     left = Text(phase_label(state), no_wrap=True)
     if left.plain:
         left.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
+    location = left
     if workspace:
-        left.append(workspace, style=SYMPHONY_COLORS["muted"])
-        left.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
+        location.append(workspace, style=SYMPHONY_COLORS["muted"])
+        left = Text(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"], no_wrap=True)
     percent = context_percent(state.metrics)
-    left.append(f"{percent}% context" if percent is not None else "context unknown")
-    left.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
-    left.append_text(context_bar(state))
-    right = Text(hint, no_wrap=True)
+    label = f"{percent}% context" if percent is not None else "context unknown"
+    left.append(label, style=SYMPHONY_COLORS["foreground"])
+    if percent is not None:
+        left.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
+        left.append_text(context_bar(state))
+    right = Text(f"   {hint}", no_wrap=True)
     footer = Table.grid(expand=True, padding=0)
     footer.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
+    if workspace:
+        # Only the path may shrink; keep usage readable beside the key hint.
+        footer.add_column(no_wrap=True)
     footer.add_column(justify="right", no_wrap=True)
-    footer.add_row(left, right)
+    if workspace:
+        footer.add_row(location, left, right)
+    else:
+        footer.add_row(left, right)
     return footer
