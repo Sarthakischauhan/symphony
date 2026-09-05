@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import base64
 import re
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib.parse import unquote, urlparse
 
 from core_ai.types import Content

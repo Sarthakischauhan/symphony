@@ -125,7 +125,7 @@ def load_rules(
         if any(part in DEFAULT_SKIP_DIRS for part in gif.parts):
             continue
         try:
-            rules = tuple(filter(None, (parse_line(l) for l in gif.read_text(encoding="utf-8").splitlines())))
+            rules = tuple(filter(None, (parse_line(line) for line in gif.read_text(encoding="utf-8").splitlines())))
         except (OSError, UnicodeDecodeError):
             continue
         matchers.append((gif.parent, rules))

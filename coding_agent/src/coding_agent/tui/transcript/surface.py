@@ -6,7 +6,6 @@ from typing import Any, Mapping, Optional
 
 from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Static
 
 from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT, reconcile_live_tools
 from coding_agent.tui.transcript.archive import TranscriptTurn

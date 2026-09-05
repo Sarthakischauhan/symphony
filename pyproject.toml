@@ -1,8 +1,26 @@
 [project]
-name = "agent-platform"
+name = "symphony"
 version = "0.1.0"
-description = "Monorepo root for AI agent development"
+description = "Symphony workspace root: symphony-core, symphony-harness, symphony-code, and core-server (not itself a package)"
 requires-python = ">=3.11"
+license = "MIT"
 
 [tool.uv]
+package = false
 workspace = { members = ["coding_agent", "core_harness", "core_ai", "core_server"] }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["core_ai/src/core_ai/models/generated.py"]
+
+[tool.ruff.lint]
+# Correctness-only baseline: pyflakes plus pycodestyle errors. Style rules
+# can be layered on later once the codebase is formatted for them.
+select = ["E4", "E7", "E9", "F"]

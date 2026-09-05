@@ -15,7 +15,6 @@ from textual.app import App
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from core_ai import ModelRegistry
 from core_ai.types import Message, StreamEvent
 from coding_agent.tui.screens import ContextModal
 from core_harness import HarnessResult
@@ -34,7 +33,6 @@ from coding_agent.tui.commands import (
     find_model,
     mode_matches,
     model_matches,
-    model_options,
     model_supports_effort,
 )
 from coding_agent.tui.runtime import ControlPlaneEvent, TextualControlPlane

@@ -8,23 +8,71 @@ on:
 permissions:
   contents: read
 
+env:
+  # Keep in sync with publish.yml. uv itself is pinned here; the build backend
+  # (uv_build) is pinned separately in each package's [build-system].
+  UV_VERSION: "0.12.10"
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install workspace
+        run: uv sync --locked --all-packages --dev
+
+      - name: Ruff
+        run: uv run --no-sync ruff check .
+
+      - name: Catalog snapshot is untouched by install
+        # Installing the workspace builds symphony-core through its Hatch hook.
+        # That hook must ship the checked-in catalog, not rewrite it.
+        run: git diff --exit-code -- core_ai/src/core_ai/models/generated.py
+
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
-          version: "latest"
 
       - name: Install workspace
-        # Tests import via src on sys.path (see each package's tests/conftest.py).
-        # Skip editable installs: core-ai's hatch hook needs dotenv at build time,
-        # which is a runtime dependency and is not declared in build-system.requires.
-        run: uv sync --locked --all-packages --dev --no-install-workspace
+        # Installs every workspace package (the ones we publish included), so
+        # tests run against the built packages rather than only src/ on sys.path.
+        run: uv sync --locked --all-packages --dev
 
       - name: Run tests
         run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Build the published packages
+        # Same commands as publish.yml, so a release cannot be the first time a
+        # build is attempted.
+        run: |
+          uv build --package symphony-core -o dist
+          uv build --package symphony-harness -o dist
+          uv build --package symphony-code -o dist
+
+      - name: Catalog snapshot is untouched by build
+        run: git diff --exit-code -- core_ai/src/core_ai/models/generated.py

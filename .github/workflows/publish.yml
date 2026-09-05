@@ -7,30 +7,34 @@ on:
 permissions:
   contents: read
 
+env:
+  # Keep in sync with ci.yml.
+  UV_VERSION: "0.12.10"
+
 jobs:
   release-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # 1. Install modern, hyper-fast Astral uv
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
-          version: "latest"
 
-      # 2. Build publishable packages only (not core_server) into a flat dist/
-      #    so pypa/gh-action-pypi-publish can upload wheels/sdists from one dir.
+      # Build publishable packages only (not core-server) into a flat dist/
+      # so pypa/gh-action-pypi-publish can upload wheels/sdists from one dir.
+      # symphony-core ships its checked-in model catalog; the build does not
+      # refresh it (see core_ai/hatch_build.py).
       - name: Build release distributions
         run: |
           uv build --package symphony-core -o dist
           uv build --package symphony-harness -o dist
           uv build --package symphony-code -o dist
 
-      # 3. Aggregated distributions go to artifact storage
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-dists
           path: dist/
@@ -40,7 +44,7 @@ jobs:
     needs:
       - release-build
     permissions:
-      # MANDATORY for modern passwordless PyPI Trusted Publishing OIDC authentication
+      # Required for passwordless PyPI Trusted Publishing (OIDC).
       id-token: write
 
     environment:
@@ -48,14 +52,13 @@ jobs:
 
     steps:
       - name: Retrieve release distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-dists
           path: combined-dist/
 
-      # 4. Publish via standard security actions
       - name: Publish release distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: combined-dist/
           # Skips packages already on PyPI if you bump individual versions incrementally
