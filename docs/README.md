@@ -1,6 +1,6 @@
 # Symphony documentation
 
-Symphony is an open-source agent harness. These pages are the user-facing docs
+Symphony is an MIT-licensed agent harness. These pages are the user-facing docs
 for every package in the workspace.
 
 If you just want to run it:
@@ -41,5 +41,9 @@ Package READMEs (`core_ai/`, `core_harness/`, `coding_agent/`, `core_server/`)
 are the PyPI-facing versions of the same material. Prefer this `docs/` tree
 when you are reading in GitHub.
 
-Python import names: `symphony-core` → `core_ai`, `symphony-harness` →
-`core_harness`, `symphony-code` → `coding_agent`, `core-server` → `core_server`.
+| Directory | PyPI distribution | Python import | Command(s) |
+| --- | --- | --- | --- |
+| `core_ai/` | `symphony-core` | `core_ai` | — |
+| `core_harness/` | `symphony-harness` | `core_harness` | — |
+| `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases `symphony-code`, `coding-agent-tui`) |
+| `core_server/` | `core-server` (workspace only) | `core_server` | `core-server` |

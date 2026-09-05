@@ -63,37 +63,41 @@ Gemini uses streamGenerateContent, and Grok uses Chat Completions.
 
 ## Model catalog
 
-The shipped catalog in `src/core_ai/models/generated.py` is produced by
-`scripts/generate_models.py`. It records each model's short id, provider, and
-API family. Packaging `symphony-core` runs the generator through a Hatch build
-hook:
+The shipped catalog in `src/core_ai/models/generated.py` is a **checked-in
+snapshot**. It records each model's short id, provider, API family, and
+reasoning options. Installing or building `symphony-core` ships that file
+as-is: the build never contacts the network and never rewrites the snapshot.
 
-- the curated `https://models.dev/models.json` catalog is used as the source
-  of model ids
+The snapshot is produced by the maintainer script `scripts/generate_models.py`:
+
+- the curated [models.dev](https://models.dev) catalog
+  (`https://models.dev/api.json`) is the source of model ids
 - only text-output models with tool-calling support are emitted for OpenAI,
-  Anthropic, Gemini, and Grok
-- the existing generated snapshot (or a small fallback) is kept when the
-  catalog is unavailable, so builds remain resilient
+  Anthropic, Gemini, and Grok (plus OpenAI `gpt-image-*` models)
+- the catalog is downloaded once per run and filtered locally; the full
+  upstream response is never copied into the generated registry
 
-The catalog is downloaded once per generation and filtered locally; the full
-upstream response is never copied into the generated registry. Set
-`CORE_AI_MODELS_DEV=0` to disable the refresh, or `MODELS_DEV_URL` to use a
-mirror/test endpoint.
-
-Provider credentials are not needed to generate the catalog. They are still
-required when constructing a provider and using a model.
-
-Refresh the snapshot manually with:
+Refresh the snapshot and commit the result:
 
 ```sh
+cd core_ai
 uv run python scripts/generate_models.py
 ```
 
-Set `CORE_AI_GENERATE_STRICT=1` to fail a manual refresh when a configured
-provider request fails or returns no models. Without strict mode, the
-generator keeps that provider's existing snapshot.
-`scripts/generate_openai_models.py` remains as a backward-compatible wrapper
-around the combined generator.
+| Variable | Effect on `scripts/generate_models.py` |
+| --- | --- |
+| `CORE_AI_GENERATE_STRICT=1` | Fail instead of keeping the existing snapshot when models.dev is unreachable or returns nothing |
+| `CORE_AI_MODELS_DEV=0` | Skip the network entirely; rewrite the file from the existing snapshot (or the small built-in fallback) |
+| `MODELS_DEV_URL` | Mirror or test endpoint instead of `https://models.dev/api.json` |
+
+For a one-off refresh during packaging, set `CORE_AI_REFRESH_CATALOG=1` when
+building. The Hatch hook (`hatch_build.py`) then regenerates the catalog in
+strict mode and fails the build if models.dev cannot be reached. It needs
+`httpx` in the build environment (for example `uv build --no-build-isolation`
+inside the workspace). Without that variable the hook does nothing.
+
+Provider credentials are not needed to generate the catalog. They are still
+required when constructing a provider and using a model.
 
 Catalog entries can also be inspected or extended at runtime:
 

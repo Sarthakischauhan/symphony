@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
 
-from core_ai.providers.anthropic import Content
 from core_harness.events import ControlPlane
 from pydantic import Field
 

@@ -1,6 +1,6 @@
 # Symphony
 
-An open-source agent harness. Keep the loop product-agnostic, keep providers
+An agent harness, MIT licensed. Keep the loop product-agnostic, keep providers
 swappable, and drive every UI from a single control-plane event stream.
 
 <p>
@@ -21,10 +21,19 @@ uv run --package symphony-code symphony   # asks for a provider + API key if non
 # or: export OPENAI_API_KEY=sk-... then launch
 ```
 
+## Names
 
-The published packages are `symphony-core`, `symphony-harness`, and
-`symphony-code`. `core-server` ships in this workspace. Python import names stay
-`core_ai`, `core_harness`, `coding_agent`, and `core_server`.
+The repository is **Symphony**. It is a [uv](https://docs.astral.sh/uv/)
+workspace of four packages; three are published to PyPI. The PyPI names, the
+Python import names, and the command names are all different on purpose, and
+this table is the one place they are all listed:
+
+| Directory | PyPI distribution | Python import | Command(s) |
+| --- | --- | --- | --- |
+| `core_ai/` | `symphony-core` | `core_ai` | — |
+| `core_harness/` | `symphony-harness` | `core_harness` | — |
+| `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases: `symphony-code`, `coding-agent-tui`) |
+| `core_server/` | `core-server` (not published; workspace only) | `core_server` | `core-server` |
 
 ---
 
@@ -200,13 +209,17 @@ print(result.output_text)
 | | |
 | --- | --- |
 | **Streaming providers** | OpenAI Responses / Chat Completions, Anthropic Messages, Gemini generateContent, and Grok Chat Completions share `Message` / `StreamEvent`. Credentials register automatically. Models are `provider:model`. |
-| **Generated catalog** | Package-shipped list of tool-calling text models, refreshed at build from [models.dev](https://models.dev), with a checked-in snapshot as fallback. |
+| **Generated catalog** | A checked-in snapshot of tool-calling text models (`core_ai/models/generated.py`), generated from [models.dev](https://models.dev) by a maintainer script. Installing or building the package never refreshes it. |
 | **Turn-based harness** | Multi-turn tool calls, schema generation, run caps (turns, tools, runtime, tokens). |
-| **Control plane** | Typed events (thinking, `text_delta`, tools, usage, context, subagents). Authorization, user questions, always-allow, pause/cancel. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
-| **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning with a two-line **summary so far**. |
+| **Control plane** | Typed events (`ControlPlaneEventType`: run/turn lifecycle, `text_delta`, `reasoning_delta`, tool calls, `usage`, `context`, compaction, pause/resume, `agent_*` subagent lifecycle). Approval and user-input hooks, pause/cancel/inject commands. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
+| **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `ask_user`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning with a two-line **summary so far**. |
 | **Context** | Warn thresholds, token estimates, pluggable compaction that keeps the system prompt, original task, and recent turns. |
 | **Persistence** | `Persistence` protocol with checkpoints; SQLite sessions for TUI resume. |
 | **SSE server** | FastAPI wrapper that forwards harness events unchanged. |
+
+Workspace tools resolve paths under the workspace root and reject escapes;
+`bash` runs with your user's permissions after an approval prompt. There is no
+container or OS-level sandbox. See [SECURITY.md](./SECURITY.md).
 
 ---
 
@@ -240,11 +253,21 @@ All package docs live under **[`docs/`](./docs/README.md)**:
 Requires Python ≥ 3.11 and [`uv`](https://docs.astral.sh/uv/).
 
 ```sh
-uv sync
-uv run pytest
+uv sync                    # installs all four workspace packages + dev tools
+uv run pytest              # all test suites
+uv run ruff check .        # lint (same rules as CI)
 uv run --package symphony-code symphony
 ```
 
+CI runs lint, tests, and a build of the three published packages on every
+pull request (`.github/workflows/ci.yml`). Releases publish to PyPI from
+GitHub Releases (`.github/workflows/publish.yml`).
+
 Each package has its own `README.md`, `pyproject.toml`, and tests. The stack is
 **0.1.0** and under active development — APIs will keep evolving. See
-[`plan.md`](./plan.md) for the roadmap.
+[`plan.md`](./plan.md) for what exists today and what is next, and
+[`AGENTS.md`](./AGENTS.md) for conventions when working in this repo.
+
+## License
+
+MIT — see [LICENSE](./LICENSE). Security reports: [SECURITY.md](./SECURITY.md).

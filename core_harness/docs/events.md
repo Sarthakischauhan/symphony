@@ -4,7 +4,12 @@ Canonical user-facing catalog:
 **[docs/developer-guide/events.md](../../docs/developer-guide/events.md)**.
 
 `CoreHarness` emits ordered control-plane events with an `event_type` and a
-`payload`. Events marked conditional are emitted only when applicable.
+`payload`. Every `event_type` below is a member of
+`core_harness.ControlPlaneEventType` except `run_summary`, which is a product
+event emitted by the `symphony-code` learning add-on. Events marked conditional
+are emitted only when applicable. Identity fields (`run_id`, `session_id`,
+`seq`, `ts`, `schema_version`, `agent_id`, `parent_id`) are added by
+`IdentifiedControlPlane` and omitted from the examples.
 
 ## `run_started`
 
@@ -332,6 +337,25 @@ the run is available. The coding agent shows this in the transcript as
 }
 ```
 
+## `run_limit_exceeded` (conditional)
+
+Emitted instead of `run_completed` when a `HarnessConfig` cap (`max_turns`,
+`max_tool_calls`, `max_runtime_seconds`, `max_tokens`) is reached. The run
+raises `HarnessLimitExceeded`.
+
+```json
+{
+  "event_type": "run_limit_exceeded",
+  "payload": {
+    "turn": 8,
+    "limit": "max_turns",
+    "value": 9,
+    "max": 8.0,
+    "message": "Harness exceeded max_turns=8"
+  }
+}
+```
+
 ## `run_failed` (conditional)
 
 ```json
@@ -340,7 +364,58 @@ the run is available. The coding agent shows this in the transcript as
   "payload": {
     "turn": 1,
     "error_type": "RuntimeError",
-    "message": "Harness exceeded max_turns=8"
+    "message": "provider returned an unexpected payload"
+  }
+}
+```
+
+## `agent_spawned` (conditional)
+
+Subagent lifecycle events are emitted on the parent's plane. The child's own
+events carry the child's `agent_id` and the parent's id as `parent_id`.
+
+```json
+{
+  "event_type": "agent_spawned",
+  "payload": {
+    "child_id": "run-child-1",
+    "label": "readme",
+    "prompt": "Inspect README.md",
+    "model_id": "openai:gpt-5.6-mini",
+    "depth": 1
+  }
+}
+```
+
+## `agent_completed` (conditional)
+
+```json
+{
+  "event_type": "agent_completed",
+  "payload": {
+    "child_id": "run-child-1",
+    "label": "readme",
+    "output_text": "README describes a four-package agent harness.",
+    "usage": {
+      "prompt_tokens": 400,
+      "completion_tokens": 60,
+      "reasoning_tokens": 0,
+      "total_tokens": 460
+    }
+  }
+}
+```
+
+## `agent_failed` (conditional)
+
+```json
+{
+  "event_type": "agent_failed",
+  "payload": {
+    "child_id": "run-child-1",
+    "label": "readme",
+    "message": "Harness exceeded max_turns=4",
+    "error_type": "HarnessLimitExceeded"
   }
 }
 ```

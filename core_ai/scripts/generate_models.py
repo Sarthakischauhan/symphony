@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Generate the shipped core_ai model catalog.
 
-Live provider APIs are used when the matching key is set. Missing keys keep the
-existing generated snapshot (or a curated fallback) so packaging can always
-produce `src/core_ai/models/generated.py`.
+This is a maintainer command, not part of installing the package:
+
+    uv run python scripts/generate_models.py
+
+It downloads the curated models.dev catalog, projects it onto the providers
+core_ai implements, and rewrites `src/core_ai/models/generated.py`. Commit
+the result. If models.dev is unreachable the existing snapshot (or a small
+curated fallback) is kept unless `CORE_AI_GENERATE_STRICT=1` is set.
 """
 from __future__ import annotations
 
@@ -11,8 +16,6 @@ import os
 import re
 from pathlib import Path
 from typing import Callable, Iterable
-
-from dotenv import load_dotenv
 
 OUTPUT = Path(__file__).resolve().parents[1] / "src/core_ai/models/generated.py"
 MODELS_DEV_URL = "https://models.dev/api.json"
@@ -97,10 +100,6 @@ def fetch_models_dev_models(url: str = MODELS_DEV_URL) -> dict[str, list[tuple[s
     return {provider: sorted(set(models)) for provider, models in catalog.items()}
 
 
-
-# Load local development credentials when the script is run directly. Explicit
-# environment variables still win over values from .env.
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 OPENAI_PREFIXES = ("gpt-", "o1", "o3", "o4")
 OPENAI_CHAT_COMPLETIONS_PREFIXES = ("o1", "o3", "o4")
@@ -363,6 +362,14 @@ def generate(*, strict: bool = False, output: Path = OUTPUT) -> Path:
 
 
 def main() -> None:
+    # Local development credentials are only loaded for direct script runs;
+    # explicit environment variables still win over values from .env.
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        pass
+    else:
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     generate(strict=os.environ.get("CORE_AI_GENERATE_STRICT") == "1")
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import pytest
 

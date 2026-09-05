@@ -57,17 +57,27 @@ Grok uses Chat Completions.
 
 ## Model catalog
 
-The shipped catalog in `src/core_ai/models/generated.py` is produced by
-`scripts/generate_models.py`. Packaging runs the generator through a Hatch
-build hook.
+The shipped catalog in `src/core_ai/models/generated.py` is a checked-in
+snapshot produced by the maintainer script `scripts/generate_models.py`.
+Installing or building the package ships the snapshot unchanged; nothing
+contacts the network at install time.
 
-- Source of ids: the curated `https://models.dev/models.json` catalog.
+- Source of ids: the curated [models.dev](https://models.dev) catalog
+  (`https://models.dev/api.json`).
 - Only text-output models with tool-calling support are emitted for OpenAI,
   Anthropic, Gemini, and Grok.
-- The checked-in snapshot is kept when the live catalog is unavailable.
-- Set `CORE_AI_MODELS_DEV=0` to skip refresh, or `MODELS_DEV_URL` for a mirror.
-- `CORE_AI_GENERATE_STRICT=1` fails a manual refresh when a provider request
-  fails.
+- Refresh explicitly and commit the result:
+
+```sh
+cd core_ai
+uv run python scripts/generate_models.py
+```
+
+- `CORE_AI_GENERATE_STRICT=1` makes the script fail instead of keeping the
+  old snapshot when models.dev is unreachable. `CORE_AI_MODELS_DEV=0` skips
+  the network; `MODELS_DEV_URL` points at a mirror.
+- `CORE_AI_REFRESH_CATALOG=1` at build time opts a single build into a strict
+  refresh through the Hatch hook. Default builds never refresh.
 
 ```python
 from core_ai import ModelInfo, get_model, list_models
@@ -75,10 +85,6 @@ from core_ai.models import register_model
 
 model = get_model("openai", "gpt-4.1")
 register_model(ModelInfo(id="local-model", provider="local", api="responses"))
-```
-
-```sh
-uv run python scripts/generate_models.py
 ```
 
 Provider credentials: [Environment](../reference/environment.md).

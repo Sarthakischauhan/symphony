@@ -16,8 +16,6 @@ from coding_agent.tui.commands.catalog import (
     MODE_CATALOG,
     SLASH_COMMANDS,
     EffortOption,
-    ModeOption,
-    ModelOption,
     PlanOption,
     find_mode,
     find_model,

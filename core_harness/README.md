@@ -216,9 +216,11 @@ await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
 
 ## Events and control planes
 
-The harness emits run, turn, text-stream, tool, usage, context, compaction,
-pause/resume, injection, cancellation, limit, and subagent lifecycle events.
-Event types are available as `ControlPlaneEventType` values.
+The harness emits run, turn, text/reasoning stream, model-retry, tool, usage,
+context, compaction, pause/resume, injection, cancellation, limit, and
+subagent lifecycle events. Every harness event name is a member of
+`ControlPlaneEventType`; product add-ons (for example the coding agent's
+`run_summary`) may emit additional string event types through the same plane.
 `NullControlPlane` records events in memory and is the default.
 
 The catalog with payload examples is in
@@ -254,9 +256,10 @@ no-op `before_turn`, `after_turn`, `on_tool`, and `on_compact` hooks.
 default returns `None`. Skills can use this same attach path later;
 there is no directory discovery or loader.
 
-`coding_agent` attaches `PersistenceAddon` (SQLite),
-`KeepSystemRecentCompactor`, and `SubagentAddon` by default. A bare harness
-run has no compaction and no `spawn_agent` tool.
+`coding_agent` attaches `PersistenceAddon` (SQLite), its own
+`AiCompactionAddon` (an `InferenceCompactor` built on `plan_keep_drop`), and
+`SubagentAddon` by default; it does not mount `KeepSystemRecentCompactor`. A
+bare harness run has no compaction and no `spawn_agent` tool.
 
 ## Subagents
 

@@ -11,7 +11,7 @@ from core_harness import HarnessResult, NullControlPlane
 from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
-from coding_agent.config import CodingAgentConfig, LearningConfig
+from coding_agent.config import LearningConfig
 from coding_agent.learning import LearningLoop, LearningStore, two_line_summary
 
 

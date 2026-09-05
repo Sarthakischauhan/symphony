@@ -1,264 +1,204 @@
 # Symphony Plan
 
-Living roadmap for the Symphony monorepo (`symphony-core` → `symphony-harness` → `symphony-code`). The Python modules remain `core_ai` → `core_harness` → `coding_agent`.
+What is in the tree today, and what is next. Everything in "Current state" is
+verifiable against `main`; anything not yet built lives under "Open backlog".
+Update this file in the PR that changes the facts.
+
+| Directory | PyPI distribution | Python import | Command(s) |
+| --- | --- | --- | --- |
+| `core_ai/` | `symphony-core` | `core_ai` | — |
+| `core_harness/` | `symphony-harness` | `core_harness` | — |
+| `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases `symphony-code`, `coding-agent-tui`) |
+| `core_server/` | `core-server` (workspace only) | `core_server` | `core-server` |
 
 ---
 
 ## 1. Goal
 
-Ship a reusable agent stack:
+Ship a reusable agent stack where the harness is product-agnostic and every
+UI is driven by one typed control-plane event stream:
 
 | Layer | Package | Role |
-|---|---|---|
-| Models | `core_ai` | Provider registry + model catalog + streaming messages |
-| Loop | `core_harness` | Multi-turn tool loop + control plane |
-| Product | `coding_agent` | Workspace coding agent (tools + UX) |
+| --- | --- | --- |
+| Providers | `core_ai` | Provider registry, generated model catalog, `Message` / `StreamEvent` |
+| Loop | `core_harness` | Multi-turn tool loop, control plane, limits, compaction, add-ons, subagents |
+| Product | `coding_agent` | Workspace coding agent (tools, SQLite sessions, Textual TUI, learning) |
+| Transport | `core_server` | FastAPI wrapper that streams harness events over SSE |
 
 ---
 
-## 2. Current State
+## 2. Current state
 
-### Done (harness / control plane)
+### `core_ai` (symphony-core)
 
-Earlier phases for the general-purpose harness are landed:
+- Providers: OpenAI (Responses and Chat Completions, plus `gpt-image-*`),
+  Anthropic Messages, Gemini `streamGenerateContent`, Grok Chat Completions.
+  All translate to the shared `StreamEvent` contract, including
+  `reasoning_delta` and retry signals (429, SSL MAC, 5xx, connection).
+- `build_default_registry()` registers every provider with a credential;
+  `default_model_id()` resolves `SYMPHONY_MODEL`, provider-specific overrides,
+  then the first registered provider.
+- Canonical text/image `Message.content` parts translated per provider.
+- Model catalog: `src/core_ai/models/generated.py` is a checked-in snapshot
+  produced from models.dev by `scripts/generate_models.py`. It records id,
+  provider, API family, reasoning flag, and effort levels. Installing or
+  building the package ships the snapshot unchanged; a refresh is an explicit
+  maintainer action (`CORE_AI_REFRESH_CATALOG=1` opts one build in).
 
-- Usage + context metrics on the control plane (`usage`, `context`, turn events)
-- Context management (warn threshold, compaction, token estimates)
-- Control-plane product surface (typed events, fan-out, persistence, inbound pause/cancel/inject)
-- Multi-turn provider-neutral tool-call forwarding
-- Tool result protocol: every tool call gets `success`, `error`, `timeout`, or `cancelled`
-- Cancellation stops in-flight model streams and tool execution, then emits and persists `run_cancelled`
-- Optional run limits for turns, tool calls, runtime, and tokens (`run_limit_exceeded`)
-- Event identity on every control-plane event: `run_id`, `session_id`, `seq`, `ts`, `schema_version`
+### `core_harness` (symphony-harness)
 
-### Done (core server transport)
+- `CoreHarness.run()` coordinates a run; `loop/` holds `TurnRunner`, tool-call
+  execution, stream handling, and the run session; `context/` holds
+  `HarnessState`, token estimates, pruning, and the keep/drop planner.
+- Tool protocol: every call ends `success`, `error`, `timeout`, or
+  `cancelled`; results are bounded at insert time; stale tool bodies can be
+  pruned on a copy of the conversation.
+- Control plane: `ControlPlaneEventType` covers run/turn lifecycle,
+  `text_delta`, `reasoning_delta`, `model_retry_scheduled`, tool calls,
+  `usage`, `context`, compaction, pause/resume, message injection, and
+  `agent_*` subagent lifecycle. `IdentifiedControlPlane` stamps `run_id`,
+  `session_id`, `seq`, `ts`, `schema_version`, `agent_id`, `parent_id`.
+  Inbound commands: cancel, pause, resume, inject message.
+- Limits: `max_turns`, `max_tool_calls`, `max_runtime_seconds`, `max_tokens`
+  → `run_limit_exceeded` / `HarnessLimitExceeded`. Cancellation stops model
+  streams and tools and emits `run_cancelled`.
+- Add-ons (`Addon` with `before_turn` / `after_turn` / `on_tool` /
+  `on_compact` / `fork_for_child`): `PersistenceAddon`, `CompactionAddon`
+  (+ template `KeepSystemRecentCompactor` and exported `plan_keep_drop`),
+  `TelemetryAddon` (protocol seam only; `NullTelemetry`), `SubagentAddon`.
+- Subagents: `CoreHarness.spawn()` / `spawn_agent`; lifecycle events on the
+  parent plane; child events tagged with `agent_id` / `parent_id`; parallel
+  children (up to three per turn); `max_spawn_depth`.
+- Parallel tool execution for tools that opt in (`max_parallel_tool_calls`).
+- Approval gate: an interactive plane can implement `approve_tool_call` and
+  `request_user_input`; the harness calls the gate before invoking a tool.
 
-- Run requests may select `model_id`; system prompt and tools remain trusted server configuration
-- `GET /models` exposes supported model slugs using the Chat SDK registry contract; `/runs` rejects unadvertised slugs
-- Request-body, message, and conversation-history limits are enforced before harness execution
-- Bounded SSE queues apply backpressure instead of allowing unbounded event buffering
-- Harness event identity is preserved over SSE and exposed as `id: <run_id>:<seq>`
-- Client disconnects send the harness cancel command, stopping active model streams and tools cleanly
-- Harness owns terminal `run_completed`, `run_cancelled`, `run_limit_exceeded`, and `run_failed` events; the server does not duplicate them
-- CORS origins are explicit and deny browser cross-origin access by default
-- `ask_user` remains opt-in until the server supports responding to and resuming the same run
+### `coding_agent` (symphony-code)
 
-### Done (provider layer)
-
-- OpenAI Responses / Chat Completions, Anthropic Messages, and Gemini
-  generateContent stream through the shared `StreamEvent` contract
-- Credential-aware registry construction registers every configured provider
-- `provider:model` selection supports global and provider-specific environment overrides
-- Generated model catalog records provider and API family, refreshes during packaging,
-  and retains the checked-in snapshot when live discovery is unavailable
-- Coding-agent TUI and `core_server` register OpenAI, Anthropic, and Gemini from
-  their available credentials
-
-### Done (coding agent)
-
-`coding_agent` tools use one module each under a shared `WorkspaceTool` base:
+Tools, one module each under `WorkspaceTool` (`tools/base.py`), which binds a
+workspace root, rejects path escapes, and generates pydantic schemas:
 
 | Tool | Module | Purpose |
-|---|---|---|
-| `read_file` | `tools/read_file.py` | Read UTF-8 text |
+| --- | --- | --- |
+| `read_file` | `tools/read_file.py` | Read text (with line numbers) or images |
 | `write_file` | `tools/write_file.py` | Create / overwrite text |
-| `patch` | `tools/patch.py` | Surgical exact-text edit |
-| `bash` | `tools/bash.py` | Async shell in workspace (streamed, capped, timed out) |
-| `search` | `tools/search.py` | File name / content search |
-| `ask_user` | `tools/ask_user.py` | Clarifying questions |
+| `patch` | `tools/patch.py` | Exact-text edit; a miss returns nearby lines |
+| `bash` | `tools/bash.py` | Async shell in the workspace (streamed, capped, timed out) |
+| `search` | `tools/search.py` | File name / content search, `.gitignore`-aware |
+| `generate_image` | `tools/generate_image.py` | Generate an image and write it to a path |
+| `ask_user` | `tools/ask_user.py` | Clarifying questions through the control plane |
+| `spawn_agent` | via `SubagentAddon` | Focused child agent |
 
-- Approval gates ask before bash, file overwrite, or a broad patch (allow once / deny)
-- TUI Escape / Ctrl+X sends the harness cancel command and restores the composer
-- Safer defaults: 24 turns, 40 tool calls, 10 minutes, no aggregate token cap
-- Provider 429s, SSL MAC errors, and other hard API failures retry up to three times and keep an animated Working state
-- Learning is enabled by default, capped at 900 output tokens, and pending reflection is cancelled on TUI exit
-- `@file` composer search reuses the existing model/command selector
+- Default add-ons (`agent.default_addons`): `PersistenceAddon` (SQLite),
+  `AiCompactionAddon` (`InferenceCompactor`: harness keep/drop plan + a
+  model-written summary of dropped work), `SubagentAddon`.
+- Approvals (`ApprovalConfig`): ask before `bash`, overwrite, or a broad patch;
+  `always_allow` mode; allow-once answers.
+- Config: `.symphony/config.json` → `CodingAgentConfig` (harness, approvals,
+  tools, learning, compaction). Defaults: 24 turns, 40 tool calls, 10 minutes.
+- Credentials: environment, workspace `.env`, `~/.symphony/.env`; first-run
+  onboarding and `/provider` write the global file.
+- Learning: after a run, `LearningLoop` asks the active model to review the
+  transcript (capped at 900 output tokens), emits a two-line `run_summary`,
+  and stores sanitized lessons in `.symphony/learning/lessons.jsonl` (bounded,
+  atomic rewrite). Prior lessons are injected into later system prompts as
+  historical notes. Disable with `--no-learning` / `learning.enabled=false`.
+- Plan mode (`plan.py`): `Tab` toggles build / plan; plans are saved under
+  `.symphony/plans/`.
+- Textual TUI (`tui/`): streamed transcript with reasoning and tool panels,
+  `@path` completion, slash commands (`/model`, `/mode`, `/effort`, `/plan`,
+  `/provider`, `/new`, `/reload`, `/compact`, `/status`, `/context`,
+  `/learning`, `/diff`, `/clear`, `/help`, `/quit`), context footer, image
+  rendering, subagent cards and nested screens, session resume (`--resume`),
+  `Esc` / `Ctrl+X` cancel. See `coding_agent/TUI_ARCHITECTURE.md`.
 
-Shared `WorkspaceTool` base handles workspace binding, path escape rejection, pydantic schemas, and `as_harness_tool()`.
+### `core_server` (core-server)
 
-### Done (AST semantic layer + self-learning — this PR)
+- `POST /runs` streams control-plane events as SSE with
+  `id: <run_id>:<seq>`; `GET /models` returns the Chat SDK registry shape and
+  `/runs` rejects unadvertised slugs; `GET /health`.
+- Request-body, message, and history limits; bounded SSE queue; client
+  disconnect sends the harness cancel command.
+- CORS denies browser origins by default; no built-in authentication.
+- `ask_user` is opt-in until the server supports responding to a running run.
+- Not published to PyPI.
 
-- AST parser emits decorators, constants, call sites, qualified names
-- Semantic index: symbols, inheritance, callers/callees; rendered into prompt + `ast_query`
-- Post-task learning loop writes `<workspace>/.symphony/learning/{lessons.jsonl,playbook.md}`
-- Playbook injected into later system prompts (disable with `enable_learning=False`)
+### Repository
 
-### Follow-up hardening (PR on `feature/agent-tools-followup`)
-
-- [x] Patch whitespace preserved via harness-validated `PatchArgs`
-- [x] `RepositoryContextProvider` with hash/mtime cache + token-budgeted repo map
-- [x] On-demand `ast_query`; invalidate after edits; pluggable indexer protocol
-- [x] Learning: optional LLM reviewer (`should_persist`); proposed vs trusted stores
-- [x] Reviewer must read full lesson before propose_update; no in-place trusted rewrites
-- [x] Sanitize/redact; atomic JSONL/playbook; learning failures don't fail the agent run
-
-### Not started yet / next
-
-- Pause / resume bindings in the TUI
-- Richer lesson synthesis (model-authored summaries)
-- Multi-language AST beyond Python
+- CI (`.github/workflows/ci.yml`): ruff lint, full test suite against the
+  installed workspace packages, and a build of the three published packages;
+  actions and uv pinned. Releases publish via trusted publishing
+  (`publish.yml`).
+- MIT licensed (`LICENSE`); vulnerability reporting in `SECURITY.md`;
+  contributor conventions in `AGENTS.md`.
 
 ---
 
-## 3. Design Principles
+## 3. Design principles
 
 1. **One tool per file.** Same shape everywhere (`WorkspaceTool` + `run` + register).
 2. **Harness stays product-agnostic.** Coding-agent specifics live in `coding_agent`.
-3. **Workspace sandbox.** All FS tools resolve under a root; escapes raise.
-4. **Control plane for UX.** UIs subscribe to CP events; do not scrape stdout.
-5. **Tests without keys first.** Unit-test tools and harness; keep live tests opt-in.
+3. **Workspace root, not a sandbox.** File tools resolve under a root and
+   reject escapes. `bash` runs with the user's permissions behind an approval
+   prompt. There is no container or OS-level isolation; do not describe one.
+4. **Control plane for UX.** UIs subscribe to events; nothing scrapes stdout.
+5. **Tests without keys.** Providers are mocked; no test calls a live API.
+6. **Generated code is script-owned.** `generated.py` is refreshed by a
+   maintainer command, never as a side effect of install or build.
 
 ---
 
-## 4. Implementation Phases
+## 4. Open backlog
 
-### Phase 1 — Modular coding tools ✅
+Nothing below exists in the tree yet.
 
-- [x] Split `read_file`, `write_file`, `bash`, `grep` into separate modules
-- [x] Shared `WorkspaceTool` base + `build_tools()`
-- [x] System prompt updated for four tools
-- [x] Unit tests for tools (path safety, grep, bash, schemas)
-- [x] README documents the add-a-tool pattern
+### Coding agent
 
-### Phase 2 — Minimal Textual TUI (parallel PR #4)
+- Configurable tool allowlist / denylist (today: approvals only, no way to
+  disable a tool from config).
+- Pause / resume keybindings in the TUI (the harness supports the commands and
+  the TUI renders `paused`, but only `ask_user` pauses today).
+- Repository-structure context for the model (a token-budgeted repo map or a
+  symbol index). No AST layer, `ast_query`, or `RepositoryContextProvider`
+  exists; earlier versions of this file described one that was never merged.
+- Richer lesson synthesis: consolidating many lessons into a curated playbook
+  rather than replaying the most recent ones.
+- Reviewed / trusted lesson tiers (all stored lessons are currently treated
+  the same).
 
-Scaffold a basic terminal UI so humans can chat with the agent:
+### Harness
 
-- [x] Add `textual` dependency
-- [x] Minimal app: transcript log + input box + run agent turn
-- [x] Subscribe to control-plane events (tool start/complete; streaming later)
-- [x] Entry points: `python -m coding_agent.tui` / `symphony` / `symphony-code` / `coding-agent-tui`
-- [x] Stream `text_delta` into the log without duplicating final output
-- [x] Cancel bindings via inbound CP commands
+- A concrete `Telemetry` implementation (JSONL or OTel trace export). The
+  add-on seam exists; there is no exporter.
+- Skills / add-on discovery (today add-ons are attached explicitly; there is
+  no loader).
 
-### Phase 3 — Agent hardening ✅ (this PR)
+### Server
 
-- [x] `patch` / edit-file tool (surgical exact-text edits)
-- [x] Expand AST layer: semantic symbols, inheritance, call graph, `ast_query`
-- [x] Self-learning loop after each task under `.symphony/learning`
-- [x] Permission policy (e.g. confirm before `bash` / overwrite)
-- [ ] Configurable tool allowlist / denylist
-- [ ] Model-authored lesson summaries (beyond heuristic tips)
+- Responding to `ask_user` on a running run (needed before enabling that tool
+  by default).
+- Authentication (currently expected from a reverse proxy).
+- Publishing `core-server` to PyPI.
 
-### Phase 4 — Product UX
+### New consumers
 
-- [x] Streaming transcript in TUI (token deltas)
-- [x] Tool-call panels (name, args, result collapse)
-- [x] Cancel via inbound control-plane commands
-- [x] Session save / resume (messages + workspace path)
-- [x] Usage / context footer from CP `usage` + `context` events
-
-### Phase 5 — Platform backlog
-
-| Feature | Why | Depends on |
-|---|---|---|
-| Middleware hooks | pre/post model & tool | harness lifecycle |
-| Parallel tool execution | latency | tool executor + CP ordering |
-| Sub-agents / nested harness | orchestration | `run_id` / `parent_run_id` |
-| Eval / trace export | JSONL or OTel | event catalog |
-| Budget caps | stop on tokens / $ | usage events — token/turn/runtime/tool-call caps landed |
-| Additional providers | Extend beyond OpenAI, Anthropic, and Gemini | `core_ai` provider contract |
+- Browser-use agent on the same harness.
 
 ---
 
-## 5. Concrete Checklist (post-merge)
+## 5. Non-goals (near term)
 
-### Align tools + TUI
-
-- [x] Merge tools and TUI work
-- [x] Point TUI docs at the current `read_file` / `write_file` / `patch` / `search` / `bash` names
-- [x] Stream `text_delta` in TUI without duplicating `output_text`
-
-### Next agent work
-
-- [x] Land `patch` / edit-file tool
-- [x] Semantic AST + `ast_query`
-- [x] `.symphony` self-learning loop
-- [x] Tool result size caps (beyond read/grep)
-- [x] Optional permission gate for bash / overwrite
+- Full IDE / LSP integration.
+- Remote sandbox / container isolation for `bash`.
+- Replacing the harness control plane with a UI-only event bus.
+- Perfect ripgrep parity in `search` (Python search is enough for v1).
 
 ---
 
-## 6. Non-Goals (near term)
+## 6. How to use this doc
 
-- Full IDE / LSP integration
-- Remote sandbox / container isolation (local workspace root only for now)
-- Replacing `core_harness` control plane with a UI-only event bus
-- Perfect ripgrep parity in `grep` (Python search is enough for v1)
-
----
-
-## 7. Core Harness Refactor: Decongest `harness.py`
-
-### Goal
-
-Keep `CoreHarness` as the public façade and run-loop coordinator, while moving
-domain logic into small, testable modules. Preserve the current public API and
-observable behavior, especially control-plane event ordering, usage/context
-accounting, persistence checkpoints, cancellation, and multi-tool sequencing.
-
-### Responsibilities to separate
-
-`CoreHarness.run()` currently owns session loading, lifecycle orchestration,
-stream parsing, usage estimation, context management, inbound commands, tool
-registration/execution, message serialization, and all terminal-state
-persistence. These are the seams for the refactor.
-
-### Target boundaries
-
-| Target | Responsibility |
-|---|---|
-| `core_harness/state.py` | `HarnessState`: context policy, compaction, and valid message transitions |
-| `core_harness/turn.py` | `TurnRunner`: streamed provider events, usage/context events, tool-call decoding, and tool execution for one turn |
-| `core_harness/harness.py` | `CoreHarness`: configuration plus run loop (session setup, turn iteration, commands, persistence, outcomes) |
-| `core_harness/control_plane.py` | Emitters, identity stamp, event log |
-| `core_harness/tools.py` | `Tool` adapter (subclasses may override `execute`) |
-
-Do not introduce a `ToolManager`; `Tool` remains responsible for schema
-generation and invocation. `CoreHarness` owns the ordered name lookup for
-the duration of a run.
-
-### Migration phases
-
-1. **Characterize behavior.** Add focused unit tests for tool argument
-   decoding/serialization, stream aggregation, usage fallback, conversation
-   initialization, and terminal persistence. Keep the existing end-to-end
-   tests as compatibility tests.
-2. **Move message transitions into state.** Use `HarnessState` for
-   assistant/tool/user/injected message changes, while keeping provider calls
-   and event emission in the run lifecycle.
-3. **Move turn processing into `TurnRunner`.** Keep the event-driven model
-   turn and its control-plane emissions together, including tool execution.
-4. **Keep `CoreHarness.run` focused.** It should coordinate turns, persistence,
-   commands, and terminal outcomes without interpreting provider events.
-5. **Keep `CoreHarness` as the public type.** It should configure dependencies,
-   register `Tool` instances, and expose the existing public API.
-6. **Verify.** Run the existing suite and preserve event order, persistence
-   metadata, cancellation behavior, and the public constructor/run signature.
-
-### Acceptance criteria
-
-- `CoreHarness` remains importable from `core_harness` with its current
-  constructor and `run()` signature.
-- Existing tests pass without changing event names/order or result values.
-- Conversation transitions and the complete run lifecycle have clear owners
-  without introducing pass-through helper modules.
-- `harness.py` contains orchestration and wiring rather than every concern's
-  implementation details.
-
-### Non-goals
-
-- No parallel tool execution, retries, middleware, or new provider behavior.
-- No changes to the public `Tool` API, persistence protocol, or event catalog.
-- No broad package rename unless needed to avoid import cycles.
-
----
-
-## 8. How to Use This Doc
-
-1. Pick the next open phase checklist item.
-2. Prefer a focused PR (tools ≠ TUI ≠ harness metrics).
-3. Update **Current State** and checkboxes when work merges.
-4. Add new backlog rows under Phase 5 instead of rewriting history.
-
-**Primary near-term objectives:** richer learning summaries, pause/resume UX, multi-language AST.
+1. Pick an item from the open backlog.
+2. Prefer a focused PR (tools ≠ TUI ≠ harness).
+3. When work merges, move the fact into "Current state" and delete it from
+   the backlog. Do not leave checked boxes describing things that are not in
+   the tree.
