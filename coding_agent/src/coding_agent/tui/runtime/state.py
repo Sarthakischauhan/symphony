@@ -85,6 +85,17 @@ class UiRunState:
         m.cumulative_tokens = int(payload.get("cumulative_tokens") or m.total_tokens)
         m.estimated = bool(payload.get("estimated", False))
 
+    def set_context_limit(self, limit: Optional[int]) -> None:
+        """Apply a model context limit and recalculate all derived metrics."""
+        m = self.metrics
+        m.context_limit = limit
+        if limit is None or limit <= 0:
+            m.context_left = None
+            m.utilization = None
+            return
+        m.context_left = max(limit - m.tokens_used, 0)
+        m.utilization = min(m.tokens_used / limit, 1.0)
+
     def update_context(self, payload: Dict[str, Any]) -> None:
         m = self.metrics
         limit = payload.get("context_limit")

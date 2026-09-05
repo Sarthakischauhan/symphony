@@ -37,7 +37,7 @@ def select_model(app: Any, argument: str) -> None:
         agent.learning_loop.model_id = selected.id
     app.model_id = selected.id
     app._ui_state.model_id = selected.id
-    app._ui_state.metrics.context_limit = agent.harness.state.context_limit(selected.id)
+    app._ui_state.set_context_limit(agent.harness.state.context_limit(selected.id))
     app.query_one("#topbar").set_context(app.workspace, selected.id)
     app._set_status("")
     app.add_notice(f"Model switched to {selected.label} · {selected.id}", "success")
@@ -229,11 +229,7 @@ async def reload_project(app: Any) -> None:
         model_id = reloaded_agent.harness.model_id
         app._ui_state.model_id = model_id
         context_limit = reloaded_agent.harness.state.context_limit(model_id)
-        app._ui_state.metrics.context_limit = context_limit
-        if app._ui_state.metrics.context_left is not None:
-            app._ui_state.metrics.context_left = max(
-                context_limit - app._ui_state.metrics.tokens_used, 0
-            )
+        app._ui_state.set_context_limit(context_limit)
         app.query_one("#topbar").set_context(app.workspace, model_id)
         app._set_status("")
         app.add_notice("Configuration reloaded.", "success")
