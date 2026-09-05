@@ -58,7 +58,7 @@ def default_addons(
         ai_compaction_from_config(harness_config, compaction),
     ]
     if include_subagent:
-        addons.append(SubagentAddon(configure=spawn_configure))
+        addons.append(SubagentAddon(configure=spawn_configure, background=True))
     return addons
 
 
@@ -133,6 +133,7 @@ class CodingAgent:
             tools=self.tools,
             control_plane=self.control_plane,
             session_id=self.session_id,
+            agent_id=self.session_id,
             addons=addons,
         )
 
@@ -161,7 +162,13 @@ class CodingAgent:
             if parent_approvals is not None:
                 approvals = parent_approvals.model_copy(update={"mode": "always_allow"})
             child_plane = fork(approvals=approvals)
-        return ChildConfig(model_id=mid or None, max_turns=turns, control_plane=child_plane)
+        return ChildConfig(
+            model_id=mid or None, max_turns=turns, control_plane=child_plane,
+            addon_factory=lambda parent: default_addons(
+                persistence=self.persistence, harness_config=parent.config,
+                compaction=self.config.compaction, include_subagent=False,
+            ),
+        )
 
     async def run(
         self,

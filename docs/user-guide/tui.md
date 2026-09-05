@@ -33,7 +33,7 @@ uv run --package symphony-code symphony --model gemini:gemini-3.7-flash
 ## Tool transcript
 
 Completed tools fold into an expandable **Explored** widget in batches of 10.
-When the run finishes, remaining completed tools (including subagent cards)
+When the run finishes, remaining completed tools
 fold too, and expanded batches close. Running tools remain visible. Restored
 conversations use the same compact presentation. Completed thoughts fold into
 the same widget, retaining only their titles.
@@ -76,6 +76,26 @@ and does not rewrite `.symphony/config.json`.
 
 Click a Subagent row to open a nested session with the same transcript chrome.
 Children run without approval prompts; the parent approval mode is unchanged.
+
+Child tasks run in the background by default. The parent receives a child ID
+immediately and can continue independent work. The runtime automatically
+delivers child results between model turns. When independent work is done,
+it waits for remaining children and lets the parent incorporate their results
+before completing the run. No extra model tool calls are needed to wait or poll.
+Passing `background: false` to `spawn_agent` explicitly waits for completion.
+
+Press **Ctrl+G** to browse running and finished children, then **Enter** to
+inspect one. Child entries remain clickable after tool compaction. The child
+screen uses the parent's thought titles, tool widgets, 10-tool/final-completion
+folding, and usage footer. **Esc** or **q** returns to the parent without
+stopping the child; **Ctrl+X** inside the child screen cancels that child.
+
+Each child has a separate saved conversation and transcript update stream in
+the workspace's `sessions.sqlite3`, linked to the parent session. Resuming the
+parent restores its child list and transcripts. Closing the app stops its
+background children; after an unclean exit, unfinished saved children appear
+as **interrupted**. Saved transcripts are inspectable, but opening one does
+not automatically restart execution.
 
 <div align="center">
   <img src="../subagent-spawn.gif" alt="Nested subagent session" height="280">

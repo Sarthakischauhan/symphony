@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import uuid
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
@@ -10,7 +10,7 @@ from core_ai.types import Content
 from core_harness.addons.addon import Addon
 from core_harness.events import ControlPlane, IdentifiedControlPlane
 from core_harness.models import HarnessResult
-from core_harness.tools import Tool
+from core_harness.tools import Tool, current_tool_call_id
 
 if TYPE_CHECKING:
     from core_harness.harness import CoreHarness
@@ -40,6 +40,7 @@ class ChildIdentity:
     parent_plane: IdentifiedControlPlane
     blocked: bool = False
     blocked_message: str = ""
+    tool_call_id: str = ""
 
 
 class SubagentAddon(Addon):
@@ -58,10 +59,12 @@ class SubagentAddon(Addon):
         exclude_tools: Sequence[str] = ("spawn_agent",),
         max_turns: Optional[int] = None,
         configure: Optional[Callable[..., Optional[ChildConfig]]] = None,
+        background: bool = False,
     ) -> None:
         self.exclude_tools = exclude_tools
         self.max_turns = max_turns
         self.configure = configure
+        self.background = background
 
     def attach(self, harness: Any) -> None:
         harness.register_tool(self.make_spawn_tool(harness))
@@ -126,7 +129,7 @@ class SubagentAddon(Addon):
                 parent, tools=tools, exclude_tools=exclude_tools
             ),
             control_plane=identity.control_plane,
-            session_id=str(uuid.uuid4()),
+            session_id=identity.agent_id,
             addons=self.child_addons(parent, child_config),
             agent_id=identity.agent_id,
             parent_id=identity.parent_id,
@@ -145,9 +148,14 @@ class SubagentAddon(Addon):
         model_id: Optional[str] = None,
         max_turns: Optional[int] = None,
         child_config: Optional[ChildConfig] = None,
+        background: bool = False,
     ) -> HarnessResult:
         """Build and run a child. Parent harness owns identity and lifecycle events."""
         cfg = child_config or ChildConfig()
+        if background and sum(
+            record.status == "running" for record in parent.child_tasks.values()
+        ) >= parent.config.max_parallel_tool_calls:
+            return HarnessResult(output_text="error: child concurrency limit reached; wait for an active child", messages=[])
         model_id = model_id or cfg.model_id
         max_turns = max_turns if max_turns is not None else cfg.max_turns
         identity = await parent.begin_child(
@@ -155,6 +163,7 @@ class SubagentAddon(Addon):
             prompt=prompt,
             control_plane=cfg.control_plane,
         )
+        identity.tool_call_id = current_tool_call_id.get()
         if identity.blocked:
             return HarnessResult(
                 output_text=identity.blocked_message,
@@ -171,6 +180,11 @@ class SubagentAddon(Addon):
             model_id=model_id,
             max_turns=max_turns,
         )
+        if background:
+            from core_harness.addons.subagent.background import start_child
+
+            record = await start_child(parent, child, prompt, identity)
+            return HarnessResult(output_text=json.dumps(record.snapshot()), messages=[])
         return await parent.run_child(child, prompt, identity=identity)
 
     def make_spawn_tool(self, harness: Any) -> Tool:
@@ -184,12 +198,14 @@ class SubagentAddon(Addon):
         default_max_turns = self.max_turns
         exclude_tools = self.exclude_tools
         configure = self.configure
+        default_background = self.background
 
         async def spawn_agent(
             prompt: str,
             label: str = "",
             model_id: str = "",
             max_turns: int = 0,
+            background: bool = default_background,
         ) -> str:
             child_config = ChildConfig(
                 model_id=model_id or None,
@@ -230,7 +246,10 @@ class SubagentAddon(Addon):
                 label=label,
                 exclude_tools=exclude_tools,
                 child_config=child_config,
+                background=background,
             )
+            if background or result.output_text.startswith("error:"):
+                return result.output_text
             name = label.strip() or "child"
             return f"Subagent {name} completed.\n\n{result.output_text}"
 
@@ -238,15 +257,22 @@ class SubagentAddon(Addon):
             spawn_agent,
             name="spawn_agent",
             description=(
-                "Spawn a child agent for a focused subtask. Call this multiple "
-                "times in one turn to run up to three independent children in "
-                "parallel. Optionally set model_id and max_turns for that child. "
+                "Spawn a child agent for a focused subtask. Background work returns "
+                "a child_id immediately. Continue independent work; the runtime "
+                "delivers child results automatically between turns and waits for "
+                "remaining children before finalizing your answer. No polling is needed. "
+                f"Background defaults to {default_background}. "
+                "Optionally set model_id and max_turns for that child. "
                 "Children run without approval prompts and cannot spawn further "
                 "agents."
             ),
             parameters={
                 "type": "object",
                 "properties": {
+                    "background": {
+                        "type": "boolean",
+                        "description": "Return immediately with a child ID. False waits for completion.",
+                    },
                     "prompt": {
                         "type": "string",
                         "description": "The full task for the child agent to complete.",
@@ -269,6 +295,5 @@ class SubagentAddon(Addon):
             },
             parallel=True,
         )
-
 
 __all__ = ["ChildConfig", "ChildIdentity", "SubagentAddon"]

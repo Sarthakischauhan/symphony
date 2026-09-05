@@ -37,6 +37,10 @@ class UiRunState:
     detail: str = ""
 
     def reset_for_run(self, *, model_id: str = "") -> None:
+        # Context usage describes the active session, not just the next turn.
+        # Preserve it while clearing per-run token accounting so the footer
+        # does not briefly fall back to an empty/unknown state.
+        context = self.metrics
         self.phase = "thinking"
         self.model_id = model_id or self.model_id
         self.turn = None
@@ -44,7 +48,12 @@ class UiRunState:
         self.reasoning_text = ""
         self.stream_started = False
         self.tool_args_preview = ""
-        self.metrics = RunMetrics()
+        self.metrics = RunMetrics(
+            context_limit=context.context_limit,
+            context_left=context.context_left,
+            tokens_used=context.tokens_used,
+            utilization=context.utilization,
+        )
         self.detail = "starting"
 
     def begin_turn(self, turn: int) -> None:

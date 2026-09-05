@@ -298,7 +298,14 @@ result = await parent.spawn(
 `ChildConfig` — for example a forked UI control plane that auto-approves child
 tools. Children get a fresh conversation, `NullPersistence`, and the parent
 tool set minus `spawn_agent`. Nested spawns stop at `max_spawn_depth`.
-Multiple `spawn_agent` calls in one turn run concurrently (up to three).
+Multiple `spawn_agent` calls in one turn run concurrently up to the configured
+parallel-tool limit. `SubagentAddon(background=True)` returns child IDs immediately;
+the runtime delivers results between model turns and waits for unfinished children
+before final completion. Hosts await `shutdown_children()` when shutting down.
+See [background children](docs/background-children.md) for lifecycle and persistence.
+
+`coding_agent` enables background spawning and supplies persistence and compaction
+add-ons for each child, using separate sessions in the parent's storage backend.
 
 ## Context management
 

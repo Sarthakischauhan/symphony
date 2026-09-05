@@ -257,9 +257,16 @@ async def iter_provider_events(
             return
         if not task.done():
             task.cancel()
+        owner = asyncio.current_task()
+        cancellations = owner.cancelling() if owner is not None else 0
         try:
             await task
-        except (asyncio.CancelledError, StopAsyncIteration, RuntimeError):
+        except asyncio.CancelledError:
+            # Ignore cancellation of the helper, but never swallow a new
+            # cancellation of the agent while it is cleaning up that helper.
+            if owner is not None and owner.cancelling() > cancellations:
+                raise
+        except (StopAsyncIteration, RuntimeError):
             pass
 
     next_event: Optional[asyncio.Task] = None

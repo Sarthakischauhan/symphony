@@ -8,19 +8,21 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from rich.text import Text
+from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.widgets import Static
+from textual.widgets import Static, OptionList
+from textual.widgets.option_list import Option
 
-from coding_agent.tui.chrome import TopBar
+from coding_agent.tui.chrome import TopBar, render_footer, display_workspace_path
+from coding_agent.tui.runtime.events import EventPresenter
+from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.screens.modal import ModalBase
 from coding_agent.tui.theme import APP_CSS
 from coding_agent.tui.transcript import (
-    AssistantMessage,
-    RunProcess,
-    ThinkingStatus,
     UserMessage,
+    TranscriptSurface,
 )
-from coding_agent.tui.tools import BashToolHeader, ToolCallWidget, make_tool_widget
+from coding_agent.tui.tools import BashToolHeader, ToolCallWidget
 from coding_agent.tui.transcript import clip_text, compact_json, preview_text
 
 
@@ -37,6 +39,12 @@ class SubagentRecord:
     output_text: str = ""
     events: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     tools: list[dict[str, Any]] = field(default_factory=list)
+    session_id: str = ""
+    tool_call_id: str = ""
+    run_id: str = ""
+    config: dict[str, Any] = field(default_factory=dict)
+    _seen_events: set[tuple[str, int]] = field(default_factory=set, repr=False)
+    _widgets: list[Any] = field(default_factory=list, repr=False)
 
     def _tool(self, payload: dict[str, Any]) -> dict[str, Any]:
         call_id = str(payload.get("tool_call_id") or f"tool-{len(self.tools)}")
@@ -59,8 +67,22 @@ class SubagentRecord:
         return tool
 
     def ingest(self, event_type: str, payload: dict[str, Any]) -> None:
+        if payload.get("parent_id") and (
+            payload.get("agent_id") != self.agent_id
+            or payload.get("parent_id") != self.parent_id
+        ):
+            return
+        if payload.get("run_id") and isinstance(payload.get("seq"), int):
+            key = (str(payload["run_id"]), payload["seq"])
+            if key in self._seen_events:
+                return
+            self._seen_events.add(key)
         self.events.append((event_type, dict(payload)))
         if event_type == "run_started":
+            self.run_id = str(payload.get("run_id") or self.run_id)
+            self.session_id = str(payload.get("session_id") or self.session_id)
+            self.status = "running"
+            self.output_text = ""
             self.model_id = str(payload.get("model_id") or self.model_id)
         elif event_type == "tool_call_started":
             tool = self._tool(payload)
@@ -102,97 +124,125 @@ class SubagentRecord:
             self.status = "completed"
             if payload.get("output_text"):
                 self.output_text = str(payload["output_text"])
-        elif event_type in {"run_failed", "run_cancelled", "agent_failed"}:
-            self.status = "failed"
+        elif event_type in {"run_failed", "run_cancelled", "run_limit_exceeded", "agent_failed"}:
+            self.status = "cancelled" if event_type == "run_cancelled" or payload.get("error_type") == "HarnessCancelled" else "failed"
             if payload.get("message"):
                 self.output_text = str(payload["message"])
 
 
-class SubagentScreen(ModalBase[None]):
+class SubagentScreen(TranscriptSurface, ModalBase[None]):
     """Full-screen child transcript using the parent session's visual language."""
 
     # Use the same chrome and transcript surface as the parent app.  This is
     # intentionally not a second, legacy subagent layout: the child prompt is
     # the first user message and the child run uses the normal process cards.
-    CSS = APP_CSS
+    CSS = APP_CSS + """
+    SubagentScreen { border: round #484F58; }
+    #child-heading { height: 2; padding: 0 3; color: #a2adb8; }
+    #child-back { height: 1; padding: 0 3; color: #737373; }
+    """
+    BINDINGS = [
+        Binding("escape,q", "close_modal", "Back to parent", show=False, priority=True),
+        Binding("ctrl+x", "stop_child", "Stop child", show=False, priority=True),
+    ]
 
-    def __init__(self, record: SubagentRecord, workspace: Any = None) -> None:
+    def __init__(self, record: SubagentRecord | None = None, workspace: Any = None,
+                 *, child_id: str = "", parent_id: str = "") -> None:
         super().__init__()
         self.record = record
+        self.child_id = child_id or (record.agent_id if record else "")
+        self.parent_id = parent_id or (record.parent_id if record else "")
         self.workspace = Path(workspace or ".").resolve()
-        self._thinking = ThinkingStatus("Child working…")
-        self._process = RunProcess(self._thinking)
-        self._assistant = AssistantMessage()
-        self._tools: dict[str, ToolCallWidget] = {}
+        self._thinking = self._process = self._assistant = self._reasoning = None
+        self._tools = {}
+        self._subagents = {}
+        self._transcript_turns = []
+        self._current_transcript_turn = None
+        self._busy = True
+        self._event_cursor = 0
+        self._ready = False
+        self._stream_flush_timer = None
+        self._ui_state = UiRunState()
+        self._presenter = EventPresenter(
+            state=self._ui_state, view=self, set_status=self._set_status,
+            workspace=str(self.workspace), schedule_flush=self._schedule_stream_flush,
+        )
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield TopBar(id="topbar")
-        with VerticalScroll(id="transcript"):
-            yield UserMessage(self.record.prompt or "No task description was provided.")
-            yield self._process
-            yield self._assistant
+        yield Static(id="child-heading", markup=False)
+        yield VerticalScroll(id="transcript")
+        yield Static("Viewing child transcript · Esc back · Ctrl+X stop child", id="child-back")
         yield Static(id="status")
 
     def on_mount(self) -> None:
+        if self.record is None:
+            self.record = getattr(self.app, "_subagents", {}).get(self.child_id)
+        if self.record is None or self.record.parent_id != self.parent_id:
+            self.add_notice("Child session not found for this parent.", "error")
+            return
+        self._mount_transcript(UserMessage(self.record.prompt or "Child task"))
+        self.live_tool_widget_limit = getattr(self.app, "live_tool_widget_limit", 10)
+        self._ready = True
         self.refresh_record()
+
+    def _schedule_stream_flush(self, callback: Any) -> None:
+        if self._stream_flush_timer is not None:
+            return
+        def flush() -> None:
+            self._stream_flush_timer = None
+            callback()
+        self._stream_flush_timer = self.set_timer(1 / 15, flush)
+
+    def on_unmount(self) -> None:
+        if self._stream_flush_timer is not None:
+            self._stream_flush_timer.stop()
+
+    def _set_status(self, _value: str = "") -> None:
+        self.query_one("#status", Static).update(render_footer(
+            self._ui_state, hint="esc back", workspace=display_workspace_path(self.workspace),
+        ))
+
+    async def action_stop_child(self) -> None:
+        await self.app.cancel_subagent(self.child_id)
 
     def refresh_record(self) -> None:
         """Synchronize live child state into the nested transcript."""
         record = self.record
+        if record is None or not self._ready:
+            return
         self.query_one("#topbar", TopBar).set_context(
             self.workspace,
             record.model_id,
             label=record.label,
         )
 
-        for index, tool_data in enumerate(record.tools):
-            call_id = str(tool_data.get("id") or f"tool-{index}")
-            widget = self._tools.get(call_id)
-            if widget is None:
-                widget = make_tool_widget(
-                    call_id,
-                    str(tool_data.get("name") or "tool"),
-                )
-                self._tools[call_id] = widget
-                self._process.add_item(widget)
-            status = str(tool_data.get("status") or "preparing")
-            arguments = tool_data.get("arguments") or {}
-            raw_arguments = str(tool_data.get("raw_arguments") or "")
-            if status == "running":
-                widget.set_running(arguments)
-            elif status in {"done", "failed"}:
-                widget.set_result(tool_data.get("result") or "")
-                if status == "failed":
-                    widget.status = "failed"
-                    widget.refresh_content()
-            else:
-                widget.set_arguments(arguments, raw_arguments)
-
-        if record.status == "running":
-            self._thinking.set_visible(True)
-            self._thinking.set_working(record.label or "subagent")
-        else:
-            self._thinking.set_text(
-                "Child completed" if record.status == "completed" else "Child failed"
-            )
-
-        self._assistant.display = bool(record.output_text)
-        self._assistant.set_content(record.output_text)
-        # Keep the footer consistent with the parent run.  The actual failure
-        # reason is already rendered as the child's assistant output (and may
-        # vary by harness limit/provider), so do not retain the old hard-coded
-        # max-turns message here.
-        if record.status == "failed":
-            footer = "Subagent stopped"
-        elif record.status == "completed":
-            footer = "Subagent completed"
-        else:
-            footer = "Subagent working"
-        self.query_one("#status", Static).update(footer)
-
-        transcript = self.query_one("#transcript", VerticalScroll)
-        if transcript.is_vertical_scroll_end:
-            self.call_after_refresh(transcript.scroll_end, animate=False)
+        self.query_one("#child-heading", Static).update(
+            f"{record.label} · {record.status} · {record.model_id}\n"
+            f"child {record.agent_id[:8]} ← parent {record.parent_id[:8]}"
+        )
+        for event_type, payload in record.events[self._event_cursor:]:
+            self._event_cursor += 1
+            if event_type in {"agent_spawned", "agent_completed", "agent_failed"}:
+                continue
+            if event_type == "run_started" and self._process is not None and self._process.completed:
+                self._thinking = self._process = self._assistant = self._reasoning = None
+                self._mount_transcript(UserMessage(str(payload.get("prompt") or "Continued child task")))
+            if event_type == "question_asked":
+                self.add_notice("Waiting for an answer in the parent session.")
+                continue
+            self._presenter.handle(event_type, payload)
+        if record.status != "running":
+            self._presenter.flush_stream_paints()
+            if self._assistant is None and record.output_text:
+                self.set_assistant(record.output_text)
+            self.finish_assistant()
+            self.finish_reasoning()
+            if self._process is None or not self._process.completed:
+                self.finish_process(f"Child {record.status}")
+            self._ui_state.phase = "idle"
+            self._busy = False
+        self._set_status()
 
 
 class SubagentWidget(ToolCallWidget):
@@ -200,6 +250,7 @@ class SubagentWidget(ToolCallWidget):
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self.record: Optional[SubagentRecord] = None
+        self.keep_in_transcript = True
         super().__init__(call_id, tool_name)
         self.add_class("subagent-call")
 
@@ -231,22 +282,24 @@ class SubagentWidget(ToolCallWidget):
 
     def bind(self, record: SubagentRecord) -> None:
         self.record = record
+        if self not in record._widgets:
+            record._widgets.append(self)
         self.refresh_content()
+
+    def refresh_content(self) -> None:
+        if self.record is not None:
+            self.status = {"completed": "done", "running": "running"}.get(self.record.status, "failed")
+        super().refresh_content()
 
     def on_bash_tool_header_toggle(self, event: BashToolHeader.Toggle) -> None:
         event.stop()
         self.open_screen()
 
     def open_screen(self) -> bool:
-        record = self.record or SubagentRecord(
-            "",
-            "",
-            str(self.arguments.get("label") or "subagent"),
-            str(self.arguments.get("prompt") or ""),
-        )
-        self.record = record
-        workspace = getattr(self.app, "workspace", None)
-        self.app.push_screen(SubagentScreen(record, workspace=workspace))
+        if self.record is None:
+            self.app.notify("Child is starting; its session will be available shortly.")
+            return False
+        self.app.open_subagent(self.record)
         return True
 
 
@@ -254,6 +307,16 @@ class SubagentSurface:
     """Child-agent event wiring mixed into CodingAgentApp."""
 
     def _bind_spawn_widget(self, record: SubagentRecord) -> None:
+        if record.tool_call_id:
+            match = self._tools.get(record.tool_call_id)
+            if match is None:
+                pending = [item for turn in self._transcript_turns for item in turn.timeline_items()]
+                match = next((item for item in [*pending, *self.query(SubagentWidget)]
+                              if isinstance(item, SubagentWidget)
+                              if item.call_id == record.tool_call_id), None)
+            if isinstance(match, SubagentWidget):
+                match.bind(record)
+            return
         candidates = [
             item
             for item in self._tools.values()
@@ -274,35 +337,64 @@ class SubagentSurface:
                     or item.arguments.get("label") in {record.label, None, ""}
                 )
             ),
-            candidates[0],
+            None,
         )
-        match.bind(record)
+        if match is not None:
+            match.bind(record)
 
     def _on_agent_spawned(self, payload: dict[str, Any]) -> None:
         child_id = str(payload.get("child_id") or "")
-        record = SubagentRecord(
+        if not child_id:
+            return
+        record = self._subagents.get(child_id) or SubagentRecord(
             agent_id=child_id,
             parent_id=str(payload.get("agent_id") or ""),
             label=str(payload.get("label") or "subagent"),
             prompt=str(payload.get("prompt") or ""),
             model_id=str(payload.get("model_id") or ""),
         )
+        record.tool_call_id = str(payload.get("tool_call_id") or record.tool_call_id)
+        record.session_id = str(payload.get("child_session_id") or child_id)
+        record.label = str(payload.get("label") or record.label)
+        record.prompt = str(payload.get("prompt") or record.prompt)
+        record.config = {key: payload.get(key) for key in ("model_id", "max_turns", "reasoning_effort")}
         if child_id:
             self._subagents[child_id] = record
         self._bind_spawn_widget(record)
         self._refresh_subagent_screen(record)
+        self._refresh_subagent_tasks()
 
     def _on_agent_finished(self, event_type: str, payload: dict[str, Any]) -> None:
         child_id = str(payload.get("child_id") or "")
         record = self._subagents.get(child_id)
         if record is None:
             return
+        if payload.get("agent_id") and payload["agent_id"] != record.parent_id:
+            return
+        before = len(record.events)
         record.ingest(event_type, payload)
+        if len(record.events) == before:
+            return
+        if getattr(self, "_pending_question_agent_id", "") == child_id:
+            from coding_agent.tui.composer import PromptInput, SlashMenu
+            self._pending_question_id = None
+            self._pending_question_agent_id = ""
+            self._pending_question_default = ""
+            self.query_one("#slash-menu", SlashMenu).set_commands(())
+            self.query_one("#approval-menu", SlashMenu).set_commands(())
+            prompt = self.query_one("#prompt", PromptInput)
+            prompt.submit_on_enter = False
+            prompt.disabled = self._busy
+            self._update_composer_hint()
         self._refresh_subagent_widgets(record)
         self._refresh_subagent_screen(record)
+        self._refresh_subagent_tasks()
+        self.add_notice(f"Subagent {record.label} {record.status} · Ctrl+G to inspect")
 
     def _on_child_event(self, event_type: str, payload: dict[str, Any]) -> None:
         agent_id = str(payload.get("agent_id") or "")
+        if not agent_id or not payload.get("parent_id"):
+            return
         record = self._subagents.get(agent_id)
         if record is None:
             record = SubagentRecord(
@@ -328,14 +420,89 @@ class SubagentSurface:
         self._show_question(payload)
 
     def _refresh_subagent_widgets(self, record: SubagentRecord) -> None:
-        for widget in self._tools.values():
+        for widget in record._widgets:
             if isinstance(widget, SubagentWidget) and widget.record is record:
                 widget.refresh_content()
 
     def _refresh_subagent_screen(self, record: SubagentRecord) -> None:
         screen = self.screen
-        if isinstance(screen, SubagentScreen) and screen.record.agent_id == record.agent_id:
+        if isinstance(screen, SubagentScreen) and screen.child_id == record.agent_id:
             screen.refresh_record()
 
     def open_subagent(self, record: SubagentRecord) -> None:
-        self.push_screen(SubagentScreen(record, workspace=self.workspace))
+        self._subagents[record.agent_id] = record
+        self.push_screen(SubagentScreen(child_id=record.agent_id, parent_id=record.parent_id, workspace=self.workspace))
+
+    def action_subagents(self) -> None:
+        self.push_screen(SubagentTasksScreen())
+
+    def _refresh_subagent_tasks(self) -> None:
+        if isinstance(self.screen, SubagentTasksScreen):
+            self.screen.refresh_tasks()
+
+    async def cancel_subagent(self, child_id: str) -> None:
+        harness = getattr(self._agent, "harness", None)
+        record = getattr(harness, "child_tasks", {}).get(child_id)
+        if record is not None and record.task is not None and not record.task.done():
+            import asyncio
+            record.task.cancel()
+            await asyncio.gather(record.task, return_exceptions=True)
+
+    async def restore_subagents(self) -> None:
+        if self._agent is None:
+            return
+        store = self._agent.persistence
+        load = getattr(store, "load_children", None)
+        if not callable(load):
+            return
+        for metadata in await load(parent_session_id=self._agent.session_id):
+            child_id = metadata["child_id"]
+            if child_id in self._subagents:
+                continue
+            self._on_agent_spawned(metadata)
+            record = self._subagents[child_id]
+            for event_type, payload in await store.load_events(session_id=record.session_id):
+                record.ingest(event_type, payload)
+            record.status = metadata["status"]
+            record.output_text = metadata["output_text"] or record.output_text
+            if record.status == "running":
+                record.status = "interrupted"
+            self._refresh_subagent_widgets(record)
+
+
+class SubagentTasksScreen(ModalBase[None]):
+    """Stable access to child sessions even after parent transcript compaction."""
+
+    CSS = """
+    SubagentTasksScreen { align: center middle; background: #000000 60%; }
+    #subagent-tasks { width: 90%; height: 70%; border: round #484F58; background: #0A0A0A; }
+    """
+
+    def compose(self):
+        yield OptionList(id="subagent-tasks")
+
+    def on_mount(self) -> None:
+        self.query_one(OptionList).border_title = "Subagents · Enter inspect · Esc back"
+        self.refresh_tasks()
+        self.query_one(OptionList).focus()
+
+    def refresh_tasks(self) -> None:
+        options = self.query_one(OptionList)
+        highlighted = options.highlighted
+        options.clear_options()
+        records = list(getattr(self.app, "_subagents", {}).values())
+        for record in records:
+            color = {"running": "#d7a84b", "completed": "#72a57a"}.get(record.status, "#d66b73")
+            label = Text(f"{record.status:12} ", style=color)
+            label.append(f"{record.label} · {record.model_id} · {record.agent_id[:8]}")
+            options.add_option(Option(label, id=record.agent_id))
+        if not records:
+            options.add_option(Option("No child sessions yet.", disabled=True))
+        else:
+            options.highlighted = min(highlighted or 0, len(records) - 1)
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        record = self.app._subagents.get(event.option.id)
+        if record is not None:
+            self.dismiss(None)
+            self.app.call_after_refresh(self.app.open_subagent, record)

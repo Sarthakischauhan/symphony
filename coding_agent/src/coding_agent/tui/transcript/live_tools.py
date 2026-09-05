@@ -102,6 +102,7 @@ def _completed_tools(items: Sequence[Any], *, include_subagents: bool = False) -
         item
         for item in items
         if isinstance(item, ToolCallWidget)
+        and not getattr(item, "keep_in_transcript", False)
         and (include_subagents or _counts_toward_live_cap(item))
         and not _is_in_progress_tool(item)
     ]

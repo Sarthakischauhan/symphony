@@ -38,6 +38,13 @@ following before deploying it:
   machine. Treat it like any other tool that runs code on your behalf.
 - Workspace tools reject paths that resolve outside the workspace root, but
   `bash` itself is not confined to that root.
+- Child agents use the shared workspace and run without per-tool approval
+  prompts. `spawn_agent` starts background work by default in `symphony-code`;
+  a returned child ID acknowledges startup, not completion. The runtime delivers
+  results automatically and waits before final completion. Closing a child
+  transcript does not stop it; use Ctrl+X in that view to cancel that child.
+  Cancelling the parent run, hitting its limits, or exiting the TUI stops its
+  managed children. Background execution does not add filesystem isolation.
 - Provider API keys are read from the environment, a workspace `.env`, or
   `~/.symphony/.env`. Keep those files out of version control.
 - `core-server` denies browser origins by default and enforces request-size

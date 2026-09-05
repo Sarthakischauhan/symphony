@@ -77,6 +77,7 @@ class ControlPlaneEventType(str, Enum):
     AGENT_SPAWNED = "agent_spawned"
     AGENT_COMPLETED = "agent_completed"
     AGENT_FAILED = "agent_failed"
+    WAITING_FOR_CHILDREN = "waiting_for_children"
 
 
 class ControlPlaneEvent(BaseModel):

@@ -56,6 +56,7 @@ class TurnSurface:
         if self._agent is None:
             return
         await load_session_history(self._agent, self)
+        await self.restore_subagents()
 
     def on_harness_event(self, message: HarnessEvent) -> None:
         payload = message.payload or {}
@@ -100,15 +101,18 @@ class TurnSurface:
             if self._ui_state.detail != "failed":
                 self.add_notice(f"Error · {exc}", "error")
         finally:
+            child_question_pending = bool(self._pending_question_id and self._pending_question_agent_id)
             if self._presenter is not None:
-                self._ui_state.phase = "idle"
+                self._ui_state.phase = "paused" if child_question_pending else "idle"
                 self._presenter.refresh_chrome()
             self._busy = False
-            self._pending_question_id = None
-            self._pending_question_default = ""
+            if not child_question_pending:
+                self._pending_question_id = None
+                self._pending_question_default = ""
             self.control_plane.reset_cancel()
             prompt = self.query_one("#prompt", PromptInput)
-            prompt.submit_on_enter = False
+            if not child_question_pending:
+                prompt.submit_on_enter = False
             prompt.disabled = False
             self._update_composer_hint()
             prompt.focus()

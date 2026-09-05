@@ -445,7 +445,8 @@ class EventPresenter:
         call_id = str(payload.get("tool_call_id") or "tool")
         self.state.phase = "thinking"
         self.state.detail = f"finished {payload.get('tool_name') or 'tool'}"
-        self.view.update_tool(call_id, status="done", result=payload.get("result", ""))
+        status = "failed" if payload.get("status") in {"error", "cancelled", "timeout"} else "done"
+        self.view.update_tool(call_id, status=status, result=payload.get("result", ""))
         self._tool_argument_chunks.pop(call_id, None)
         self._tool_argument_tails.pop(call_id, None)
 
@@ -487,9 +488,17 @@ class EventPresenter:
         self.view.set_thinking("Resuming…")
 
     def _on_message_injected(self, payload: Dict[str, Any]) -> None:
+        if payload.get("source") == "subagent":
+            return  # The child's lifecycle card already presents this result.
         role = payload.get("role", "user")
         content = preview_text(payload.get("content", ""))
         self.view.add_notice(f"Injected {role} message · {content}")
+
+    def _on_waiting_for_children(self, payload: Dict[str, Any]) -> None:
+        count = len(payload.get("child_ids") or [])
+        self.state.phase = "waiting"
+        self.state.detail = f"waiting for {count} subagent{'s' if count != 1 else ''}"
+        self.view.set_working(self.state.detail)
 
     def _on_question_asked(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "paused"

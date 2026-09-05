@@ -13,7 +13,7 @@ from core_ai.types import Content, Message
 from core_harness.context import bound_tool_result
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import PendingToolCall, ToolCall, ToolResult
-from core_harness.tools import Tool
+from core_harness.tools import Tool, current_tool_call_id
 
 
 class TurnCallsHost(Protocol):
@@ -228,7 +228,11 @@ async def invoke_tool(runner: TurnCallsHost, tool_call: ToolCall) -> ToolResult:
         control_plane=runner.control_plane,
         args=tool_call.arguments,
     )
-    exec_task = asyncio.create_task(execute)
+    token = current_tool_call_id.set(tool_call.id)
+    try:
+        exec_task = asyncio.create_task(execute)
+    finally:
+        current_tool_call_id.reset(token)
     waiters = {exec_task}
     cancel_event = getattr(runner.control_plane, "cancel_event", None)
     cancel_wait = None
@@ -275,6 +279,11 @@ async def invoke_tool(runner: TurnCallsHost, tool_call: ToolCall) -> ToolResult:
             content=str(exc) or type(exc).__name__,
             error_type=type(exc).__name__,
         )
+    finally:
+        for task in waiters:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*waiters, return_exceptions=True)
 
 
 def tool_completed_payload(

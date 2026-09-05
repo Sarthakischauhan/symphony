@@ -21,6 +21,7 @@ class QuestionSurface:
             self.add_notice("The agent sent an invalid question request.", "error")
             return
         self._pending_question_id = request_id
+        self._pending_question_agent_id = str(payload.get("agent_id") or "") if payload.get("parent_id") else ""
         self._pending_question_default = default
         self._ui_state.phase = "paused"
         self._ui_state.detail = "waiting for user"
@@ -47,13 +48,14 @@ class QuestionSurface:
         if request_id is None:
             return
         self._pending_question_id = None
+        self._pending_question_agent_id = ""
         self._pending_question_default = ""
         self.query_one("#slash-menu", SlashMenu).set_commands(())
         self.query_one("#approval-menu", SlashMenu).set_commands(())
         await self.control_plane.answer_user(request_id, answer)
-        self._ui_state.phase = "thinking"
-        self._ui_state.detail = "resuming"
+        self._ui_state.phase = "thinking" if self._busy else "idle"
+        self._ui_state.detail = "resuming" if self._busy else "ready"
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = False
-        prompt.disabled = True
+        prompt.disabled = self._busy
         self._update_composer_hint()
