@@ -96,7 +96,9 @@ def fetch_models_dev_models(url: str = MODELS_DEV_URL) -> dict[str, list[tuple[s
             is_openai_image = provider == "openai" and model_id.startswith("gpt-image-")
             if not is_openai_image and (metadata.get("tool_call") is not True or "text" not in output):
                 continue
-            catalog[provider].append((model_id, models_dev_api(provider, model_id), metadata.get("reasoning") is True, effort_map(metadata.get("reasoning_options"))))
+            limit = metadata.get("limit") or {}
+            context_limit = limit.get("context") if isinstance(limit, dict) else None
+            catalog[provider].append((model_id, models_dev_api(provider, model_id), metadata.get("reasoning") is True, effort_map(metadata.get("reasoning_options")), context_limit))
     return {provider: sorted(set(models)) for provider, models in catalog.items()}
 
 
@@ -309,8 +311,9 @@ def render(catalog: dict[str, Iterable[tuple]]) -> str:
                 model_id, api = model
                 reasoning = False
                 thinking_level_map = ()
+                context_limit = None
             else:
-                model_id, api, reasoning, thinking_level_map = model
+                model_id, api, reasoning, thinking_level_map, context_limit = model
             args = [
                 f'id="{model_id}"',
                 f'provider="{provider}"',
@@ -320,6 +323,8 @@ def render(catalog: dict[str, Iterable[tuple]]) -> str:
                 args.append("reasoning=True")
             if thinking_level_map:
                 args.append(f"thinking_level_map={thinking_level_map!r}")
+            if context_limit is not None:
+                args.append(f"context_limit={context_limit}")
             lines.append(f"    ModelInfo({', '.join(args)}),")
         lines.extend((")", ""))
     lines.append(f"ALL_MODELS = {' + '.join(tuple_names)}")

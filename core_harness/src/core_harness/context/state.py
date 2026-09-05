@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
-from core_harness.config import default_context_limits
+from core_ai.models.registry import context_limits
 from core_harness.models import ToolCall
 from core_harness.context.compact import (
     DEFAULT_PRUNE_KEEP_RECENT,
@@ -142,7 +142,7 @@ def build_context_report(
 
 
 # --- state.py ---
-DEFAULT_CONTEXT_LIMITS = default_context_limits()
+DEFAULT_CONTEXT_LIMITS = context_limits()
 
 
 EmitEvent = Callable[[str, Dict[str, Any]], Awaitable[None]]

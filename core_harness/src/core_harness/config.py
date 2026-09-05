@@ -17,26 +17,7 @@ DEFAULT_SUBAGENT_SYSTEM_PROMPT = (
 )
 
 
-def default_context_limits() -> dict[str, int]:
-    """Known model context windows used when a settings file omits them."""
-    return {
-        "gpt-5.6-luna": 400000,
-        "gpt-5.4-mini": 400000,
-        "gpt-4o": 128000,
-        "gpt-4o-mini": 128000,
-        "gpt-4.1": 1047576,
-        "gpt-4.1-mini": 1047576,
-        "gpt-4.1-nano": 1047576,
-        "claude-fable-5": 200000,
-        "claude-haiku-4-5": 200000,
-        "claude-opus-5": 200000,
-        "claude-sonnet-5": 200000,
-        "gemini": 1048576,
-        "gemini-3.1-pro-preview": 1048576,
-        "gemini-3.5-flash": 1048576,
-        "gemini-3.6-flash": 1048576,
-        "gemini-3.7-flash": 1048576,
-    }
+from core_ai.models.registry import context_limits
 
 
 class HarnessConfig(BaseModel):
@@ -62,7 +43,7 @@ class HarnessConfig(BaseModel):
         default=DEFAULT_SUBAGENT_SYSTEM_PROMPT,
         min_length=1,
     )
-    context_limits: dict[str, int] = Field(default_factory=default_context_limits)
+    context_limits: dict[str, int] = Field(default_factory=context_limits)
 
     @model_validator(mode="before")
     @classmethod
@@ -124,7 +105,6 @@ __all__ = [
     "DEFAULT_SUBAGENT_SYSTEM_PROMPT",
     "HarnessConfig",
     "SettingsSource",
-    "default_context_limits",
     "load_harness_config",
     "resolve_harness_config",
 ]

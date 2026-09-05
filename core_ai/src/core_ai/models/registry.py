@@ -4,6 +4,14 @@ from core_ai.models.generated import ALL_MODELS
 from core_ai.models.types import ModelInfo
 
 
+def context_limits() -> dict[str, int]:
+    return {
+        model.id: model.context_limit
+        for model in ALL_MODELS
+        if model.context_limit is not None
+    }
+
+
 class ModelCatalog:
     def __init__(self, models: Iterable[ModelInfo] = ()) -> None:
         self._models: dict[tuple[str, str], ModelInfo] = {}

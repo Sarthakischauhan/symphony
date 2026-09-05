@@ -13,6 +13,7 @@ class ModelInfo:
     api: ModelAPI
     reasoning: bool = False
     thinking_level_map: ThinkingLevelMap = ()
+    context_limit: int | None = None
 
     @property
     def full_id(self) -> str:
