@@ -31,6 +31,7 @@ def default_context_limits() -> dict[str, int]:
         "claude-haiku-4-5": 200000,
         "claude-opus-5": 200000,
         "claude-sonnet-5": 200000,
+        "gemini": 1048576,
         "gemini-3.1-pro-preview": 1048576,
         "gemini-3.5-flash": 1048576,
         "gemini-3.6-flash": 1048576,

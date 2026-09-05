@@ -65,6 +65,7 @@ def build_tool_calls(
             id=pending.id,
             name=pending.name or "unknown_tool",
             arguments=arguments,
+            metadata=dict(pending.metadata),
         )
         if decode_error:
             call.result_status = "error"

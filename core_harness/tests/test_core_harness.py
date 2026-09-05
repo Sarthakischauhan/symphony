@@ -26,6 +26,7 @@ from core_harness import (
     Tool,
 )
 from core_harness.context import (
+    HarnessState,
     estimate_prompt_tokens,
     message_size_breakdown,
     CLEARED_TOOL_RESULT_MARK,
@@ -106,6 +107,7 @@ class FakeRegistry:
                 content_index=0,
                 tool_call_id="call-weather",
                 tool_name="get_weather",
+                tool_call_metadata={"thought_signature": "signed-thought"},
             )
             yield StreamEvent(
                 type="toolcall_delta",
@@ -574,6 +576,15 @@ def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
     assert registry.calls[0]["tools"][0]["name"] == "get_weather"
     assert result.tool_calls[0].name == "get_weather"
     assert result.tool_calls[0].arguments == {"city": "San Francisco"}
+    assert result.tool_calls[0].metadata == {"thought_signature": "signed-thought"}
+    assistant = next(
+        message
+        for message in registry.calls[1]["messages"]
+        if message.role == "assistant" and message.tool_calls
+    )
+    assert assistant.tool_call_metadata == {
+        "call-weather": {"thought_signature": "signed-thought"}
+    }
     assert result.usage.total_tokens == 38
     assert result.context_limit == 100
     assert result.context_left == 80
@@ -605,6 +616,13 @@ def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
     assert "message_sizes" in context_events[0].payload
     assert context_events[0].payload["message_sizes"][0]["role"] == "system"
     assert control_plane.events[-1].payload["usage"]["total_tokens"] == 38
+
+
+def test_context_limit_uses_gemini_family_fallback() -> None:
+    state = HarnessState()
+
+    assert state.context_limit("gemini:gemini-3.8-flash") == 1_048_576
+    assert state.context_limit("gemini:gemini-flash-latest") == 1_048_576
 
 
 def test_core_harness_estimates_usage_when_provider_omits_it() -> None:
