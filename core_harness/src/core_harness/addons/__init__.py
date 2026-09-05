@@ -11,10 +11,10 @@ from core_harness.addons.addon import Addon, AddonProtocol
 from core_harness.addons.compaction import (
     CompactionAddon,
     Compactor,
+    KeepDropPlan,
     KeepSystemRecentCompactor,
-    TemplateTurnSummarizer,
-    TurnSummarizer,
     compaction_from_config,
+    plan_keep_drop,
 )
 from core_harness.addons.persistence import (
     Checkpoint,
@@ -40,6 +40,7 @@ __all__ = [
     "ChildIdentity",
     "CompactionAddon",
     "Compactor",
+    "KeepDropPlan",
     "KeepSystemRecentCompactor",
     "NullPersistence",
     "NullTelemetry",
@@ -48,7 +49,6 @@ __all__ = [
     "SubagentAddon",
     "Telemetry",
     "TelemetryAddon",
-    "TemplateTurnSummarizer",
-    "TurnSummarizer",
     "compaction_from_config",
+    "plan_keep_drop",
 ]

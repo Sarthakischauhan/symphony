@@ -8,11 +8,13 @@ from core_harness.addons.addon import Addon
 from core_harness.addons.compaction.policy import (
     COMPACTION_CONTINUATION,
     Compactor,
+    KeepDropPlan,
     KeepSystemRecentCompactor,
-    TemplateTurnSummarizer,
-    TurnSummarizer,
     compaction_header,
+    compaction_target,
     dropped_turn_facts,
+    fit_to_target,
+    plan_keep_drop,
     summarize_dropped_turns,
 )
 from core_harness.config import HarnessConfig
@@ -51,15 +53,6 @@ class CompactionAddon(Addon):
     def fork_for_child(self, parent_harness: Any) -> CompactionAddon:
         """New add-on with a fresh compactor using the same settings."""
         del parent_harness
-        if isinstance(self.compactor, KeepSystemRecentCompactor):
-            return CompactionAddon(
-                KeepSystemRecentCompactor(
-                    keep_recent=self.compactor.keep_recent,
-                    target_tokens=self.compactor.target_tokens,
-                    keep_recent_tool_results=self.compactor.keep_recent_tool_results,
-                    summarizer=self.compactor.summarizer,
-                )
-            )
         return CompactionAddon(
             keep_recent=self.keep_recent,
             target_tokens=self.target_tokens,
@@ -80,11 +73,13 @@ __all__ = [
     "COMPACTION_CONTINUATION",
     "CompactionAddon",
     "Compactor",
+    "KeepDropPlan",
     "KeepSystemRecentCompactor",
-    "TemplateTurnSummarizer",
-    "TurnSummarizer",
     "compaction_from_config",
     "compaction_header",
+    "compaction_target",
     "dropped_turn_facts",
+    "fit_to_target",
+    "plan_keep_drop",
     "summarize_dropped_turns",
 ]

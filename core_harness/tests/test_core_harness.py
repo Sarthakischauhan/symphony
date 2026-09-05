@@ -24,6 +24,7 @@ from core_harness import (
     NullControlPlane,
     PersistingControlPlane,
     Tool,
+    plan_keep_drop,
 )
 from core_harness.context import (
     HarnessState,
@@ -932,57 +933,69 @@ def test_compactor_keeps_last_messages_in_one_user_tool_loop() -> None:
     )
 
 
-def test_compactor_calls_custom_summarizer_once_after_planning() -> None:
-    class RecordingSummarizer:
-        def __init__(self) -> None:
-            self.calls: list[tuple[int, int]] = []
-
-        async def summarize(self, turns, *, tokens):
-            self.calls.append((sum(len(turn) for turn in turns), tokens))
-            return Message(role="user", content=f"{COMPACTED_CONTEXT_MARK} custom")
-
+def test_plan_keep_drop_pins_leading_and_enforces_token_target() -> None:
     messages = [Message(role="system", content="system"), Message(role="user", content="task")]
     for index in range(8):
         messages.append(Message(role="user", content=f"follow-up {index} " * 30))
         messages.append(Message(role="assistant", content=f"ack {index} " * 30))
 
-    summarizer = RecordingSummarizer()
+    plan = plan_keep_drop(messages, keep_recent=6, target_tokens=400)
+
+    assert plan.leading == messages[:2]
+    kept = [message for group in plan.kept for message in group]
+    assert kept[-1] == messages[-1]
+    # Target enforcement dropped more than keep_recent alone would have.
+    assert len(kept) < 6
+    assert plan.dropped_messages == messages[2 : len(messages) - len(kept)]
+    assert plan.dropped_tokens > 0
+
+    custom = Message(role="user", content=f"{COMPACTED_CONTEXT_MARK} custom")
+    assembled = plan.assemble(custom)
+    assert assembled[:2] == messages[:2]
+    assert assembled[2] is custom
+    assert assembled[3:] == kept
+
+    template = plan.template_summary()
+    assert template is not None and str(template.content).startswith(COMPACTED_CONTEXT_MARK)
     compacted = asyncio.run(
-        KeepSystemRecentCompactor(
-            keep_recent=6, target_tokens=400, summarizer=summarizer
-        ).compact(
-            messages,
-            turn=0,
-            context_limit=None,
-            tokens_used=0,
-            context_left=None,
+        KeepSystemRecentCompactor(keep_recent=6, target_tokens=400).compact(
+            messages, turn=0, context_limit=None, tokens_used=0, context_left=None
         )
     )
-
-    assert len(summarizer.calls) == 1
-    dropped_count, dropped_tokens = summarizer.calls[0]
-    assert dropped_count == len(messages) - len(compacted) + 1
-    assert dropped_tokens > 0
-    assert compacted[:2] == messages[:2]
-    assert compacted[2].content == f"{COMPACTED_CONTEXT_MARK} custom"
-    assert compacted[-1] == messages[-1]
-    # Target enforcement dropped more than keep_recent alone would have.
-    assert len(compacted) - 3 < 6
+    assert compacted == plan.assemble(template)
 
 
-def test_compaction_addon_fork_keeps_custom_summarizer() -> None:
-    class CustomSummarizer:
-        async def summarize(self, turns, *, tokens):
-            del turns, tokens
-            return Message(role="user", content=COMPACTED_CONTEXT_MARK)
+def test_plan_keep_drop_keeps_tool_groups_atomic_and_no_summary_when_nothing_dropped() -> None:
+    messages = [
+        Message(role="system", content="system"),
+        Message(role="user", content="task"),
+        Message(role="assistant", content="old"),
+        *_tool_group("call-x", "read_file", "body", arguments={"path": "x.py"}),
+        Message(role="assistant", content="done"),
+    ]
 
-    summarizer = CustomSummarizer()
-    parent = CompactionAddon(KeepSystemRecentCompactor(keep_recent=4, summarizer=summarizer))
+    tight = plan_keep_drop(messages, keep_recent=2)
+    assert [len(group) for group in tight.dropped] == [1, 2]
+    assert [m.role for group in tight.kept for m in group] == ["assistant"]
+
+    roomy = plan_keep_drop(messages, keep_recent=3)
+    assert [len(group) for group in roomy.dropped] == [1]
+    assert [m.role for group in roomy.kept for m in group] == ["assistant", "tool", "assistant"]
+
+    short = plan_keep_drop(messages[:3], keep_recent=10)
+    assert short.dropped == []
+    assert short.template_summary() is None
+    assert short.assemble(None) == messages[:3]
+    assert short.assemble(Message(role="user", content="ignored")) == messages[:3]
+
+
+def test_compaction_addon_fork_uses_fresh_compactor_with_same_settings() -> None:
+    parent = CompactionAddon(KeepSystemRecentCompactor(keep_recent=4, target_tokens=900))
     child = parent.fork_for_child(None)
     assert isinstance(child.compactor, KeepSystemRecentCompactor)
     assert child.compactor is not parent.compactor
     assert child.compactor.keep_recent == 4
-    assert child.compactor.summarizer is summarizer
+    assert child.compactor.target_tokens == 900
     assert child.keep_recent == 4
 
 

@@ -315,13 +315,15 @@ un-droppable turn: earlier tool groups can be summarised while the last
 only if the compact is still over the token target. `keep_recent` counts
 messages, not conversation turns.
 
-The summary is produced by a `TurnSummarizer`. The harness default,
-`TemplateTurnSummarizer`, is a deterministic path-aware template with no
-provider call. Products can pass `summarizer=` to plug in their own (for
-example a model-backed one, as coding_agent does); the compactor plans
-keep/drop first and calls the summarizer exactly once. `HarnessState.compact`
-runs the mounted compactor on demand and emits the same `compaction_*` events
-as the per-turn trigger, so a manual "compact now" surface stays orchestration:
+The summary is a deterministic path-aware template; the harness never calls a
+provider. The keep/drop rule itself is exported as `plan_keep_drop`, which
+returns a `KeepDropPlan` (`leading`, `dropped`, `kept`, plus `assemble(summary)`
+and `template_summary()`). A product that wants a model-written summary
+implements its own `Compactor` on top of that planner (coding_agent's
+`InferenceCompactor` does this) instead of subclassing
+`KeepSystemRecentCompactor`. `HarnessState.compact` runs whichever compactor is
+mounted on demand and emits the same `compaction_*` events as the per-turn
+trigger, so a manual "compact now" surface stays orchestration:
 
 ```python
 from core_harness import CompactionAddon, HarnessConfig, KeepSystemRecentCompactor
@@ -348,8 +350,8 @@ The package exports the main types needed to integrate the harness:
 `Addon`, `AddonProtocol`, `PersistenceAddon`, `CompactionAddon`, `TelemetryAddon`,
 `SubagentAddon`, `NullTelemetry`, `CoreHarness`, `ChildConfig`, `ChildIdentity`, `Tool`, `HarnessResult`,
 `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
-`NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `TurnSummarizer`,
-`TemplateTurnSummarizer`, `ContextReport`,
+`NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `KeepDropPlan`,
+`plan_keep_drop`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `messages_for_model`,
 `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`,
 `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`,

@@ -1,8 +1,16 @@
-"""Keep-system-recent compaction policy."""
+"""Keep-system-recent compaction policy.
+
+``plan_keep_drop`` is the shared keep/drop rule: system prompt, pinned first
+user task, atomic assistant/tool groups, recent window, token target.
+``KeepSystemRecentCompactor`` applies it and writes a template summary with no
+provider call. Products that summarise with a model call the same planner and
+supply their own summary message.
+"""
 
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Protocol, Sequence
 
 from core_ai.content import text_from_content
@@ -120,30 +128,6 @@ def summarize_dropped_turns(turns: Sequence[Sequence[Message]], *, tokens: int) 
     return Message(role="user", content="\n".join(lines))
 
 
-class TurnSummarizer(Protocol):
-    """Turn dropped turns into one compacted-context user message."""
-
-    async def summarize(
-        self,
-        turns: Sequence[Sequence[Message]],
-        *,
-        tokens: int,
-    ) -> Message:
-        """Return a single ``user`` message that starts with ``COMPACTED_CONTEXT_MARK``."""
-
-
-class TemplateTurnSummarizer:
-    """Default summarizer: deterministic template, no provider call."""
-
-    async def summarize(
-        self,
-        turns: Sequence[Sequence[Message]],
-        *,
-        tokens: int,
-    ) -> Message:
-        return summarize_dropped_turns(turns, tokens=tokens)
-
-
 class Compactor(Protocol):
     async def compact(
         self,
@@ -186,16 +170,119 @@ def _flatten(blocks: Sequence[Sequence[Message]]) -> List[Message]:
     return [message for group in blocks for message in group]
 
 
+def compaction_target(
+    target_tokens: Optional[int],
+    context_limit: Optional[int],
+) -> Optional[int]:
+    """Token budget a compact should land under; a third of the window by default."""
+    if target_tokens is not None:
+        return target_tokens
+    if context_limit is not None:
+        return max(context_limit // 3, 1)
+    return None
+
+
+@dataclass
+class KeepDropPlan:
+    """Outcome of ``plan_keep_drop``.
+
+    ``leading`` is the system prompt plus the pinned original task; ``dropped``
+    and ``kept`` are atomic assistant/tool groups in conversation order.
+    """
+
+    leading: List[Message] = field(default_factory=list)
+    dropped: List[List[Message]] = field(default_factory=list)
+    kept: List[List[Message]] = field(default_factory=list)
+
+    @property
+    def dropped_messages(self) -> List[Message]:
+        return _flatten(self.dropped)
+
+    @property
+    def dropped_tokens(self) -> int:
+        return estimate_prompt_tokens(self.dropped_messages)
+
+    def assemble(self, summary: Optional[Message]) -> List[Message]:
+        """``leading`` + ``summary`` (when there is dropped history) + ``kept``."""
+        middle = [summary] if summary is not None and self.dropped else []
+        return self.leading + middle + _flatten(self.kept)
+
+    def template_summary(self) -> Optional[Message]:
+        if not self.dropped:
+            return None
+        return summarize_dropped_turns(self.dropped, tokens=self.dropped_tokens)
+
+
+def plan_keep_drop(
+    messages: List[Message],
+    *,
+    keep_recent: int,
+    target_tokens: Optional[int] = None,
+    context_limit: Optional[int] = None,
+) -> KeepDropPlan:
+    """Decide what to keep and what to drop; no summary is written here.
+
+    Keeps the leading system prompt, the first real user message, and the last
+    ``keep_recent`` messages. Assistant/tool groups stay together so the
+    provider protocol stays valid; a group that does not fit in the window is
+    dropped whole. The token target (``target_tokens`` or a third of
+    ``context_limit``) is enforced with the template summary as a size proxy,
+    so a caller that summarises with a model still makes exactly one call.
+    """
+    if keep_recent < 1:
+        raise ValueError("keep_recent must be >= 1")
+    valid = normalize_tool_protocol(messages)
+    system = valid[0] if valid and valid[0].role == "system" else None
+    rest = valid[1:] if system is not None else valid
+    plan = KeepDropPlan(leading=[system] if system is not None else [])
+    if not rest:
+        return plan
+
+    first_user = _first_user_message(rest)
+    remainder: List[List[Message]] = []
+    for block in _atomic_blocks(rest):
+        if first_user is not None and first_user in block:
+            leftover = [message for message in block if message is not first_user]
+            if leftover:
+                remainder.append(leftover)
+        else:
+            remainder.append(block)
+    if first_user is not None:
+        plan.leading.append(first_user)
+
+    plan.dropped, plan.kept = _split_recent_blocks(remainder, keep_recent=keep_recent)
+    target = compaction_target(target_tokens, context_limit)
+    while (
+        target is not None
+        and estimate_prompt_tokens(plan.assemble(plan.template_summary())) > target
+        and len(plan.kept) > 1
+    ):
+        plan.dropped.append(plan.kept.pop(0))
+    return plan
+
+
+def fit_to_target(
+    compacted: List[Message],
+    *,
+    target: Optional[int],
+    keep_recent_tool_results: int,
+) -> List[Message]:
+    """Last resort: stub old tool bodies if the compact is still over ``target``."""
+    if target is not None and estimate_prompt_tokens(compacted) > target:
+        return prune_stale_tool_results(compacted, keep_recent=keep_recent_tool_results)
+    return compacted
+
+
 class KeepSystemRecentCompactor:
     """Keep the system prompt, the original task, and the most recent messages.
 
     ``keep_recent`` counts messages. Assistant/tool groups stay together so the
     provider protocol stays valid. A one-user N-tool loop is not one
     un-droppable unit: earlier tool groups can be summarised while the last
-    ``keep_recent`` messages stay. Dropped messages become one summary message
-    produced by ``summarizer`` (template by default; products can plug in a
-    model-backed summarizer). Old tool bodies inside kept messages are stubbed
-    only as a last resort if the compact is still over ``target_tokens``.
+    ``keep_recent`` messages stay. Dropped messages become one deterministic
+    template summary; this compactor never calls a provider. Old tool bodies
+    inside kept messages are stubbed only as a last resort if the compact is
+    still over ``target_tokens``.
     """
 
     def __init__(
@@ -203,8 +290,6 @@ class KeepSystemRecentCompactor:
         keep_recent: int = 10,
         target_tokens: Optional[int] = None,
         keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
-        *,
-        summarizer: Optional[TurnSummarizer] = None,
     ) -> None:
         if keep_recent < 1:
             raise ValueError("keep_recent must be >= 1")
@@ -215,70 +300,14 @@ class KeepSystemRecentCompactor:
         self.keep_recent = keep_recent
         self.target_tokens = target_tokens
         self.keep_recent_tool_results = keep_recent_tool_results
-        self.summarizer: TurnSummarizer = summarizer or TemplateTurnSummarizer()
 
-    def plan(
-        self,
-        messages: List[Message],
-        *,
-        context_limit: Optional[int],
-    ) -> tuple[List[Message], List[List[Message]], List[List[Message]]]:
-        """Decide what to keep and what to drop without calling the summarizer.
-
-        Returns ``(leading, dropped, kept)`` where ``leading`` is the system
-        prompt plus pinned original task. The token target is enforced with the
-        template summary as a size proxy so the summarizer runs exactly once.
-        """
-        valid = normalize_tool_protocol(messages)
-        system = valid[0] if valid and valid[0].role == "system" else None
-        rest = valid[1:] if system is not None else valid
-        leading = [system] if system is not None else []
-        if not rest:
-            return leading, [], []
-
-        first_user = _first_user_message(rest)
-        remainder: List[List[Message]] = []
-        for block in _atomic_blocks(rest):
-            if first_user is not None and first_user in block:
-                leftover = [message for message in block if message is not first_user]
-                if leftover:
-                    remainder.append(leftover)
-            else:
-                remainder.append(block)
-        if first_user is not None:
-            leading.append(first_user)
-
-        dropped, kept = _split_recent_blocks(remainder, keep_recent=self.keep_recent)
-        target = self._target(context_limit)
-        while (
-            target is not None
-            and estimate_prompt_tokens(self._proxy_assembly(leading, dropped, kept)) > target
-            and len(kept) > 1
-        ):
-            dropped.append(kept.pop(0))
-        return leading, dropped, kept
-
-    def _target(self, context_limit: Optional[int]) -> Optional[int]:
-        if self.target_tokens is not None:
-            return self.target_tokens
-        if context_limit is not None:
-            return max(context_limit // 3, 1)
-        return None
-
-    @staticmethod
-    def _proxy_assembly(
-        leading: List[Message],
-        dropped: List[List[Message]],
-        kept: List[List[Message]],
-    ) -> List[Message]:
-        summary: List[Message] = []
-        if dropped:
-            summary = [
-                summarize_dropped_turns(
-                    dropped, tokens=estimate_prompt_tokens(_flatten(dropped))
-                )
-            ]
-        return leading + summary + _flatten(kept)
+    def plan(self, messages: List[Message], *, context_limit: Optional[int]) -> KeepDropPlan:
+        return plan_keep_drop(
+            messages,
+            keep_recent=self.keep_recent,
+            target_tokens=self.target_tokens,
+            context_limit=context_limit,
+        )
 
     async def compact(
         self,
@@ -290,33 +319,23 @@ class KeepSystemRecentCompactor:
         context_left: Optional[int],
     ) -> List[Message]:
         del turn, tokens_used, context_left
-        leading, dropped, kept = self.plan(messages, context_limit=context_limit)
-        if not dropped and not kept:
-            return leading
-
-        summary: List[Message] = []
-        if dropped:
-            summary = [
-                await self.summarizer.summarize(
-                    dropped, tokens=estimate_prompt_tokens(_flatten(dropped))
-                )
-            ]
-        compacted = leading + summary + _flatten(kept)
-        target = self._target(context_limit)
-        if target is not None and estimate_prompt_tokens(compacted) > target:
-            compacted = prune_stale_tool_results(
-                compacted, keep_recent=self.keep_recent_tool_results
-            )
-        return compacted
+        plan = self.plan(messages, context_limit=context_limit)
+        return fit_to_target(
+            plan.assemble(plan.template_summary()),
+            target=compaction_target(self.target_tokens, context_limit),
+            keep_recent_tool_results=self.keep_recent_tool_results,
+        )
 
 
 __all__ = [
     "COMPACTION_CONTINUATION",
     "Compactor",
+    "KeepDropPlan",
     "KeepSystemRecentCompactor",
-    "TemplateTurnSummarizer",
-    "TurnSummarizer",
     "compaction_header",
+    "compaction_target",
     "dropped_turn_facts",
+    "fit_to_target",
+    "plan_keep_drop",
     "summarize_dropped_turns",
 ]
