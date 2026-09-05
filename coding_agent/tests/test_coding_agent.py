@@ -12,6 +12,7 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
 from core_harness import NullControlPlane
 from coding_agent import CodingAgent
+from coding_agent.compaction import InferenceCompactor
 from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 from coding_agent.config import CodingAgentConfig, LearningConfig, spawn_settings_path
 from coding_agent.persistence import SqlitePersistence
@@ -38,7 +39,7 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert saved.harness.tool_result_prune_tokens == 48_000
     assert saved.harness.context_compact_threshold == 16_000
     assert saved.harness.compaction_keep_recent == 10
-    assert agent.harness.state.compactor is not None
+    assert isinstance(agent.harness.state.compactor, InferenceCompactor)
     assert isinstance(agent.persistence, SqlitePersistence)
     assert agent.harness.persistence is agent.persistence
 

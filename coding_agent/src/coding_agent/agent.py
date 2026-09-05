@@ -19,7 +19,6 @@ from core_harness import (
     Persistence,
     Tool,
 )
-from core_harness.addons.compaction import compaction_from_config
 from core_harness.addons.persistence import PersistenceAddon
 from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
@@ -48,20 +47,15 @@ def default_addons(
     spawn_configure: Any = None,
     include_subagent: bool = True,
 ) -> list:
-    """Product defaults: persistence, compaction, and spawn_agent.
+    """Product defaults: persistence, AI compaction, and spawn_agent.
 
-    Compaction is model-backed (``AiCompactionAddon``) unless
-    ``compaction.ai_summary`` is off, in which case the harness template
-    compactor is mounted instead.
+    Compaction is always ``AiCompactionAddon`` (``InferenceCompactor``); the
+    harness template compactor is not mounted by coding_agent.
     """
     compaction = compaction or CompactionConfig()
     addons: list = [
         PersistenceAddon(persistence),
-        (
-            ai_compaction_from_config(harness_config, compaction)
-            if compaction.ai_summary
-            else compaction_from_config(harness_config)
-        ),
+        ai_compaction_from_config(harness_config, compaction),
     ]
     if include_subagent:
         addons.append(SubagentAddon(configure=spawn_configure))

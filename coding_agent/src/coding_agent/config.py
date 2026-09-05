@@ -69,11 +69,10 @@ class LearningConfig(BaseModel):
 
 
 class CompactionConfig(BaseModel):
-    """How dropped turns are summarised. Keep/drop limits live on ``harness``."""
+    """Bounds for the model-written compaction summary. Keep/drop limits live on ``harness``."""
 
     model_config = ConfigDict(extra="forbid")
 
-    ai_summary: bool = True
     max_output_tokens: int = Field(default=700, ge=1)
     max_transcript_chars: int = Field(default=24_000, ge=1)
 
