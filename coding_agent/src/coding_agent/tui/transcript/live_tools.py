@@ -13,20 +13,31 @@ def reconcile_live_tools(
     *,
     limit: int = LIVE_TOOL_WIDGET_LIMIT,
 ) -> None:
-    """Keep the newest ``limit`` completed tool cards live; fold older ones.
+    """Compact completed tool cards in batches of ``limit``.
 
-    Compaction is bottom-up within one run timeline: older completed cards
-    collapse into one Explored summary above the remaining live cards.
+    The live tool window is deliberately simple: once ``limit`` completed
+    widgets have accumulated, the whole batch is folded into one ``Explored``
+    row.  Folding starts at the newest widget, so the last card is removed
+    first.  A partial batch remains visible until it reaches the limit.
+
     In-progress tools and ``spawn_agent`` cards stay live and never count.
     """
-    if timeline is None or limit < 0:
+    if timeline is None or limit < 1:
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
-    # Copy first: folding mutates the live timeline while we iterate.
+    # Copy first: folding mutates the live timeline while we iterate.  Only
+    # the current batch is folded; a partial batch remains visible.
     completed = _completed_tools(tuple(snapshot()))
-    for widget in _overflow_past_limit(completed, limit):
-        _fold_into_explored(widget, snapshot, replace, remove, tools)
+    if len(completed) < limit:
+        return
+    # Compact the oldest full batch, walking it newest-to-oldest so the
+    # summary replaces the batch's final card. Existing summaries stay put.
+    batch_summary = None
+    for widget in reversed(completed[:limit]):
+        batch_summary = _fold_into_explored(
+            widget, snapshot, replace, remove, tools, batch_summary
+        )
 
 
 def _timeline_ops(
@@ -82,16 +93,17 @@ def _fold_into_explored(
     replace: Callable[[Any, Any], None],
     remove: Callable[[Any], None],
     tools: MutableMapping[str, Any] | None,
-) -> None:
+    batch_summary: Any = None,
+) -> Any:
     from coding_agent.tui.tools.calls import ToolCallSummary
 
     items = snapshot()
     if widget not in items:
         return
-    summary = _explored_summary(items)
+    summary = batch_summary
     if summary is None:
-        # The first fold happens at the oldest completed card, so the summary
-        # lands above every card that stays live.
+        # The first fold is the batch's newest card. Once the earlier cards
+        # are removed, its summary lands above every card that stays live.
         summary = ToolCallSummary()
         replace(widget, summary)
     else:
@@ -99,7 +111,7 @@ def _fold_into_explored(
     summary.add_call(widget)
     if tools is not None:
         tools[widget.call_id] = summary
-
+    return summary
 
 
 def _explored_summary(items: Sequence[Any]) -> Any:

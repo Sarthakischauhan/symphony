@@ -23,7 +23,7 @@ def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
         assert payload["tools"][0]["functionDeclarations"][0]["name"] == "read_file"
         body = _sse(
             '{"candidates":[{"content":{"parts":[{"text":"Checking","thought":true}]}}]}',
-            '{"candidates":[{"content":{"parts":[{"text":"Done"},{"functionCall":{"name":"read_file","args":{"path":"a.py"}}}]}}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":4,"thoughtsTokenCount":2,"totalTokenCount":15}}',
+            '{"candidates":[{"content":{"parts":[{"text":"Done"},{"functionCall":{"name":"read_file","args":{"path":"a.py"}},"thoughtSignature":"sig-1"}]}}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":4,"thoughtsTokenCount":2,"totalTokenCount":15}}',
         )
         return httpx.Response(200, text=body)
 
@@ -54,6 +54,7 @@ def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
     assert events[0].delta == "Checking"
     assert events[1].delta == "Done"
     assert events[2].tool_name == "read_file"
+    assert events[2].tool_call_metadata == {"thought_signature": "sig-1"}
     assert events[3].delta == '{"path":"a.py"}'
     assert events[4].total_tokens == 15
     assert events[4].reasoning_tokens == 2
@@ -154,6 +155,33 @@ def test_gemini_does_not_retry_terminal_in_stream_error() -> None:
     assert requests == 1
 
 
+def test_gemini_surfaces_terminal_http_error_message() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "code": 400,
+                    "message": "Function call is missing a thought_signature",
+                    "status": "INVALID_ARGUMENT",
+                }
+            },
+        )
+
+    async def collect() -> None:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "gemini-3.8-flash", [Message(role="user", content="Do it")]
+        ):
+            pass
+
+    with pytest.raises(
+        httpx.HTTPStatusError,
+        match="Function call is missing a thought_signature",
+    ):
+        asyncio.run(collect())
+
+
 def test_gemini_translates_tool_history() -> None:
     captured: dict[str, object] = {}
 
@@ -180,6 +208,9 @@ def test_gemini_translates_tool_history() -> None:
                             "function": {"name": "read_file", "arguments": '{"path":"a.py"}'},
                         }
                     ],
+                    tool_call_metadata={
+                        "call_1": {"thought_signature": "signed-thought"}
+                    },
                 ),
                 Message(role="tool", content="print(1)", tool_call_id="call_1"),
             ],
@@ -190,6 +221,7 @@ def test_gemini_translates_tool_history() -> None:
     contents = captured["payload"]["contents"]  # type: ignore[index]
     assert contents[1]["role"] == "model"
     assert contents[1]["parts"][0]["functionCall"]["name"] == "read_file"
+    assert contents[1]["parts"][0]["thoughtSignature"] == "signed-thought"
     assert contents[2]["role"] == "user"
     assert contents[2]["parts"][0]["functionResponse"]["name"] == "read_file"
     assert contents[2]["parts"][0]["functionResponse"]["response"]["result"] == "print(1)"

@@ -106,7 +106,13 @@ class GeminiProvider(BaseProvider):
                 headers=self._headers,
                 timeout=60.0,
             ) as response:
-                response.raise_for_status()
+                if response.status_code >= 400:
+                    await response.aread()
+                    raise httpx.HTTPStatusError(
+                        _http_error(response),
+                        request=response.request,
+                        response=response,
+                    )
                 async for data in iter_sse_json(response):
                     events, tool_index = self._translate(data, tool_index)
                     for event in events:
@@ -150,12 +156,16 @@ class GeminiProvider(BaseProvider):
                     continue
                 function_call = part.get("functionCall")
                 if function_call:
+                    signature = part.get("thoughtSignature")
                     events.append(
                         StreamEvent(
                             type="toolcall_start",
                             content_index=tool_index,
                             tool_call_id=f"gemini-tool-{tool_index}",
                             tool_name=function_call.get("name"),
+                            tool_call_metadata={"thought_signature": signature}
+                            if isinstance(signature, str) and signature
+                            else None,
                         )
                     )
                     args = function_call.get("args")
@@ -234,14 +244,19 @@ class GeminiProvider(BaseProvider):
                     call_id = tool_call.get("id")
                     if call_id and name:
                         call_names[str(call_id)] = str(name)
-                    parts.append(
-                        {
-                            "functionCall": {
-                                "name": name,
-                                "args": parsed if isinstance(parsed, dict) else {},
-                            }
+                    function_call_part: Dict[str, Any] = {
+                        "functionCall": {
+                            "name": name,
+                            "args": parsed if isinstance(parsed, dict) else {},
                         }
+                    }
+                    metadata = (message.tool_call_metadata or {}).get(
+                        str(call_id or ""), {}
                     )
+                    signature = metadata.get("thought_signature")
+                    if isinstance(signature, str) and signature:
+                        function_call_part["thoughtSignature"] = signature
+                    parts.append(function_call_part)
                 if parts:
                     contents.append({"role": "model", "parts": parts})
                 continue

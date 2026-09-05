@@ -69,6 +69,7 @@ from coding_agent.tui.tools import (
     ReadFileWidget,
     ToolCallSummary,
     ToolCallWidget,
+    make_tool_widget,
 )
 from coding_agent.tui.chrome import (
     TopBar,
@@ -83,6 +84,7 @@ from coding_agent.tui.chrome import (
 from coding_agent.tui.composer import PromptInput, SlashMenu
 from coding_agent.tui.runtime import RunMetrics, UiRunState
 from coding_agent.tui.transcript import (
+    AssistantMessage,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
@@ -2282,17 +2284,20 @@ def test_old_tool_widgets_collapse_to_one_explored_summary(
                     if isinstance(node, ToolCallSummary)
                 )
             )
-            assert len(live) == 8
+            assert len(live) == 4
             assert [node.call_id for node in live] == [
-                f"read-{index}" for index in range(4, 12)
+                f"read-{index}" for index in range(8, 12)
             ]
             assert len(summaries) == 1
-            assert summaries[0].count == 4
-            assert summaries[0].call_ids == ["read-0", "read-1", "read-2", "read-3"]
-            assert len(list(app.query(ToolCallWidget))) == 8
+            assert summaries[0].count == 8
+            assert summaries[0].call_ids == [
+                f"read-{index}" for index in range(7, -1, -1)
+            ]
+            assert len(list(app.query(ToolCallWidget))) == 4
             assert len(list(app.query(ToolCallSummary))) == 1
-            rendered = str(summaries[0].render())
-            assert "[ Explored       4 tools]" in rendered
+            rendered = summaries[0].render().plain
+            assert "Explored · 8 tools" in rendered
+            assert "src/f7.py" not in rendered
 
     asyncio.run(_run())
 
@@ -2300,7 +2305,7 @@ def test_old_tool_widgets_collapse_to_one_explored_summary(
 def test_explored_is_per_run_across_reasoning_and_sits_above_live_cards(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Reasoning does not split the cap: one Explored per run, newest cards live."""
+    """Reasoning does not split full batches of completed tools."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
     app.live_tool_widget_limit = 3
@@ -2325,23 +2330,25 @@ def test_explored_is_per_run_across_reasoning_and_sits_above_live_cards(
             await pilot.pause()
 
             summaries = list(app.query(ToolCallSummary))
-            assert len(summaries) == 1
-            assert summaries[0].call_ids == [
-                "a-0", "a-1", "a-2", "a-3", "a-4", "b-0", "b-1",
+            assert [summary.call_ids for summary in summaries] == [
+                ["a-2", "a-1", "a-0"],
+                ["b-0", "a-4", "a-3"],
+                ["b-3", "b-2", "b-1"],
             ]
-            assert "[ Explored       7 tools]" in str(summaries[0].render())
             live = list(app.query(ToolCallWidget))
-            assert [node.call_id for node in live] == ["b-2", "b-3", "b-4"]
+            assert [node.call_id for node in live] == ["b-4"]
             assert len(list(app.query(ReasoningWidget))) == 1
 
             assert app._process is not None
             order = app._process.timeline_items()
-            assert order.index(summaries[0]) < min(order.index(node) for node in live)
+            assert all(
+                order.index(summary) < order.index(live[0]) for summary in summaries
+            )
 
     asyncio.run(_run())
 
 
-def test_explored_does_not_collapse_under_limit_across_reasoning(
+def test_explored_collapses_when_batch_reaches_limit_across_reasoning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2367,16 +2374,25 @@ def test_explored_does_not_collapse_under_limit_across_reasoning(
                 )
             await pilot.pause()
 
-            assert not list(app.query(ToolCallSummary))
+            summaries = list(app.query(ToolCallSummary))
+            assert len(summaries) == 1
+            assert summaries[0].call_ids == [
+                "b-2",
+                "b-1",
+                "b-0",
+                "a-4",
+                "a-3",
+                "a-2",
+                "a-1",
+                "a-0",
+            ]
             live = [
                 node
                 for node in app._tools.values()
                 if isinstance(node, ToolCallWidget)
             ]
-            assert [node.call_id for node in live] == [
-                f"a-{index}" for index in range(5)
-            ] + [f"b-{index}" for index in range(3)]
-            assert len(list(app.query(ToolCallWidget))) == 8
+            assert live == []
+            assert not list(app.query(ToolCallWidget))
             assert len(list(app.query(ReasoningWidget))) == 1
 
     asyncio.run(_run())
@@ -2405,41 +2421,50 @@ def test_explored_keeps_in_progress_tools_live_and_uncounted(
             app.update_tool("call-3", status="done", result="ok")
             app.update_tool("call-4", status="done", result="ok")
             await pilot.pause()
-            assert not list(app.query(ToolCallSummary))
-            assert len(list(app.query(ToolCallWidget))) == 5
+            summaries = list(app.query(ToolCallSummary))
+            assert len(summaries) == 1
+            assert summaries[0].call_ids == ["call-4", "call-3"]
+            assert [node.call_id for node in app.query(ToolCallWidget)] == [
+                "call-0",
+                "call-1",
+                "call-2",
+            ]
 
             app.update_tool("call-1", status="done", result="ok")
             await pilot.pause()
             summaries = list(app.query(ToolCallSummary))
             assert len(summaries) == 1
-            assert summaries[0].call_ids == ["call-1"]
+            assert summaries[0].call_ids == ["call-4", "call-3"]
             live = list(app.query(ToolCallWidget))
             assert [node.call_id for node in live] == [
-                "call-0", "call-2", "call-3", "call-4",
+                "call-0", "call-1", "call-2",
             ]
             assert [node.status for node in live] == [
-                "running", "running", "done", "done",
+                "running", "done", "running",
             ]
 
             app.update_tool("call-0", status="done", result="ok")
             await pilot.pause()
             summaries = list(app.query(ToolCallSummary))
-            assert len(summaries) == 1
-            assert summaries[0].call_ids == ["call-1", "call-0"]
+            assert len(summaries) == 2
+            assert {tuple(summary.call_ids) for summary in summaries} == {
+                ("call-4", "call-3"),
+                ("call-1", "call-0"),
+            }
             assert isinstance(app._tools["call-0"], ToolCallSummary)
             assert [node.call_id for node in app.query(ToolCallWidget)] == [
-                "call-2", "call-3", "call-4",
+                "call-2",
             ]
 
     asyncio.run(_run())
 
 
-def test_explored_click_opens_folded_tool_snapshots(
+def test_explored_renders_folded_tool_snapshots_inline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
-    app.live_tool_widget_limit = 1
+    app.live_tool_widget_limit = 3
 
     async def _run() -> None:
         async with app.run_test() as pilot:
@@ -2453,19 +2478,60 @@ def test_explored_click_opens_folded_tool_snapshots(
                 app.update_tool(call_id, status="done", result="alpha\nbeta")
             await pilot.pause()
 
-            summary = app.query_one(ToolCallSummary)
-            assert summary.call_ids == ["read-0", "read-1"]
-            summary.open_details()
+            summaries = list(app.query(ToolCallSummary))
+            assert len(summaries) == 1
+            summary = summaries[0]
+            assert summary.call_ids == ["read-2", "read-1", "read-0"]
+            closed = summary.render().plain
+            assert closed.startswith("[ ▸ Explored · 3 tools")
+            assert closed.endswith("]")
+            assert len(closed) == summary.content_size.width
+
+            assert await pilot.click(summary)
             await pilot.pause()
-            modal = app.screen
-            assert isinstance(modal, ContentModal)
-            assert "src/f0.py" in modal.content
-            assert "src/f1.py" in modal.content
-            assert "src/f2.py" not in modal.content
-            assert "Read 2 lines" in modal.content
-            await pilot.press("escape")
+            rendered = summary.render().plain
+            assert rendered.startswith("[ ▾ Explored · 3 tools")
+            assert "src/f0.py" in rendered
+            assert "src/f1.py" in rendered
+            assert "src/f2.py" in rendered
+            assert "Read 2 lines" in rendered
+
+    asyncio.run(_run())
+
+
+def test_tool_compaction_keeps_full_conversation_visible(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    app.live_tool_widget_limit = 1
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
             await pilot.pause()
-            assert not isinstance(app.screen, ContentModal)
+            for index in range(3):
+                app.mount_transcript(UserMessage(f"question {index}"))
+                app.mount_transcript(AssistantMessage(f"answer {index}"))
+                tool = make_tool_widget(f"read-{index}", "read_file")
+                tool.set_arguments({"path": f"src/f{index}.py"})
+                tool.set_result("ok")
+                app.mount_transcript(tool)
+
+            app.finalize_transcript_history()
+            await pilot.pause()
+
+            assert [message.message_text for message in app.query(UserMessage)] == [
+                "question 0",
+                "question 1",
+                "question 2",
+            ]
+            assert [message.message_text for message in app.query(AssistantMessage)] == [
+                "answer 0",
+                "answer 1",
+                "answer 2",
+            ]
+            assert len(list(app.query(ToolCallSummary))) == 3
+            assert not list(app.query(".transcript-archive"))
 
     asyncio.run(_run())
 

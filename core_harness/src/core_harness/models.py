@@ -18,12 +18,14 @@ class PendingToolCall(BaseModel):
     id: str
     name: Optional[str] = None
     arguments_json: str = ""
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolCall(BaseModel):
     id: str
     name: str
     arguments: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     result_status: Optional[ToolResultStatus] = None
 
 

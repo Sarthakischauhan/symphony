@@ -118,6 +118,7 @@ async def dispatch_stream_event(
         streamed.pending_calls[event.content_index] = PendingToolCall(
             id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}",
             name=event.tool_name,
+            metadata=dict(event.tool_call_metadata or {}),
         )
         await control_plane.emit(
             "tool_call_started",

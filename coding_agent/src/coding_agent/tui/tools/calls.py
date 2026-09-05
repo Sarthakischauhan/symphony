@@ -14,7 +14,6 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.transcript.messages import clip_text, compact_json
@@ -238,14 +237,41 @@ class ToolCallSnapshot:
 
 
 class ToolCallSummary(Static, can_focus=True):
-    """One-line Explored row standing in for folded ToolCallWidgets.
-
-    Click or press Enter to open the folded tools' snapshots in a modal.
-    """
+    """A compact disclosure containing non-interactive tool snapshots."""
 
     def __init__(self) -> None:
         self.calls: list[ToolCallSnapshot] = []
-        super().__init__(self._line(), classes="tool-call-summary")
+        self.is_expanded = False
+        self.title = self._summary_title()
+        super().__init__(classes="tool-call-summary")
+
+    def _summary_title(self) -> str:
+        return f"Explored · {self._count_label()}"
+
+    def _count_label(self) -> str:
+        noun = "tool" if self.count == 1 else "tools"
+        return f"{self.count} {noun}"
+
+    def render(self) -> Text:
+        text = Text()
+        text.append("[ ", style="#666666")
+        text.append("▾ " if self.is_expanded else "▸ ", style="#777777")
+        text.append("Explored", style="#888888")
+        text.append(f" · {self._count_label()}", style="#666666")
+        header_length = len(text.plain)
+        gap = max(1, self.content_size.width - header_length - 1)
+        text.append(f"{' ' * gap}]", style="#666666")
+        if not self.is_expanded:
+            return text
+        for call in self.calls:
+            marker = "×" if call.status == "failed" else "✓"
+            text.append("\n")
+            text.append(f"  {marker}  {call.label}", style="#888888")
+            if call.detail:
+                text.append(f"  {call.detail}", style="#777777")
+            if call.result:
+                text.append(f"  — {call.result}", style="#666666")
+        return text
 
     @property
     def call_ids(self) -> list[str]:
@@ -267,35 +293,30 @@ class ToolCallSummary(Static, can_focus=True):
         from textual._context import NoActiveAppError
 
         try:
-            self.update(self._line())
+            self.title = self._summary_title()
+            self.refresh(layout=True)
         except NoActiveAppError:
             pass
+
+    def toggle(self) -> None:
+        self.is_expanded = not self.is_expanded
+        self.refresh(layout=True)
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.toggle()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            self.toggle()
 
     def snapshot_text(self) -> str:
         return "\n\n".join(call.as_text() for call in self.calls)
 
     def archive_text(self) -> str:
-        return self.snapshot_text()
-
-    def on_click(self, event: events.Click) -> None:
-        event.stop()
-        self.open_details()
-
-    def on_key(self, event: events.Key) -> None:
-        if event.key in {"enter", "space"}:
-            event.stop()
-            self.open_details()
-
-    def open_details(self) -> None:
-        content = self.snapshot_text() or "No folded tool calls."
-        self.app.push_screen(ContentModal(content))
-
-    def _line(self) -> Text:
-        line = Text()
-        line.append("[ ", style="#666666")
-        line.append("Explored", style="#d7a84b")
-        line.append(f"       {self.count} tools]", style="#666666")
-        return line
+        """Keep archived/explore transcripts as compact tool names only."""
+        return "\n".join(call.label for call in self.calls)
 
 
 IMAGE_CHIP = "[Image 1]"

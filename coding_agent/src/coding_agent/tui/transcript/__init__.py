@@ -1,6 +1,6 @@
 """Conversation transcript widgets for the coding-agent TUI."""
 
-from coding_agent.tui.transcript.archive import TranscriptArchive, TranscriptTurn
+from coding_agent.tui.transcript.archive import TranscriptTurn
 from coding_agent.tui.transcript.messages import (
     AssistantMessage,
     Notice,
@@ -22,7 +22,6 @@ __all__ = [
     "ReasoningWidget",
     "RunProcess",
     "ThinkingStatus",
-    "TranscriptArchive",
     "TranscriptSurface",
     "TranscriptTurn",
     "UserMessage",

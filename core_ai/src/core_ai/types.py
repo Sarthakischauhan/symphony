@@ -12,6 +12,9 @@ class Message(BaseModel):
     content: Content  # Text or canonical text/image parts
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
+    # Provider-owned metadata keyed by canonical tool-call id. This stays out of
+    # the shared tool-call schema while allowing lossless provider round trips.
+    tool_call_metadata: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 # The strict event stream coming OUT of the provider
@@ -30,6 +33,7 @@ class StreamEvent(BaseModel):
     delta: Optional[str] = None
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
+    tool_call_metadata: Optional[Dict[str, Any]] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None

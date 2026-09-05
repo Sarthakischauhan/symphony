@@ -38,7 +38,6 @@ from coding_agent.tui.transcript import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
-    TranscriptArchive,
     TranscriptSurface,
     TranscriptTurn,
     Welcome,
@@ -101,7 +100,6 @@ class CodingAgentApp(
         self._process: Optional[RunProcess] = None
         self._transcript_turns: list[TranscriptTurn] = []
         self._current_transcript_turn: Optional[TranscriptTurn] = None
-        self._transcript_archive: Optional[TranscriptArchive] = None
         self._tools: dict[str, ToolCallWidget | ToolCallSummary] = {}
         self._subagents: dict[str, SubagentRecord] = {}
         self._plan_store = PlanStore(self.workspace)

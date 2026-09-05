@@ -32,9 +32,9 @@ def _summaries(items: list[object]) -> list[ToolCallSummary]:
     return [item for item in items if isinstance(item, ToolCallSummary)]
 
 
-def test_reconcile_keeps_newest_completed_live_and_folds_older_into_one_explored() -> None:
-    """Limit N with N+K completed: newest N live, older K in one Explored above them."""
-    limit, extra = 8, 4
+def test_reconcile_compacts_a_full_batch_from_the_last_widget() -> None:
+    """A full batch folds newest-first into one Explored row."""
+    limit, extra = 8, 2
     tools: dict[str, object] = {}
     timeline: list[object] = []
     for index in range(limit + extra):
@@ -46,11 +46,11 @@ def test_reconcile_keeps_newest_completed_live_and_folds_older_into_one_explored
 
     summaries = _summaries(timeline)
     live = [item for item in timeline if isinstance(item, ToolCallWidget)]
-    assert len(live) == limit
-    assert _call_ids(live) == [f"read-{index}" for index in range(extra, limit + extra)]
+    assert len(live) == extra
+    assert _call_ids(live) == [f"read-{index}" for index in range(limit, limit + extra)]
     assert len(summaries) == 1
-    assert summaries[0].count == extra
-    assert summaries[0].call_ids == [f"read-{index}" for index in range(extra)]
+    assert summaries[0].count == limit
+    assert summaries[0].call_ids == [f"read-{index}" for index in range(limit - 1, -1, -1)]
     assert timeline.index(summaries[0]) < min(timeline.index(item) for item in live)
     assert all(tools[call_id] is summaries[0] for call_id in summaries[0].call_ids)
 
@@ -74,8 +74,8 @@ def test_reconcile_is_per_run_and_ignores_reasoning_boundaries() -> None:
 
     summaries = _summaries(timeline)
     assert len(summaries) == 1
-    assert summaries[0].call_ids == ["a-0", "a-1", "a-2", "a-3", "a-4", "b-0", "b-1"]
-    assert _call_ids(timeline) == ["b-2", "b-3", "b-4"]
+    assert summaries[0].call_ids == ["a-2", "a-1", "a-0"]
+    assert _call_ids(timeline) == ["a-3", "a-4", "b-0", "b-1", "b-2", "b-3", "b-4"]
     assert timeline.index(summaries[0]) < timeline.index(reasoning)
     assert reasoning in timeline
 
@@ -112,8 +112,8 @@ def test_reconcile_in_progress_tools_stay_live_and_do_not_count() -> None:
 
     reconcile_live_tools(timeline, tools, limit=2)
 
-    assert _summaries(timeline) == []
-    assert _call_ids(timeline) == ["run-0", "run-1", "run-2", "read-0", "read-1"]
+    assert [summary.call_ids for summary in _summaries(timeline)] == [["read-1", "read-0"]]
+    assert _call_ids(timeline) == ["run-0", "run-1", "run-2"]
 
 
 def test_reconcile_does_not_collapse_spawn_or_running_tools() -> None:
@@ -129,7 +129,7 @@ def test_reconcile_does_not_collapse_spawn_or_running_tools() -> None:
     assert running in timeline
     summaries = _summaries(timeline)
     assert len(summaries) == 1
-    assert summaries[0].call_ids == ["read-0", "read-1"]
+    assert summaries[0].call_ids == ["read-1", "read-0"]
     assert _call_ids(timeline) == ["spawn-1", "run-1", "read-2", "read-3"]
 
 
@@ -141,18 +141,18 @@ def test_reconcile_late_finisher_joins_existing_explored() -> None:
     tools = {item.call_id: item for item in timeline if isinstance(item, ToolCallWidget)}
 
     reconcile_live_tools(timeline, tools, limit=2)
-    assert _call_ids(timeline) == ["late", "read-1", "read-2"]
-    assert [summary.call_ids for summary in _summaries(timeline)] == [["read-0"]]
+    assert _call_ids(timeline) == ["late", "read-2"]
+    assert [summary.call_ids for summary in _summaries(timeline)] == [["read-1", "read-0"]]
 
     late.status = "done"
     reconcile_live_tools(timeline, tools, limit=2)
 
     summaries = _summaries(timeline)
-    assert len(summaries) == 1
-    assert summaries[0].call_ids == ["read-0", "late"]
-    assert _call_ids(timeline) == ["read-1", "read-2"]
-    assert tools["late"] is summaries[0]
-    assert timeline.index(summaries[0]) < timeline.index(done[1])
+    assert len(summaries) == 2
+    assert summaries[0].call_ids == ["read-1", "read-0"]
+    assert summaries[1].call_ids == ["read-2", "late"]
+    assert tools["late"] is summaries[1]
+    assert timeline.index(summaries[0]) < timeline.index(summaries[1])
 
 
 def test_reconcile_folds_incrementally_as_tools_complete() -> None:
@@ -164,26 +164,36 @@ def test_reconcile_folds_incrementally_as_tools_complete() -> None:
         tools[widget.call_id] = widget
         timeline.append(widget)
         reconcile_live_tools(timeline, tools, limit=3)
-        expected_live = [f"read-{i}" for i in range(max(0, index - 2), index + 1)]
-        assert _call_ids(timeline) == expected_live
 
     summaries = _summaries(timeline)
-    assert len(summaries) == 1
-    assert summaries[0].call_ids == ["read-0", "read-1", "read-2"]
-    assert timeline.index(summaries[0]) == 0
+    assert len(summaries) == 2
+    assert summaries[0].call_ids == ["read-2", "read-1", "read-0"]
+    assert summaries[1].call_ids == ["read-5", "read-4", "read-3"]
+    assert _call_ids(timeline) == []
 
 
-def test_tool_call_summary_line_uses_amber_explored_and_muted_count() -> None:
+def test_tool_call_summary_line_uses_subtle_explored_and_muted_count() -> None:
     summary = ToolCallSummary()
     summary.add_call("read-0")
     summary.add_call("read-1")
-    line = summary._line()
-    assert line.plain == "[ Explored       2 tools]"
-    styles = {
-        line.plain[span.start : span.end]: str(span.style) for span in line.spans
-    }
-    assert styles["Explored"] == "#d7a84b"
-    assert styles["       2 tools]"] == "#666666"
+    assert summary.title == "Explored · 2 tools"
+    assert summary.render().plain == "[ ▸ Explored · 2 tools ]"
+
+
+def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
+    widget = make_tool_widget("read-1", "read_file")
+    widget.set_arguments({"path": "src/app.py"})
+    widget.set_result("line one\nline two")
+    summary = ToolCallSummary()
+    summary.add_call(widget)
+
+    assert "src/app.py" not in summary.render().plain
+    summary.toggle()
+
+    rendered = summary.render().plain
+    assert rendered.startswith("[ ▾ Explored · 1 tool ]")
+    assert "✓  Read  src/app.py" in rendered
+    assert "Read 2 lines (17 bytes)" in rendered
 
 
 def test_tool_call_summary_keeps_snapshots_of_folded_tools() -> None:

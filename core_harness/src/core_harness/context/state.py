@@ -193,7 +193,19 @@ class HarnessState:
                 }
                 for call in tool_calls
             ]
-        messages.append(Message(role="assistant", content=content, tool_calls=payload))
+        metadata = (
+            {call.id: dict(call.metadata) for call in tool_calls if call.metadata}
+            if tool_calls
+            else None
+        )
+        messages.append(
+            Message(
+                role="assistant",
+                content=content,
+                tool_calls=payload,
+                tool_call_metadata=metadata or None,
+            )
+        )
 
     def add_tool_message(
         self,
@@ -295,4 +307,3 @@ class HarnessState:
             },
         )
         return compacted
-
