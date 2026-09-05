@@ -13,7 +13,6 @@ from core_ai.types import Content, Message
 from core_harness.addons import Addon
 from core_harness.addons.persistence import Checkpoint, NullPersistence
 from core_harness.addons.subagent import ChildConfig, ChildIdentity
-from core_harness.addons.telemetry import NullTelemetry
 from core_harness.config import SettingsSource, resolve_harness_config
 from core_harness.events import ControlPlane, IdentifiedControlPlane, NullControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
@@ -52,7 +51,6 @@ class CoreHarness:
         self.system_prompt = system_prompt
         self.control_plane = control_plane or NullControlPlane()
         self.persistence = NullPersistence()
-        self.telemetry = NullTelemetry()
         self.session_id = session_id
         self.limits = RunLimits(
             max_turns=self.config.max_turns,

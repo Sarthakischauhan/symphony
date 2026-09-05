@@ -8,6 +8,7 @@ from typing import Any
 
 from core_ai.types import Message
 from core_harness.errors import HarnessCancelled
+from core_harness.events import ControlPlane
 
 
 @dataclass
@@ -58,21 +59,21 @@ async def start_child(parent: Any, child: Any, prompt: Any, identity: Any) -> Ch
     return record
 
 
-async def wait_for_child_result(parent: Any, plane: Any, timeout: float | None) -> None:
+async def wait_for_child_result(parent: Any, plane: ControlPlane, timeout: float | None) -> None:
     """Suspend the runtime until a child finishes, cancellation, or the deadline."""
     tasks = {record.task for record in parent.child_tasks.values()
              if record.task is not None and not record.task.done()}
     if not tasks or parent._child_results:
         return
-    if getattr(plane, "cancelled", False):
-        raise HarnessCancelled(getattr(plane, "cancel_reason", "cancelled"))
-    cancel_event = getattr(plane, "cancel_event", None)
+    if plane.cancelled:
+        raise HarnessCancelled(plane.cancel_reason)
+    cancel_event = plane.cancel_event
     cancellation = asyncio.create_task(cancel_event.wait()) if cancel_event is not None else None
     waiters = tasks | ({cancellation} if cancellation is not None else set())
     try:
         done, _ = await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
         if cancellation is not None and cancellation in done:
-            raise HarnessCancelled(getattr(plane, "cancel_reason", "cancelled"))
+            raise HarnessCancelled(plane.cancel_reason)
     finally:
         if cancellation is not None:
             cancellation.cancel()

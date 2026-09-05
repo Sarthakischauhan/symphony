@@ -86,10 +86,10 @@ class TurnRunner:
         self.notify_addons = notify_addons or _ignore_addon_hook
 
     def _cancelled(self) -> bool:
-        return bool(getattr(self.control_plane, "cancelled", False))
+        return self.control_plane.cancelled
 
     def _cancel_reason(self) -> str:
-        return str(getattr(self.control_plane, "cancel_reason", "cancelled"))
+        return self.control_plane.cancel_reason
 
     def _raise_if_cancelled(self) -> None:
         if self._cancelled():

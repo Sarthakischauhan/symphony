@@ -24,11 +24,6 @@ from core_harness.addons.persistence import (
     PersistenceAddon,
 )
 from core_harness.addons.subagent import ChildConfig, ChildIdentity, SubagentAddon
-from core_harness.addons.telemetry import (
-    NullTelemetry,
-    Telemetry,
-    TelemetryAddon,
-)
 
 
 __all__ = [
@@ -43,12 +38,9 @@ __all__ = [
     "KeepDropPlan",
     "KeepSystemRecentCompactor",
     "NullPersistence",
-    "NullTelemetry",
     "Persistence",
     "PersistenceAddon",
     "SubagentAddon",
-    "Telemetry",
-    "TelemetryAddon",
     "compaction_from_config",
     "plan_keep_drop",
 ]
