@@ -30,6 +30,20 @@ uv run --package symphony-code symphony --model gemini:gemini-3.7-flash
 | `/` | Slash-command palette |
 | `@` | Workspace file search (after whitespace) |
 
+## Tool transcript
+
+Completed tools fold into an expandable **Explored** widget in batches of 10.
+When the run finishes, remaining completed tools (including subagent cards)
+fold too, and expanded batches close. Running tools remain visible. Restored
+conversations use the same compact presentation. Completed thoughts fold into
+the same widget, retaining only their titles.
+
+Click a summary, or focus it and press Enter or Space, to inspect tool paths,
+and commands in event order, without tool output or reasoning bodies. The
+Explored label is colored on a transparent background; green
+checks mark successful calls, and red accents and a failure count keep errors
+visible even when collapsed.
+
 ## Build vs plan
 
 **Build** can read, edit, and run. **Plan** is read-only: it inspects the repo

@@ -882,8 +882,12 @@ def test_tui_maps_stream_usage_and_read_file_events(
             await pilot.pause()
             process = app.query_one(RunProcess)
             assert process.query_one(".process-complete") is not None
-            await pilot.click(reasoning[0].query_one("CollapsibleTitle"))
-            assert not reasoning[0].collapsed
+            assert not list(process.query(ReasoningWidget))
+            summary = process.query_one(ToolCallSummary)
+            assert "1 thought" in summary.title
+            await pilot.click(summary)
+            assert summary.is_expanded
+            assert "Inspecting the requested file" not in summary.render().plain
 
     asyncio.run(_run())
 
@@ -2410,7 +2414,8 @@ def test_explored_is_per_run_across_reasoning_and_sits_above_live_cards(
             ]
             live = list(app.query(ToolCallWidget))
             assert [node.call_id for node in live] == ["b-4"]
-            assert len(list(app.query(ReasoningWidget))) == 1
+            assert not list(app.query(ReasoningWidget))
+            assert "1 thought" in summaries[1].title
 
             assert app._process is not None
             order = app._process.timeline_items()
@@ -2466,7 +2471,8 @@ def test_explored_collapses_when_batch_reaches_limit_across_reasoning(
             ]
             assert live == []
             assert not list(app.query(ToolCallWidget))
-            assert len(list(app.query(ReasoningWidget))) == 1
+            assert not list(app.query(ReasoningWidget))
+            assert "1 thought" in summaries[0].title
 
     asyncio.run(_run())
 
@@ -2532,6 +2538,42 @@ def test_explored_keeps_in_progress_tools_live_and_uncounted(
     asyncio.run(_run())
 
 
+def test_final_output_folds_remaining_tools(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            app.set_reasoning("## Inspecting files\n\nReasoning body stays hidden")
+            app.finish_reasoning()
+            for index in range(12):
+                app.add_tool(str(index), "read_file")
+                app.update_tool(str(index), status="done", result="content")
+            app.set_assistant("Finished the requested changes.")
+            app.finish_assistant()
+            app.finish_process("Completed")
+            await pilot.pause()
+
+            assert not list(app.query(ToolCallWidget))
+            summaries = list(app.query(ToolCallSummary))
+            assert sum(summary.count for summary in summaries) == 12
+            assert all(not summary.is_expanded for summary in summaries)
+            assert not list(app.query(ReasoningWidget))
+            assert any("1 thought" in summary.title for summary in summaries)
+            summaries[0].focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert summaries[0].is_expanded
+            assert "Thought - Inspecting files" in summaries[0].render().plain
+            assert "Reasoning body stays hidden" not in summaries[0].render().plain
+            assert app._assistant is not None
+            assert all(isinstance(tool, ToolCallSummary) for tool in app._tools.values())
+
+    asyncio.run(_run())
+
+
 def test_explored_renders_folded_tool_snapshots_inline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2567,7 +2609,7 @@ def test_explored_renders_folded_tool_snapshots_inline(
             assert "src/f0.py" in rendered
             assert "src/f1.py" in rendered
             assert "src/f2.py" in rendered
-            assert "Read 2 lines" in rendered
+            assert "Read 2 lines" not in rendered
 
     asyncio.run(_run())
 

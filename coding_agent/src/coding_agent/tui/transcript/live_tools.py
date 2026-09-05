@@ -1,4 +1,4 @@
-"""Fold older completed tool cards into one Explored summary per run."""
+"""Fold completed tools and thought titles into Explored batches."""
 
 from __future__ import annotations
 
@@ -12,32 +12,53 @@ def reconcile_live_tools(
     tools: MutableMapping[str, Any] | None = None,
     *,
     limit: int = LIVE_TOOL_WIDGET_LIMIT,
+    final: bool = False,
 ) -> None:
     """Compact completed tool cards in batches of ``limit``.
 
     The live tool window is deliberately simple: once ``limit`` completed
     widgets have accumulated, the whole batch is folded into one ``Explored``
-    row.  Folding starts at the newest widget, so the last card is removed
-    first.  A partial batch remains visible until it reaches the limit.
+    row together with completed thoughts preceding the batch's last tool.
+    A partial batch remains visible until it reaches the limit.
 
-    In-progress tools and ``spawn_agent`` cards stay live and never count.
+    Finalization also folds partial batches and completed subagent cards.
+    In-progress tools always stay live.
     """
     if timeline is None or limit < 1:
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
+    if final:
+        from coding_agent.tui.tools.calls import ToolCallSummary
+
+        for item in snapshot():
+            if isinstance(item, ToolCallSummary) and item.is_expanded:
+                item.toggle()
     # Copy first: folding mutates the live timeline while we iterate.  Only
     # the current batch is folded; a partial batch remains visible.
-    completed = _completed_tools(tuple(snapshot()))
-    if len(completed) < limit:
+    items = snapshot()
+    completed = _completed_tools(items, include_subagents=final)
+    if not final and len(completed) < limit:
         return
+    from coding_agent.tui.transcript.process import ReasoningWidget
+
+    selected = completed if final else completed[:limit]
+    boundary = len(items) if final else items.index(selected[-1]) + 1
+    batch = [
+        item for item in items[:boundary]
+        if item in selected
+        or isinstance(item, ReasoningWidget) and item.has_class("is-complete")
+    ]
     # Compact the oldest full batch, walking it newest-to-oldest so the
     # summary replaces the batch's final card. Existing summaries stay put.
     batch_summary = None
-    for widget in reversed(completed[:limit]):
+    for widget in reversed(batch):
         batch_summary = _fold_into_explored(
             widget, snapshot, replace, remove, tools, batch_summary
         )
+    if batch_summary is not None:
+        # Removal happens bottom-up; disclosures read in original event order.
+        batch_summary.entries.reverse()
 
 
 def _timeline_ops(
@@ -73,18 +94,17 @@ def _is_in_progress_tool(widget: Any) -> bool:
     return widget.status in {"preparing", "running"}
 
 
-def _completed_tools(items: Sequence[Any]) -> list[Any]:
+def _completed_tools(items: Sequence[Any], *, include_subagents: bool = False) -> list[Any]:
     """Terminal tool cards in timeline order (oldest first)."""
+    from coding_agent.tui.tools.calls import ToolCallWidget
+
     return [
         item
         for item in items
-        if _counts_toward_live_cap(item) and not _is_in_progress_tool(item)
+        if isinstance(item, ToolCallWidget)
+        and (include_subagents or _counts_toward_live_cap(item))
+        and not _is_in_progress_tool(item)
     ]
-
-
-def _overflow_past_limit(completed: Sequence[Any], limit: int) -> list[Any]:
-    """The older cards that fall outside the newest ``limit`` live slots."""
-    return list(completed if not limit else completed[:-limit])
 
 
 def _fold_into_explored(
@@ -108,14 +128,12 @@ def _fold_into_explored(
         replace(widget, summary)
     else:
         remove(widget)
-    summary.add_call(widget)
-    if tools is not None:
-        tools[widget.call_id] = summary
+    from coding_agent.tui.transcript.process import ReasoningWidget
+
+    if isinstance(widget, ReasoningWidget):
+        summary.add_thought(str(widget.title))
+    else:
+        summary.add_call(widget)
+        if tools is not None:
+            tools[widget.call_id] = summary
     return summary
-
-
-def _explored_summary(items: Sequence[Any]) -> Any:
-    """The run's single Explored row, if one has already been created."""
-    from coding_agent.tui.tools.calls import ToolCallSummary
-
-    return next((item for item in items if isinstance(item, ToolCallSummary)), None)

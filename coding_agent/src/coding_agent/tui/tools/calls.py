@@ -241,36 +241,49 @@ class ToolCallSummary(Static, can_focus=True):
 
     def __init__(self) -> None:
         self.calls: list[ToolCallSnapshot] = []
+        self.entries: list[ToolCallSnapshot | str] = []
         self.is_expanded = False
         self.title = self._summary_title()
         super().__init__(classes="tool-call-summary")
 
     def _summary_title(self) -> str:
-        return f"Explored · {self._count_label()}"
+        failed = sum(call.status == "failed" for call in self.calls)
+        suffix = f" · {failed} failed" if failed else ""
+        return f"Explored · {self._count_label()}{suffix}"
 
     def _count_label(self) -> str:
         noun = "tool" if self.count == 1 else "tools"
-        return f"{self.count} {noun}"
+        parts = [f"{self.count} {noun}"] if self.count else []
+        thoughts = sum(isinstance(entry, str) for entry in self.entries)
+        if thoughts:
+            parts.append(f"{thoughts} thought{'s' if thoughts != 1 else ''}")
+        return " · ".join(parts) or "0 tools"
 
     def render(self) -> Text:
         text = Text()
-        text.append("[ ", style="#666666")
-        text.append("▾ " if self.is_expanded else "▸ ", style="#777777")
-        text.append("Explored", style="#888888")
-        text.append(f" · {self._count_label()}", style="#666666")
+        text.append("[ ", style="#7395ab")
+        text.append("▾ " if self.is_expanded else "▸ ", style="bold #8ab4cf")
+        text.append("Explored", style="bold #8ab4cf")
+        text.append(f" · {self._count_label()}", style="#a2adb8")
+        failed = sum(call.status == "failed" for call in self.calls)
+        if failed:
+            text.append(f" · {failed} failed", style="bold #d66b73")
         header_length = len(text.plain)
         gap = max(1, self.content_size.width - header_length - 1)
-        text.append(f"{' ' * gap}]", style="#666666")
+        text.append(f"{' ' * gap}]", style="#7395ab")
         if not self.is_expanded:
             return text
-        for call in self.calls:
+        for call in self.entries:
+            if isinstance(call, str):
+                text.append(f"\n  ▸  {call}", style="#969696")
+                continue
             marker = "×" if call.status == "failed" else "✓"
             text.append("\n")
-            text.append(f"  {marker}  {call.label}", style="#888888")
+            color = "#d66b73" if call.status == "failed" else "#72a57a"
+            text.append(f"  {marker}  ", style=color)
+            text.append(call.label, style="bold #b8c7d4")
             if call.detail:
-                text.append(f"  {call.detail}", style="#777777")
-            if call.result:
-                text.append(f"  — {call.result}", style="#666666")
+                text.append(f"  {call.detail}", style="#a2adb8")
         return text
 
     @property
@@ -290,13 +303,21 @@ class ToolCallSummary(Static, can_focus=True):
             snapshot = ToolCallSnapshot(call_id=call)
         if snapshot.call_id not in self.call_ids:
             self.calls.append(snapshot)
+            self.entries.append(snapshot)
         from textual._context import NoActiveAppError
 
         try:
             self.title = self._summary_title()
+            self.set_class(any(call.status == "failed" for call in self.calls), "has-failures")
             self.refresh(layout=True)
         except NoActiveAppError:
             pass
+
+    def add_thought(self, title: str) -> None:
+        """Retain only the completed thought's title in the disclosure."""
+        self.entries.append(title)
+        self.title = self._summary_title()
+        self.refresh(layout=True)
 
     def toggle(self) -> None:
         self.is_expanded = not self.is_expanded
@@ -309,6 +330,7 @@ class ToolCallSummary(Static, can_focus=True):
     def on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:
             event.stop()
+            event.prevent_default()
             self.toggle()
 
     def snapshot_text(self) -> str:
@@ -316,7 +338,7 @@ class ToolCallSummary(Static, can_focus=True):
 
     def archive_text(self) -> str:
         """Keep archived/explore transcripts as compact tool names only."""
-        return "\n".join(call.label for call in self.calls)
+        return "\n".join(entry if isinstance(entry, str) else entry.label for entry in self.entries)
 
 
 IMAGE_CHIP = "[Image 1]"

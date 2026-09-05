@@ -143,6 +143,10 @@ class RunProcess(Container):
         if pending:
             self.mount(*pending)
 
+    @property
+    def completed(self) -> bool:
+        return self._completed
+
     def complete(self, title: str, *, collapse: bool = True) -> None:
         if self._completed:
             return

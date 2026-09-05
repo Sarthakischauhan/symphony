@@ -61,22 +61,22 @@ class TranscriptSurface:
             transcript.mount(widget)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
-    def _compact_transcript(self) -> None:
+    def _compact_transcript(self, *, final: bool = False) -> None:
         """Condense completed tool widgets without hiding conversation turns."""
         limit = getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT)
         if limit < 0:
             return
 
         for turn in self._transcript_turns:
-            reconcile_live_tools(turn, limit=limit)
+            reconcile_live_tools(turn, limit=limit, final=final)
             for item in turn.timeline_items():
                 if isinstance(item, RunProcess):
                     tools = self._tools if item is self._process else None
-                    reconcile_live_tools(item, tools, limit=limit)
+                    reconcile_live_tools(item, tools, limit=limit, final=final or item.completed)
 
     def finalize_transcript_history(self) -> None:
         """Apply tool condensation after restored history has mounted."""
-        self._compact_transcript()
+        self._compact_transcript(final=True)
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         if new or self._assistant is None:
@@ -177,6 +177,7 @@ class TranscriptSurface:
                 self._process,
                 self._tools,
                 limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
+                final=self._process is not None and self._process.completed,
             )
             self._compact_transcript()
 
@@ -203,6 +204,12 @@ class TranscriptSurface:
     def finish_process(self, title: str, *, collapse: bool = True) -> None:
         if self._process is not None:
             self._process.complete(title, collapse=collapse)
+            reconcile_live_tools(
+                self._process,
+                self._tools,
+                limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
+                final=True,
+            )
         self._compact_transcript()
 
     def mount_transcript(self, widget: Widget) -> None:
