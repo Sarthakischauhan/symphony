@@ -232,8 +232,12 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
                 self.add_notice("Waiting for an answer in the parent session.")
                 continue
             self._presenter.handle(event_type, payload)
+        # Child events may arrive in a burst while the parent screen is also
+        # being refreshed.  Do not leave the child's final buffered delta
+        # waiting on a scheduler tick; the child view must reflect the record
+        # immediately after its refresh.
+        self._presenter.flush_stream_paints()
         if record.status != "running":
-            self._presenter.flush_stream_paints()
             if self._assistant is None and record.output_text:
                 self.set_assistant(record.output_text)
             self.finish_assistant()
