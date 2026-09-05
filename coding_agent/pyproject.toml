@@ -1,8 +1,10 @@
 [project]
 name = "symphony-code"
 version = "0.1.0"
-description = "Minimal coding agent built on core_harness"
+description = "Symphony coding agent: workspace tools, SQLite sessions, and a Textual TUI on top of symphony-harness (import as coding_agent; run as `symphony`)"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Sarthak Chauhan", email = "sarthakchauhann@gmail.com" }
 ]
@@ -15,10 +17,17 @@ dependencies = [
     "textual>=8.2.8",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Sarthakischauhan/symphony"
+Documentation = "https://github.com/Sarthakischauhan/symphony/blob/main/docs/packages/symphony-code.md"
+Source = "https://github.com/Sarthakischauhan/symphony/tree/main/coding_agent"
+
 [project.scripts]
-coding-agent-tui = "coding_agent.tui.__main__:main"
+# `symphony` is the primary command; the other two are aliases kept for
+# compatibility and all resolve to the same entry point.
 symphony = "coding_agent.tui.__main__:main"
 symphony-code = "coding_agent.tui.__main__:main"
+coding-agent-tui = "coding_agent.tui.__main__:main"
 
 [tool.uv.sources]
 symphony-core = { workspace = true }

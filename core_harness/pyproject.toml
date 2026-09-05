@@ -1,8 +1,10 @@
 [project]
 name = "symphony-harness"
 version = "0.1.0"
-description = "Add your description here"
+description = "Symphony agent harness: provider-agnostic tool loop, control-plane events, run limits, and compaction (import as core_harness)"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Sarthak Chauhan", email = "sarthakchauhann@gmail.com" }
 ]
@@ -11,6 +13,11 @@ dependencies = [
     "symphony-core",
     "pydantic>=2.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Sarthakischauhan/symphony"
+Documentation = "https://github.com/Sarthakischauhan/symphony/blob/main/docs/packages/symphony-harness.md"
+Source = "https://github.com/Sarthakischauhan/symphony/tree/main/core_harness"
 
 [tool.uv.sources]
 symphony-core = { workspace = true }

@@ -1,8 +1,10 @@
 [project]
 name = "core-server"
 version = "0.1.0"
-description = "FastAPI SSE server wrapping core_harness"
+description = "FastAPI server that streams Symphony harness control-plane events over SSE (import as core_server; workspace-only, not published)"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Sarthak Chauhan", email = "sarthakchauhann@gmail.com" }
 ]
@@ -14,6 +16,11 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Sarthakischauhan/symphony"
+Documentation = "https://github.com/Sarthakischauhan/symphony/blob/main/docs/packages/core-server.md"
+Source = "https://github.com/Sarthakischauhan/symphony/tree/main/core_server"
 
 [project.scripts]
 core-server = "core_server.__main__:main"
