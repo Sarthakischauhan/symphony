@@ -96,6 +96,14 @@ emitted with the child's `agent_id` and the parent's id as `parent_id`.
 | `AGENT_SPAWNED` | `agent_spawned` | `child_id`, `label`, `prompt`, `model_id`, `depth` |
 | `AGENT_COMPLETED` | `agent_completed` | `child_id`, `label`, `output_text`, `usage` |
 | `AGENT_FAILED` | `agent_failed` | `child_id`, `label`, `message`, `error_type` |
+| `WAITING_FOR_CHILDREN` | `waiting_for_children` | `turn`, `child_ids` — parent has finished independent work and is waiting for child results |
+
+`agent_spawned` also carries `tool_call_id`, `child_session_id`,
+`parent_session_id`, `max_turns`, and `reasoning_effort`. These identify the
+originating tool invocation and the child's saved session without matching labels.
+Background results arrive between model turns as `message_injected` with
+`source: "subagent"`. The runtime waits for outstanding children before emitting
+the parent's final `run_completed`; no model-facing polling tool is required.
 
 ## Product events (not in the harness enum)
 

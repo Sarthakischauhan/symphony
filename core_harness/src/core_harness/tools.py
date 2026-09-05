@@ -1,7 +1,11 @@
 """Callable adapter that exposes a Python function as an agent tool."""
 
 import inspect
+from contextvars import ContextVar
 from typing import Any, Callable, Dict, Optional
+
+
+current_tool_call_id: ContextVar[str] = ContextVar("tool_call_id", default="")
 
 
 class Tool:

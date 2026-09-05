@@ -53,3 +53,9 @@ print((await agent.run("Fix the failing test")).output_text)
 
 The agent asks before bash, overwrite, or a broad patch. Sessions persist in
 `.symphony/sessions.sqlite3` (`--resume`).
+
+Subagents run in the background by default and return results automatically to
+the parent runtime. Press **Ctrl+G** to inspect their saved or live transcripts,
+with the same tool/thought compaction as the parent. **Esc** returns to the parent;
+**Ctrl+X** in the child view cancels that child. Child histories persist separately
+in the session database; closing the app stops active children.

@@ -60,6 +60,7 @@ class CodingAgentApp(
     ALLOW_SELECT = True
 
     BINDINGS = [
+        Binding("ctrl+g", "subagents", "Subagents", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear", show=False),
         Binding("escape", "cancel_run", "Cancel", show=True, priority=True),
@@ -105,6 +106,7 @@ class CodingAgentApp(
         self._plan_store = PlanStore(self.workspace)
         self._plan_run_active = False
         self._pending_question_id: str | None = None
+        self._pending_question_agent_id = ""
         self._pending_question_default = ""
         self._model_options = model_options()
         self._command_manager = CommandManager(self)
@@ -201,6 +203,10 @@ class CodingAgentApp(
         self.exit()
 
     async def on_unmount(self) -> None:
+        harness = getattr(self._agent, "harness", None)
+        shutdown_children = getattr(harness, "shutdown_children", None)
+        if callable(shutdown_children):
+            await shutdown_children()
         if self._busy:
             self.control_plane.request_cancel("quit")
         shutdown = getattr(self._agent, "shutdown_learning", None)

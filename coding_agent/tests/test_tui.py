@@ -289,6 +289,18 @@ def test_render_footer_shows_context_meter_and_right_aligned_hint() -> None:
     assert _render_plain(render_footer(state, hint="esc cancel"), width=80).startswith("working")
 
 
+def test_footer_separates_usage_from_hint_with_long_workspace() -> None:
+    state = UiRunState(model_id="gpt-5.6")
+    state.metrics = RunMetrics(context_limit=400_000, tokens_used=22_082)
+    for width in (80, 120, 180):
+        line = _render_plain(
+            render_footer(state, hint="esc cancel", workspace="/long/workspace" * 20),
+            width=width,
+        ).rstrip("\n")
+        assert "6% context" in line
+        assert line.endswith("22,082/400,000   esc cancel")
+
+
 def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
     async def _run() -> None:
         app = CodingAgentApp(workspace=tmp_path)

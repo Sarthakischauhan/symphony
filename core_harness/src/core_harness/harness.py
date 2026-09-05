@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -70,6 +71,10 @@ class CoreHarness:
         self.max_spawn_depth = self.config.max_spawn_depth
         self._active_run_id: Optional[str] = None
         self._active_session_id: Optional[str] = None
+        self._active_plane: Optional[IdentifiedControlPlane] = None
+        self.child_tasks: Dict[str, Any] = {}
+        self._child_results: List[Message] = []
+        self._last_run_status = "idle"
         self.state = HarnessState(
             context_limits=self.config.context_limits,
             context_warn_threshold=self.config.context_warn_threshold,
@@ -116,12 +121,15 @@ class CoreHarness:
         self._active_session_id = session_id
 
     def _parent_plane(self) -> IdentifiedControlPlane:
+        if self._active_plane is not None:
+            return self._active_plane
         return IdentifiedControlPlane(
             self.control_plane,
             run_id=self._active_run_id or str(uuid.uuid4()),
             session_id=self._active_session_id or self.session_id or str(uuid.uuid4()),
             agent_id=self.agent_id,
             parent_id=self.parent_id,
+            persistence=self.persistence,
         )
 
     def _subagent_addon(self):
@@ -185,10 +193,45 @@ class CoreHarness:
         prompt: Content,
         *,
         identity: ChildIdentity,
+        announce: bool = True,
     ) -> HarnessResult:
         """Emit lifecycle events and await ``child.run``."""
         plane = identity.parent_plane
-        await plane.emit(
+        if announce:
+            await self.announce_child(child, identity)
+        child._last_run_status = "running"
+        try:
+            result = await child.run(prompt)
+        except asyncio.CancelledError:
+            child._last_run_status = "cancelled"
+            await plane.emit("agent_failed", {
+                "child_id": child.agent_id, "label": identity.label,
+                "message": "Child cancelled", "error_type": "HarnessCancelled",
+            })
+            raise
+        except (HarnessCancelled, HarnessLimitExceeded) as exc:
+            child._last_run_status = "cancelled" if isinstance(exc, HarnessCancelled) else "failed"
+            await plane.emit("agent_failed", {
+                "child_id": child.agent_id, "label": identity.label,
+                "message": str(exc), "error_type": type(exc).__name__,
+            })
+            return HarnessResult(output_text=f"error: subagent {type(exc).__name__}: {exc}", messages=[])
+        except Exception as exc:
+            child._last_run_status = "failed"
+            await plane.emit("agent_failed", {
+                "child_id": child.agent_id, "label": identity.label,
+                "message": str(exc), "error_type": type(exc).__name__,
+            })
+            return HarnessResult(output_text=f"error: subagent failed: {exc}", messages=[])
+        child._last_run_status = "completed"
+        await plane.emit("agent_completed", {
+            "child_id": child.agent_id, "label": identity.label,
+            "output_text": result.output_text, "usage": result.usage.model_dump(),
+        })
+        return result
+
+    async def announce_child(self, child: CoreHarness, identity: ChildIdentity) -> None:
+        await identity.parent_plane.emit(
             "agent_spawned",
             {
                 "child_id": child.agent_id,
@@ -196,50 +239,25 @@ class CoreHarness:
                 "prompt": identity.prompt_text,
                 "model_id": child.model_id,
                 "depth": child.spawn_depth,
+                "child_session_id": child.session_id,
+                "parent_session_id": identity.parent_plane.session_id,
+                "tool_call_id": identity.tool_call_id,
+                "max_turns": child.max_turns,
+                "reasoning_effort": child.reasoning_effort,
             },
         )
-        try:
-            result = await child.run(prompt)
-        except (HarnessCancelled, HarnessLimitExceeded) as exc:
-            await plane.emit(
-                "agent_failed",
-                {
-                    "child_id": child.agent_id,
-                    "label": identity.label,
-                    "message": str(exc),
-                    "error_type": type(exc).__name__,
-                },
-            )
-            return HarnessResult(
-                output_text=f"error: subagent {type(exc).__name__}: {exc}",
-                messages=[],
-                tool_calls=[],
-            )
-        except Exception as exc:  # noqa: BLE001
-            await plane.emit(
-                "agent_failed",
-                {
-                    "child_id": child.agent_id,
-                    "label": identity.label,
-                    "message": str(exc),
-                    "error_type": type(exc).__name__,
-                },
-            )
-            return HarnessResult(
-                output_text=f"error: subagent failed: {exc}",
-                messages=[],
-                tool_calls=[],
-            )
-        await plane.emit(
-            "agent_completed",
-            {
-                "child_id": child.agent_id,
-                "label": identity.label,
-                "output_text": result.output_text,
-                "usage": result.usage.model_dump(),
-            },
-        )
-        return result
+
+    def drain_child_results(self) -> List[Message]:
+        results, self._child_results = self._child_results, []
+        return results
+
+    async def shutdown_children(self) -> None:
+        tasks = [record.task for record in self.child_tasks.values() if record.task is not None]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def spawn(
         self,

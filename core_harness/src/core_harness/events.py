@@ -110,6 +110,7 @@ class IdentifiedControlPlane:
         schema_version: int = EVENT_SCHEMA_VERSION,
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
+        persistence: Any = None,
     ) -> None:
         self.inner = inner
         self.run_id = run_id
@@ -117,6 +118,7 @@ class IdentifiedControlPlane:
         self.schema_version = schema_version
         self.agent_id = agent_id or run_id
         self.parent_id = parent_id
+        self.persistence = persistence
         self._sequence = 0
 
     async def emit(
@@ -135,7 +137,11 @@ class IdentifiedControlPlane:
             "agent_id": self.agent_id,
             "parent_id": self.parent_id,
         }
-        await self.inner.emit(normalize_event_type(event_type), stamped)
+        event_name = normalize_event_type(event_type)
+        append = getattr(self.persistence, "append_event", None)
+        if callable(append):
+            await append(event_type=event_name, payload=stamped)
+        await self.inner.emit(event_name, stamped)
 
     async def request_user_input(
         self,

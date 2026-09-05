@@ -371,6 +371,9 @@ raises `HarnessLimitExceeded`.
 
 ## `agent_spawned` (conditional)
 
+The payload also includes `tool_call_id`, `child_session_id`,
+`parent_session_id`, `max_turns`, and `reasoning_effort` for exact child routing.
+
 Subagent lifecycle events are emitted on the parent's plane. The child's own
 events carry the child's `agent_id` and the parent's id as `parent_id`.
 
@@ -387,7 +390,17 @@ events carry the child's `agent_id` and the parent's id as `parent_id`.
 }
 ```
 
+## `waiting_for_children` (conditional)
+
+Emitted when the parent finishes independent work while background children
+remain active. Payload: `turn` and `child_ids`. The runtime waits for a child
+completion, cancellation, or its deadline, then delivers results through
+`message_injected` (`source: "subagent"`) before the next model turn. Waiting
+does not invoke a model tool. Parent `run_completed` follows final synthesis.
+
 ## `agent_completed` (conditional)
+
+Emitted on the parent's plane when a child finishes.
 
 ```json
 {

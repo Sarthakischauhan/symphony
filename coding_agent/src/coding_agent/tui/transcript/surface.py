@@ -165,12 +165,15 @@ class TranscriptSurface:
             return
         if status == "running":
             widget.set_running(arguments)
-        elif status == "done":
+        elif status in {"done", "failed"}:
             widget.set_result(result)
+            if status == "failed":
+                widget.status = "failed"
+                widget.refresh_content()
         else:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-        if status == "done":
+        if status in {"done", "failed"}:
             # Only completed cards count toward the live cap, so a run's
             # timeline can only overflow when a tool reaches a terminal state.
             reconcile_live_tools(
@@ -225,6 +228,5 @@ class TranscriptSurface:
         self._reasoning = None
         self._process = None
         self._tools.clear()
-        self._subagents.clear()
         self._transcript_turns.clear()
         self._current_transcript_turn = None
