@@ -196,8 +196,14 @@ TOOLS_CSS = """
     height: auto;
     margin: 1 0 0 0;
     padding: 0 1;
-    color: #777777;
-    background: $background;
+    color: #a2adb8;
+    background: transparent;
     pointer: pointer;
+}
+
+.tool-call-summary:hover,
+.tool-call-summary:focus {
+    background: transparent;
+    text-style: bold;
 }
 """

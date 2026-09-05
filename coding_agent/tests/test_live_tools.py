@@ -193,7 +193,7 @@ def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
     rendered = summary.render().plain
     assert rendered.startswith("[ ▾ Explored · 1 tool ]")
     assert "✓  Read  src/app.py" in rendered
-    assert "Read 2 lines (17 bytes)" in rendered
+    assert "Read 2 lines (17 bytes)" not in rendered
 
 
 def test_tool_call_summary_keeps_snapshots_of_folded_tools() -> None:
@@ -213,3 +213,69 @@ def test_tool_call_summary_keeps_snapshots_of_folded_tools() -> None:
     assert snapshot.detail == "src/app.py"
     assert snapshot.status == "done"
     assert summary.snapshot_text() == "✓  Read  src/app.py\n   Read 2 lines (17 bytes)"
+
+
+def test_finalization_folds_partial_batch_and_completed_subagents() -> None:
+    done = _done_tool("read")
+    spawn = _done_tool("child", "spawn_agent")
+    running = _running_tool("running")
+    timeline = [done, spawn, running]
+    tools = {item.call_id: item for item in timeline}
+
+    reconcile_live_tools(timeline, tools, final=True)
+    reconcile_live_tools(timeline, tools, final=True)
+
+    assert _call_ids(timeline) == ["running"]
+    assert len(_summaries(timeline)) == 1
+    assert set(_summaries(timeline)[0].call_ids) == {"read", "child"}
+    assert tools["read"] is tools["child"]
+
+
+def test_summary_keeps_failures_visible_when_collapsed() -> None:
+    summary = ToolCallSummary()
+    summary.add_call(ToolCallSnapshot("failed", status="failed", result="Permission denied"))
+
+    assert "1 failed" in summary.render().plain
+    assert summary.has_class("has-failures")
+    summary.toggle()
+    assert "Permission denied" not in summary.render().plain
+
+
+def test_finalization_closes_expanded_batches_without_new_tools() -> None:
+    summary = ToolCallSummary()
+    summary.add_call("read")
+    summary.toggle()
+    reconcile_live_tools([summary], final=True)
+    assert not summary.is_expanded
+
+
+def test_batch_includes_completed_thought_titles_in_event_order() -> None:
+    thought = ReasoningWidget("## Inspecting files\n\nPrivate reasoning body")
+    thought.complete()
+    tool = _done_tool("read")
+    live_thought = ReasoningWidget("Still thinking")
+    timeline = [thought, tool, live_thought]
+
+    reconcile_live_tools(timeline, limit=1)
+
+    assert thought not in timeline
+    assert live_thought in timeline
+    summary = _summaries(timeline)[0]
+    assert summary.title == "Explored · 1 tool · 1 thought"
+    summary.toggle()
+    rendered = summary.render().plain
+    assert "Thought - Inspecting files" in rendered
+    assert "Private reasoning body" not in rendered
+    assert rendered.index("Thought - Inspecting files") < rendered.index("✓")
+
+
+def test_finalization_folds_thought_only_runs() -> None:
+    thought = ReasoningWidget("## Answering\n\nDetails")
+    thought.complete()
+    timeline = [thought]
+
+    reconcile_live_tools(timeline, final=True)
+
+    summary = _summaries(timeline)[0]
+    assert summary.title == "Explored · 1 thought"
+    assert summary.archive_text() == "Thought - Answering"
