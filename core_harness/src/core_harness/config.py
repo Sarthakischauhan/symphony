@@ -8,6 +8,8 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core_ai.models.registry import context_limits
+
 SettingsSource = Union["HarnessConfig", str, Path]
 
 DEFAULT_SUBAGENT_SYSTEM_PROMPT = (
@@ -15,9 +17,6 @@ DEFAULT_SUBAGENT_SYSTEM_PROMPT = (
     "needed. Do not ask the user. Return a concise, complete answer for the "
     "parent agent."
 )
-
-
-from core_ai.models.registry import context_limits
 
 
 class HarnessConfig(BaseModel):
