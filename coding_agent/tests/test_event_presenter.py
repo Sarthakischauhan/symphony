@@ -257,3 +257,60 @@ def test_run_summary_shows_summary_so_far() -> None:
             "run_summary",
         )
     ]
+
+
+def test_compaction_completed_updates_context_metrics_and_repaints_chrome() -> None:
+    presenter, view, chrome = _presenter()
+    presenter.handle("run_started", {"model_id": "openai:test"})
+    presenter.handle(
+        "context",
+        {
+            "turn": 0,
+            "context_limit": 100_000,
+            "tokens_used": 90_000,
+            "context_left": 10_000,
+            "utilization": 0.9,
+        },
+    )
+    chrome.clear()
+
+    presenter.handle("compaction_started", {"turn": 1, "message_count": 30, "manual": True})
+    presenter.handle(
+        "compaction_completed",
+        {
+            "turn": 1,
+            "message_count_before": 30,
+            "message_count_after": 12,
+            "estimated_tokens_before": 90_000,
+            "estimated_tokens_after": 25_000,
+            "context_limit": 100_000,
+            "manual": True,
+        },
+    )
+
+    metrics = presenter.state.metrics
+    assert metrics.tokens_used == 25_000
+    assert metrics.context_left == 75_000
+    assert metrics.context_limit == 100_000
+    assert metrics.utilization == 0.25
+    assert presenter.state.detail == "ready"
+    assert chrome and "tokens=25000" in chrome[-1]
+    assert "context_left=75000/100000" in chrome[-1]
+    assert view.notices[-1] == (
+        "Compacted context · 30 → 12 messages · ~90,000 → ~25,000 tokens"
+    )
+
+
+def test_compaction_completed_without_estimate_keeps_metrics() -> None:
+    presenter, view, _chrome = _presenter()
+    presenter.handle("run_started", {"model_id": "openai:test"})
+    presenter.handle("context", {"context_limit": 1_000, "tokens_used": 400, "context_left": 600})
+
+    presenter.handle(
+        "compaction_completed",
+        {"message_count_before": 9, "message_count_after": 4},
+    )
+
+    assert presenter.state.metrics.tokens_used == 400
+    assert presenter.state.metrics.context_left == 600
+    assert view.notices[-1] == "Compacted context · 9 → 4 messages"

@@ -58,6 +58,11 @@ for the user-facing shape.
     "max_lessons": 200,
     "context_limit": 6,
     "context_max_chars": 1400
+  },
+  "compaction": {
+    "ai_summary": true,
+    "max_output_tokens": 700,
+    "max_transcript_chars": 24000
   }
 }
 ```
@@ -73,7 +78,12 @@ for the user-facing shape.
 coding_agent attaches keep-system-recent compaction by default. When a model
 has 16,000 or fewer context tokens left, it keeps the system prompt, the
 original task, and the ten most recent messages. Dropped messages are
-summarized with paths already observed. Tool results are capped at 4,000
+summarized by the active model into one compacted-context message that also
+lists the tools used and paths already observed. `/compact` runs the same
+compactor on demand and refreshes the footer's context meter. Set
+`compaction.ai_summary` to `false` to use the harness template summary with
+no extra model call; `compaction.max_output_tokens` and
+`compaction.max_transcript_chars` bound the summary request. Tool results are capped at 4,000
 characters when they enter history. Older tool bodies are stubbed only after
 the estimated prompt reaches `tool_result_prune_tokens` (48,000 by default).
 

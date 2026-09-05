@@ -31,6 +31,18 @@ def _clean_reasoning(text: str) -> str:
     )
 
 
+def _compaction_notice(payload: Mapping[str, Any]) -> str:
+    """Notice text with message counts and, when known, estimated token counts."""
+    before = payload.get("message_count_before", "?")
+    after = payload.get("message_count_after", "?")
+    text = f"Compacted context · {before} → {after} messages"
+    tokens_before = payload.get("estimated_tokens_before")
+    tokens_after = payload.get("estimated_tokens_after")
+    if isinstance(tokens_before, int) and isinstance(tokens_after, int):
+        text += f" · ~{tokens_before:,} → ~{tokens_after:,} tokens"
+    return text
+
+
 class TranscriptView(Protocol):
     """Small rendering boundary, deliberately free of Textual types."""
 
@@ -459,9 +471,10 @@ class EventPresenter:
         self.view.add_notice("Compacting conversation context…")
 
     def _on_compaction_completed(self, payload: Dict[str, Any]) -> None:
-        before = payload.get("message_count_before", "?")
-        after = payload.get("message_count_after", "?")
-        self.view.add_notice(f"Compacted context · {before} → {after} messages", "success")
+        self.state.update_after_compaction(payload)
+        if payload.get("manual"):
+            self.state.detail = "ready"
+        self.view.add_notice(_compaction_notice(payload), "success")
 
     def _on_paused(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "paused"

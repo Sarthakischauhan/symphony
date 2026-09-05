@@ -300,6 +300,27 @@ async def show_context(app: Any) -> None:
     app.push_screen(ContextModal(report))
 
 
+# --- compact.py ---
+async def compact_context(app: Any) -> None:
+    """Run the harness-mounted compactor on the saved conversation.
+
+    The agent emits ``compaction_*`` events which the presenter turns into the
+    notice and footer metrics; the explicit refresh after the await keeps the
+    footer current even when no event changed the chrome snapshot.
+    """
+    try:
+        before, after = await app._agent.compact_conversation()
+    except RuntimeError as exc:
+        app.add_notice(f"Compact unavailable · {exc}", "warning")
+        return
+    if before == 0:
+        app.add_notice("There is no saved conversation to compact.")
+    elif before == after:
+        app.add_notice(f"Context is already compact · {after} messages")
+    if app._presenter is not None:
+        app._presenter.refresh_chrome()
+
+
 # --- command_manager.py ---
 class CommandManager:
     """Parse slash commands and run the matching handler."""
@@ -365,11 +386,7 @@ class CommandManager:
         elif command == "model":
             select_model(app, argument) if argument else show_model_picker(app)
         elif command == "compact":
-            before, after = await app._agent.compact_conversation()
-            if before == 0:
-                app.add_notice("There is no saved conversation to compact.")
-            elif before == after:
-                app.add_notice(f"Context is already compact · {after} messages")
+            await compact_context(app)
         elif command == "diff":
             app.push_screen(DiffModal(app.workspace))
         else:
