@@ -1,15 +1,16 @@
 """JSONL persistence for coding-agent sessions.
 
-One append-only file per session under ``.symphony/sessions/<session_id>.jsonl``.
-Conversation saves append new messages when history only grows; compaction or
-other rewrites replace the message entries and keep events, spawns, and
-checkpoints. Token deltas are not stored.
+One append-only file per session under ``.sessions/<session_id>.jsonl``.
+The transcript is the source of truth: conversation messages are stored as
+typed events and compaction stores a snapshot event. Runtime context is
+reconstructed from those events; no separate context file is written.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,9 +29,30 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def sessions_dir(workspace: Union[str, Path]) -> Path:
-    """Default session directory for a workspace."""
-    return Path(workspace).expanduser().resolve() / ".symphony" / "sessions"
+def sessions_dir(workspace: Union[str, Path] | None = None) -> Path:
+    """Return the global Symphony session directory, migrating old sessions.
+
+    Older releases stored sessions in ``<workspace>/.sessions``. On first use,
+    move those files into the global directory. Migration is deliberately
+    file-by-file and only removes the legacy directory after every move has
+    succeeded, so an interrupted migration remains resumable.
+    """
+    target = (Path.home() / ".symphony" / "sessions").expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    if workspace is not None:
+        legacy = Path(workspace).expanduser().resolve() / ".sessions"
+        if legacy.is_dir() and legacy != target:
+            try:
+                for source in legacy.iterdir():
+                    destination = target / source.name
+                    if source.is_file() and not destination.exists():
+                        shutil.move(str(source), str(destination))
+                if not any(legacy.iterdir()):
+                    legacy.rmdir()
+            except OSError:
+                # Leave the legacy directory in place; resume can retry later.
+                pass
+    return target
 
 
 @dataclass(frozen=True)
@@ -89,27 +111,75 @@ class JsonlPersistence:
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
         tmp.replace(path)
 
-    def _header(self, session_id: str) -> Dict[str, Any]:
-        return {"type": "header", "session_id": session_id, "created_at": _utc_now()}
+    def _next_seq(self, entries: List[Dict[str, Any]]) -> int:
+        return max((int(entry.get("seq", 0)) for entry in entries if str(entry.get("seq", "0")).isdigit()), default=0) + 1
 
-    def _message_entry(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {"type": "message", **payload}
+    def _header(self, session_id: str) -> Dict[str, Any]:
+        return {"type": "header", "session_id": session_id, "seq": 1, "created_at": _utc_now()}
+
+    def _message_entry(self, payload: Dict[str, Any], *, seq: int) -> Dict[str, Any]:
+        role = str(payload.get("role") or "message")
+        event_type = "tool_result" if role == "tool" else role
+        return {"type": "message", "event_type": event_type, "seq": seq, "message": payload, **payload}
+
+    def _message_payload_from_entry(self, entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if entry.get("type") == "message":  # legacy JSONL
+            return {field: entry.get(field) for field in _MESSAGE_FIELDS}
+        if entry.get("type") in {"system", "user", "assistant", "tool_result"}:
+            return {field: entry.get(field) for field in _MESSAGE_FIELDS}
+        payload = entry.get("message")
+        if isinstance(payload, dict):
+            return {field: payload.get(field) for field in _MESSAGE_FIELDS}
+        return None
 
     def _message_payload(self, message: Message) -> Dict[str, Any]:
         return message.model_dump()
 
     def _messages_from(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Build the model context; never use this for rendering history."""
         dumped: List[Dict[str, Any]] = []
+        latest = next((entry for entry in reversed(entries) if entry.get("type") == "compaction"), None)
+        if latest is None:
+            return [payload for entry in entries
+                    if (payload := self._message_payload_from_entry(entry)) is not None]
+
+        system = latest.get("system")
+        if not isinstance(system, dict):
+            system = next((entry.get("message") for entry in entries
+                           if entry.get("type") == "message"
+                           and entry.get("message", {}).get("role") == "system"), None)
+        if isinstance(system, dict):
+            dumped.append(dict(system))
+        summary = latest.get("summary")
+        if isinstance(summary, dict):
+            dumped.append(dict(summary))
+        elif isinstance(summary, str) and summary:
+            dumped.append({
+                "role": str(latest.get("summary_role") or "user"),
+                "content": summary,
+            })
+        through = int(latest.get("through_seq", 0) or 0)
         for entry in entries:
-            if entry.get("type") != "message":
+            try:
+                seq = int(entry.get("seq", 0))
+            except (TypeError, ValueError):
+                seq = 0
+            if seq <= through:
                 continue
-            dumped.append({field: entry.get(field) for field in _MESSAGE_FIELDS})
+            payload = self._message_payload_from_entry(entry)
+            if payload is not None:
+                dumped.append(payload)
         return dumped
+
+    def _transcript_messages(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Return every persisted message, including messages before compaction."""
+        return [payload for entry in entries
+                if (payload := self._message_payload_from_entry(entry)) is not None]
 
     def _remember_event_keys(self, session_id: str, entries: List[Dict[str, Any]]) -> set[tuple[str, int]]:
         keys = self._event_keys.setdefault(session_id, set())
         for entry in entries:
-            if entry.get("type") != "event":
+            if not entry.get("event_type"):
                 continue
             payload = entry.get("payload") or {}
             run_id = payload.get("run_id")
@@ -140,8 +210,9 @@ class JsonlPersistence:
                 outgoing.append(self._header(session_id))
             outgoing.append(
                 {
-                    "type": "event",
+                    "type": event_type,
                     "event_type": event_type,
+                    "seq": seq if isinstance(seq, int) else self._next_seq(entries),
                     "payload": dict(payload),
                 }
             )
@@ -179,7 +250,7 @@ class JsonlPersistence:
             entries = self._read_entries(session_id)
         events: list[tuple[str, dict[str, Any]]] = []
         for entry in entries:
-            if entry.get("type") != "event":
+            if not entry.get("event_type") or entry.get("type") == "message":
                 continue
             event_type = str(entry.get("event_type") or "")
             payload = entry.get("payload")
@@ -227,44 +298,64 @@ class JsonlPersistence:
             entries = self._read_entries(session_id)
             stored = self._messages_from(entries)
             if not entries:
+                header = self._header(session_id)
                 self._append_entries(
                     session_id,
-                    [self._header(session_id), *[self._message_entry(item) for item in incoming]],
+                    [header, *[
+                        self._message_entry(item, seq=header["seq"] + index)
+                        for index, item in enumerate(incoming, 1)
+                    ]],
                 )
                 return
             if stored == incoming[: len(stored)] and len(incoming) >= len(stored):
                 extra = incoming[len(stored) :]
                 if extra:
+                    next_seq = self._next_seq(entries)
                     self._append_entries(
                         session_id,
-                        [self._message_entry(item) for item in extra],
+                        [self._message_entry(item, seq=next_seq + index) for index, item in enumerate(extra)],
                     )
                 return
-            header = next(
-                (entry for entry in entries if entry.get("type") == "header"),
-                self._header(session_id),
+            # A rewrite means the harness compacted its runtime context. Keep
+            # the complete transcript and append only a checkpoint plus the
+            # retained suffix; compaction must never erase TUI history.
+            previous_seq = max(
+                (int(entry.get("seq", 0)) for entry in entries
+                 if str(entry.get("seq", "0")).isdigit()), default=0
             )
-            others = [
-                entry
-                for entry in entries
-                if entry.get("type") not in {"header", "message"}
+            candidates = list(incoming)
+            system = next((item for item in candidates if item.get("role") == "system"), None)
+            if system is not None:
+                candidates.remove(system)
+            summary = candidates.pop(0) if candidates else {"role": "user", "content": ""}
+            next_seq = self._next_seq(entries)
+            boundary = {
+                "type": "compaction",
+                "seq": next_seq,
+                "through_seq": previous_seq,
+                "summary": summary,
+                "summary_role": str(summary.get("role") or "user"),
+                "system": system,
+                "created_at": _utc_now(),
+            }
+            additions = [
+                self._message_entry(item, seq=next_seq + index)
+                for index, item in enumerate(candidates, 1)
             ]
-            self._write_entries(
-                session_id,
-                [header, *[self._message_entry(item) for item in incoming], *others],
-            )
+            self._append_entries(session_id, [boundary, *additions])
             self._event_keys.pop(session_id, None)
 
     async def load_conversation(self, *, session_id: str) -> List[Message]:
+        """Load the reconstructed model context (runtime view)."""
         with self._lock:
             entries = self._read_entries(session_id)
-        messages: List[Message] = []
-        for entry in entries:
-            if entry.get("type") != "message":
-                continue
-            payload = {field: entry.get(field) for field in _MESSAGE_FIELDS}
-            messages.append(Message.model_validate(payload))
-        return messages
+        return [Message.model_validate(payload) for payload in self._messages_from(entries)]
+
+    async def load_transcript(self, *, session_id: str) -> List[Message]:
+        """Load the complete persisted transcript for the TUI/history view."""
+        with self._lock:
+            entries = self._read_entries(session_id)
+        return [Message.model_validate(payload) for payload in self._transcript_messages(entries)]
 
     async def list_sessions(self) -> List[SessionSummary]:
         """List parent sessions, newest first. Child session files are omitted."""
@@ -319,8 +410,6 @@ class JsonlPersistence:
         payload = {key: value for key, value in latest.items() if key != "type"}
         payload.setdefault("session_id", session_id)
         payload["messages"] = [
-            Message.model_validate({field: entry.get(field) for field in _MESSAGE_FIELDS})
-            for entry in entries
-            if entry.get("type") == "message"
+            Message.model_validate(message) for message in self._messages_from(entries)
         ]
         return Checkpoint.model_validate(payload)

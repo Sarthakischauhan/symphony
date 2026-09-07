@@ -46,7 +46,8 @@ async def load_session_options(persistence: Any) -> list[SessionOption]:
     """Build display rows through the existing persistence interface."""
     options: list[SessionOption] = []
     for session in await persistence.list_sessions():
-        messages = await persistence.load_conversation(session_id=session.session_id)
+        loader = getattr(persistence, "load_transcript", persistence.load_conversation)
+        messages = await loader(session_id=session.session_id)
         first_message = next(
             (
                 str(message.content).strip()

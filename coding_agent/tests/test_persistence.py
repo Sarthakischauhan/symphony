@@ -142,7 +142,11 @@ def test_jsonl_save_appends_until_history_rewrites(tmp_path: Path) -> None:
         assert loaded == compacted
         kinds = [entry["type"] for entry in _message_lines(path)]
         assert kinds[0] == "header"
-        assert kinds.count("message") == 2
+        # Compaction is an append-only checkpoint; the original messages remain
+        # available to the transcript/TUI view.
+        assert kinds.count("message") == 3
+        transcript = await store.load_transcript(session_id="s1")
+        assert [message.content for message in transcript] == ["sys", "hi", "hello"]
 
     asyncio.run(_run())
 
