@@ -100,6 +100,8 @@ class TranscriptView(Protocol):
         event_type: str = "run_summary",
     ) -> None: ...
 
+    def add_run_metrics(self, metrics: str) -> None: ...
+
 
 class EventPresenter:
     """Stateful event reducer that updates a transcript view."""
@@ -298,6 +300,11 @@ class EventPresenter:
         completed = self._completed_text()
         self.view.set_thinking(completed)
         self.view.finish_process(completed)
+        # Keep the final response as the last conversational content, then
+        # place run metrics beneath it rather than inside the live process.
+        add_metrics = getattr(self.view, "add_run_metrics", None)
+        if callable(add_metrics):
+            add_metrics(completed)
         self._assistant_open = False
 
     def _on_run_summary(self, payload: Dict[str, Any]) -> None:

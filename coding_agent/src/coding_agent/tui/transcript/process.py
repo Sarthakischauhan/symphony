@@ -10,6 +10,7 @@ from textual.containers import Container, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tui.motion import reveal
 from coding_agent.tui.theme import themed_markdown
 
 
@@ -109,6 +110,13 @@ class RunProcess(Container):
     def compose(self):  # type: ignore[no-untyped-def]
         yield from self._items
 
+    def on_mount(self) -> None:
+        """Reveal the run and mount items queued during composition."""
+        reveal(self, duration=0.22)
+        pending = [item for item in self._items if item.parent is None]
+        if pending:
+            self.mount(*pending)
+
     def add_item(self, widget: Widget) -> None:
         self._items.append(widget)
         if self.is_mounted:
@@ -136,13 +144,6 @@ class RunProcess(Container):
         if widget.is_attached:
             widget.remove()
 
-    def on_mount(self) -> None:
-        # Anything added after compose ran but before Mount was handled has
-        # not reached the DOM yet; mount it now in timeline order.
-        pending = [item for item in self._items if item.parent is None]
-        if pending:
-            self.mount(*pending)
-
     @property
     def completed(self) -> bool:
         return self._completed
@@ -153,9 +154,7 @@ class RunProcess(Container):
         self._completed = True
         self.archiveable = collapse
         self._thinking.set_visible(False)
-        self.add_item(
-            Static(Text(f"✓  {title}", style="#5f6a62"), classes="process-complete")
-        )
+        self.add_item(ProcessComplete(title))
 
     def tool_count(self) -> int:
         from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
@@ -187,6 +186,18 @@ class RunProcess(Container):
                 if callable(archive):
                     chunks.append(str(archive()))
         return "\n\n".join(chunk for chunk in chunks if chunk)
+
+
+class ProcessComplete(Static):
+    """Compact completion row with a restrained reveal."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__(
+            Text(f"✓  {title}", style="#858585"), classes="process-complete"
+        )
+
+    def on_mount(self) -> None:
+        reveal(self, duration=0.16)
 
 
 class ReasoningWidget(Collapsible):

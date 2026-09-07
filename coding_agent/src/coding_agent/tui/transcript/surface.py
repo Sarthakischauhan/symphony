@@ -204,6 +204,12 @@ class TranscriptSurface:
         else:
             self._mount_transcript(widget)
 
+    def add_run_metrics(self, metrics: str) -> None:
+        """Mount final metrics after the assistant's response."""
+        self._mount_transcript(
+            RunSummary(metrics, label="Run details", event_type="run_metrics")
+        )
+
     def finish_process(self, title: str, *, collapse: bool = True) -> None:
         if self._process is not None:
             self._process.complete(title, collapse=collapse)

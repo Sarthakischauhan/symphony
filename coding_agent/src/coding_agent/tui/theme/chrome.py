@@ -77,6 +77,9 @@ Screen {
     color: #c2b5cf;
 }
 
+/* RunProcess and RunSummary animate opacity on mount, using Textual's
+   event-loop animation driver rather than blocking streamed output. */
+
 .assistant-message {
     padding-left: 3;
     background: $background;
