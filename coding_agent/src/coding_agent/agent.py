@@ -34,6 +34,7 @@ from coding_agent.config import (
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.plan import PlanStore
+from coding_agent.plan_mode import PlanModeAddon, PlanModeState
 from coding_agent.plugins import PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.skills import SkillRegistry, SkillsAddon
@@ -92,6 +93,7 @@ class CodingAgent:
         self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
         self.base_system_prompt = system_prompt.rstrip()
         self.mode = mode
+        self.plan_mode = PlanModeState(active=mode == "plan")
         self.plan_store = PlanStore(self.workspace)
         self.learning_store = LearningStore(
             self.workspace,
@@ -151,6 +153,7 @@ class CodingAgent:
             spawn_configure=self._spawn_child_config if include_subagent else None,
             include_subagent=include_subagent,
         )
+        addons.append(PlanModeAddon(self.plan_mode))
         addons.append(ApprovalAddon(self.workspace, self.sink))
         if self.config.skills.enabled:
             addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
