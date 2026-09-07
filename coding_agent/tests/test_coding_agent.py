@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from core_ai import ModelRegistry
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
-from core_harness import EventControlPlane
+from core_harness import EventSink
 from coding_agent import CodingAgent
 from coding_agent.compaction import InferenceCompactor
 from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
@@ -57,15 +57,15 @@ def test_coding_agent_registers_spawn_agent_on_default_tools(tmp_path: Path) -> 
 
 
 def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
-    from coding_agent.tui.runtime import TextualControlPlane
+    from coding_agent.tui.runtime import TextualEventSink
 
-    plane = TextualControlPlane(workspace=tmp_path)
+    plane = TextualEventSink(workspace=tmp_path)
     plane.set_approval_mode("ask")
     agent = CodingAgent(
         registry=CapturingRegistry(),  # type: ignore[arg-type]
         model_id="fake:test-model",
         workspace=tmp_path,
-        control_plane=plane,
+        sink=plane,
         config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
     )
     cfg = agent._spawn_child_config(
@@ -75,36 +75,30 @@ def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
     )
     assert cfg.model_id == "fake:child"
     assert cfg.max_turns == agent.harness.config.spawn_max_turns
-    assert cfg.control_plane is not None
-    assert cfg.control_plane is not plane
-    assert cfg.control_plane.approvals.mode == "always_allow"
+    assert cfg.sink is plane
     assert plane.approvals.mode == "ask"
-    assert cfg.control_plane.cancel_event is plane.cancel_event
-    allowed = asyncio.run(
-        cfg.control_plane.approve_tool_call(
-            tool_name="bash",
-            arguments={"command": "ls"},
-        )
-    )
-    assert allowed is True
+    assert any(addon.name == "approval" for addon in agent.harness.addons)
+    child_addons = cfg.addon_factory(agent.harness)
+    assert not any(addon.name == "approval" for addon in child_addons)
 
 
 def test_coding_agent_child_stays_autonomous_if_parent_already_allows(tmp_path: Path) -> None:
-    from coding_agent.tui.runtime import TextualControlPlane
+    from coding_agent.tui.runtime import TextualEventSink
 
-    plane = TextualControlPlane(workspace=tmp_path)
+    plane = TextualEventSink(workspace=tmp_path)
     plane.set_approval_mode("always_allow")
     agent = CodingAgent(
         registry=CapturingRegistry(),  # type: ignore[arg-type]
         model_id="fake:test-model",
         workspace=tmp_path,
-        control_plane=plane,
+        sink=plane,
         config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
     )
     cfg = agent._spawn_child_config()
-    assert cfg.control_plane is not None
-    assert cfg.control_plane.approvals.mode == "always_allow"
+    assert cfg.sink is plane
     assert plane.approvals.mode == "always_allow"
+    child_addons = cfg.addon_factory(agent.harness)
+    assert not any(addon.name == "approval" for addon in child_addons)
 
 load_dotenv(override=True)
 
@@ -141,7 +135,7 @@ class CapturingRegistry:
 
 def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> None:
     registry = CapturingRegistry()
-    control_plane = EventControlPlane()
+    sink = EventSink()
     config = CodingAgentConfig()
     config = config.model_copy(
         update={
@@ -160,7 +154,7 @@ def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> No
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         workspace=tmp_path,
-        control_plane=control_plane,
+        sink=sink,
         config=config,
         tools=[],
     )
@@ -191,7 +185,7 @@ def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> No
 
     asyncio.run(_run())
 
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert event_types.index("compaction_started") < event_types.index("turn_started")
     assert "compaction_completed" in event_types
 

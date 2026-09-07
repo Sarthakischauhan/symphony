@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from core_ai.types import Message, StreamEvent
-from core_harness import CompactionAddon, CoreHarness, HarnessConfig, EventControlPlane
+from core_harness import CompactionAddon, CoreHarness, HarnessConfig, EventSink
 from core_harness.addons.compaction import KeepSystemRecentCompactor
 from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
@@ -263,7 +263,7 @@ def test_ai_compaction_addon_mounts_and_forks_with_same_settings() -> None:
         model_id="fake:parent",
         system_prompt="sys",
         config=HarnessConfig(),
-        control_plane=EventControlPlane(),
+        sink=EventSink(),
         addons=[addon],
     )
 
@@ -288,7 +288,7 @@ def test_ai_compaction_addon_mounts_and_forks_with_same_settings() -> None:
         model_id="fake:child",
         system_prompt="sys",
         config=HarnessConfig(),
-        control_plane=EventControlPlane(),
+        sink=EventSink(),
         addons=[child],
     )
     assert child_harness.state.compactor is child.compactor
@@ -380,7 +380,7 @@ def _agent(tmp_path: Path, registry: Any, **overrides: Any) -> CodingAgent:
         registry=registry,
         model_id="fake:test-model",
         workspace=tmp_path,
-        control_plane=EventControlPlane(),
+        sink=EventSink(),
         config=config,
         tools=[],
     )
@@ -410,7 +410,7 @@ def test_compact_conversation_calls_mounted_compactor_and_persists(tmp_path: Pat
     assert call["tokens_used"] == estimate_prompt_tokens(history)
     assert call["context_left"] == 1_000 - call["tokens_used"]
 
-    events = {event.event_type: event.payload for event in agent.control_plane.events}
+    events = {event.event_type: event.payload for event in agent.sink.events}
     assert events["compaction_started"]["manual"] is True
     assert events["compaction_started"]["message_count"] == 6
     completed = events["compaction_completed"]
@@ -444,7 +444,7 @@ def test_compact_conversation_runs_inference_compactor_by_default(tmp_path: Path
 def test_compact_conversation_with_nothing_saved_returns_zero(tmp_path: Path) -> None:
     agent = _agent(tmp_path, StubRegistry())
     assert asyncio.run(agent.compact_conversation()) == (0, 0)
-    assert agent.control_plane.events == []
+    assert agent.sink.events == []
 
 
 def test_compact_conversation_without_mounted_compactor_raises(tmp_path: Path) -> None:

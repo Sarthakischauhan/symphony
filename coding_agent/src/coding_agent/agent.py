@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Union
@@ -11,11 +12,10 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 from core_harness import (
     ChildConfig,
-    ControlPlane,
+    EventSink,
     CoreHarness,
     HarnessConfig,
     HarnessResult,
-    EventControlPlane,
     Persistence,
     Tool,
 )
@@ -23,7 +23,7 @@ from core_harness.addons.persistence import PersistenceAddon
 from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
-from coding_agent.approvals import child_control_plane
+from coding_agent.approvals import ApprovalAddon
 from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
     CompactionConfig,
@@ -34,7 +34,9 @@ from coding_agent.config import (
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.plan import PlanStore
+from coding_agent.plugins import PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
+from coding_agent.skills import SkillRegistry, SkillsAddon
 from coding_agent.tools import build_tools
 
 AgentMode = Literal["build", "plan"]
@@ -73,7 +75,7 @@ class CodingAgent:
         model_id: str,
         workspace: Union[str, Path],
         config: SettingsSource | None = None,
-        control_plane: Optional[ControlPlane] = None,
+        sink: Optional[EventSink] = None,
         persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
         system_prompt: str = SYSTEM_PROMPT,
@@ -84,7 +86,7 @@ class CodingAgent:
         self.workspace.mkdir(parents=True, exist_ok=True)
         loaded = None if config is None else resolve_coding_agent_config(config)
         self.config = ensure_spawn_settings(self.workspace, config=loaded)
-        self.control_plane = control_plane or EventControlPlane()
+        self.sink = sink or EventSink()
         self.registry = registry
         self.session_id = session_id or str(uuid.uuid4())
         self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
@@ -105,6 +107,37 @@ class CodingAgent:
             if self.config.learning.enabled
             else None
         )
+        skill_roots = [
+            ("user", Path.home() / ".symphony" / "skills"),
+            ("workspace", self.workspace / ".symphony" / "skills"),
+            *[("configured", root) for root in self.config.skills.roots],
+        ]
+        plugin_addons = []
+        plugin_skill_roots = []
+        self.plugin_diagnostics = ()
+        if self.config.plugins.enabled:
+            # Repository config must not be able to authorize executable code.
+            # Authorization is supplied by the trusted process environment;
+            # workspace config may only select already-authorized plugins.
+            trusted_roots = [
+                Path(value)
+                for value in os.environ.get("SYMPHONY_PLUGIN_AUTHORIZED_ROOTS", "").split(os.pathsep)
+                if value
+            ]
+            plugin_addons, plugin_skill_roots, self.plugin_diagnostics = PluginManager(
+                self.workspace, authorized_roots=trusted_roots
+            ).load(self.config.plugins.entries)
+            if self.plugin_diagnostics:
+                details = "; ".join(
+                    f"{diagnostic.source}: {diagnostic.message}"
+                    for diagnostic in self.plugin_diagnostics
+                )
+                raise ValueError(f"Plugin loading failed: {details}")
+            skill_roots.extend(plugin_skill_roots)
+        self.skill_registry, self.skill_diagnostics = SkillRegistry.discover(
+            skill_roots,
+            max_skills=self.config.skills.max_skills,
+        )
         self.tools = tools if tools is not None else build_tools(
             self.workspace,
             config=self.config.tools,
@@ -117,6 +150,9 @@ class CodingAgent:
             spawn_configure=self._spawn_child_config if include_subagent else None,
             include_subagent=include_subagent,
         )
+        addons.append(ApprovalAddon(self.workspace, self.sink))
+        if self.config.skills.enabled:
+            addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
         if self.learning_loop is not None:
             addons.append(
                 LearningAddon(
@@ -130,10 +166,10 @@ class CodingAgent:
             system_prompt=self.base_system_prompt + "\n",
             config=self.config.harness,
             tools=self.tools,
-            control_plane=self.control_plane,
+            sink=self.sink,
             session_id=self.session_id,
             agent_id=self.session_id,
-            addons=addons,
+            addons=addons + plugin_addons,
         )
 
     def _spawn_child_config(
@@ -145,7 +181,7 @@ class CodingAgent:
         max_turns: Optional[int] = None,
         **_: Any,
     ) -> ChildConfig:
-        """Children run without approval prompts on a forked plane."""
+        """Children share the parent sink and skip ApprovalAddon."""
         del prompt, label
         cap = self.harness.config.spawn_max_turns
         turns = None
@@ -155,7 +191,7 @@ class CodingAgent:
         return ChildConfig(
             model_id=mid or None,
             max_turns=turns,
-            control_plane=child_control_plane(self.control_plane),
+            sink=self.sink,
             addon_factory=lambda parent: default_addons(
                 persistence=self.persistence, harness_config=parent.config,
                 compaction=self.config.compaction, include_subagent=False,
@@ -186,6 +222,16 @@ class CodingAgent:
             self.harness.system_prompt += f"\n\n{lessons}"
         if mode == "plan":
             self.harness.system_prompt += f"\n\n{PLAN_MODE_PROMPT}"
+        if self.config.skills.enabled and self.skill_registry.skills:
+            catalog = [
+                "\nAvailable skills (read the listed SKILL.md with read_file when relevant):"
+            ]
+            for skill in self.skill_registry.skills:
+                catalog.append(
+                    f"- {skill.skill_id}: {skill.description} "
+                    f"(SKILL.md: {skill.root / 'SKILL.md'})"
+                )
+            self.harness.system_prompt += "\n" + "\n".join(catalog)
         self.harness.system_prompt += "\n"
 
         tools = self.harness.tools
@@ -249,7 +295,7 @@ class CodingAgent:
             context_limit=context_limit,
             tokens_used=tokens_used,
             context_left=context_left,
-            emit=self.control_plane.emit,
+            emit=self.sink.emit,
             manual=True,
         )
         await self.harness.notify_addons(
@@ -280,7 +326,7 @@ class CodingAgent:
 def build_agent(
     *,
     workspace: Union[str, Path],
-    control_plane: Optional[ControlPlane] = None,
+    sink: Optional[EventSink] = None,
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
     enable_learning: Optional[bool] = None,
@@ -299,7 +345,7 @@ def build_agent(
         registry=registry,
         model_id=default_model_id(registry, model_id),
         workspace=workspace,
-        control_plane=control_plane,
+        sink=sink,
         session_id=session_id,
         config=resolved,
     )

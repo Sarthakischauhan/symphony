@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from coding_agent.agent import build_agent
-from coding_agent.tui.runtime import TextualControlPlane
+from coding_agent.tui.runtime import TextualEventSink
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.gemini import GeminiProvider
 
@@ -22,7 +22,7 @@ def test_build_agent_registers_anthropic_when_only_anthropic_key_is_set(
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
 
-    agent = build_agent(workspace=tmp_path, control_plane=TextualControlPlane())
+    agent = build_agent(workspace=tmp_path, sink=TextualEventSink())
     assert agent.harness.model_id == "anthropic:claude-sonnet-5"
     assert isinstance(agent.registry._providers["anthropic"], AnthropicProvider)
 
@@ -38,6 +38,6 @@ def test_build_agent_registers_gemini_when_only_gemini_key_is_set(
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
 
-    agent = build_agent(workspace=tmp_path, control_plane=TextualControlPlane())
+    agent = build_agent(workspace=tmp_path, sink=TextualEventSink())
     assert agent.harness.model_id == "gemini:gemini-3.7-flash"
     assert isinstance(agent.registry._providers["gemini"], GeminiProvider)
