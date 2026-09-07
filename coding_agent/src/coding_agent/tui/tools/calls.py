@@ -415,8 +415,9 @@ class GenerateImageWidget(ToolCallWidget):
             return False
         try:
             root = Path(workspace).resolve()
-            target = (root / path).resolve()
-            if not target.is_relative_to(root) or not target.is_file():
+            candidate = Path(path).expanduser()
+            target = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+            if not target.is_file():
                 return False
             image = ImageAttachment.from_path(target, IMAGE_CHIP)
         except OSError:

@@ -151,9 +151,10 @@ Each package is a small set of modules, one concept per file. Leaf packages of
 
 1. One tool per file. Same shape everywhere (`WorkspaceTool` + `run` + register).
 2. Harness stays product-agnostic. Coding-agent specifics live in `coding_agent`.
-3. Workspace root, not a sandbox. File tools resolve paths under the workspace
-   root and reject escapes. `bash` runs with the user's permissions behind an
-   approval prompt; there is no container or OS-level isolation.
+3. Working directory, not a jail. Relative paths start at the launch
+   directory; absolute and `~` paths are allowed. `bash` runs with the user's
+   permissions behind an approval prompt; there is no container or OS-level
+   isolation.
 4. Control plane for UX. UIs subscribe to events, push cancel/pause/inject,
    and answer authorization prompts. They do not scrape stdout, and they do
    not own persistence or compaction.

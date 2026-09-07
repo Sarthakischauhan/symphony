@@ -141,7 +141,11 @@ def test_generate_image_rejects_non_image_paths_and_missing_provider(tmp_path: P
 
     tool = GenerateImageTool(tmp_path, generate=fake_generate)
     assert "path must end in" in asyncio.run(tool.run("a cat", "notes.txt"))
-    assert "escapes workspace" in asyncio.run(tool.run("a cat", "../out.png"))
+    outside = tmp_path / "elsewhere" / "out.png"
+    written = asyncio.run(tool.run("a cat", str(outside)))
+    assert isinstance(written, list)
+    assert "Wrote image" in written[0]["text"]
+    assert outside.is_file()
 
     class EmptyRegistry:
         async def generate_image(self, prompt: str, **kwargs: object) -> tuple[bytes, str]:
@@ -203,9 +207,15 @@ def test_search_file_names(tmp_path: Path) -> None:
     assert "notes.txt" not in result
 
 
-def test_search_rejects_escape_and_bad_regex(tmp_path: Path) -> None:
-    search = SearchTool(tmp_path)
-    assert "escapes workspace" in search.run(query="x", path="../outside")
+def test_search_outside_working_dir_and_bad_regex(tmp_path: Path) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "hit.txt").write_text("needle\n", encoding="utf-8")
+    search = SearchTool(cwd)
+    result = search.run(query="needle", path=str(outside))
+    assert "hit.txt" in result
     assert search.run(query="[", regex=True).startswith("error: invalid regex")
 
 
@@ -216,6 +226,19 @@ def test_patch_keeps_unique_match_contract(tmp_path: Path) -> None:
     assert "matched 2 times" in patch.run("a.txt", "x", "y")
     assert patch.run("a.txt", "x", "y", replace_all=True).startswith("patched")
     assert path.read_text(encoding="utf-8") == "y\ny\n"
+
+
+def test_tools_read_and_write_outside_working_directory(tmp_path: Path) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    outside = tmp_path / "elsewhere" / "note.txt"
+    outside.parent.mkdir()
+    outside.write_text("hello\n", encoding="utf-8")
+    read = ReadFileTool(cwd)
+    assert "hello" in read.run(str(outside))
+    writer = WriteFileTool(cwd)
+    assert writer.run("../elsewhere/note.txt", "bye\n").startswith("wrote")
+    assert outside.read_text(encoding="utf-8") == "bye\n"
 
 
 def test_bash_is_async_and_does_not_use_blocking_run() -> None:

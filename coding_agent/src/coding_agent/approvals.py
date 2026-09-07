@@ -22,7 +22,7 @@ APPROVAL_CHOICES = (ALLOW_ONCE, ALLOW_ALWAYS, DENY)
 
 
 class ApprovalPolicy:
-    """Workspace-aware rules. Callers pass the current ``ApprovalConfig``."""
+    """Path-aware rules. Callers pass the current ``ApprovalConfig``."""
 
     def __init__(self, workspace: Union[str, Path]) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
@@ -41,7 +41,7 @@ class ApprovalPolicy:
             return f"Allow bash command once?\n`{command}`"
         if tool_name in {"write_file", "generate_image"}:
             path = str(arguments.get("path") or "").strip()
-            if config.require_for_overwrite and path and self._exists_in_workspace(path):
+            if config.require_for_overwrite and path and self._exists(path):
                 return f"Overwrite existing file `{path}`?"
             return ""
         if tool_name == "patch" and config.require_for_broad_patch:
@@ -66,10 +66,15 @@ class ApprovalPolicy:
             return True, True
         return normalized in config.allow_answers, False
 
-    def _exists_in_workspace(self, path: str) -> bool:
+    def _exists(self, path: str) -> bool:
         try:
-            target = (self.workspace / path).resolve()
-            return target.is_relative_to(self.workspace) and target.exists()
+            candidate = Path(path).expanduser()
+            target = (
+                candidate.resolve()
+                if candidate.is_absolute()
+                else (self.workspace / candidate).resolve()
+            )
+            return target.exists()
         except OSError:
             return False
 

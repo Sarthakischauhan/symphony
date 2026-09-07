@@ -220,9 +220,9 @@ print(result.output_text)
 | **Persistence** | `Persistence` protocol with checkpoints; JSONL sessions for TUI resume. |
 | **SSE server** | FastAPI wrapper that forwards harness events unchanged. |
 
-Workspace tools resolve paths under the workspace root and reject escapes;
-`bash` runs with your user's permissions after an approval prompt. There is no
-container or OS-level sandbox. See [SECURITY.md](./SECURITY.md).
+Relative paths start at the working directory; absolute and `~` paths are
+allowed. `bash` runs with your user's permissions after an approval prompt.
+There is no path jail or container sandbox. See [SECURITY.md](./SECURITY.md).
 
 ---
 

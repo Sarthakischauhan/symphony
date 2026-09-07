@@ -79,7 +79,8 @@ drives, and authorizes; it does not persist, compact, or spawn.
 ### `coding_agent` (symphony-code)
 
 Tools, one module each under `WorkspaceTool` (`tools/base.py`), which binds a
-workspace root, rejects path escapes, and generates pydantic schemas:
+working directory for relative paths and generates pydantic schemas. Absolute
+and `~` paths are allowed:
 
 | Tool | Module | Purpose |
 | --- | --- | --- |
@@ -143,9 +144,10 @@ workspace root, rejects path escapes, and generates pydantic schemas:
 
 1. **One tool per file.** Same shape everywhere (`WorkspaceTool` + `run` + register).
 2. **Harness stays product-agnostic.** Coding-agent specifics live in `coding_agent`.
-3. **Workspace root, not a sandbox.** File tools resolve under a root and
-   reject escapes. `bash` runs with the user's permissions behind an approval
-   prompt. There is no container or OS-level isolation; do not describe one.
+3. **Working directory, not a jail.** Relative paths and bash cwd start at
+   the launch directory. Absolute and `~` paths are allowed. Approval prompts
+   gate `bash`, overwrites, and broad patches. There is no container or
+   OS-level isolation; do not describe one.
 4. **Control plane for UX.** UIs subscribe to events; nothing scrapes stdout.
 5. **Tests without keys.** Providers are mocked; no test calls a live API.
 6. **Generated code is script-owned.** `generated.py` is refreshed by a

@@ -35,8 +35,8 @@ class GenerateImageArgs(ToolArgsModel):
         ...,
         min_length=1,
         description=(
-            "Workspace-relative path to write, including an image suffix "
-            "(.png, .jpg, .jpeg, or .webp), e.g. 'assets/icon.png'."
+            "Path to write, including an image suffix (.png, .jpg, .jpeg, or .webp). "
+            "Relative paths start at the working directory."
         ),
     )
 
@@ -44,7 +44,7 @@ class GenerateImageArgs(ToolArgsModel):
 class GenerateImageTool(WorkspaceTool):
     name = "generate_image"
     description = (
-        "Generate an image from a text prompt and write it to a workspace path. "
+        "Generate an image from a text prompt and write it to a path. "
         "Uses the current OpenAI or Gemini provider (same credentials as chat). "
         "The path must end in .png, .jpg, .jpeg, or .webp."
     )

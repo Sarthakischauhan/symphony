@@ -35,9 +35,9 @@ a live API from a test.
 ## Conventions
 
 - One tool per file under `coding_agent/src/coding_agent/tools/`, subclassing
-  `WorkspaceTool`. Tools resolve paths under the workspace root and reject
-  escapes; that is the only isolation that exists, so do not describe it as a
-  sandbox.
+  `WorkspaceTool`. Relative paths start at the working directory; absolute
+  and `~` paths are allowed. There is no path jail. Do not describe this as
+  a sandbox.
 - UIs consume control-plane events; they never scrape stdout. If you add or
   rename a harness event, update `ControlPlaneEventType` in
   `core_harness/src/core_harness/models.py` **and** both event docs

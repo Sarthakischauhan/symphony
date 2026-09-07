@@ -1,4 +1,4 @@
-"""Read a text or image file from the workspace."""
+"""Read a text or image file."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ class ReadFileArgs(ToolArgsModel):
         ...,
         min_length=1,
         description=(
-            "Workspace-relative path to a UTF-8 text file or image "
-            "(png, jpeg, gif, webp, bmp, tiff), e.g. 'src/main.py' or 'shot.png'."
+            "Path to a UTF-8 text file or image (png, jpeg, gif, webp, bmp, tiff). "
+            "Relative paths start at the working directory; absolute and ~ paths are allowed."
         ),
     )
     offset: int = Field(
@@ -44,10 +44,10 @@ class ReadFileArgs(ToolArgsModel):
 class ReadFileTool(WorkspaceTool):
     name = "read_file"
     description = (
-        "Read a workspace file. UTF-8 text is returned with line numbers "
+        "Read a file. UTF-8 text is returned with line numbers "
         "(`   12|code`, capped at ~32KB; pass offset to page). Images (png, jpeg, "
         "gif, webp, bmp, tiff) are returned as visual content the model can see. "
-        "Paths are relative to the workspace root and cannot escape it."
+        "Relative paths start at the working directory; absolute and ~ paths are allowed."
     )
     args_model = ReadFileArgs
 
@@ -59,7 +59,6 @@ class ReadFileTool(WorkspaceTool):
     ) -> None:
         self.config = config
         super().__init__(workspace)
-        self.description = ReadFileTool.description
 
     def run(
         self, path: str, offset: int = 1, limit: int = 0

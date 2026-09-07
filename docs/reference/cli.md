@@ -11,7 +11,7 @@ uv run --package symphony-code symphony [options]
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--workspace PATH` | current directory | Root for file and shell tools |
+| `--workspace PATH` | current directory | Working directory: relative paths, bash cwd, `.symphony` |
 | `--model ID` | `SYMPHONY_MODEL` or first available provider | `provider:model` id |
 | `--resume` | off | Pick a saved session interactively |
 | `--no-learning` | learning on | Disable post-run reflection |

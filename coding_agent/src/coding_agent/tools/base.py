@@ -1,4 +1,4 @@
-"""Shared workspace binding, schema generation, and input validation."""
+"""Tool base: working-directory relative paths, schema generation, validation."""
 
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ from core_harness import Tool
 
 
 class WorkspaceTool(Tool, ABC):
-    """Workspace-scoped tool. Instances are harness tools; no extra wrapper."""
+    """File/shell tool. Relative paths start at the working directory."""
 
     name: str
     description: str
     args_model: ClassVar[Type[BaseModel]]
 
     def __init__(self, workspace: str | Path) -> None:
-        self.workspace = Path(workspace).resolve()
+        self.workspace = Path(workspace).expanduser().resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         super().__init__(
             name=type(self).name,
@@ -29,16 +29,16 @@ class WorkspaceTool(Tool, ABC):
         )
 
     def resolve_path(self, path: str) -> Path:
-        """Resolve a workspace-relative path; reject escapes and bad types."""
+        """Resolve ``path``. Absolute and ``~`` paths are used as-is; others join the working directory."""
         if not isinstance(path, str):
             raise TypeError(f"path must be a string, got {type(path).__name__}")
-        if not path.strip():
+        stripped = path.strip()
+        if not stripped:
             raise ValueError("path must be a non-empty string")
-
-        target = (self.workspace / path).resolve()
-        if not target.is_relative_to(self.workspace):
-            raise ValueError(f"Path escapes workspace: {path}")
-        return target
+        candidate = Path(stripped).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.workspace / candidate
+        return candidate.resolve()
 
     def parameters_schema(self) -> Dict[str, Any]:
         """JSON Schema for tool arguments (OpenAI-compatible parameters object)."""
@@ -76,7 +76,7 @@ class WorkspaceTool(Tool, ABC):
         return result
 
     def as_harness_tool(self) -> Tool:
-        """Return ``self`` — workspace tools already are harness tools."""
+        """Return ``self`` — these tools already are harness tools."""
         return self
 
 

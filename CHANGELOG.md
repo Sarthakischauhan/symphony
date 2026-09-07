@@ -39,4 +39,5 @@ Three packages on PyPI: `symphony-core`, `symphony-harness`, `symphony-code`.
 - No skill/plugin loader. Add-ons are attached in Python.
 - Learning is a bounded lesson log, not durable retrieval memory.
 - `core-server` has no authentication and does not answer `ask_user`.
-- Workspace tools reject path escapes; `bash` is not a sandbox.
+- File tools are not jailed to the launch directory. Relative paths start
+  there; absolute and `~` paths are allowed. `bash` is not a sandbox.

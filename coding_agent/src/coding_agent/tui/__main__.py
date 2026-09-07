@@ -16,7 +16,7 @@ def main() -> None:
     parser.add_argument(
         "--workspace",
         default=None,
-        help="Workspace directory for file/shell tools (default: current directory)",
+        help="Working directory for relative paths, bash cwd, and .symphony (default: .)",
     )
     parser.add_argument(
         "--model",
