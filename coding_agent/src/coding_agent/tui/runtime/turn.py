@@ -73,7 +73,12 @@ class TurnSurface:
                 self._show_child_question(payload)
             return
         if self._plan_run_active and message.event_type == "text_delta":
-            self._plan_store.append(str(payload.get("delta") or ""))
+            # Plan output is ordinary transcript content.  The plan file is
+            # authored by the model through write_file/patch; never persist a
+            # second, host-owned copy of streamed text here.
+            delta = str(payload.get("delta") or "")
+            if delta and self._presenter is not None:
+                self._presenter.handle("text_delta", {"delta": delta})
             return
         if message.event_type == "question_asked":
             self._show_question(payload)

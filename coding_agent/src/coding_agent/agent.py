@@ -38,7 +38,7 @@ from coding_agent.plan_mode import PlanModeAddon, PlanModeState
 from coding_agent.plugins import PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.skills import SkillRegistry, SkillsAddon
-from coding_agent.tools import build_tools
+from coding_agent.tools import EnterPlanModeTool, ExitPlanModeTool, build_tools
 
 AgentMode = Literal["build", "plan"]
 
@@ -93,7 +93,7 @@ class CodingAgent:
         self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
         self.base_system_prompt = system_prompt.rstrip()
         self.mode = mode
-        self.plan_mode = PlanModeState(active=mode == "plan")
+        self.plan_mode = PlanModeState(workspace=self.workspace, active=mode == "plan")
         self.plan_store = PlanStore(self.workspace)
         self.learning_store = LearningStore(
             self.workspace,
@@ -164,6 +164,10 @@ class CodingAgent:
                     should_review=lambda: self.mode != "plan",
                 )
             )
+        self.tools.extend([
+            EnterPlanModeTool(self.workspace, self.plan_mode),
+            ExitPlanModeTool(self.workspace, self.plan_mode),
+        ])
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -231,21 +235,14 @@ class CodingAgent:
             self.harness.system_prompt += "\n" + "\n".join(catalog)
         self.harness.system_prompt += "\n"
 
-        tools = self.harness.tools
         if mode == "plan":
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
-        try:
-            result = await self.harness.run(
-                user_input,
-                conversation=conversation,
-                session_id=session_id or self.session_id,
-            )
-        finally:
-            self.harness.tools = tools
-
-        if mode == "plan":
-            self.plan_store.save(task_text, result.output_text)
+        result = await self.harness.run(
+            user_input,
+            conversation=conversation,
+            session_id=session_id or self.session_id,
+        )
         return result
 
     def set_mode(self, mode: AgentMode) -> None:

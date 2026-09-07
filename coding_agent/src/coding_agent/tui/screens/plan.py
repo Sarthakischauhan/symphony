@@ -80,6 +80,21 @@ def _plan_sections(markdown: str) -> tuple[str, list[tuple[str, str]]]:
     return task, [(title, "\n".join(lines).strip()) for title, lines in sections]
 
 
+class PlanActionButton(Static, can_focus=True):
+    def __init__(self, label: str, action: str, **kwargs):
+        super().__init__(label, **kwargs)
+        self.action = action
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.screen.dismiss(self.action)
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            self.screen.dismiss(self.action)
+
+
 class PlanBuildAction(Static, can_focus=True):
     """Compact text action used in the plan status bar."""
 
@@ -118,4 +133,6 @@ class PlanModal(ModalBase[PlanAction | None]):
                     yield PlanSectionCard(title, body, index)
             with Horizontal(id="plan-actions"):
                 yield Static("↑↓ scroll   ·   Esc close", id="plan-hint")
+                yield PlanActionButton("Request changes", "changes", id="plan-changes")
+                yield PlanActionButton("Quit", "quit", id="plan-quit")
                 yield PlanBuildAction("Build now  →", id="plan-build")

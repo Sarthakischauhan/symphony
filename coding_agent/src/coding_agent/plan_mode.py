@@ -1,21 +1,27 @@
 """Explicit plan-mode state and harness tool gate."""
 from __future__ import annotations
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 from core_harness.addons.addon import Addon
 
 @dataclass
 class PlanModeState:
+    workspace: Path | None = None
     active: bool = False
     approved: bool = False
     plan_path: str | None = None
-    allowed_tools: set[str] = field(default_factory=lambda: {"read_file", "search", "ask_user", "bash", "memory"})
+    allowed_tools: set[str] = field(default_factory=lambda: {
+        "read_file", "search", "ask_user", "bash", "memory",
+        "enter_plan_mode", "exit_plan_mode",
+    })
 
     def begin(self, path: str | None = None) -> None:
-        self.active, self.approved, self.plan_path = True, False, path
+        self.active, self.approved = True, False
+        self.set_plan_path(path)
 
     def set_plan_path(self, path: str | None) -> None:
-        self.plan_path = path
+        self.plan_path = str(Path(path).expanduser().resolve()) if path else None
     def approve(self) -> None:
         if not self.active:
             raise RuntimeError("no active plan")
@@ -27,7 +33,13 @@ class PlanModeState:
         if not self.active or self.approved or tool_name in self.allowed_tools:
             return True
         if tool_name in {"write_file", "patch"} and self.plan_path and target:
-            return target == self.plan_path
+            try:
+                candidate = Path(target).expanduser()
+                if not candidate.is_absolute() and self.workspace is not None:
+                    candidate = self.workspace / candidate
+                return candidate.resolve() == Path(self.plan_path).expanduser().resolve()
+            except (OSError, ValueError):
+                return False
         return False
 
 class PlanModeAddon(Addon):

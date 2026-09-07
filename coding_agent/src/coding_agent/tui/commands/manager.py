@@ -189,14 +189,29 @@ def open_plan_modal(app: Any, plan_name: str | None = None) -> None:
 
 
 def on_plan_action(app: Any, action: str | None) -> None:
-    if action != "build" or app._busy:
+    if app._busy:
+        return
+    if action == "quit":
+        app.mode = "build"
+        if app._agent is not None:
+            app._agent.set_mode("build")
+        app._update_composer_hint()
+        return
+    if action == "changes":
+        app.mode = "plan"
+        app._update_composer_hint()
+        app.query_one("#prompt").focus()
+        return
+    if action != "build":
         return
     app.mode = "build"
     if app._agent is not None:
         plan_state = getattr(app._agent, "plan_mode", None)
         if plan_state is not None:
             plan_state.approve()
-        app._agent.set_mode("build")
+        # Approval is consumed by the next build turn; do not reset the gate
+        # before the harness has observed it.
+        app._agent.mode = "build"
     app._update_composer_hint()
     prompt = app.query_one("#prompt")
     plan_path = app._plan_store.path.relative_to(app.workspace)
@@ -367,6 +382,11 @@ class CommandManager:
         elif command in {"installed", "extensions", "plugins", "skills"}:
             app.push_screen(ExtensionsModal(app.workspace, app._agent))
         elif command == "plan":
+            if argument:
+                open_plan_modal(app, argument)
+            else:
+                select_mode(app, "plan")
+        elif command == "plans":
             open_plan_modal(app, argument) if argument else show_plan_picker(app)
         elif command == "effort":
             if app._busy:
