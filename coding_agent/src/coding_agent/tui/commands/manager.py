@@ -125,6 +125,12 @@ def select_mode(app: Any, argument: str) -> None:
         return
     app.mode = selected.id
     if app._agent is not None:
+        plan_state = getattr(app._agent, "plan_mode", None)
+        if plan_state is not None:
+            if app.mode == "plan":
+                plan_state.begin()
+            else:
+                plan_state.reset()
         app._agent.set_mode(app.mode)
     app._update_composer_hint()
     app.add_notice(f"Switched to {selected.label} mode", "success")
@@ -140,6 +146,12 @@ def show_mode_picker(app: Any) -> None:
 def toggle_mode(app: Any) -> None:
     app.mode = "plan" if app.mode == "build" else "build"
     if app._agent is not None:
+        plan_state = getattr(app._agent, "plan_mode", None)
+        if plan_state is not None:
+            if app.mode == "plan":
+                plan_state.begin()
+            else:
+                plan_state.reset()
         app._agent.set_mode(app.mode)
     app._update_composer_hint()
 
@@ -181,6 +193,9 @@ def on_plan_action(app: Any, action: str | None) -> None:
         return
     app.mode = "build"
     if app._agent is not None:
+        plan_state = getattr(app._agent, "plan_mode", None)
+        if plan_state is not None:
+            plan_state.approve()
         app._agent.set_mode("build")
     app._update_composer_hint()
     prompt = app.query_one("#prompt")
