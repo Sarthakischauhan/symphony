@@ -233,7 +233,8 @@ class CodingAgent:
 
         tools = self.harness.tools
         if mode == "plan":
-            self.plan_store.begin(task_text)
+            plan_path = self.plan_store.begin(task_text)
+            self.plan_mode.begin(str(plan_path))
         try:
             result = await self.harness.run(
                 user_input,
@@ -249,6 +250,10 @@ class CodingAgent:
 
     def set_mode(self, mode: AgentMode) -> None:
         self.mode = mode
+        if mode == "plan":
+            self.plan_mode.begin()
+        else:
+            self.plan_mode.reset()
 
     async def wait_for_learning(self) -> None:
         """Optionally drain pending reflections before application shutdown."""

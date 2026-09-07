@@ -88,16 +88,21 @@ class PlanStore:
         return path.stem.removesuffix("_plan").replace("_", " ").title()
 
     def begin(self, task: str) -> Path:
-        """Create a task-named plan and make it the current plan."""
+        """Create or resume a task-named plan without resetting its stream."""
         path = self.plans_dir / self.filename_for(task)
         self.plans_dir.mkdir(parents=True, exist_ok=True)
         self._latest_path.parent.mkdir(parents=True, exist_ok=True)
         self._latest_path.write_text(path.name, encoding="utf-8")
-        self._stream_task = task.strip()
-        self._stream_text = ""
-        path.write_text(
-            f"# Plan\n\n**Task:** {self._stream_task}\n\n", encoding="utf-8"
-        )
+        task_text = task.strip()
+        if self._stream_task == task_text and path.exists():
+            return path
+        self._stream_task = task_text
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        self._stream_text = existing.split("\n\n", 2)[-1] if existing.startswith("# Plan\n\n**Task:**") else ""
+        if not existing:
+            path.write_text(
+                f"# Plan\n\n**Task:** {self._stream_task}\n\n", encoding="utf-8"
+            )
         return path
 
     def append(self, text: str) -> None:

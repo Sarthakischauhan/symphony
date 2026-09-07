@@ -64,7 +64,6 @@ class ComposerSurface:
         )
         self.set_thinking("Thinking…")
         if self.mode == "plan":
-            self._plan_store.begin(text)
             self._plan_run_active = True
         self._busy = True
         event.input.disabled = True

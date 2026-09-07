@@ -13,6 +13,9 @@ class PlanModeState:
 
     def begin(self, path: str | None = None) -> None:
         self.active, self.approved, self.plan_path = True, False, path
+
+    def set_plan_path(self, path: str | None) -> None:
+        self.plan_path = path
     def approve(self) -> None:
         if not self.active:
             raise RuntimeError("no active plan")
@@ -37,6 +40,6 @@ class PlanModeAddon(Addon):
         if self.state.permits(tool_name, target=target):
             return None
         return "plan mode is active: approve the plan before using implementation tools"
-    def fork_for_child(self, parent_harness: Any) -> "PlanModeAddon":
+    def fork_for_child(self, parent_harness: Any) -> None:
         del parent_harness
-        return PlanModeAddon(self.state)
+        return None
