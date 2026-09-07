@@ -66,6 +66,18 @@ class LearningStore:
         entries = self._memory_entries(target)
         path = self.user_path if target == "user" else self.memory_path
         limit = 1500 if target == "user" else 3000
+        if action == "add":
+            clean = sanitize_text(text.strip(), max_chars=600)
+            if not clean:
+                raise ValueError("add requires non-empty text")
+            candidate = entries + [clean]
+            rendered = "# User context\n\n" if target == "user" else "# Durable memory\n\n"
+            rendered += "\n".join(f"- {entry}" for entry in candidate) + "\n"
+            if len(rendered) > limit:
+                raise ValueError(f"memory limit exceeded: {len(rendered)} bytes used, limit is {limit}; entries: {len(entries)}")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(rendered, encoding="utf-8")
+            return f"added memory entry ({len(candidate)} entries)"
         if action in {"replace", "remove"}:
             found = [i for i, entry in enumerate(entries) if match and match in entry]
             if len(found) != 1:
@@ -73,15 +85,14 @@ class LearningStore:
             if action == "remove":
                 entries.pop(found[0])
             else:
-                entries[found[0]] = sanitize_text(text, max_chars=240)
-        if action == "add":
-            clean = sanitize_text(text, max_chars=240)
-            if not clean:
-                raise ValueError("text is required")
-            entries.append(clean)
+                replacement = sanitize_text(text.strip(), max_chars=600)
+                if not replacement:
+                    raise ValueError("replace requires non-empty text")
+                entries[found[0]] = replacement
         else:
             raise ValueError("action must be add, replace, or remove")
-        content = "# Durable memory\n\n" + "\n".join(f"- {entry}" for entry in entries) + "\n"
+        header = "# User context\n\n" if target == "user" else "# Durable memory\n\n"
+        content = header + "\n".join(f"- {entry}" for entry in entries) + "\n"
         if len(content) > limit:
             raise ValueError(f"{target} limit exceeded: {len(content)}/{limit} chars; entries: {len(entries)}")
         path.parent.mkdir(parents=True, exist_ok=True)

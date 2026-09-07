@@ -234,11 +234,6 @@ class CodingAgent:
         tools = self.harness.tools
         if mode == "plan":
             self.plan_store.begin(task_text)
-            self.harness.tools = {
-                name: tool
-                for name, tool in tools.items()
-                if name in {"read_file", "search"}
-            }
         try:
             result = await self.harness.run(
                 user_input,

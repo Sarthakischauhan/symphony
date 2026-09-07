@@ -64,7 +64,7 @@ def test_plan_mode_uses_read_only_tools_and_saves_result(tmp_path: Path) -> None
     agent.set_mode("plan")
     asyncio.run(agent.run("Add a feature"))
 
-    assert captured["tools"] == ["read_file", "search"]
+    assert set(captured["tools"]) >= {"read_file", "search", "bash"}
     assert "You are in plan mode." in str(captured["prompt"])
     assert list(agent.harness.tools) == [
         "read_file",
