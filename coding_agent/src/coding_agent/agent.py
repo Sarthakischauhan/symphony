@@ -141,6 +141,7 @@ class CodingAgent:
         self.tools = tools if tools is not None else build_tools(
             self.workspace,
             config=self.config.tools,
+            learning_enabled=self.config.learning.enabled,
         )
         include_subagent = tools is None
         addons = default_addons(
