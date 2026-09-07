@@ -148,8 +148,20 @@ def _validate_tools(config: CodingAgentConfig) -> None:
         )
 
 
-def spawn_settings_path(workspace: str | Path) -> Path:
-    return Path(workspace).expanduser().resolve() / ".symphony" / SPAWN_SETTINGS_NAME
+def symphony_dir() -> Path:
+    """Return the user-wide Symphony data/config directory."""
+    return (Path.home() / ".symphony").expanduser().resolve()
+
+
+def spawn_settings_path(workspace: str | Path | None = None) -> Path:
+    """Return the user-wide config file path.
+
+    Configuration is shared across projects, just like sessions.  ``workspace``
+    is retained as an ignored compatibility argument for callers that used the
+    old project-local API.
+    """
+    del workspace
+    return symphony_dir() / SPAWN_SETTINGS_NAME
 
 
 def load_coding_agent_config(

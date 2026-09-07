@@ -126,6 +126,37 @@ def test_tui_escape_cancels_busy_run_and_restores_composer(
     asyncio.run(_run())
 
 
+def test_tui_escape_stops_in_flight_turn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            class FakeAgent:
+                async def run(self, user_input: str, **kwargs: object) -> HarnessResult:
+                    del user_input, kwargs
+                    await asyncio.sleep(30)
+                    return HarnessResult(output_text="late", messages=[])
+
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            app._busy = True
+            app.run_agent("hang")
+            await pilot.pause()
+            await pilot.press("escape")
+            for _ in range(20):
+                await pilot.pause()
+                if not app._busy:
+                    break
+            else:
+                raise AssertionError("escape did not stop the in-flight turn")
+
+    asyncio.run(_run())
+
+
 def test_tui_quit_cancels_pending_learning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

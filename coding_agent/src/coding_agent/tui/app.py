@@ -169,6 +169,14 @@ class CodingAgentApp(
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
 
+    def _cancel_active_run(self, reason: str) -> None:
+        """Stop the exclusive agent-turn worker. Group must match ``run_agent``."""
+        self.sink.request_cancel(reason)
+        self.workers.cancel_group(self, "run_agent")
+        for worker in list(self.workers):
+            if worker.name == "run_agent" and not worker.is_finished:
+                worker.cancel()
+
     def action_cancel_run(self) -> None:
         if isinstance(self.screen, ModalScreen):
             close = getattr(self.screen, "action_close_modal", None)
@@ -183,13 +191,14 @@ class CodingAgentApp(
             menu.set_commands(())
             approval_menu.set_commands(())
             return
+        already = self.sink.cancelled
         self._pending_question_id = None
         self._pending_question_default = ""
         menu.set_commands(())
         approval_menu.set_commands(())
-        self.sink.request_cancel("user_cancel")
-        self.workers.cancel_group(self, "run_agent")
-        self.add_notice("Cancelling…", "warning")
+        self._cancel_active_run("user_cancel")
+        if not already:
+            self.add_notice("Cancelling…", "warning")
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = True
         prompt.disabled = False
@@ -198,8 +207,7 @@ class CodingAgentApp(
 
     def action_quit(self) -> None:
         if self._busy:
-            self.sink.request_cancel("quit")
-            self.workers.cancel_group(self, "run_agent")
+            self._cancel_active_run("quit")
         if self._agent is not None and self._agent.learning_loop is not None:
             self._agent.learning_loop.cancel()
         self.exit()
@@ -210,8 +218,7 @@ class CodingAgentApp(
         if callable(shutdown_children):
             await shutdown_children()
         if self._busy:
-            self.sink.request_cancel("quit")
-            self.workers.cancel_group(self, "run_agent")
+            self._cancel_active_run("quit")
         shutdown = getattr(self._agent, "shutdown_learning", None)
         if callable(shutdown):
             await shutdown()

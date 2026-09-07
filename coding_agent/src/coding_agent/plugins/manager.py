@@ -21,7 +21,18 @@ class PluginManager:
         seen: set[str] = set()
         addon_names: set[str] = set()
         for entry in entries:
-            root = entry.path.expanduser().resolve()
+            # Relative plugin paths are project-local; absolute paths (including
+            # ``~/.symphony/plugins/...``) remain usable for user-wide plugins.
+            root = entry.path.expanduser()
+            if not root.is_absolute():
+                candidates = (
+                    self.workspace / root,
+                    self.workspace / ".symphony" / "plugins" / root,
+                    Path.home() / ".symphony" / "plugins" / root,
+                    Path.home() / ".symphony" / root,
+                )
+                root = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
+            root = root.resolve()
             manifest_path = root / "plugin.json"
             data: object = {}
             try:

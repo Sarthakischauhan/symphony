@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Callable
 
 from textual import work
@@ -88,11 +89,11 @@ class TurnSurface:
 
     on_control_plane_event = on_harness_event
 
-    @work(exclusive=True)
+    @work(exclusive=True, group="run_agent")
     async def run_agent(self, user_input: Content) -> None:
         try:
             await self._run_agent_turn(user_input)
-        except (HarnessCancelled, HarnessLimitExceeded):
+        except (HarnessCancelled, HarnessLimitExceeded, asyncio.CancelledError):
             if self._presenter is not None:
                 self._presenter.flush_stream_to_log()
         except Exception as exc:  # noqa: BLE001

@@ -20,7 +20,7 @@ def main() -> None:
         "--config",
         type=Path,
         default=spawn_settings_path(Path.cwd()),
-        help="Settings file (default: .symphony/config.json)",
+        help="Settings file (default: ~/.symphony/config.json)",
     )
     parser.add_argument("--enable", action="store_true")
     args = parser.parse_args()

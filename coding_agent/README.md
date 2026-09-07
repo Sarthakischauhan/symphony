@@ -49,11 +49,12 @@ print((await agent.run("Fix the failing test")).output_text)
 | [TUI](../docs/user-guide/tui.md) | Keybindings, plan mode, images |
 | [Tools](../docs/user-guide/tools.md) | `read_file`, `write_file`, `patch`, `search`, `bash`, `spawn_agent` |
 | [Configuration](../docs/user-guide/configuration.md) | `.symphony/config.json`, approvals |
+| [Skills and plugins](../docs/developer-guide/skills-and-plugins.md) | Local skills, trusted addons, and removal |
 | [Slash commands](../docs/reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
 
 The agent asks before bash, overwrite, or a broad patch. Approval rules live
 in `coding_agent.approvals`; the TUI only renders the question. Sessions
-persist in `.symphony/sessions/<session_id>.jsonl` (`--resume`).
+persist in `~/.symphony/sessions/<session_id>.jsonl` (`--resume`).
 
 Subagents run in the background by default and return results automatically to
 the parent runtime. Press **Ctrl+G** to inspect their saved or live transcripts,

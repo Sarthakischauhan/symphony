@@ -142,7 +142,11 @@ def test_jsonl_save_appends_until_history_rewrites(tmp_path: Path) -> None:
         assert loaded == compacted
         kinds = [entry["type"] for entry in _message_lines(path)]
         assert kinds[0] == "header"
-        assert kinds.count("message") == 2
+        # Compaction is an append-only checkpoint; the original messages remain
+        # available to the transcript/TUI view.
+        assert kinds.count("message") == 3
+        transcript = await store.load_transcript(session_id="s1")
+        assert [message.content for message in transcript] == ["sys", "hi", "hello"]
 
     asyncio.run(_run())
 
@@ -164,6 +168,60 @@ def test_jsonl_skips_token_deltas(tmp_path: Path) -> None:
         assert [event for event, _ in events] == ["run_started", "run_completed"]
 
     asyncio.run(_run())
+
+
+def test_compaction_is_append_only_and_latest_projection_is_resumed(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    session_id = "append-only"
+
+    async def save(messages: list[Message]) -> None:
+        await store.save_conversation(session_id=session_id, messages=messages)
+
+    asyncio.run(save([
+        Message(role="system", content="system prompt"),
+        Message(role="user", content="original question"),
+        Message(role="assistant", content="original answer"),
+        Message(role="user", content="message before first compaction"),
+    ]))
+    asyncio.run(save([
+        Message(role="system", content="system prompt"),
+        Message(role="assistant", content="first compacted summary"),
+        Message(role="user", content="message after first compaction"),
+    ]))
+    asyncio.run(save([
+        Message(role="system", content="system prompt"),
+        Message(role="assistant", content="first compacted summary"),
+        Message(role="user", content="message after first compaction"),
+        Message(role="assistant", content="newer answer"),
+    ]))
+    asyncio.run(save([
+        Message(role="system", content="system prompt"),
+        Message(role="assistant", content="second compacted summary"),
+        Message(role="user", content="message after second compaction"),
+    ]))
+
+    path = tmp_path / "sessions" / f"{session_id}.jsonl"
+    raw = path.read_text(encoding="utf-8")
+    assert "original question" in raw
+    assert "original answer" in raw
+    assert "first compacted summary" in raw
+    assert "newer answer" in raw
+    entries = [json.loads(line) for line in raw.splitlines()]
+    compactions = [entry for entry in entries if entry.get("type") == "compaction"]
+    assert len(compactions) == 2
+    assert compactions[0]["through_seq"] < compactions[1]["through_seq"]
+
+    resumed = asyncio.run(store.load_conversation(session_id=session_id))
+    assert [(message.role, message.content) for message in resumed] == [
+        ("system", "system prompt"),
+        ("assistant", "second compacted summary"),
+        ("user", "message after second compaction"),
+    ]
+    transcript = asyncio.run(store.load_transcript(session_id=session_id))
+    transcript_text = [str(message.content) for message in transcript]
+    assert "original question" in transcript_text
+    assert "original answer" in transcript_text
+    assert "newer answer" in transcript_text
 
 
 def test_harness_persists_and_reloads_conversation(tmp_path: Path) -> None:

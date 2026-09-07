@@ -89,6 +89,7 @@ Screen {
     width: auto;
     max-width: 72;
     height: 1;
+    margin: 1 0 1 1;
     padding: 0 1 0 3;
     color: $muted;
 }
@@ -96,7 +97,7 @@ Screen {
 .run-process {
     width: 100%;
     height: auto;
-    margin: 0;
+    margin: 0 0 1 0;
     padding: 0 0 0 3;
     background: $background;
 }

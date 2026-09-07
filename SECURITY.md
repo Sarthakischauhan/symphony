@@ -38,10 +38,16 @@ following before deploying it:
   file overwrites, and broad patches, but there is **no sandbox, path jail,
   or container isolation**: the agent runs with your user's permissions on
   your machine. Treat it like any other tool that runs code on your behalf.
-- Child agents share the same filesystem and run without per-tool approval
-  prompts. `spawn_agent` starts background work by default in `symphony-code`;
-  a returned child ID acknowledges startup, not completion. The runtime delivers
-  results automatically and waits before final completion. Closing a child
+- Local plugin addon Python is never executed unless the plugin is enabled
+  and its directory is below an explicitly configured `authorized_roots`
+  entry; authorized addon code runs with the agent user's permissions and
+  must be treated as trusted code.
+- Approval is a `before_tool` add-on in `symphony-code` (`ApprovalAddon`),
+  not a harness method. Unattended `CoreHarness` runs allow tools. Child
+  agents share the same filesystem and skip `ApprovalAddon`. `spawn_agent`
+  starts background work by default in `symphony-code`; a returned child ID
+  acknowledges startup, not completion. The runtime delivers results
+  automatically and waits before final completion. Closing a child
   transcript does not stop it; use Ctrl+X in that view to cancel that child.
   Cancelling the parent run, hitting its limits, or exiting the TUI stops its
   managed children. Background execution does not add filesystem isolation.

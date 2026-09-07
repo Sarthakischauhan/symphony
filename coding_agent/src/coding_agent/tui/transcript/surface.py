@@ -118,6 +118,8 @@ class TranscriptSurface:
         assert self._thinking is not None
         self._thinking.set_visible(True)
         self._thinking.set_churning(turn)
+        if self._process is not None:
+            self._process.place_thinking_last()
 
     def _mount_process_item(self, widget: Widget) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)

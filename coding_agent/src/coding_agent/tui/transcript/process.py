@@ -150,6 +150,21 @@ class RunProcess(Container):
         if self.is_mounted:
             self.mount(widget)
 
+    def place_thinking_last(self) -> None:
+        """Keep the live status below the work it is describing."""
+        if not self._thinking.is_attached:
+            if self._thinking in self._items:
+                self._items.remove(self._thinking)
+            self._items.append(self._thinking)
+            return
+        try:
+            self._items.remove(self._thinking)
+        except ValueError:
+            return
+        self._items.append(self._thinking)
+        self._thinking.remove()
+        self.mount(self._thinking)
+
     def timeline_items(self) -> list[Widget]:
         """Timeline order, including items not yet flushed to the DOM."""
         return list(self._items)

@@ -27,7 +27,7 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [symphony-code](./packages/symphony-code.md) | Workspace agent and TUI |
 | [core-server](./packages/core-server.md) | FastAPI + SSE |
 | [TUI](./user-guide/tui.md) | Composer, modes, keybindings, images |
-| [Configuration](./user-guide/configuration.md) | `.symphony/config.json`, approvals, context |
+| [Configuration](./user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
 | [Tools](./user-guide/tools.md) | Workspace tool surface |
 | [Learning](./user-guide/learning.md) | Post-run reflection |
 | [Sessions](./user-guide/sessions.md) | JSONL resume |

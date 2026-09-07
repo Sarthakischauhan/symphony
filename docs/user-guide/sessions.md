@@ -1,7 +1,7 @@
 # Sessions
 
 Conversation persistence lives at
-`<workspace>/.symphony/sessions/<session_id>.jsonl`. Resume with `session_id` in
+`~/.symphony/sessions/<session_id>.jsonl`. Resume with `session_id` in
 the library API, or `symphony --resume` in the TUI (interactive picker). `/new`
 starts a fresh persisted session.
 

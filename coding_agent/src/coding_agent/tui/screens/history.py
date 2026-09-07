@@ -25,7 +25,8 @@ class HistoryView(Protocol):
 
 async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     """Load the agent's saved messages and mount their transcript widgets."""
-    messages = await agent.persistence.load_conversation(session_id=agent.session_id)
+    loader = getattr(agent.persistence, "load_transcript", agent.persistence.load_conversation)
+    messages = await loader(session_id=agent.session_id)
     context_limit = agent.harness.state.context_limit(agent.harness.model_id)
     view.set_context_metrics(estimate_prompt_tokens(messages), context_limit)
     view.add_notice(f"Resumed session · {agent.session_id}")
