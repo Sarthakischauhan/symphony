@@ -940,7 +940,8 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
             process = app.query_one(RunProcess)
-            assert process.query_one(".process-complete") is not None
+            assert not list(process.query(".process-complete"))
+            assert app.query_one(".process-complete") is not None
             assert not list(process.query(ReasoningWidget))
             summary = process.query_one(ToolCallSummary)
             assert "1 thought" in summary.title

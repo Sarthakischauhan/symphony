@@ -148,13 +148,20 @@ class RunProcess(Container):
     def completed(self) -> bool:
         return self._completed
 
-    def complete(self, title: str, *, collapse: bool = True) -> None:
+    def complete(
+        self,
+        title: str,
+        *,
+        collapse: bool = True,
+        add_completion: bool = True,
+    ) -> None:
         if self._completed:
             return
         self._completed = True
         self.archiveable = collapse
         self._thinking.set_visible(False)
-        self.add_item(ProcessComplete(title))
+        if add_completion:
+            self.add_item(ProcessComplete(title))
 
     def tool_count(self) -> int:
         from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
