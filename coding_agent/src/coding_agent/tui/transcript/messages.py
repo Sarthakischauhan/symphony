@@ -25,7 +25,18 @@ USER_PROMPT_GUTTER = 3
 
 
 class _SelectableStatic(Static):
-    """Static widget with a selectable Textual render cache."""
+    """Static widget with a width-aware reusable render cache."""
+
+    _render_cache_width: int | None = None
+    _render_cache_content: object | None = None
+
+    def _invalidate_render_cache(self) -> None:
+        self._render_cache_width = None
+        self._render_cache_content = None
+        self.refresh(layout=True)
+
+    def _render_content(self):
+        return super()._render_content()
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         # Static's default implementation cannot extract from Group/Table/Markdown.
@@ -216,6 +227,7 @@ class AssistantMessage(_SelectableStatic):
         self.message_text = content
         self._streaming = streaming
         body = Text(content or " ") if streaming else themed_markdown(content or " ")
+        self._invalidate_render_cache()
         self.update(
             Group(
                 Text("◆  SYMPHONY", style="bold #d0d0d0"),
