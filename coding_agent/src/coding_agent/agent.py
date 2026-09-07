@@ -208,18 +208,11 @@ class CodingAgent:
         """Run the agent; learning is scheduled from the after_run add-on hook."""
         mode = self.mode
         task_text = text_from_content(user_input)
-        lessons = (
-            self.learning_store.context_for(
-                task_text,
-                limit=self.config.learning.context_limit,
-                max_chars=self.config.learning.context_max_chars,
-            )
-            if self.learning_loop
-            else ""
-        )
         self.harness.system_prompt = self.base_system_prompt
-        if lessons:
-            self.harness.system_prompt += f"\n\n{lessons}"
+        if self.learning_loop:
+            memory = self.learning_store.snapshot(max_chars=self.config.learning.context_max_chars)
+            if memory:
+                self.harness.system_prompt += f"\n\n{memory}"
         if mode == "plan":
             self.harness.system_prompt += f"\n\n{PLAN_MODE_PROMPT}"
         if self.config.skills.enabled and self.skill_registry.skills:

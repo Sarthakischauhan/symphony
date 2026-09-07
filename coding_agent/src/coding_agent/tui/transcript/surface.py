@@ -27,6 +27,13 @@ from coding_agent.tui.transcript.process import (
 class TranscriptSurface:
     """TranscriptView implementation mixed into CodingAgentApp."""
 
+    def _freeze_completed_messages(self) -> None:
+        """Freeze completed assistant widgets so their render cache is reusable."""
+        for turn in self._transcript_turns:
+            for item in turn.timeline_items():
+                if isinstance(item, (AssistantMessage, UserMessage)):
+                    item.refresh(layout=True)
+
     def _follow_transcript_tail(
         self, transcript: VerticalScroll, *, was_at_end: bool
     ) -> None:
@@ -53,6 +60,7 @@ class TranscriptSurface:
         welcome = self.query(".welcome")
         if welcome:
             welcome.first().remove()
+        self._freeze_completed_messages()
         if isinstance(widget, UserMessage):
             turn = TranscriptTurn(widget)
             self._transcript_turns.append(turn)

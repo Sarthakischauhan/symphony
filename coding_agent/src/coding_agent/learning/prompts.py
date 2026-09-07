@@ -3,9 +3,9 @@
 REVIEWER_SYSTEM_PROMPT = """Review a completed coding-agent run and return JSON only.
 
 Schema:
-{"should_save": boolean, "summary": string, "transcript_summary": string,
- "worked": [string], "failed": [string], "applicable_when": [string],
- "confidence": number}
+{"memory_ops": [{"action": "add|replace|remove", "text": string}],
+ "transcript_summary": string}
+Use at most four memory_ops. Do not emit should_save.
 
 transcript_summary is a two-line recap of this run ("summary so far"): what
 changed and where things stand. Two short lines, no bullets, no secrets.

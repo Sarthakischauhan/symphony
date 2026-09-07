@@ -22,6 +22,11 @@ from coding_agent.tui.screens.file_selector import FileOption
 
 
 class SlashMenu(OptionList):
+    """Cached completion menu for files, commands, and plans."""
+
+    _files_cache: tuple[FileOption, ...] | None = None
+    _plans_cache: tuple[PlanOption, ...] | None = None
+
     """Discoverable command suggestions displayed above the composer."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -183,9 +188,17 @@ class SlashMenu(OptionList):
 
     def set_plans(self, plans: tuple[PlanOption, ...], current: str = "") -> None:
         self._current_plan = current
+        if self._plans_cache == plans:
+            plans = self._plans_cache
+        else:
+            self._plans_cache = plans
         self._replace_choices(plans=plans)
 
     def set_files(self, files: tuple[FileOption, ...]) -> None:
+        if self._files_cache == files:
+            files = self._files_cache
+        else:
+            self._files_cache = files
         self._replace_choices(files=files)
 
     def set_question(

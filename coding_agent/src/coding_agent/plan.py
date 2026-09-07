@@ -116,8 +116,16 @@ class PlanStore:
         )
 
     def save(self, task: str, plan: str) -> None:
-        self.begin(task)
-        self.append(f"{plan.strip()}\n")
+        """Finalize a streamed plan without resetting its file or selection."""
+        if self._stream_task is None or self.path.name != self.filename_for(task):
+            self.begin(task)
+        self._stream_task = task.strip()
+        self._stream_text = plan.strip()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            f"# Plan\n\n**Task:** {self._stream_task}\n\n{self._stream_text}\n",
+            encoding="utf-8",
+        )
 
     def load(self) -> str:
         try:

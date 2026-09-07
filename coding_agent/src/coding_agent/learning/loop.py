@@ -23,7 +23,16 @@ logger = logging.getLogger(__name__)
 Emit = Callable[[str, dict[str, object]], Awaitable[None]]
 
 
+class MemoryOp(BaseModel):
+    action: str = "add"
+    text: str = ""
+
+    model_config = {"extra": "ignore"}
+
+
 class LearningReview(BaseModel):
+    memory_ops: list[MemoryOp] = Field(default_factory=list)
+    # Legacy fields are accepted for compatibility but are no longer acted on.
     should_save: bool = False
     summary: str = ""
     transcript_summary: str = ""
@@ -97,7 +106,11 @@ class LearningLoop:
                     "run_summary",
                     {"label": "summary so far", "summary": recap},
                 )
-            if review.should_save and review.summary.strip():
+            if review.memory_ops:
+                for op in review.memory_ops[:4]:
+                    if op.action == "add" and op.text.strip():
+                        self.store.append(Lesson(summary=op.text, source_task=task))
+            elif review.should_save and review.summary.strip():
                 self.store.append(
                     Lesson(
                         summary=review.summary,

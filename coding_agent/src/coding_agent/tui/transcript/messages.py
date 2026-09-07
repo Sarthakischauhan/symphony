@@ -10,6 +10,8 @@ from rich.console import Group
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
+from textual.selection import Selection
+from textual.strip import Strip
 from textual.widgets import Static
 
 from coding_agent.tui.motion import reveal
@@ -20,6 +22,24 @@ from coding_agent.tui.tools.images import IMAGE_MARKER_RE, ImageAttachment, Imag
 # Accent glyph that opens every user prompt in the transcript (mock: purple `>`).
 USER_PROMPT_GLYPH = ">"
 USER_PROMPT_GUTTER = 3
+
+
+class _SelectableStatic(Static):
+    """Static widget with a selectable Textual render cache."""
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        # Static's default implementation cannot extract from Group/Table/Markdown.
+        # The compositor has already rendered the exact wrapped lines, so use those
+        # strips rather than re-rendering with a potentially different width.
+        if self._dirty_regions:
+            self._render_content()
+        lines = [line.text.rstrip() for line in self._render_cache.lines]
+        return selection.extract("\n".join(lines)), "\n"
+
+    def render_line(self, y: int) -> Strip:
+        """Attach Textual's selection offsets to every rendered cell."""
+        line = super().render_line(y)
+        return line.apply_offsets(0, y)
 
 
 def compact_json(value: Mapping[str, Any]) -> str:
@@ -62,7 +82,7 @@ class Welcome(Static):
         )
         super().__init__(body, classes="welcome")
 
-class UserMessage(Static):
+class UserMessage(_SelectableStatic):
     """A user prompt with long pasted chunks and images hidden behind compact links."""
 
     COMPACT_PASTE_AFTER = 100
@@ -186,7 +206,7 @@ class UserMessage(Static):
             self.app.push_screen(ImageModal(image))
 
 
-class AssistantMessage(Static):
+class AssistantMessage(_SelectableStatic):
     def __init__(self, content: str = "", *, streaming: bool = False) -> None:
         self._streaming = False
         super().__init__(classes="message assistant-message")
