@@ -13,7 +13,7 @@ stream, tagged with `parent_id` and `agent_id`.
 | --- | --- | --- |
 | Harness | `symphony-harness` | Turns, tools, control-plane events, compaction |
 | Harness | `symphony-core` | OpenAI, Anthropic, Gemini, Grok; catalog; streaming types |
-| Agent | `symphony-code` | Workspace tools, SQLite sessions, Textual TUI |
+| Agent | `symphony-code` | Workspace tools, JSONL sessions, Textual TUI |
 | Server | `core-server` | FastAPI wrapper that streams those events over SSE |
 
 ```mermaid
@@ -35,7 +35,7 @@ flowchart TD
     subgraph COD["coding_agent"]
         WS["workspace tools"]
         TU["Textual TUI"]
-        SQ["SQLite sessions"]
+        SQ["JSONL sessions"]
     end
 
     subgraph SRV["core_server"]
@@ -97,7 +97,7 @@ coding_agent/src/coding_agent/
   tools/              # one file per workspace tool
   compaction/         # AiCompactionAddon + InferenceCompactor
   learning/           # after-run reflection, lesson store, run_summary
-  persistence/        # SQLite sessions
+  persistence/        # JSONL sessions
   tui/                # Textual app, driven by CP events
 
 core_server/src/core_server/

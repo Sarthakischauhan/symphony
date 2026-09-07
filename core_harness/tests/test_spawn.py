@@ -12,7 +12,7 @@ from core_harness import (
     CoreHarness,
     HarnessConfig,
     KeepSystemRecentCompactor,
-    NullControlPlane,
+    EventControlPlane,
     SubagentAddon,
     Tool,
 )
@@ -55,7 +55,7 @@ def inspect_repo(path: str) -> str:
 
 def test_run_events_carry_agent_id_without_parent() -> None:
     registry = ScriptedRegistry([_text_turn("hello")])
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -83,7 +83,7 @@ def test_spawn_emits_parent_and_child_identity() -> None:
             _text_turn("The child found that README is the project intro."),
         ]
     )
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -141,7 +141,7 @@ def test_spawn_emits_parent_and_child_identity() -> None:
 
 def test_spawn_depth_limit_returns_error_without_child_run() -> None:
     registry = ScriptedRegistry([_text_turn("should not run")])
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -160,7 +160,7 @@ def test_spawn_depth_limit_returns_error_without_child_run() -> None:
 
 def test_direct_spawn_uses_shared_control_plane() -> None:
     registry = ScriptedRegistry([_text_turn("isolated answer")])
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -244,7 +244,7 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
                     self.active -= 1
 
     registry = ParallelRegistry()
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -273,8 +273,8 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
 
 def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
     registry = ScriptedRegistry([_text_turn("child answer")])
-    parent_plane = NullControlPlane()
-    child_plane = NullControlPlane()
+    parent_plane = EventControlPlane()
+    child_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:parent-model",
@@ -310,8 +310,8 @@ def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
 
 def test_make_spawn_tool_configure_builds_child_config() -> None:
     registry = ScriptedRegistry([_text_turn("configured")])
-    parent_plane = NullControlPlane()
-    child_plane = NullControlPlane()
+    parent_plane = EventControlPlane()
+    child_plane = EventControlPlane()
     seen: list[dict[str, Any]] = []
     def configure(**kwargs: Any) -> ChildConfig:
         seen.append(kwargs)
@@ -353,8 +353,8 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
 
 def test_make_spawn_tool_configure_merges_partial_override() -> None:
     registry = ScriptedRegistry([_text_turn("merged")])
-    parent_plane = NullControlPlane()
-    child_plane = NullControlPlane()
+    parent_plane = EventControlPlane()
+    child_plane = EventControlPlane()
     def configure(**kwargs: Any) -> ChildConfig:
         del kwargs
         return ChildConfig(control_plane=child_plane)
@@ -416,7 +416,7 @@ def test_looping_child_stops_at_spawn_turn_cap() -> None:
     registry = ScriptedRegistry(
         [_tool_turn("inspect_repo", '{"path":"README.md"}')]
     )
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",

@@ -47,7 +47,7 @@ model, with every UI reading the same typed events. Parent runs can spawn
 children; those children reuse the stream, tagged with `parent_id` and
 `agent_id`.
 
-`symphony-code` is the first product on the harness (workspace tools, SQLite
+`symphony-code` is the first product on the harness (workspace tools, JSONL
 sessions, Textual TUI). A browser-use agent is next.
 
 <video src="./docs/demo.mp4" controls muted loop playsinline poster="./docs/demo.png" width="800">
@@ -73,7 +73,7 @@ flowchart TD
     subgraph COD["coding_agent"]
         WS["workspace tools"]
         TU["Textual TUI"]
-        SQ["SQLite sessions"]
+        SQ["JSONL sessions"]
     end
 
     subgraph SRV["core_server"]
@@ -95,7 +95,7 @@ flowchart TD
 | --- | --- | --- |
 | Harness | [`symphony-harness`](./core_harness/README.md) | Turns, tools, control-plane events, compaction |
 | Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, Gemini, Grok; catalog; streaming types |
-| Agent | [`symphony-code`](./coding_agent/README.md) | Workspace tools, SQLite sessions, Textual TUI |
+| Agent | [`symphony-code`](./coding_agent/README.md) | Workspace tools, JSONL sessions, Textual TUI |
 | Server | [`core-server`](./core_server/README.md) | FastAPI wrapper that streams those events over SSE |
 
 ---
@@ -214,7 +214,7 @@ print(result.output_text)
 | **Control plane** | Typed events (`ControlPlaneEventType`: run/turn lifecycle, `text_delta`, `reasoning_delta`, tool calls, `usage`, `context`, compaction, pause/resume, `agent_*` subagent lifecycle). Approval and user-input hooks, pause/cancel/inject commands. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
 | **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `ask_user`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning with a two-line **summary so far**. |
 | **Context** | Warn thresholds, token estimates, pluggable compaction that keeps the system prompt, original task, and recent turns. |
-| **Persistence** | `Persistence` protocol with checkpoints; SQLite sessions for TUI resume. |
+| **Persistence** | `Persistence` protocol with checkpoints; JSONL sessions for TUI resume. |
 | **SSE server** | FastAPI wrapper that forwards harness events unchanged. |
 
 Workspace tools resolve paths under the workspace root and reject escapes;
@@ -239,7 +239,7 @@ All package docs live under **[`docs/`](./docs/README.md)**:
 | [Configuration](./docs/user-guide/configuration.md) | `.symphony/config.json`, approvals, context |
 | [Tools](./docs/user-guide/tools.md) | Workspace tool surface |
 | [Learning](./docs/user-guide/learning.md) | Post-run reflection |
-| [Sessions](./docs/user-guide/sessions.md) | SQLite resume |
+| [Sessions](./docs/user-guide/sessions.md) | JSONL resume |
 | [Architecture](./docs/developer-guide/architecture.md) | How the four packages fit |
 | [Events](./docs/developer-guide/events.md) | Control-plane catalog |
 | [CLI](./docs/reference/cli.md) | Flags for `symphony` and `core-server` |

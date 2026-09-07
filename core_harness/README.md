@@ -29,7 +29,7 @@ import asyncio
 from pathlib import Path
 
 from core_ai import build_default_registry, default_model_id
-from core_harness import CoreHarness, HarnessConfig, NullControlPlane, Tool
+from core_harness import CoreHarness, HarnessConfig, EventControlPlane, Tool
 
 
 WORKSPACE = Path(".")
@@ -46,10 +46,10 @@ def read_file(path: str) -> str:
 async def main() -> None:
     registry = build_default_registry()
 
-    # NullControlPlane records events locally and also accepts pause, resume,
+    # EventControlPlane records events locally and also accepts pause, resume,
     # cancel, and message-injection commands. Use InteractiveControlPlane or
     # FanoutControlPlane when an application needs to forward events elsewhere.
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,
         model_id=default_model_id(registry),
@@ -128,7 +128,7 @@ A tool may declare a `control_plane` parameter. The harness supplies the
 active control plane automatically; it is not exposed as a model argument:
 
 ```python
-def approve(action: str, control_plane: NullControlPlane) -> str:
+def approve(action: str, control_plane: EventControlPlane) -> str:
     """Record an approval request."""
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
@@ -221,7 +221,7 @@ context, compaction, pause/resume, injection, cancellation, limit, and
 subagent lifecycle events. Every harness event name is a member of
 `ControlPlaneEventType`; product add-ons (for example the coding agent's
 `run_summary`) may emit additional string event types through the same plane.
-`NullControlPlane` records events in memory and is the default.
+`EventControlPlane` records events in memory and is the default.
 
 The catalog with payload examples is in
 [docs/developer-guide/events.md](../docs/developer-guide/events.md) and
@@ -229,7 +229,7 @@ The catalog with payload examples is in
 
 Available control-plane adapters include:
 
-- `NullControlPlane` — records events and supports inbound commands.
+- `EventControlPlane` — records events and supports inbound commands.
 - `InteractiveControlPlane` — records events and optionally forwards them to
   subscribers or an event log.
 - `FanoutControlPlane` — sends events to multiple control planes in order.
@@ -256,7 +256,7 @@ no-op `before_turn`, `after_turn`, `on_tool`, and `on_compact` hooks.
 default returns `None`. Skills can use this same attach path later;
 there is no directory discovery or loader.
 
-`coding_agent` attaches `PersistenceAddon` (SQLite), its own
+`coding_agent` attaches `PersistenceAddon` (JSONL), its own
 `AiCompactionAddon` (an `InferenceCompactor` built on `plan_keep_drop`), and
 `SubagentAddon` by default; it does not mount `KeepSystemRecentCompactor`. A
 bare harness run has no compaction and no `spawn_agent` tool.
@@ -365,7 +365,7 @@ The package exports the main types needed to integrate the harness:
 `build_context_report`, `bound_tool_result`, `messages_for_model`,
 `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`,
 `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`,
-`NullControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`,
+`EventControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`,
 `PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`,
 `HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
 

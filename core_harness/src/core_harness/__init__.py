@@ -34,7 +34,7 @@ from core_harness.events import (
     EventLog,
     IdentifiedControlPlane,
     InMemoryEventLog,
-    NullControlPlane,
+    EventControlPlane,
 )
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.harness import CoreHarness
@@ -78,7 +78,7 @@ __all__ = [
     "InMemoryEventLog",
     "KeepDropPlan",
     "KeepSystemRecentCompactor",
-    "NullControlPlane",
+    "EventControlPlane",
     "NullPersistence",
     "PendingToolCall",
     "Persistence",

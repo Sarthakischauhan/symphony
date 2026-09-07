@@ -5,7 +5,7 @@ import json
 import pytest
 
 from core_ai.types import StreamEvent
-from core_harness import CoreHarness, HarnessConfig, NullControlPlane, SubagentAddon
+from core_harness import CoreHarness, HarnessConfig, EventControlPlane, SubagentAddon
 
 
 class GatedRegistry:
@@ -38,7 +38,7 @@ class GatedRegistry:
 def test_background_child_does_not_hold_parent_and_keeps_run_identity() -> None:
     async def run():
         registry = GatedRegistry()
-        plane = NullControlPlane()
+        plane = EventControlPlane()
         parent = CoreHarness(registry=registry, model_id="fake:parent", system_prompt="Parent",
                              config=HarnessConfig(), control_plane=plane,
                              session_id="parent-session", addons=[SubagentAddon(background=True)])

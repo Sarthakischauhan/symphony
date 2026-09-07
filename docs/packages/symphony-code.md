@@ -52,8 +52,8 @@ print((await agent.run("Fix the failing test")).output_text)
 | [TUI](../user-guide/tui.md) | Keybindings, plan mode, images |
 | [Tools](../user-guide/tools.md) | `read_file`, `write_file`, `patch`, `search`, `bash`, `spawn_agent` |
 | [Configuration](../user-guide/configuration.md) | `.symphony/config.json`, approvals |
-| [Sessions](../user-guide/sessions.md) | SQLite, `--resume` |
+| [Sessions](../user-guide/sessions.md) | JSONL, `--resume` |
 | [Slash commands](../reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
 
 The agent asks before bash, overwrite, or a broad patch. Sessions persist in
-`.symphony/sessions.sqlite3`.
+`.symphony/sessions/<session_id>.jsonl`.

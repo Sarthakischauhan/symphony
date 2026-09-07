@@ -18,7 +18,7 @@ from core_harness import (
     HarnessCancelled,
     HarnessConfig,
     KeepSystemRecentCompactor,
-    NullControlPlane,
+    EventControlPlane,
     Tool,
     plan_keep_drop,
 )
@@ -36,8 +36,8 @@ from core_harness.context import (
 )
 
 
-def get_weather(city: str, control_plane: NullControlPlane) -> str:
-    assert isinstance(control_plane, NullControlPlane)
+def get_weather(city: str, control_plane: EventControlPlane) -> str:
+    assert isinstance(control_plane, EventControlPlane)
     return f"It is sunny in {city}."
 
 
@@ -254,9 +254,9 @@ def call_fake_harness(
     prompt_tokens: int = 10,
     context_limit: int = 100,
     context_warn_threshold: Optional[int] = None,
-) -> tuple[FakeRegistry, NullControlPlane, Any]:
+) -> tuple[FakeRegistry, EventControlPlane, Any]:
     registry = FakeRegistry(emit_usage=emit_usage, prompt_tokens=prompt_tokens)
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -506,7 +506,7 @@ def test_build_context_report_matches_stored_when_under_budget() -> None:
 
 def test_large_tool_results_are_bounded_before_reentering_context() -> None:
     registry = LargeToolRegistry()
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -655,7 +655,7 @@ def test_core_harness_emits_context_warning_below_threshold() -> None:
 
 def test_core_harness_compacts_when_context_left_is_low() -> None:
     registry = FakeRegistry(prompt_tokens=90)
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -1073,7 +1073,7 @@ def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
             yield StreamEvent(type="done", content_index=0)
 
     registry = CountingLoopRegistry(n_calls=16)
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -1187,7 +1187,7 @@ def look_at_shot() -> list[dict[str, str]]:
 
 def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
     registry = ImageToolRegistry()
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -1218,7 +1218,7 @@ def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
 
 def test_control_plane_cancel_stops_harness() -> None:
     registry = FakeRegistry()
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
 
     async def _run() -> None:
         await control_plane.send_command(ControlCommand.cancel(reason="stop-now"))
@@ -1243,7 +1243,7 @@ def test_control_plane_cancel_stops_harness() -> None:
 def test_e2e_two_tool_loop_answers_three_times_five() -> None:
     """Full loop: call_tool_a → call_tool_b → answer 3 * 5 as a number only."""
     registry = TwoToolLoopRegistry()
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:math-model",
@@ -1287,7 +1287,7 @@ def test_e2e_two_tool_loop_answers_three_times_five() -> None:
     assert control_plane.events[-1].payload["output_text"] == "15"
 
 
-def call_live_core_harness() -> tuple[NullControlPlane, object]:
+def call_live_core_harness() -> tuple[EventControlPlane, object]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         pytest.skip("Set OPENAI_API_KEY to run the core harness integration test.")
@@ -1303,7 +1303,7 @@ def call_live_core_harness() -> tuple[NullControlPlane, object]:
             base_url="https://api.openai.com/v1",
         ),
     )
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,
         model_id=f"openai:{model_name}",
@@ -1323,7 +1323,7 @@ def call_live_core_harness() -> tuple[NullControlPlane, object]:
     return control_plane, result
 
 
-def call_live_two_tool_math_harness() -> tuple[NullControlPlane, object]:
+def call_live_two_tool_math_harness() -> tuple[EventControlPlane, object]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         pytest.skip("Set OPENAI_API_KEY to run the core harness integration test.")
@@ -1339,7 +1339,7 @@ def call_live_two_tool_math_harness() -> tuple[NullControlPlane, object]:
             base_url="https://api.openai.com/v1",
         ),
     )
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,
         model_id=f"openai:{model_name}",

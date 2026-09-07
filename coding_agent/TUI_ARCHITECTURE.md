@@ -10,7 +10,7 @@ This document describes the current implementation. It was validated against the
 flowchart TD
     CLI["symphony / symphony-code / coding-agent-tui / python -m coding_agent.tui"] --> MAIN["tui.__main__.main()"]
     MAIN --> RESUME{"--resume?"}
-    RESUME -- Yes --> PICK["Load SQLite session options<br/>ResumeApp selects session"]
+    RESUME -- Yes --> PICK["Load JSONL session options<br/>ResumeApp selects session"]
     RESUME -- No --> RUN
     PICK --> RUN["run_tui(...)"]
 
@@ -31,7 +31,7 @@ flowchart TD
     MODEL --> AGENT["Create CodingAgent"]
     AGENT --> TOOLS["Build workspace tools"]
     AGENT --> HARNESS["Create CoreHarness and spawn tool"]
-    AGENT --> STORE["Configure SQLite persistence and optional learning"]
+    AGENT --> STORE["Configure JSONL persistence and optional learning"]
 
     BUILD -- Failure --> OFFLINE["Show Offline notice<br/>prompt remains available"]
     BUILD -- Success --> READY["Initialize model/context state"]

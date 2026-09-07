@@ -14,7 +14,7 @@ from core_harness import (
     CoreHarness,
     HarnessConfig,
     KeepSystemRecentCompactor,
-    NullControlPlane,
+    EventControlPlane,
     NullPersistence,
     PersistenceAddon,
     SubagentAddon,
@@ -112,7 +112,7 @@ def test_register_addon_mounts_compaction_and_fires_hooks() -> None:
     registry = ScriptedRegistry(
         [_tool_turn("ping", prompt_tokens=90), _text_turn("done", prompt_tokens=90)]
     )
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test",

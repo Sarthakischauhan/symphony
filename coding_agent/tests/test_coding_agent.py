@@ -10,12 +10,12 @@ from dotenv import load_dotenv
 from core_ai import ModelRegistry
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
-from core_harness import NullControlPlane
+from core_harness import EventControlPlane
 from coding_agent import CodingAgent
 from coding_agent.compaction import InferenceCompactor
 from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 from coding_agent.config import CodingAgentConfig, LearningConfig, spawn_settings_path
-from coding_agent.persistence import SqlitePersistence
+from coding_agent.persistence import JsonlPersistence
 
 
 def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path) -> None:
@@ -40,7 +40,7 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert saved.harness.context_compact_threshold == 16_000
     assert saved.harness.compaction_keep_recent == 10
     assert isinstance(agent.harness.state.compactor, InferenceCompactor)
-    assert isinstance(agent.persistence, SqlitePersistence)
+    assert isinstance(agent.persistence, JsonlPersistence)
     assert agent.harness.persistence is agent.persistence
 
 
@@ -141,7 +141,7 @@ class CapturingRegistry:
 
 def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> None:
     registry = CapturingRegistry()
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     config = CodingAgentConfig()
     config = config.model_copy(
         update={

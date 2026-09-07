@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from coding_agent.persistence import SqlitePersistence
+from coding_agent.persistence import JsonlPersistence
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.runtime.control_plane import HarnessEvent
 from coding_agent.tui.runtime.subagent import SubagentScreen, SubagentTasksScreen
@@ -107,27 +107,26 @@ def test_duplicate_labels_bind_by_call_id_and_reject_foreign_events(monkeypatch,
 
 def test_child_journal_reopens_after_restart(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    db = tmp_path / "sessions.sqlite3"
+    root = tmp_path / "sessions"
 
     async def run() -> None:
-        store = SqlitePersistence(db)
+        store = JsonlPersistence(root)
         await store.append_event(event_type="agent_spawned", payload={
             "agent_id": "parent", "child_id": "child", "session_id": "parent-session",
             "child_session_id": "child-session", "run_id": "parent-run", "seq": 1,
             "label": "Saved child", "prompt": "Saved task",
         })
-        for seq, (event, extra) in enumerate([
-            ("run_started", {"model_id": "fake:child"}),
-            ("text_delta", {"delta": "Partial answer"}),
-        ], 1):
-            await store.append_event(event_type=event, payload={
-                **extra, "agent_id": "child", "parent_id": "parent",
-                "session_id": "child-session", "run_id": "child-run", "seq": seq,
-            })
-        store.flush_events()
+        await store.append_event(event_type="run_started", payload={
+            "model_id": "fake:child", "agent_id": "child", "parent_id": "parent",
+            "session_id": "child-session", "run_id": "child-run", "seq": 1,
+        })
+        await store.append_event(event_type="run_completed", payload={
+            "output_text": "Partial answer", "agent_id": "child", "parent_id": "parent",
+            "session_id": "child-session", "run_id": "child-run", "seq": 2,
+        })
         app = CodingAgentApp(workspace=tmp_path)
         async with app.run_test() as pilot:
-            app._agent = SimpleNamespace(persistence=SqlitePersistence(db), session_id="parent-session")
+            app._agent = SimpleNamespace(persistence=JsonlPersistence(root), session_id="parent-session")
             await app.restore_subagents()
             record = app._subagents["child"]
             assert record.status == "interrupted"

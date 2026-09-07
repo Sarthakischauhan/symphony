@@ -209,7 +209,7 @@ class IdentifiedControlPlane(ControlPlane):
         return self.inner.paused
 
 
-class NullControlPlane(ControlPlane):
+class EventControlPlane(ControlPlane):
     """Recording default emitter that also supports inbound commands."""
 
     events: List[ControlPlaneEvent]
@@ -329,6 +329,6 @@ __all__ = [
     "EventLog",
     "IdentifiedControlPlane",
     "InMemoryEventLog",
-    "NullControlPlane",
+    "EventControlPlane",
     "normalize_event_type",
 ]

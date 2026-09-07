@@ -17,7 +17,7 @@ surface is listed in the [package README](../../core_harness/README.md).
 import asyncio
 from pathlib import Path
 from core_ai import build_default_registry, default_model_id
-from core_harness import CoreHarness, HarnessConfig, NullControlPlane, Tool
+from core_harness import CoreHarness, HarnessConfig, EventControlPlane, Tool
 
 WORKSPACE = Path(".")
 
@@ -30,7 +30,7 @@ def read_file(path: str) -> str:
 
 async def main() -> None:
     registry = build_default_registry()
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,
         model_id=default_model_id(registry),
@@ -120,7 +120,7 @@ await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
 
 ## Control planes
 
-- `NullControlPlane` — records events, accepts inbound commands. Default.
+- `EventControlPlane` — records events, accepts inbound commands. Default.
 - `InteractiveControlPlane` — optional subscribers / event log.
 - `FanoutControlPlane` — send to multiple planes in order.
 - `PersistingControlPlane` — appends to an `EventLog`.

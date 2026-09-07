@@ -1,24 +1,22 @@
-"""Persistence tests for harness protocol + coding-agent SQLite store."""
+"""Persistence tests for harness protocol + coding-agent JSONL store."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
 from core_ai.types import Message, StreamEvent
-from core_harness import Checkpoint, CoreHarness, HarnessConfig, NullControlPlane, Tool
+from core_harness import Checkpoint, CoreHarness, HarnessConfig, EventControlPlane, Tool
 from core_harness.addons.persistence import PersistenceAddon
 from core_harness import ChildConfig, SubagentAddon
-from coding_agent.persistence import SqlitePersistence
+from coding_agent.persistence import JsonlPersistence
 
 
 def test_child_sessions_share_store_and_restore_transcripts_by_id(tmp_path: Path) -> None:
-    import json
-
     async def run() -> None:
-        db = tmp_path / "child-sessions.sqlite3"
-        store = SqlitePersistence(db)
+        store = JsonlPersistence(tmp_path / "sessions")
         parent = CoreHarness(
             registry=FakeRegistry(), model_id="fake:test", system_prompt="parent",
             config=HarnessConfig(), session_id="parent-session", agent_id="parent",
@@ -30,7 +28,7 @@ def test_child_sessions_share_store_and_restore_transcripts_by_id(tmp_path: Path
             control_plane=parent.control_plane, args={"prompt": "Child task"})
         child_id = json.loads(response)["child_id"]
         await parent.child_tasks[child_id].task
-        restarted_store = SqlitePersistence(db)
+        restarted_store = JsonlPersistence(tmp_path / "sessions")
         children = await restarted_store.load_children(parent_session_id="parent-session")
         assert len(children) == 1
         assert children[0]["status"] == "completed"
@@ -41,6 +39,8 @@ def test_child_sessions_share_store_and_restore_transcripts_by_id(tmp_path: Path
         assert any(event == "run_completed" for event, _ in events)
         assert all(payload["agent_id"] == child_id and payload["parent_id"] == "parent"
                    for _, payload in events)
+        assert not any(event in {"text_delta", "reasoning_delta", "tool_call_delta"}
+                       for event, _ in events)
         assert [session.session_id for session in await restarted_store.list_sessions()] == ["parent-session"]
         restarted = CoreHarness(
             registry=FakeRegistry(), model_id="fake:test", system_prompt="parent",
@@ -79,8 +79,16 @@ class FakeRegistry:
         yield StreamEvent(type="done", content_index=0)
 
 
-def test_sqlite_persistence_roundtrip(tmp_path: Path) -> None:
-    store = SqlitePersistence(tmp_path / "sessions.sqlite3")
+def _message_lines(path: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def test_jsonl_persistence_roundtrip(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
     messages = [
         Message(role="system", content="sys"),
         Message(role="user", content="hi"),
@@ -111,10 +119,57 @@ def test_sqlite_persistence_roundtrip(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_jsonl_save_appends_until_history_rewrites(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    first = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hi"),
+    ]
+    grown = first + [Message(role="assistant", content="hello")]
+    compacted = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="summary"),
+    ]
+    path = tmp_path / "sessions" / "s1.jsonl"
+
+    async def _run() -> None:
+        await store.save_conversation(session_id="s1", messages=first)
+        await store.save_conversation(session_id="s1", messages=grown)
+        kinds = [entry["type"] for entry in _message_lines(path)]
+        assert kinds == ["header", "message", "message", "message"]
+        await store.save_conversation(session_id="s1", messages=compacted)
+        loaded = await store.load_conversation(session_id="s1")
+        assert loaded == compacted
+        kinds = [entry["type"] for entry in _message_lines(path)]
+        assert kinds[0] == "header"
+        assert kinds.count("message") == 2
+
+    asyncio.run(_run())
+
+
+def test_jsonl_skips_token_deltas(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+
+    async def _run() -> None:
+        await store.append_event(event_type="run_started", payload={
+            "session_id": "s1", "run_id": "run", "seq": 1, "model_id": "fake",
+        })
+        await store.append_event(event_type="text_delta", payload={
+            "session_id": "s1", "run_id": "run", "seq": 2, "delta": "hello",
+        })
+        await store.append_event(event_type="run_completed", payload={
+            "session_id": "s1", "run_id": "run", "seq": 3, "output_text": "hello",
+        })
+        events = await store.load_events(session_id="s1")
+        assert [event for event, _ in events] == ["run_started", "run_completed"]
+
+    asyncio.run(_run())
+
+
 def test_harness_persists_and_reloads_conversation(tmp_path: Path) -> None:
-    store = SqlitePersistence(tmp_path / "harness.sqlite3")
+    store = JsonlPersistence(tmp_path / "sessions")
     registry = FakeRegistry()
-    control_plane = NullControlPlane()
+    control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test",

@@ -1,0 +1,32 @@
+#!/bin/sh
+# Run the same checks as GitHub Actions CI before creating a commit.
+# Install with: git config core.hooksPath .githooks
+set -eu
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "pre-commit: uv is required (https://docs.astral.sh/uv/)" >&2
+    exit 1
+fi
+
+echo "pre-commit: syncing workspace"
+uv sync --locked --all-packages --dev
+
+echo "pre-commit: running Ruff"
+uv run --no-sync ruff check .
+
+echo "pre-commit: checking generated catalog"
+git diff --exit-code -- core_ai/src/core_ai/models/generated.py
+
+echo "pre-commit: running tests"
+uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests
+
+echo "pre-commit: building published packages"
+rm -rf dist
+uv build --package symphony-core -o dist
+uv build --package symphony-harness -o dist
+uv build --package symphony-code -o dist
+
+echo "pre-commit: checking generated catalog after build"
+git diff --exit-code -- core_ai/src/core_ai/models/generated.py
+
+echo "pre-commit: all CI checks passed"

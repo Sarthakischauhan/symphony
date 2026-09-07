@@ -22,7 +22,7 @@ UI is driven by one typed control-plane event stream:
 | --- | --- | --- |
 | Providers | `core_ai` | Provider registry, generated model catalog, `Message` / `StreamEvent` |
 | Loop | `core_harness` | Multi-turn tool loop, control plane, limits, compaction, add-ons, subagents |
-| Product | `coding_agent` | Workspace coding agent (tools, SQLite sessions, Textual TUI, learning) |
+| Product | `coding_agent` | Workspace coding agent (tools, JSONL sessions, Textual TUI, learning) |
 | Transport | `core_server` | FastAPI wrapper that streams harness events over SSE |
 
 ---
@@ -89,7 +89,7 @@ workspace root, rejects path escapes, and generates pydantic schemas:
 | `ask_user` | `tools/ask_user.py` | Clarifying questions through the control plane |
 | `spawn_agent` | via `SubagentAddon` | Focused child agent |
 
-- Default add-ons (`agent.default_addons`): `PersistenceAddon` (SQLite),
+- Default add-ons (`agent.default_addons`): `PersistenceAddon` (JSONL),
   `AiCompactionAddon` (`InferenceCompactor`: harness keep/drop plan + a
   model-written summary of dropped work), `SubagentAddon`.
 - Approvals (`ApprovalConfig`): ask before `bash`, overwrite, or a broad patch;

@@ -15,7 +15,7 @@ from core_harness import (
     CoreHarness,
     HarnessConfig,
     HarnessResult,
-    NullControlPlane,
+    EventControlPlane,
     Persistence,
     Tool,
 )
@@ -31,7 +31,7 @@ from coding_agent.config import (
     resolve_coding_agent_config,
 )
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
-from coding_agent.persistence import SqlitePersistence
+from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.plan import PlanStore
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.tools import build_tools
@@ -83,12 +83,10 @@ class CodingAgent:
         self.workspace.mkdir(parents=True, exist_ok=True)
         loaded = None if config is None else resolve_coding_agent_config(config)
         self.config = ensure_spawn_settings(self.workspace, config=loaded)
-        self.control_plane = control_plane or NullControlPlane()
+        self.control_plane = control_plane or EventControlPlane()
         self.registry = registry
         self.session_id = session_id or str(uuid.uuid4())
-        self.persistence = persistence or SqlitePersistence(
-            self.workspace / ".symphony" / "sessions.sqlite3"
-        )
+        self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
         self.base_system_prompt = system_prompt.rstrip()
         self.mode = mode
         self.plan_store = PlanStore(self.workspace)

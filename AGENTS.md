@@ -16,7 +16,7 @@ differ by layer on purpose; use the right one for the context you are in:
 
 Dependency direction is strictly `core_ai` → `core_harness` → `coding_agent` /
 `core_server`. The harness must stay product-agnostic: anything that knows
-about files, shells, TUIs, or SQLite belongs in `coding_agent`, not
+about files, shells, TUIs, or session files belongs in `coding_agent`, not
 `core_harness`.
 
 ## Commands

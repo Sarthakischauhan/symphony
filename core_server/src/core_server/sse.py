@@ -8,11 +8,11 @@ import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
 from core_harness import ControlCommand
-from core_harness.events import NullControlPlane
+from core_harness.events import EventControlPlane
 from core_harness.models import ControlPlaneEvent, ControlPlaneEventType
 
 
-class SSEControlPlane(NullControlPlane):
+class SSEControlPlane(EventControlPlane):
     """Bounded SSE event queue with harness inbound-command support."""
 
     def __init__(self, *, max_queue_size: int = 256) -> None:

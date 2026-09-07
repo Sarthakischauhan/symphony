@@ -18,7 +18,7 @@ from core_harness import (
     HarnessConfig,
     HarnessLimitExceeded,
     IdentifiedControlPlane,
-    NullControlPlane,
+    EventControlPlane,
     NullPersistence,
     Tool,
 )
@@ -102,7 +102,7 @@ def _harness(
     persistence: Any = None,
     control_plane: Any = None,
 ) -> tuple[Any, Any, CoreHarness]:
-    plane = control_plane or NullControlPlane()
+    plane = control_plane or EventControlPlane()
     addons = []
     if persistence is not None:
         addons.append(PersistenceAddon(persistence))
@@ -178,7 +178,7 @@ def test_control_plane_can_deny_tool_before_execution() -> None:
         executed.append(True)
         return "changed"
 
-    class DenyingPlane(NullControlPlane):
+    class DenyingPlane(EventControlPlane):
         async def approve_tool_call(self, **_: Any) -> bool:
             return False
 
@@ -248,7 +248,7 @@ def test_every_parallel_tool_call_gets_a_result_on_cancel() -> None:
         StreamEvent(type="done"),
     ]
     registry = ScriptedRegistry([events])
-    plane = NullControlPlane()
+    plane = EventControlPlane()
 
     async def hold() -> str:
         await asyncio.sleep(30)
@@ -288,7 +288,7 @@ def test_cancel_stops_active_model_stream_and_persists() -> None:
             yield StreamEvent(type="done")
 
     persistence = RecordingPersistence()
-    plane = NullControlPlane()
+    plane = EventControlPlane()
     _, _, harness = _harness(
         SlowRegistry(),
         persistence=persistence,

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from core_ai.types import Message, StreamEvent
-from core_harness import CompactionAddon, CoreHarness, HarnessConfig, NullControlPlane
+from core_harness import CompactionAddon, CoreHarness, HarnessConfig, EventControlPlane
 from core_harness.addons.compaction import KeepSystemRecentCompactor
 from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
@@ -22,7 +22,7 @@ from coding_agent.compaction import (
 )
 from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 from coding_agent.config import CodingAgentConfig, CompactionConfig, LearningConfig
-from coding_agent.persistence import SqlitePersistence
+from coding_agent.persistence import JsonlPersistence
 
 
 class StubRegistry:
@@ -263,7 +263,7 @@ def test_ai_compaction_addon_mounts_and_forks_with_same_settings() -> None:
         model_id="fake:parent",
         system_prompt="sys",
         config=HarnessConfig(),
-        control_plane=NullControlPlane(),
+        control_plane=EventControlPlane(),
         addons=[addon],
     )
 
@@ -288,7 +288,7 @@ def test_ai_compaction_addon_mounts_and_forks_with_same_settings() -> None:
         model_id="fake:child",
         system_prompt="sys",
         config=HarnessConfig(),
-        control_plane=NullControlPlane(),
+        control_plane=EventControlPlane(),
         addons=[child],
     )
     assert child_harness.state.compactor is child.compactor
@@ -315,7 +315,7 @@ def test_ai_compaction_addon_occupies_compaction_slot() -> None:
 
 
 def test_default_addons_mount_only_ai_compaction(tmp_path: Path) -> None:
-    persistence = SqlitePersistence(tmp_path / "sessions.sqlite3")
+    persistence = JsonlPersistence(tmp_path / "sessions")
     harness_config = HarnessConfig(compaction_keep_recent=6, context_target_tokens=9_000)
 
     addons = default_addons(
@@ -380,7 +380,7 @@ def _agent(tmp_path: Path, registry: Any, **overrides: Any) -> CodingAgent:
         registry=registry,
         model_id="fake:test-model",
         workspace=tmp_path,
-        control_plane=NullControlPlane(),
+        control_plane=EventControlPlane(),
         config=config,
         tools=[],
     )

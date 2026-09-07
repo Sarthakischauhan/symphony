@@ -90,8 +90,8 @@ screen uses the parent's thought titles, tool widgets, 10-tool/final-completion
 folding, and usage footer. **Esc** or **q** returns to the parent without
 stopping the child; **Ctrl+X** inside the child screen cancels that child.
 
-Each child has a separate saved conversation and transcript update stream in
-the workspace's `sessions.sqlite3`, linked to the parent session. Resuming the
+Each child has a separate JSONL file under `.symphony/sessions/`, linked to
+the parent session. Resuming the
 parent restores its child list and transcripts. Closing the app stops its
 background children; after an unclean exit, unfinished saved children appear
 as **interrupted**. Saved transcripts are inspectable, but opening one does

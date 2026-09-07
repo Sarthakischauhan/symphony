@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from core_ai.types import Message, StreamEvent
-from core_harness import HarnessResult, NullControlPlane
+from core_harness import HarnessResult, EventControlPlane
 from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
@@ -147,7 +147,7 @@ def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
 
 def test_after_run_hook_emits_summary_on_the_control_plane(tmp_path: Path) -> None:
     async def scenario():
-        plane = NullControlPlane()
+        plane = EventControlPlane()
         agent = CodingAgent(
             registry=SplitRegistry(),  # type: ignore[arg-type]
             model_id="test:model",

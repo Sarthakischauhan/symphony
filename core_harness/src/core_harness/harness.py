@@ -14,7 +14,7 @@ from core_harness.addons import Addon
 from core_harness.addons.persistence import Checkpoint, NullPersistence
 from core_harness.addons.subagent import ChildConfig, ChildIdentity
 from core_harness.config import SettingsSource, resolve_harness_config
-from core_harness.events import ControlPlane, IdentifiedControlPlane, NullControlPlane
+from core_harness.events import ControlPlane, IdentifiedControlPlane, EventControlPlane
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import (
     HarnessResult,
@@ -49,7 +49,7 @@ class CoreHarness:
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort
         self.system_prompt = system_prompt
-        self.control_plane = control_plane or NullControlPlane()
+        self.control_plane = control_plane or EventControlPlane()
         self.persistence = NullPersistence()
         self.session_id = session_id
         self.limits = RunLimits(
