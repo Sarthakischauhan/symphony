@@ -69,7 +69,8 @@ for the user-facing shape.
 ## Approvals
 
 - `ask` — interactive gates for bash, overwrite, and broad patches.
-- `always_allow` — the control plane authorizes every tool call.
+- `always_allow` — every tool call is authorized without a prompt.
+- Rules live in `coding_agent.approvals`; the TUI only renders the question.
 - TUI **Always allow** is per-run, including child agents, and does not persist.
 
 ## Context policy

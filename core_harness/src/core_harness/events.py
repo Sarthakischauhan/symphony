@@ -18,10 +18,17 @@ Emit = Callable[[str, Dict[str, Any]], Awaitable[None]]
 
 
 class ControlPlane:
-    """Runtime orchestration boundary with typed interaction methods.
+    """Application boundary for one run. Three jobs, one object:
 
-    Callers invoke these methods directly. Missing overrides use the
-    fail-closed defaults here; do not ``getattr``-probe for optional hooks.
+    - observe: ``emit``
+    - drive: ``send_command`` / ``drain_commands`` / cancel / pause
+    - authorize: ``approve_tool_call`` / ``request_user_input``
+
+    The harness owns execution. This object does not persist, compact, or
+    spawn; those are add-ons. Missing overrides use the fail-closed defaults
+    here (deny tools, ignore commands). Do not ``getattr``-probe for hooks.
+    ``EventControlPlane`` is the unattended default: record events, accept
+    commands, allow tools.
     """
 
     async def emit(
@@ -210,7 +217,13 @@ class IdentifiedControlPlane(ControlPlane):
 
 
 class EventControlPlane(ControlPlane):
-    """Recording default emitter that also supports inbound commands."""
+    """Unattended plane: record events, accept commands, allow tools.
+
+    Library and server runs use this when no UI is attached. Allowing tools
+    is explicit unattended policy, not a side effect of recording events.
+    Interactive products replace this with a plane that asks before bash,
+    overwrites, and broad patches.
+    """
 
     events: List[ControlPlaneEvent]
 

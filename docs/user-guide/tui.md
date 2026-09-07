@@ -67,10 +67,11 @@ searchable picker of saved workspace plans.
 
 ## Approvals
 
-The control plane owns approval, not wrapped tools. Default `approvals.mode`
-is `ask`. Choose **Allow once**, **Deny**, or **Always allow**. Always-allow
-is a **run-level** override — it applies to the current run and its children,
-and does not rewrite `.symphony/config.json`.
+Product policy (`coding_agent.approvals`) decides which tools need a prompt;
+the TUI only renders the question. Default `approvals.mode` is `ask`. Choose
+**Allow once**, **Deny**, or **Always allow**. Always-allow is a **run-level**
+override — it applies to the current run and its children, and does not
+rewrite `.symphony/config.json`.
 
 ## Subagent sessions
 

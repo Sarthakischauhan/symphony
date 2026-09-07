@@ -56,39 +56,42 @@ sessions, Textual TUI). A browser-use agent is next.
 
 ```mermaid
 flowchart TD
-    subgraph SYM["SYMPHONY · the harness"]
-        direction TB
-        U["user message"] --> M["model (stream)"]
+    subgraph UI["UIs"]
+        TUI["symphony-code TUI"]
+        SSE["core-server SSE"]
+    end
+
+    subgraph CP["control plane"]
+        OBS["observe · events out"]
+        DRV["drive · cancel / pause / inject"]
+        AUTH["authorize · allow or deny"]
+    end
+
+    subgraph SYM["core_harness · the run"]
+        U["user message"] --> M["model stream"]
         M --> TC["tool calls"]
-        TC --> CP["control plane"]
-        CP --> RT["authorize + run tools"]
+        TC --> AUTH
+        AUTH --> RT["run tools"]
         RT --> M
         TC --> FR["final reply"]
-        CP --> CTX["context mgmt"]
-        CP --> PER["persistence"]
     end
 
     AI["core_ai · providers"] --> M
 
     subgraph COD["coding_agent"]
-        WS["workspace tools"]
-        TU["Textual TUI"]
-        SQ["JSONL sessions"]
+        WT["workspace tools"]
+        POL["approval policy"]
+        JSONL["JSONL sessions"]
+        ADD["addons: persist / compact / spawn / learn"]
     end
 
-    subgraph SRV["core_server"]
-        API["FastAPI"]
-        SSE["SSE event stream"]
-    end
-
-    subgraph BROW["browser agent · next"]
-        BT["browser tools"]
-        BU["browser UX"]
-    end
-
-    COD -- "plugs into" --> SYM
-    SRV -- "plugs into" --> SYM
-    BROW -. "plugs into" .-> SYM
+    TUI --> CP
+    SSE --> CP
+    CP --> SYM
+    POL --> AUTH
+    ADD --> SYM
+    WT --> TC
+    JSONL --> ADD
 ```
 
 | Layer | Package | Role |
@@ -211,7 +214,7 @@ print(result.output_text)
 | **Streaming providers** | OpenAI Responses / Chat Completions, Anthropic Messages, Gemini generateContent, and Grok Chat Completions share `Message` / `StreamEvent`. Credentials register automatically. Models are `provider:model`. |
 | **Generated catalog** | A checked-in snapshot of tool-calling text models (`core_ai/models/generated.py`), generated from [models.dev](https://models.dev) by a maintainer script. Installing or building the package never refreshes it. |
 | **Turn-based harness** | Multi-turn tool calls, schema generation, run caps (turns, tools, runtime, tokens). |
-| **Control plane** | Typed events (`ControlPlaneEventType`: run/turn lifecycle, `text_delta`, `reasoning_delta`, tool calls, `usage`, `context`, compaction, pause/resume, `agent_*` subagent lifecycle). Approval and user-input hooks, pause/cancel/inject commands. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
+| **Control plane** | One object, three jobs: observe (typed events), drive (cancel / pause / inject), authorize (tool gate + questions). Persistence and compaction are add-ons. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
 | **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `ask_user`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning with a two-line **summary so far**. |
 | **Context** | Warn thresholds, token estimates, pluggable compaction that keeps the system prompt, original task, and recent turns. |
 | **Persistence** | `Persistence` protocol with checkpoints; JSONL sessions for TUI resume. |
@@ -241,6 +244,7 @@ All package docs live under **[`docs/`](./docs/README.md)**:
 | [Learning](./docs/user-guide/learning.md) | Post-run reflection |
 | [Sessions](./docs/user-guide/sessions.md) | JSONL resume |
 | [Architecture](./docs/developer-guide/architecture.md) | How the four packages fit |
+| [Changelog](./CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./docs/developer-guide/events.md) | Control-plane catalog |
 | [CLI](./docs/reference/cli.md) | Flags for `symphony` and `core-server` |
 | [Environment](./docs/reference/environment.md) | Keys, models, base URLs |
@@ -264,7 +268,7 @@ pull request (`.github/workflows/ci.yml`). Releases publish to PyPI from
 GitHub Releases (`.github/workflows/publish.yml`).
 
 Each package has its own `README.md`, `pyproject.toml`, and tests. The stack is
-**0.1.0** and under active development — APIs will keep evolving. See
+**0.1.0**. See [`CHANGELOG.md`](./CHANGELOG.md) for the first-release notes,
 [`plan.md`](./plan.md) for what exists today and what is next, and
 [`AGENTS.md`](./AGENTS.md) for conventions when working in this repo.
 

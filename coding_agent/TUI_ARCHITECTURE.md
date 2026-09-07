@@ -217,9 +217,9 @@ later events update it.
 - Provider streaming cancellation is observed promptly through the shared cancel event;
   tool cancellation still depends on the active tool returning or observing cancellation.
 - An unbound `TextualControlPlane` drops emitted events rather than buffering them.
-- `FanoutControlPlane` and `InteractiveControlPlane` await subscribers sequentially, so a
-  subscriber failure can block later subscribers. These adapters are a generic harness
-  concern and are not part of the direct TUI path shown above.
+- Approval rules live in `coding_agent.approvals.ApprovalPolicy`. The TUI
+  plane renders the question and returns the answer; it does not decide
+  which tools need a prompt.
 
 ## Modal architecture
 

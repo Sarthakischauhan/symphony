@@ -18,46 +18,82 @@ stream, tagged with `parent_id` and `agent_id`.
 
 ```mermaid
 flowchart TD
-    subgraph SYM["SYMPHONY · the harness"]
-        direction TB
-        U["user message"] --> M["model (stream)"]
+    subgraph UI["UIs"]
+        TUI["symphony-code TUI"]
+        SSE["core-server SSE"]
+    end
+
+    subgraph CP["control plane"]
+        OBS["observe · events out"]
+        DRV["drive · cancel / pause / inject"]
+        AUTH["authorize · allow or deny"]
+    end
+
+    subgraph SYM["core_harness · the run"]
+        U["user message"] --> M["model stream"]
         M --> TC["tool calls"]
-        TC --> CP["control plane"]
-        CP --> RT["authorize + run tools"]
+        TC --> AUTH
+        AUTH --> RT["run tools"]
         RT --> M
         TC --> FR["final reply"]
-        CP --> CTX["context mgmt"]
-        CP --> PER["persistence"]
     end
 
     AI["core_ai · providers"] --> M
 
     subgraph COD["coding_agent"]
-        WS["workspace tools"]
-        TU["Textual TUI"]
-        SQ["JSONL sessions"]
+        WT["workspace tools"]
+        POL["approval policy"]
+        JSONL["JSONL sessions"]
+        ADD["addons: persist / compact / spawn / learn"]
     end
 
-    subgraph SRV["core_server"]
-        API["FastAPI"]
-        SSE["SSE event stream"]
-    end
-
-    subgraph BROW["browser agent · next"]
-        BT["browser tools"]
-        BU["browser UX"]
-    end
-
-    COD -- "plugs into" --> SYM
-    SRV -- "plugs into" --> SYM
-    BROW -. "plugs into" .-> SYM
+    TUI --> CP
+    SSE --> CP
+    CP --> SYM
+    POL --> AUTH
+    ADD --> SYM
+    WT --> TC
+    JSONL --> ADD
 ```
+
+The control plane is one object with three jobs. It does not persist,
+compact, or spawn; those are add-ons. Product approval rules live in
+`coding_agent.approvals`, not in the TUI.
 
 ## A turn
 
 A turn is `CodingAgent.run` → `CoreHarness.run` → `TurnRunner` →
-`ModelRegistry.stream` → `WorkspaceTool.execute`. No façade objects in
-between.
+`ModelRegistry.stream` → authorize → `WorkspaceTool.execute`. No façade
+objects in between.
+
+```mermaid
+sequenceDiagram
+    participant U as UI
+    participant CP as control plane
+    participant P as approval policy
+    participant H as harness
+    participant M as model
+    participant T as tool
+
+    U->>H: user message
+    H->>CP: emit run_started
+    CP-->>U: event
+    H->>M: stream
+    M-->>CP: text_delta / tool calls
+    CP-->>U: events
+    H->>CP: approve_tool_call
+    CP->>P: prompt_for
+    alt policy asks
+        CP->>U: question
+        U-->>CP: allow / deny / always
+    end
+    CP-->>H: decision
+    alt allowed
+        H->>T: execute
+        T-->>H: result
+    end
+    H->>CP: emit run_completed
+```
 
 ## Source layout
 
@@ -80,16 +116,17 @@ core_ai/src/core_ai/
 core_harness/src/core_harness/
   harness.py          # CoreHarness: tools, limits, run loop, attach add-ons, spawn
   tools.py            # Tool adapter
-  events.py           # control planes (Null, Interactive, Fanout, Persisting, Identified)
+  events.py           # ControlPlane (observe / drive / authorize), EventControlPlane, IdentifiedControlPlane
   models.py           # ControlPlaneEventType, ControlCommand, ToolCall, HarnessResult
   config.py           # HarnessConfig, load_harness_config
   errors.py           # HarnessCancelled, HarnessLimitExceeded
   context/            # token estimates, pruning, HarnessState, keep/drop planner
   loop/               # TurnRunner, tool calls, run session, stream handling
-  addons/             # Addon base, persistence, compaction, telemetry, subagent
+  addons/             # Addon base, persistence, compaction, subagent
 
 coding_agent/src/coding_agent/
   agent.py            # CodingAgent + default_addons
+  approvals.py        # product policy; TUI only renders the question
   config.py           # .symphony/config.json model
   credentials.py      # ~/.symphony/.env handling
   prompts.py          # system + plan-mode prompts
@@ -117,13 +154,17 @@ Each package is a small set of modules, one concept per file. Leaf packages of
 3. Workspace root, not a sandbox. File tools resolve paths under the workspace
    root and reject escapes. `bash` runs with the user's permissions behind an
    approval prompt; there is no container or OS-level isolation.
-4. Control plane for UX. UIs subscribe to CP events; they do not scrape stdout.
+4. Control plane for UX. UIs subscribe to events, push cancel/pause/inject,
+   and answer authorization prompts. They do not scrape stdout, and they do
+   not own persistence or compaction.
 5. Tests without keys first. Unit-test tools and harness; keep live tests opt-in.
 
 ## What's next
 
-A browser-use agent is the next consumer of the same harness. See
-[`plan.md`](../../plan.md) for what exists today and the open backlog.
+0.1.0 is the first public cut. Durable memory, a skill/plugin loader, and
+compaction-as-a-view (full user log, compact model projection) are specified
+under "Symphony-later" in [`plan.md`](../../plan.md). A browser-use agent is
+the next consumer of the same harness.
 
 ## Development
 

@@ -55,5 +55,6 @@ print((await agent.run("Fix the failing test")).output_text)
 | [Sessions](../user-guide/sessions.md) | JSONL, `--resume` |
 | [Slash commands](../reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
 
-The agent asks before bash, overwrite, or a broad patch. Sessions persist in
-`.symphony/sessions/<session_id>.jsonl`.
+The agent asks before bash, overwrite, or a broad patch. Approval rules live
+in `coding_agent.approvals`; the TUI only renders the question. Sessions
+persist in `.symphony/sessions/<session_id>.jsonl`.

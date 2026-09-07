@@ -46,9 +46,9 @@ def read_file(path: str) -> str:
 async def main() -> None:
     registry = build_default_registry()
 
-    # EventControlPlane records events locally and also accepts pause, resume,
-    # cancel, and message-injection commands. Use InteractiveControlPlane or
-    # FanoutControlPlane when an application needs to forward events elsewhere.
+    # EventControlPlane records events, accepts pause/resume/cancel/inject,
+    # and allows tools (unattended default). Interactive products replace it
+    # with a plane that asks before running tools.
     control_plane = EventControlPlane()
     harness = CoreHarness(
         registry=registry,
@@ -227,24 +227,23 @@ The catalog with payload examples is in
 [docs/developer-guide/events.md](../docs/developer-guide/events.md) and
 [docs/events.md](./docs/events.md).
 
-Available control-plane adapters include:
+The control plane is one object with three jobs: observe (`emit`), drive
+(`send_command` / cancel / pause / inject), and authorize
+(`approve_tool_call` / `request_user_input`). It does not persist, compact,
+or spawn.
 
-- `EventControlPlane` — records events and supports inbound commands.
-- `InteractiveControlPlane` — records events and optionally forwards them to
-  subscribers or an event log.
-- `FanoutControlPlane` — sends events to multiple control planes in order.
-- `PersistingControlPlane` — appends events to an `EventLog`.
-- `IdentifiedControlPlane` — adds `run_id`, `session_id`, `agent_id`,
-  `parent_id`, sequence, timestamp, and schema-version metadata to each event.
+- `ControlPlane` — fail-closed base (deny tools, ignore commands).
+- `EventControlPlane` — unattended default: record events, accept commands,
+  allow tools.
+- `IdentifiedControlPlane` — wraps an inner plane and stamps `run_id`,
+  `session_id`, `agent_id`, `parent_id`, sequence, timestamp, and schema
+  version. Optionally appends to an `EventLog`.
 - `InMemoryEventLog` — a simple event-log implementation for tests and local
   use.
 
-For observation-only integrations, implement the `ControlPlane` protocol's
-asynchronous `emit(event_type, payload)` method. Interactive control planes
-can also implement `request_user_input(...)` and `approve_tool_call(...)`; the
-harness calls the approval gate before invoking a registered tool. Inbound
-implementations can additionally implement `send_command` and
-`drain_commands`.
+Interactive products (the TUI, a custom server plane) subclass `ControlPlane`
+and implement `request_user_input` / `approve_tool_call`. The harness calls
+the approval gate before invoking a registered tool.
 
 ## Add-ons
 
@@ -357,16 +356,15 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`Addon`, `AddonProtocol`, `PersistenceAddon`, `CompactionAddon`, `TelemetryAddon`,
-`SubagentAddon`, `NullTelemetry`, `CoreHarness`, `ChildConfig`, `ChildIdentity`, `Tool`, `HarnessResult`,
+`Addon`, `AddonProtocol`, `PersistenceAddon`, `CompactionAddon`,
+`SubagentAddon`, `CoreHarness`, `ChildConfig`, `ChildIdentity`, `Tool`, `HarnessResult`,
 `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
 `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `KeepDropPlan`,
 `plan_keep_drop`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `messages_for_model`,
 `prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`,
 `ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`,
-`EventControlPlane`, `InteractiveControlPlane`, `FanoutControlPlane`,
-`PersistingControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`,
+`EventControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`,
 `HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
 
 ## Development

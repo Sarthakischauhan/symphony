@@ -118,17 +118,19 @@ await control_plane.send_command(ControlCommand.resume())
 await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
 ```
 
-## Control planes
+## Control plane
 
-- `EventControlPlane` — records events, accepts inbound commands. Default.
-- `InteractiveControlPlane` — optional subscribers / event log.
-- `FanoutControlPlane` — send to multiple planes in order.
-- `PersistingControlPlane` — appends to an `EventLog`.
+One object, three jobs: observe (`emit`), drive (`send_command` / cancel /
+pause / inject), authorize (`approve_tool_call` / `request_user_input`).
+Persistence, compaction, and spawn are add-ons, not plane adapters.
+
+- `ControlPlane` — fail-closed base (deny tools, ignore commands).
+- `EventControlPlane` — unattended default: record events, accept commands,
+  allow tools.
 - `IdentifiedControlPlane` — stamps `run_id`, `session_id`, `agent_id`,
-  `parent_id`, seq, ts, schema version.
+  `parent_id`, seq, ts, schema version; optionally journals to an `EventLog`.
 
-Observation-only integrations implement `emit(event_type, payload)`.
-Interactive planes can implement `request_user_input` and `approve_tool_call`.
+Interactive products replace `EventControlPlane` with a plane that asks.
 The full catalog is on [Control-plane events](../developer-guide/events.md).
 
 ## Context

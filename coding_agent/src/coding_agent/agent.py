@@ -23,6 +23,7 @@ from core_harness.addons.persistence import PersistenceAddon
 from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
+from coding_agent.approvals import child_control_plane
 from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
     CompactionConfig,
@@ -151,17 +152,10 @@ class CodingAgent:
         if max_turns:
             turns = max(1, min(int(max_turns), cap))
         mid = str(model_id).strip() if model_id else None
-        plane = self.control_plane
-        fork = getattr(plane, "fork", None)
-        child_plane = None
-        if callable(fork):
-            parent_approvals = getattr(plane, "approvals", None)
-            approvals = None
-            if parent_approvals is not None:
-                approvals = parent_approvals.model_copy(update={"mode": "always_allow"})
-            child_plane = fork(approvals=approvals)
         return ChildConfig(
-            model_id=mid or None, max_turns=turns, control_plane=child_plane,
+            model_id=mid or None,
+            max_turns=turns,
+            control_plane=child_control_plane(self.control_plane),
             addon_factory=lambda parent: default_addons(
                 persistence=self.persistence, harness_config=parent.config,
                 compaction=self.config.compaction, include_subagent=False,

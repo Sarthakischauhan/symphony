@@ -15,9 +15,8 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 from textual.message import Message
 
 from core_harness import ControlCommand, ControlCommandType, ControlPlane, ControlPlaneEventType
+from coding_agent.approvals import APPROVAL_CHOICES, ApprovalPolicy
 from coding_agent.config import ApprovalConfig, ensure_spawn_settings
-
-ALLOW_ALWAYS = "Always allow"
 
 
 class HarnessEvent(Message):
@@ -41,7 +40,7 @@ ControlPlaneEvent = HarnessEvent
 
 
 class TextualControlPlane(ControlPlane):
-    """Interactive control plane for events, questions, and tool authorization."""
+    """TUI adapter: observe events, drive cancel, ask the user, apply policy."""
 
     def __init__(
         self,
@@ -52,6 +51,7 @@ class TextualControlPlane(ControlPlane):
         self._app: Any = None
         self.workspace = Path(workspace).resolve()
         self.approvals = approvals or ApprovalConfig()
+        self.policy = ApprovalPolicy(self.workspace)
         self._interaction_lock = asyncio.Lock()
         self._question_futures: dict[str, asyncio.Future[str]] = {}
         self._cancelled = False
@@ -203,55 +203,26 @@ class TextualControlPlane(ControlPlane):
         emit: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
     ) -> bool:
         """Apply product policy and, when needed, ask through this control plane."""
-        if self.approvals.mode == "always_allow":
-            return True
         prompt = self._approval_prompt(tool_name, arguments)
         if not prompt:
             return True
         answer = await self.request_user_input(
             question=prompt,
-            choices=("Allow once", ALLOW_ALWAYS, "Deny"),
+            choices=APPROVAL_CHOICES,
             default="Allow once",
             kind="approval",
             metadata={"tool_name": tool_name},
             emit=emit,
         )
-        normalized = answer.strip().lower()
-        if normalized == ALLOW_ALWAYS.lower():
+        allowed, promote = self.policy.interpret(self.approvals, answer)
+        if promote:
             # "Always allow" is scoped to this run. Keep it in the in-memory
             # control plane and do not modify the workspace config.
             self.set_approval_mode("always_allow")
-            return True
-        return normalized in self.approvals.allow_answers
+        return allowed
 
     def _approval_prompt(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        if tool_name == "bash" and self.approvals.require_for_bash:
-            command = str(arguments.get("command") or "").strip()
-            return f"Allow bash command once?\n`{command}`"
-        if tool_name in {"write_file", "generate_image"}:
-            path = str(arguments.get("path") or "").strip()
-            if (
-                self.approvals.require_for_overwrite
-                and path
-                and self._exists_in_workspace(path)
-            ):
-                return f"Overwrite existing file `{path}`?"
-            return ""
-        if tool_name == "patch" and self.approvals.require_for_broad_patch:
-            path = str(arguments.get("path") or "").strip()
-            old = str(arguments.get("old_str") or arguments.get("old_string") or "")
-            replace_all = bool(arguments.get("replace_all"))
-            if replace_all or len(old) > self.approvals.broad_patch_chars:
-                kind = "global" if replace_all else "large"
-                return f"Apply a {kind} patch to `{path}`?"
-        return ""
-
-    def _exists_in_workspace(self, path: str) -> bool:
-        try:
-            target = (self.workspace / path).resolve()
-            return target.is_relative_to(self.workspace) and target.exists()
-        except OSError:
-            return False
+        return self.policy.prompt_for(self.approvals, tool_name, arguments)
 
     def _get_question_future(self, request_id: str) -> asyncio.Future[str]:
         future = self._question_futures.get(request_id)
