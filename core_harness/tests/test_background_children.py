@@ -5,7 +5,7 @@ import json
 import pytest
 
 from core_ai.types import StreamEvent
-from core_harness import CoreHarness, HarnessConfig, EventControlPlane, SubagentAddon
+from core_harness import CoreHarness, HarnessCancelled, HarnessConfig, EventSink, SubagentAddon
 
 
 class GatedRegistry:
@@ -38,9 +38,9 @@ class GatedRegistry:
 def test_background_child_does_not_hold_parent_and_keeps_run_identity() -> None:
     async def run():
         registry = GatedRegistry()
-        plane = EventControlPlane()
+        plane = EventSink()
         parent = CoreHarness(registry=registry, model_id="fake:parent", system_prompt="Parent",
-                             config=HarnessConfig(), control_plane=plane,
+                             config=HarnessConfig(), sink=plane,
                              session_id="parent-session", addons=[SubagentAddon(background=True)])
         run_task = asyncio.create_task(parent.run("Start a child and continue"))
         await asyncio.wait_for(registry.parent_continued.wait(), timeout=2)
@@ -76,13 +76,13 @@ def test_cancelling_a_waiter_keeps_child_alive_and_explicit_cancel_stops_it() ->
         parent = CoreHarness(registry=registry, model_id="fake:parent", system_prompt="Parent",
                              config=HarnessConfig(max_parallel_tool_calls=1), addons=[SubagentAddon(background=True)])
         async def spawn():
-            return await parent.tools["spawn_agent"].execute(control_plane=parent.control_plane,
+            return await parent.tools["spawn_agent"].execute(sink=parent.sink,
                 args={"prompt": "task", "model_id": "fake:child"})
         response = json.loads(await spawn())
         child_id = response["child_id"]
         assert "concurrency limit" in await spawn()
         from core_harness.addons.subagent.background import wait_for_child_result
-        waiter = asyncio.create_task(wait_for_child_result(parent, parent.control_plane, timeout=None))
+        waiter = asyncio.create_task(wait_for_child_result(parent, timeout=None))
         await asyncio.sleep(0)
         waiter.cancel()
         await asyncio.gather(waiter, return_exceptions=True)
@@ -107,7 +107,7 @@ def test_cancelling_parent_while_waiting_stops_owned_children() -> None:
         task = asyncio.create_task(parent.run("Delegate"))
         await asyncio.wait_for(registry.parent_continued.wait(), timeout=2)
         task.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(HarnessCancelled):
             await task
         assert all(child.task.done() for child in parent.child_tasks.values())
 

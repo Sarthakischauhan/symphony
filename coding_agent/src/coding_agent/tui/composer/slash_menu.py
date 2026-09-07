@@ -10,6 +10,7 @@ from textual import events
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
+from coding_agent.tui.motion import reveal
 from coding_agent.tui.commands.catalog import (
     EffortOption,
     ModeOption,
@@ -157,6 +158,8 @@ class SlashMenu(OptionList):
         self.clear_options()
         self.remove_class("permission-menu")
         self.remove_class("file-menu")
+        self.styles.opacity = 1.0
+        self.styles.offset = (0, 0)
         self.display = False
 
     def set_commands(self, commands: tuple[SlashCommand, ...]) -> None:
@@ -308,6 +311,7 @@ class SlashMenu(OptionList):
         headers: list[Text] | None = None,
         hint: str,
     ) -> None:
+        was_visible = self.display
         headers = headers or []
         self._option_offset = len(headers)
         options = [Option(header, disabled=True) for header in headers]
@@ -320,6 +324,8 @@ class SlashMenu(OptionList):
             self.selected_index = min(self.selected_index, len(rows) - 1)
             self.highlighted = self.selected_index + self._option_offset
         self.display = True
+        if not was_visible:
+            reveal(self, duration=0.14, offset_y=1)
 
     def _approval_headers(self) -> list[Text]:
         summary, _, detail = self._question_text.partition("\n")

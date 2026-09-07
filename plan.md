@@ -1,5 +1,7 @@
 # Symphony Plan
 
+- [x] Implement local skills and plugin discovery/loading (see `coding_agent/skills-plugins-plan.md`); hot unloading and package installation remain out of scope.
+
 What is in the tree today, and what is next. Everything in "Current state" is
 verifiable against `main`; anything not yet built lives under "Open backlog".
 Update this file in the PR that changes the facts.
@@ -54,27 +56,26 @@ drives, and authorizes; it does not persist, compact, or spawn.
 - Tool protocol: every call ends `success`, `error`, `timeout`, or
   `cancelled`; results are bounded at insert time; stale tool bodies can be
   pruned on a copy of the conversation.
-- Control plane: one object, three jobs — observe (`emit`), drive
-  (`send_command` / cancel / pause / inject), authorize
-  (`approve_tool_call` / `request_user_input`). Base methods fail closed.
-  `EventControlPlane` is the unattended default (record events, allow tools).
-  `IdentifiedControlPlane` stamps `run_id`, `session_id`, `seq`, `ts`,
-  `schema_version`, `agent_id`, `parent_id`. Event catalog:
-  `ControlPlaneEventType` (run/turn lifecycle, deltas, tools, usage,
-  context, compaction, pause/resume, injection, `agent_*`).
+- Event sink: `EventSink.emit` (default records in memory). The harness
+  stamps `run_id`, `session_id`, `seq`, `ts`, `schema_version`, `agent_id`,
+  `parent_id` on every event. Catalog: `ControlPlaneEventType` (run/turn
+  lifecycle, deltas, tools, usage, context, compaction, injection,
+  `agent_*`). Cancel a run by cancelling the `asyncio.Task`; that emits
+  `run_cancelled` / `HarnessCancelled`.
 - Limits: `max_turns`, `max_tool_calls`, `max_runtime_seconds`, `max_tokens`
-  → `run_limit_exceeded` / `HarnessLimitExceeded`. Cancellation stops model
-  streams and tools and emits `run_cancelled`.
-- Add-ons (`Addon` with `before_turn` / `after_turn` / `on_tool` /
-  `on_compact` / `fork_for_child`): `PersistenceAddon`, `CompactionAddon`
-  (+ template `KeepSystemRecentCompactor` and exported `plan_keep_drop`),
-  `SubagentAddon`. There is no telemetry exporter and no skill loader.
+  → `run_limit_exceeded` / `HarnessLimitExceeded`.
+- Add-ons (`Addon` with `before_run` / `before_turn` / `before_tool` /
+  `after_turn` / `after_run` / `on_tool` / `on_compact` / `fork_for_child`):
+  `PersistenceAddon`, `CompactionAddon` (+ template
+  `KeepSystemRecentCompactor` and exported `plan_keep_drop`),
+  `SubagentAddon`. `before_tool` may return a deny reason. There is no
+  telemetry exporter and no skill loader.
 - Subagents: `CoreHarness.spawn()` / `spawn_agent`; lifecycle events on the
-  parent plane; child events tagged with `agent_id` / `parent_id`; parallel
+  parent sink; child events tagged with `agent_id` / `parent_id`; parallel
   children (up to three per turn); `max_spawn_depth`.
 - Parallel tool execution for tools that opt in (`max_parallel_tool_calls`).
-- Approval gate: an interactive plane can implement `approve_tool_call` and
-  `request_user_input`; the harness calls the gate before invoking a tool.
+- Approval is product-owned. `symphony-code` mounts `ApprovalAddon`
+  (`before_tool`); children skip it. The harness does not authorize tools.
 
 ### `coding_agent` (symphony-code)
 
@@ -210,17 +211,14 @@ JSONL session. The TUI already hides compacted context from the transcript.
   `convertToLlm`). Resume and the TUI read the full log.
 - Token deltas stay unstored.
 
-**Control-plane remainder.** 0.1.0 names the three jobs and pulls policy out
-of the TUI. Do not split `ControlPlane` into three packages or make it an
-add-on.
+**Approval remainder.** Policy lives in `ApprovalAddon` (`before_tool`).
+Children skip the add-on.
 
 - Typed authorization request/decision objects (allow/deny/reason, no
   implicit approve on empty/cancel).
 - Per-run question IDs; stale answers cannot authorize another call.
 - Child permission inheritance is a trust-model change: discuss and update
-  `SECURITY.md` before spawning children with the parent's ask-mode instead
-  of `always_allow`.
-- Pause/resume keybindings in the TUI (harness already has the commands).
+  `SECURITY.md` before spawning children with the parent's ask-mode.
 
 ### Coding agent
 
@@ -252,8 +250,7 @@ add-on.
 
 - Full IDE / LSP integration.
 - Remote sandbox / container isolation for `bash`.
-- Replacing the harness control plane with a UI-only event bus, an add-on,
-  or three separate packages. Keep one `ControlPlane` with three jobs.
+- Putting approval, cancel, or pause back onto the harness event sink.
 - A plugin loader or durable memory system in 0.1.0.
 - Perfect ripgrep parity in `search` (Python search is enough for v1).
 

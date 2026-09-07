@@ -35,6 +35,10 @@ class RecordingView:
     def set_working(self, detail: str = "") -> None:
         self.working.append(detail)
 
+    def set_churning(self, turn: int = 0) -> None:
+        del turn
+        return None
+
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         self.reasoning.append((text, new))
 

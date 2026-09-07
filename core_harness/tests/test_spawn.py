@@ -12,7 +12,7 @@ from core_harness import (
     CoreHarness,
     HarnessConfig,
     KeepSystemRecentCompactor,
-    EventControlPlane,
+    EventSink,
     SubagentAddon,
     Tool,
 )
@@ -55,13 +55,13 @@ def inspect_repo(path: str) -> str:
 
 def test_run_events_carry_agent_id_without_parent() -> None:
     registry = ScriptedRegistry([_text_turn("hello")])
-    plane = EventControlPlane()
+    plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
         config=HarnessConfig(),
-        control_plane=plane,
+        sink=plane,
         agent_id="parent-agent",
     )
     result = asyncio.run(harness.run("hi"))
@@ -83,14 +83,14 @@ def test_spawn_emits_parent_and_child_identity() -> None:
             _text_turn("The child found that README is the project intro."),
         ]
     )
-    plane = EventControlPlane()
+    plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
         config=HarnessConfig(max_turns=4),
         tools=[Tool(inspect_repo)],
-        control_plane=plane,
+        sink=plane,
         agent_id="parent-agent",
         addons=[SubagentAddon()],
     )
@@ -141,13 +141,13 @@ def test_spawn_emits_parent_and_child_identity() -> None:
 
 def test_spawn_depth_limit_returns_error_without_child_run() -> None:
     registry = ScriptedRegistry([_text_turn("should not run")])
-    plane = EventControlPlane()
+    plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
         config=HarnessConfig(max_spawn_depth=1),
-        control_plane=plane,
+        sink=plane,
         agent_id="parent-agent",
         spawn_depth=1,
         addons=[SubagentAddon()],
@@ -160,13 +160,13 @@ def test_spawn_depth_limit_returns_error_without_child_run() -> None:
 
 def test_direct_spawn_uses_shared_control_plane() -> None:
     registry = ScriptedRegistry([_text_turn("isolated answer")])
-    plane = EventControlPlane()
+    plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
         config=HarnessConfig(),
-        control_plane=plane,
+        sink=plane,
         agent_id="parent-agent",
         session_id="session-parent",
         addons=[SubagentAddon()],
@@ -244,13 +244,13 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
                     self.active -= 1
 
     registry = ParallelRegistry()
-    plane = EventControlPlane()
+    plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
         config=HarnessConfig(max_turns=4),
-        control_plane=plane,
+        sink=plane,
         agent_id="parent-agent",
         addons=[SubagentAddon()],
     )
@@ -273,14 +273,14 @@ def test_multiple_spawn_agent_calls_run_in_parallel() -> None:
 
 def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
     registry = ScriptedRegistry([_text_turn("child answer")])
-    parent_plane = EventControlPlane()
-    child_plane = EventControlPlane()
+    parent_plane = EventSink()
+    child_plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:parent-model",
         system_prompt="parent",
         config=HarnessConfig(),
-        control_plane=parent_plane,
+        sink=parent_plane,
         agent_id="parent-agent",
         addons=[SubagentAddon()],
     )
@@ -291,7 +291,7 @@ def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
             child_config=ChildConfig(
                 model_id="fake:child-model",
                 max_turns=2,
-                control_plane=child_plane,
+                sink=child_plane,
             ),
         )
     )
@@ -310,15 +310,15 @@ def test_spawn_uses_child_control_plane_and_keeps_lifecycle_on_parent() -> None:
 
 def test_make_spawn_tool_configure_builds_child_config() -> None:
     registry = ScriptedRegistry([_text_turn("configured")])
-    parent_plane = EventControlPlane()
-    child_plane = EventControlPlane()
+    parent_plane = EventSink()
+    child_plane = EventSink()
     seen: list[dict[str, Any]] = []
     def configure(**kwargs: Any) -> ChildConfig:
         seen.append(kwargs)
         return ChildConfig(
             model_id=kwargs.get("model_id"),
             max_turns=kwargs.get("max_turns"),
-            control_plane=child_plane,
+            sink=child_plane,
         )
 
     harness = CoreHarness(
@@ -326,13 +326,13 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
         model_id="fake:parent-model",
         system_prompt="parent",
         config=HarnessConfig(max_turns=4),
-        control_plane=parent_plane,
+        sink=parent_plane,
         agent_id="parent-agent",
         addons=[SubagentAddon(configure=configure)],
     )
     result = asyncio.run(
         harness.tools["spawn_agent"].execute(
-            control_plane=parent_plane,
+            sink=parent_plane,
             args={
                 "prompt": "inspect",
                 "label": "auth",
@@ -353,24 +353,24 @@ def test_make_spawn_tool_configure_builds_child_config() -> None:
 
 def test_make_spawn_tool_configure_merges_partial_override() -> None:
     registry = ScriptedRegistry([_text_turn("merged")])
-    parent_plane = EventControlPlane()
-    child_plane = EventControlPlane()
+    parent_plane = EventSink()
+    child_plane = EventSink()
     def configure(**kwargs: Any) -> ChildConfig:
         del kwargs
-        return ChildConfig(control_plane=child_plane)
+        return ChildConfig(sink=child_plane)
 
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:parent-model",
         system_prompt="parent",
         config=HarnessConfig(),
-        control_plane=parent_plane,
+        sink=parent_plane,
         agent_id="parent-agent",
         addons=[SubagentAddon(configure=configure)],
     )
     result = asyncio.run(
         harness.tools["spawn_agent"].execute(
-            control_plane=parent_plane,
+            sink=parent_plane,
             args={
                 "prompt": "inspect",
                 "model_id": "fake:child-model",
@@ -416,14 +416,14 @@ def test_looping_child_stops_at_spawn_turn_cap() -> None:
     registry = ScriptedRegistry(
         [_tool_turn("inspect_repo", '{"path":"README.md"}')]
     )
-    plane = EventControlPlane()
+    plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
         config=HarnessConfig(),
         tools=[Tool(inspect_repo)],
-        control_plane=plane,
+        sink=plane,
         agent_id="parent-agent",
         addons=[SubagentAddon()],
     )

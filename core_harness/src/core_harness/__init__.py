@@ -1,6 +1,5 @@
 from core_harness.addons import (
     Addon,
-    AddonProtocol,
     ChildConfig,
     ChildIdentity,
     CompactionAddon,
@@ -29,18 +28,10 @@ from core_harness.config import (
     load_harness_config,
     resolve_harness_config,
 )
-from core_harness.events import (
-    ControlPlane,
-    EventLog,
-    IdentifiedControlPlane,
-    InMemoryEventLog,
-    EventControlPlane,
-)
+from core_harness.events import EventLog, EventSink
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.harness import CoreHarness
 from core_harness.models import (
-    ControlCommand,
-    ControlCommandType,
     ControlPlaneEvent,
     ControlPlaneEventType,
     EVENT_SCHEMA_VERSION,
@@ -55,30 +46,24 @@ from core_harness.tools import Tool
 
 __all__ = [
     "Addon",
-    "AddonProtocol",
     "Checkpoint",
     "ChildConfig",
     "ChildIdentity",
     "CompactionAddon",
     "Compactor",
     "ContextReport",
-    "ControlCommand",
-    "ControlCommandType",
-    "ControlPlane",
     "ControlPlaneEvent",
     "ControlPlaneEventType",
     "CoreHarness",
     "EVENT_SCHEMA_VERSION",
     "EventLog",
+    "EventSink",
     "HarnessCancelled",
     "HarnessLimitExceeded",
     "HarnessResult",
     "HarnessConfig",
-    "IdentifiedControlPlane",
-    "InMemoryEventLog",
     "KeepDropPlan",
     "KeepSystemRecentCompactor",
-    "EventControlPlane",
     "NullPersistence",
     "PendingToolCall",
     "Persistence",

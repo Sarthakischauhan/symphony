@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from core_harness.events import ControlPlane
+from core_harness.events import EventSink
 from pydantic import Field
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
@@ -29,16 +29,16 @@ class AskUserTool(WorkspaceTool):
         question: str,
         choices: list[str] | None = None,
         default: str = "",
-        control_plane: ControlPlane | None = None,
+        sink: EventSink | None = None,
     ) -> str:
         question = question.strip()
         if not question:
             return "error: question must be a non-empty string"
 
-        if control_plane is None:
+        if sink is None:
             return "error: interactive user questions require an interactive control plane"
 
-        answer = await control_plane.request_user_input(
+        answer = await sink.request_user_input(
             question=question,
             choices=list(choices),
             default=default,

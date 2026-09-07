@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from coding_agent.persistence import JsonlPersistence
 from coding_agent.tui.app import CodingAgentApp
-from coding_agent.tui.runtime.control_plane import HarnessEvent
+from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.runtime.subagent import SubagentScreen, SubagentTasksScreen
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import AssistantMessage, ReasoningWidget, UserMessage

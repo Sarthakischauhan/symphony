@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core_ai.types import Message, StreamEvent
-from core_harness import Checkpoint, CoreHarness, HarnessConfig, EventControlPlane, Tool
+from core_harness import Checkpoint, CoreHarness, HarnessConfig, EventSink, Tool
 from core_harness.addons.persistence import PersistenceAddon
 from core_harness import ChildConfig, SubagentAddon
 from coding_agent.persistence import JsonlPersistence
@@ -25,7 +25,7 @@ def test_child_sessions_share_store_and_restore_transcripts_by_id(tmp_path: Path
         )
         await parent.run("Parent task")
         response = await parent.tools["spawn_agent"].execute(
-            control_plane=parent.control_plane, args={"prompt": "Child task"})
+            sink=parent.sink, args={"prompt": "Child task"})
         child_id = json.loads(response)["child_id"]
         await parent.child_tasks[child_id].task
         restarted_store = JsonlPersistence(tmp_path / "sessions")
@@ -169,14 +169,14 @@ def test_jsonl_skips_token_deltas(tmp_path: Path) -> None:
 def test_harness_persists_and_reloads_conversation(tmp_path: Path) -> None:
     store = JsonlPersistence(tmp_path / "sessions")
     registry = FakeRegistry()
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test",
         system_prompt="You are helpful.",
         config=HarnessConfig(context_limits={"fake:test": 1000}),
         tools=[Tool(ping)],
-        control_plane=control_plane,
+        sink=sink,
         addons=[PersistenceAddon(store)],
         session_id="session-a",
     )

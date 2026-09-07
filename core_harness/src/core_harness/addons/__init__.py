@@ -7,7 +7,7 @@ loader; skills can hang off this same attach path later.
 
 from __future__ import annotations
 
-from core_harness.addons.addon import Addon, AddonProtocol
+from core_harness.addons.addon import Addon
 from core_harness.addons.compaction import (
     CompactionAddon,
     Compactor,
@@ -28,7 +28,6 @@ from core_harness.addons.subagent import ChildConfig, ChildIdentity, SubagentAdd
 
 __all__ = [
     "Addon",
-    "AddonProtocol",
     "Checkpoint",
     "CheckpointStatus",
     "ChildConfig",

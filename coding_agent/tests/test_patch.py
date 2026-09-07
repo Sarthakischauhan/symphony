@@ -13,7 +13,7 @@ from coding_agent.tools import PatchArgs, PatchTool
 
 
 async def invoke(tool, **kwargs):
-    return await tool.execute(control_plane=None, args=kwargs)
+    return await tool.execute(sink=None, args=kwargs)
 
 
 def test_patch_args_preserve_whitespace() -> None:

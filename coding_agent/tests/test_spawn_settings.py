@@ -14,7 +14,7 @@ from coding_agent.config import (
     spawn_settings_path,
 )
 from coding_agent.agent import CodingAgent, build_agent
-from coding_agent.tui.runtime import TextualControlPlane
+from coding_agent.tui.runtime import TextualEventSink
 from core_ai.types import StreamEvent
 
 
@@ -82,7 +82,7 @@ def test_build_agent_writes_spawn_settings(
     monkeypatch.delenv("XAI_API_KEY", raising=False)
     agent = build_agent(
         workspace=tmp_path,
-        control_plane=TextualControlPlane(workspace=tmp_path),
+        sink=TextualEventSink(workspace=tmp_path),
         enable_learning=False,
     )
     saved = json.loads(spawn_settings_path(tmp_path).read_text(encoding="utf-8"))

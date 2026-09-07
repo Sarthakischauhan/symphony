@@ -2,6 +2,7 @@
 
 from coding_agent.tui.screens.context import ContextBucketChip, ContextModal
 from coding_agent.tui.screens.diff import DiffFileCard, DiffModal
+from coding_agent.tui.screens.extensions import ExtensionsModal
 from coding_agent.tui.screens.file_selector import (
     FileOption,
     active_file_mention,
@@ -33,6 +34,7 @@ __all__ = [
     "ContextModal",
     "DiffFileCard",
     "DiffModal",
+    "ExtensionsModal",
     "EmptyState",
     "FileOption",
     "ImageModal",

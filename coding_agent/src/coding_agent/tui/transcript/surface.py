@@ -112,6 +112,13 @@ class TranscriptSurface:
         self._thinking.set_visible(True)
         self._thinking.set_working(detail)
 
+    def set_churning(self, turn: int = 0) -> None:
+        if self._thinking is None:
+            self.set_thinking("Churning")
+        assert self._thinking is not None
+        self._thinking.set_visible(True)
+        self._thinking.set_churning(turn)
+
     def _mount_process_item(self, widget: Widget) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
         was_at_end = transcript.is_vertical_scroll_end

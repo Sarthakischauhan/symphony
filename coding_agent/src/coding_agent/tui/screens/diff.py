@@ -219,6 +219,7 @@ class DiffModal(ModalBase[None]):
             )
 
     def on_mount(self) -> None:
+        super().on_mount()
         if self._cards:
             self._show_file(0, scroll=False)
 

@@ -1,17 +1,17 @@
 """Product approval rules, independent of the TUI.
 
-The harness asks ``approve_tool_call`` before running a tool. Coding-agent
-policy lives here: which tools need a prompt, how answers map to allow/deny,
-and how a child plane is forked so background work does not block on the
-parent's prompts. The TUI only renders the question and returns the answer.
+The harness calls ``Addon.before_tool`` before running a tool. This add-on
+implements symphony-code policy: which tools need a prompt, how answers map
+to allow/deny, and that children do not inherit the gate. The TUI only
+renders the question and returns the answer.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol, Tuple, Union, runtime_checkable
+from typing import Any, Dict, Optional, Union
 
-from core_harness import ControlPlane
+from core_harness import Addon, EventSink
 
 from coding_agent.config import ApprovalConfig
 
@@ -57,7 +57,7 @@ class ApprovalPolicy:
         self,
         config: ApprovalConfig,
         answer: str,
-    ) -> Tuple[bool, bool]:
+    ) -> tuple[bool, bool]:
         """Map a UI answer to ``(allowed, promote_to_always_allow)``."""
         if config.mode == "always_allow":
             return True, False
@@ -79,34 +79,60 @@ class ApprovalPolicy:
             return False
 
 
-@runtime_checkable
-class ForkableControlPlane(Protocol):
-    """Application planes that can mint an isolated child plane."""
+class ApprovalAddon(Addon):
+    """Gate tools through :class:`ApprovalPolicy` before the harness runs them.
 
-    approvals: ApprovalConfig
-
-    def fork(self, *, approvals: Optional[ApprovalConfig] = None) -> ControlPlane: ...
-
-
-def child_control_plane(plane: ControlPlane) -> Optional[ControlPlane]:
-    """Fork a child plane that does not prompt.
-
-    Children in ``symphony-code`` run without per-tool approval prompts. That
-    is current product policy, documented in ``SECURITY.md``. Planes that
-    cannot fork (library ``EventControlPlane``) share the parent plane.
+    ``fork_for_child`` returns ``None`` so spawned children skip this gate.
+    That is current product policy, documented in ``SECURITY.md``.
     """
-    if not isinstance(plane, ForkableControlPlane):
+
+    name = "approval"
+
+    def __init__(self, workspace: Union[str, Path], plane: EventSink) -> None:
+        self.policy = ApprovalPolicy(workspace)
+        self.plane = plane
+
+    def fork_for_child(self, parent_harness: Any) -> None:
+        del parent_harness
         return None
-    approvals = plane.approvals.model_copy(update={"mode": "always_allow"})
-    return plane.fork(approvals=approvals)
+
+    async def before_tool(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        sink: Optional[EventSink] = None,
+        **_: Any,
+    ) -> Optional[str]:
+        approvals = getattr(self.plane, "approvals", None)
+        if approvals is None:
+            return None
+        prompt = self.policy.prompt_for(approvals, tool_name, arguments)
+        if not prompt:
+            return None
+        ask_on = sink or self.plane
+        answer = await ask_on.request_user_input(
+            question=prompt,
+            choices=APPROVAL_CHOICES,
+            default=ALLOW_ONCE,
+            kind="approval",
+            metadata={"tool_name": tool_name},
+        )
+        allowed, promote = self.policy.interpret(self.plane.approvals, answer)
+        if promote:
+            setter = getattr(self.plane, "set_approval_mode", None)
+            if callable(setter):
+                setter("always_allow")
+        if not allowed:
+            return "tool call denied by user"
+        return None
 
 
 __all__ = [
     "ALLOW_ALWAYS",
     "ALLOW_ONCE",
     "APPROVAL_CHOICES",
+    "ApprovalAddon",
     "ApprovalPolicy",
     "DENY",
-    "ForkableControlPlane",
-    "child_control_plane",
 ]

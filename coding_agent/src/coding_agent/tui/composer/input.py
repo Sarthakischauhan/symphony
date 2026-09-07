@@ -28,7 +28,7 @@ class PromptInput(TextArea):
         self._pasted_chunks: list[tuple[str, str]] = []
         self._images: list[ImageAttachment] = []
         self._image_seq = 0
-        self.submit_on_enter = False
+        self.submit_on_enter = True
         super().__init__(*args, **kwargs)
 
     @property
@@ -51,7 +51,9 @@ class PromptInput(TextArea):
         self.post_message(self.Submitted(self))
 
     def on_key(self, event: events.Key) -> None:
-        """Route Enter to the active interaction channel."""
+        """Submit on Enter; preserve Shift+Enter for inserting a newline."""
+        if event.key == "shift+enter":
+            return
         if event.key != "enter":
             return
         from coding_agent.tui.composer.slash_menu import SlashMenu
@@ -59,13 +61,14 @@ class PromptInput(TextArea):
         approval_menu = self.app.query_one("#approval-menu", SlashMenu)
         if approval_menu.display and approval_menu.selected_value:
             self.app._choose_menu_option(approval_menu, submit=True)
-        elif self.submit_on_enter:
-            self.action_submit()
         else:
             menu = self.app.query_one("#slash-menu", SlashMenu)
-            if not menu.display or not menu.selected_value:
+            if menu.display and menu.selected_value:
+                self.app._choose_menu_option(menu, submit=True)
+            elif self.submit_on_enter:
+                self.action_submit()
+            else:
                 return
-            self.app._choose_menu_option(menu, submit=True)
         event.prevent_default()
         event.stop()
 

@@ -2,7 +2,7 @@
 
 
 class HarnessCancelled(RuntimeError):
-    """Raised when an inbound cancel command stops the harness run."""
+    """Raised when the ``asyncio.Task`` running ``CoreHarness.run`` is cancelled."""
 
 
 class HarnessLimitExceeded(RuntimeError):

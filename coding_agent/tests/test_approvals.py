@@ -6,11 +6,11 @@ from coding_agent.approvals import (
     ALLOW_ALWAYS,
     ALLOW_ONCE,
     DENY,
+    ApprovalAddon,
     ApprovalPolicy,
-    child_control_plane,
 )
 from coding_agent.config import ApprovalConfig
-from core_harness import EventControlPlane
+from core_harness import EventSink
 
 
 def test_bash_and_overwrite_and_broad_patch_need_prompts(tmp_path: Path) -> None:
@@ -60,16 +60,15 @@ def test_interpret_allow_once_always_and_deny(tmp_path: Path) -> None:
     assert policy.interpret(config, "") == (False, False)
 
 
-def test_unattended_plane_does_not_fork() -> None:
-    assert child_control_plane(EventControlPlane()) is None
+def test_approval_addon_skips_unattended_planes(tmp_path: Path) -> None:
+    addon = ApprovalAddon(tmp_path, EventSink())
+    assert addon.fork_for_child(None) is None
 
 
-def test_textual_plane_forks_always_allow_child(tmp_path: Path) -> None:
-    from coding_agent.tui.runtime import TextualControlPlane
+def test_approval_addon_does_not_inherit_onto_children(tmp_path: Path) -> None:
+    from coding_agent.tui.runtime import TextualEventSink
 
-    parent = TextualControlPlane(workspace=tmp_path)
-    child = child_control_plane(parent)
-    assert child is not None
-    assert child is not parent
-    assert child.approvals.mode == "always_allow"
+    parent = TextualEventSink(workspace=tmp_path)
+    addon = ApprovalAddon(tmp_path, parent)
+    assert addon.fork_for_child(None) is None
     assert parent.approvals.mode == "ask"

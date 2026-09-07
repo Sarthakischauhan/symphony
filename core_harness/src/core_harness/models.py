@@ -45,7 +45,7 @@ class ToolResult(BaseModel):
             return f"{prefix} {self.error_type}: {text}"
         return f"{prefix} {text}"
 
-# --- control_plane.py ---
+# --- sink.py ---
 EVENT_SCHEMA_VERSION = 1
 
 
@@ -71,8 +71,6 @@ class ControlPlaneEventType(str, Enum):
     CONTEXT_WARNING = "context_warning"
     COMPACTION_STARTED = "compaction_started"
     COMPACTION_COMPLETED = "compaction_completed"
-    PAUSED = "paused"
-    RESUMED = "resumed"
     MESSAGE_INJECTED = "message_injected"
     AGENT_SPAWNED = "agent_spawned"
     AGENT_COMPLETED = "agent_completed"
@@ -93,50 +91,6 @@ class ControlPlaneEvent(BaseModel):
         name = event_type.value if isinstance(event_type, ControlPlaneEventType) else event_type
         return cls(event_type=name, payload=payload or {})
 
-
-class ControlCommandType(str, Enum):
-    CANCEL = "cancel"
-    PAUSE = "pause"
-    RESUME = "resume"
-    INJECT_MESSAGE = "inject_message"
-
-
-class ControlCommand(BaseModel):
-    type: ControlCommandType
-    payload: Dict[str, Any] = Field(default_factory=dict)
-
-    @classmethod
-    def cancel(cls, reason: str = "cancelled") -> "ControlCommand":
-        return cls(type=ControlCommandType.CANCEL, payload={"reason": reason})
-
-    @classmethod
-    def pause(cls) -> "ControlCommand":
-        return cls(type=ControlCommandType.PAUSE)
-
-    @classmethod
-    def resume(cls) -> "ControlCommand":
-        return cls(type=ControlCommandType.RESUME)
-
-    @classmethod
-    def inject_message(
-        cls,
-        *,
-        role: Literal["user", "system"] = "user",
-        content: str,
-    ) -> "ControlCommand":
-        return cls(
-            type=ControlCommandType.INJECT_MESSAGE,
-            payload={"role": role, "content": content},
-        )
-
-    def to_message(self) -> Message:
-        if self.type != ControlCommandType.INJECT_MESSAGE:
-            raise ValueError("Only inject_message commands can become Message objects.")
-        role = self.payload.get("role", "user")
-        content = self.payload.get("content", "")
-        if role not in ("user", "system"):
-            raise ValueError("inject_message role must be 'user' or 'system'.")
-        return Message(role=role, content=str(content))
 
 # --- harness.py ---
 class UsageTotals(BaseModel):
@@ -164,8 +118,6 @@ class HarnessResult(BaseModel):
     context_left: Optional[int] = None
 
 __all__ = [
-    "ControlCommand",
-    "ControlCommandType",
     "ControlPlaneEvent",
     "ControlPlaneEventType",
     "EVENT_SCHEMA_VERSION",

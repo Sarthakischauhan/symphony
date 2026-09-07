@@ -23,17 +23,15 @@ flowchart TD
         SSE["core-server SSE"]
     end
 
-    subgraph CP["control plane"]
-        OBS["observe · events out"]
-        DRV["drive · cancel / pause / inject"]
-        AUTH["authorize · allow or deny"]
+    subgraph EV["events"]
+        SINK["EventSink.emit"]
     end
 
-    subgraph SYM["core_harness · the run"]
+    subgraph SYM["core_harness · the loop"]
         U["user message"] --> M["model stream"]
         M --> TC["tool calls"]
-        TC --> AUTH
-        AUTH --> RT["run tools"]
+        TC --> HOOK["before_tool add-on"]
+        HOOK --> RT["run tools"]
         RT --> M
         TC --> FR["final reply"]
     end
@@ -42,23 +40,24 @@ flowchart TD
 
     subgraph COD["coding_agent"]
         WT["workspace tools"]
-        POL["approval policy"]
+        POL["ApprovalAddon"]
         JSONL["JSONL sessions"]
         ADD["addons: persist / compact / spawn / learn"]
     end
 
-    TUI --> CP
-    SSE --> CP
-    CP --> SYM
-    POL --> AUTH
+    TUI --> SINK
+    SSE --> SINK
+    SYM --> SINK
+    POL --> HOOK
     ADD --> SYM
     WT --> TC
     JSONL --> ADD
 ```
 
-The control plane is one object with three jobs. It does not persist,
-compact, or spawn; those are add-ons. Product approval rules live in
-`coding_agent.approvals`, not in the TUI.
+The harness is a library loop: tools, model, compaction, and an event sink
+for UIs. It does not authorize tools or cancel runs. Product approval lives
+in `coding_agent.approvals.ApprovalAddon` (`before_tool`). Cancel a run by
+cancelling the `asyncio.Task` awaiting `CoreHarness.run`.
 
 ## A turn
 
@@ -81,13 +80,12 @@ sequenceDiagram
     H->>M: stream
     M-->>CP: text_delta / tool calls
     CP-->>U: events
-    H->>CP: approve_tool_call
-    CP->>P: prompt_for
+    H->>P: before_tool
+    P->>P: prompt_for
     alt policy asks
-        CP->>U: question
-        U-->>CP: allow / deny / always
+        P->>U: question
+        U-->>P: allow / deny / always
     end
-    CP-->>H: decision
     alt allowed
         H->>T: execute
         T-->>H: result
@@ -116,8 +114,8 @@ core_ai/src/core_ai/
 core_harness/src/core_harness/
   harness.py          # CoreHarness: tools, limits, run loop, attach add-ons, spawn
   tools.py            # Tool adapter
-  events.py           # ControlPlane (observe / drive / authorize), EventControlPlane, IdentifiedControlPlane
-  models.py           # ControlPlaneEventType, ControlCommand, ToolCall, HarnessResult
+  events.py           # EventSink event sink (default records in memory)
+  models.py           # ControlPlaneEventType, ToolCall, HarnessResult
   config.py           # HarnessConfig, load_harness_config
   errors.py           # HarnessCancelled, HarnessLimitExceeded
   context/            # token estimates, pruning, HarnessState, keep/drop planner
@@ -155,9 +153,8 @@ Each package is a small set of modules, one concept per file. Leaf packages of
    directory; absolute and `~` paths are allowed. `bash` runs with the user's
    permissions behind an approval prompt; there is no container or OS-level
    isolation.
-4. Control plane for UX. UIs subscribe to events, push cancel/pause/inject,
-   and answer authorization prompts. They do not scrape stdout, and they do
-   not own persistence or compaction.
+4. Events for UX. UIs subscribe to the sink and cancel the run task. They
+   do not scrape stdout, and they do not own persistence or compaction.
 5. Tests without keys first. Unit-test tools and harness; keep live tests opt-in.
 
 ## What's next

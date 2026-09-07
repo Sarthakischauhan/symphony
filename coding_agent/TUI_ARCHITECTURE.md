@@ -20,11 +20,11 @@ flowchart TD
     ONBOARD --> ENV
     KEYS -- Yes --> INIT["CodingAgentApp.__init__()"]
     INIT --> CFG["Load project configuration"]
-    INIT --> TCP["Create unbound TextualControlPlane"]
+    INIT --> TCP["Create unbound TextualEventSink"]
     INIT --> TEXTUAL["Textual App.run()"]
 
     TEXTUAL --> MOUNT["CodingAgentApp.on_mount()"]
-    MOUNT --> BIND["Bind TextualControlPlane to app"]
+    MOUNT --> BIND["Bind TextualEventSink to app"]
     MOUNT --> BUILD["build_agent(...)"]
     BUILD --> REG["Build registry from credentialed providers"]
     REG --> MODEL["Select / normalize model id"]
@@ -68,7 +68,7 @@ flowchart TD
     ENABLE --> WAIT
 ```
 
-`TextualControlPlane` is created in `CodingAgentApp.__init__()` and bound to the app in
+`TextualEventSink` is created in `CodingAgentApp.__init__()` and bound to the app in
 `on_mount()`. If agent construction fails, the TUI remains usable in an offline state.
 For a resumed session, transcript history is loaded by a non-exclusive Textual worker
 after the agent has been built.
@@ -86,7 +86,7 @@ sequenceDiagram
     participant Worker as Textual worker
     participant Agent as CodingAgent
     participant Harness as CoreHarness / TurnRunner
-    participant Plane as IdentifiedControlPlane
+    participant Plane as EventSink
     participant Model as Provider model
     participant Tools as Workspace tools
 
@@ -151,9 +151,9 @@ Provider events reach the UI through the harness control-plane boundary:
 ```mermaid
 flowchart TD
     PROVIDER["Provider StreamEvent"] --> TURN["TurnRunner"]
-    TURN --> IDENT["IdentifiedControlPlane.emit()"]
+    TURN --> IDENT["CoreHarness.emit()"]
     STATE["Harness lifecycle / compaction / questions"] --> IDENT
-    IDENT -->|"stamp run_id, session_id,<br/>seq, agent_id, parent_id"| TEXTUAL["TextualControlPlane.emit()"]
+    IDENT -->|"stamp run_id, session_id,<br/>seq, agent_id, parent_id"| TEXTUAL["TextualEventSink.emit()"]
     TEXTUAL -->|"post HarnessEvent"| ROUTER["CodingAgentApp.on_harness_event()"]
 
     ROUTER --> SPAWN{"event type / identity"}
@@ -177,8 +177,8 @@ flowchart TD
   `run_failed`, `run_cancelled`, and `run_limit_exceeded`.
 - `TurnRunner` translates provider streams into turn, text, reasoning, retry, usage,
   context, and tool events. It also emits tool execution events.
-- `IdentifiedControlPlane` stamps events and delegates to its inner control plane.
-- `TextualControlPlane` posts `HarnessEvent` messages to Textual. It also owns TUI
+- `CoreHarness.emit` stamps events and forwards them to the product sink.
+- `TextualEventSink` posts `HarnessEvent` messages to Textual. It also owns TUI
   cancellation, question futures, and tool-approval policy.
 - `CodingAgentApp.on_harness_event()` applies the routing order shown above.
 - `EventPresenter.handle()` maps remaining root events to `_on_<event_type>` handlers.
@@ -206,17 +206,17 @@ later events update it.
   strings remain accepted by the event models and emitters.
 - Event payloads are unrestricted dictionaries; there are no per-event payload models at
   the TUI boundary.
-- Sequence numbers are local to each `IdentifiedControlPlane` instance. Normal run events
+- Sequence numbers are local to each harness run. Normal run events
   share an identity, but parent child-lifecycle emissions may be stamped through separate
   temporary identified planes.
 - Root `EventPresenter` renders every tool completion as `done`, regardless of an emitted
   error, timeout, or cancellation status. `SubagentRecord` maps only `error` to failure;
   timeout and cancellation currently become done.
-- Generic harness pause/resume support is boundary-based, but `TextualControlPlane`
+- Generic harness pause/resume support is boundary-based, but `TextualEventSink`
   currently accepts cancellation only. The TUI cannot issue pause/resume commands.
 - Provider streaming cancellation is observed promptly through the shared cancel event;
   tool cancellation still depends on the active tool returning or observing cancellation.
-- An unbound `TextualControlPlane` drops emitted events rather than buffering them.
+- An unbound `TextualEventSink` drops emitted events rather than buffering them.
 - Approval rules live in `coding_agent.approvals.ApprovalPolicy`. The TUI
   plane renders the question and returns the answer; it does not decide
   which tools need a prompt.
@@ -292,7 +292,7 @@ symphony (also symphony-code, coding-agent-tui)
   → run_tui()
   → CodingAgentApp.__init__()
       → load config
-      → create TextualControlPlane
+      → create TextualEventSink
   → Textual App.run()
   → CodingAgentApp.on_mount()
       → bind control plane

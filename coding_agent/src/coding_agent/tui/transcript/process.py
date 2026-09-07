@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 from rich.text import Text
@@ -29,8 +30,11 @@ class ThinkingStatus(Static):
 
     def __init__(self, text: str = "Thinking…") -> None:
         self._working = False
+        self._churning = False
         self._working_detail = ""
         self._gradient_step = 0
+        self._pulse_step = 0
+        self._churning_started_at = 0.0
         self._animation_timer: Any = None
         super().__init__(classes="thinking-status")
         self.set_text(text)
@@ -63,12 +67,33 @@ class ThinkingStatus(Static):
             timer.pause()
 
     def set_text(self, value: str) -> None:
+        self._churning = False
         self._working = False
         self._sync_animation_timer()
+        self.styles.opacity = 1.0
         self.update(Text(f"✻  {value}", style="#666666"))
+
+    def set_churning(self, turn: int) -> None:
+        """Show the normal waiting state for a model turn."""
+        self._churning = True
+        self._working = True
+        self._working_detail = ""
+        self._churning_started_at = time.monotonic()
+        self._sync_animation_timer()
+        self._render_churning()
+
+    def _render_churning(self) -> None:
+        elapsed = time.monotonic() - self._churning_started_at
+        self.update(Text(f"Churning {elapsed:.1f}s", style="#858585"))
+        target = 0.62 if self._pulse_step % 2 else 1.0
+        self.styles.animate(
+            "opacity", target, duration=0.6, easing="in_out_sine", level="full"
+        )
+        self._pulse_step += 1
 
     def set_working(self, detail: str = "") -> None:
         """Show a moving color gradient while a model request is retrying."""
+        self._churning = False
         self._working = True
         self._working_detail = detail
         self._sync_animation_timer()
@@ -77,6 +102,9 @@ class ThinkingStatus(Static):
     def _advance_gradient(self) -> None:
         if not self._working or not self.display:
             self._sync_animation_timer()
+            return
+        if self._churning:
+            self._render_churning()
             return
         self._gradient_step = (self._gradient_step + 1) % len(self._WORKING_COLORS)
         self._render_working()

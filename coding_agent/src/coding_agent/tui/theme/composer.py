@@ -11,8 +11,8 @@ COMPOSER_CSS = """
     color: $muted;
 }
 
-/* Composer: a thin muted separator above a borderless prompt, with the
-   all-caps mode label sitting on the prompt's first row at the right edge. */
+/* Composer: a visibly rounded input container, with the all-caps mode
+   label sitting on the prompt's first row at the right edge. */
 #composer {
     width: 1fr;
     height: auto;
@@ -21,11 +21,11 @@ COMPOSER_CSS = """
     padding: 0 1;
     layout: vertical;
     background: $background;
-    border: solid $panel-edge;
+    border: round $panel-edge;
 }
 
 #composer:focus-within {
-    border: solid $panel-edge-focus;
+    border: round $panel-edge-focus;
 }
 
 #composer-row {
@@ -41,7 +41,7 @@ COMPOSER_CSS = """
     height: auto;
     min-height: 1;
     max-height: 10;
-    padding: 0;
+    padding: 0 1;
     border: none;
     background: $background;
     color: $foreground;

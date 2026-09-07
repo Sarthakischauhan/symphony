@@ -63,13 +63,13 @@ class WorkspaceTool(Tool, ABC):
     def run(self, *args: Any, **kwargs: Any) -> str | list[dict[str, Any]]:
         """Execute the tool and return a string or multimodal content for the model."""
 
-    async def execute(self, *, control_plane: Any, args: Dict[str, Any]) -> Any:
+    async def execute(self, *, sink: Any, args: Dict[str, Any]) -> Any:
         run_signature = inspect.signature(self.run)
-        accepts_control_plane = "control_plane" in run_signature.parameters
+        accepts_sink = "sink" in run_signature.parameters
         validated = self.validate_args(**self.prepare_args(args))
         result = self.run(
             **validated.model_dump(),
-            **({"control_plane": control_plane} if accepts_control_plane else {}),
+            **({"sink": sink} if accepts_sink else {}),
         )
         if inspect.isawaitable(result):
             result = await result

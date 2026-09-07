@@ -9,7 +9,7 @@ from textual.widgets import Static
 
 from coding_agent.tui.chrome import display_workspace_path, footer_hint, render_footer
 from coding_agent.tui.composer.input import PromptInput
-from coding_agent.tui.runtime.control_plane import HarnessEvent
+from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.screens.history import load_session_history
 from core_ai.types import Content
 from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
@@ -109,10 +109,10 @@ class TurnSurface:
             if not child_question_pending:
                 self._pending_question_id = None
                 self._pending_question_default = ""
-            self.control_plane.reset_cancel()
+            self.sink.reset_cancel()
             prompt = self.query_one("#prompt", PromptInput)
             if not child_question_pending:
-                prompt.submit_on_enter = False
+                prompt.submit_on_enter = True
             prompt.disabled = False
             self._update_composer_hint()
             prompt.focus()

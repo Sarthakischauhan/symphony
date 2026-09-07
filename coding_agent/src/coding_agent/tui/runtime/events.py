@@ -72,6 +72,8 @@ class TranscriptView(Protocol):
 
     def set_working(self, detail: str = "") -> None: ...
 
+    def set_churning(self, turn: int = 0) -> None: ...
+
     def set_reasoning(self, text: str, *, new: bool = False) -> None: ...
 
     def finish_reasoning(self) -> None: ...
@@ -366,7 +368,7 @@ class EventPresenter:
         self._model_turns.add(turn)
         self.state.begin_turn(turn)
         self._assistant_open = False
-        self.view.set_thinking(self._usage_text())
+        self.view.set_churning(turn)
 
     def _on_turn_completed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()

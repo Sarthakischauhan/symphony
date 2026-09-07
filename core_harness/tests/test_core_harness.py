@@ -12,13 +12,12 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message, StreamEvent
 from core_harness import (
     CompactionAddon,
-    ControlCommand,
     ControlPlaneEventType,
     CoreHarness,
     HarnessCancelled,
     HarnessConfig,
     KeepSystemRecentCompactor,
-    EventControlPlane,
+    EventSink,
     Tool,
     plan_keep_drop,
 )
@@ -36,8 +35,8 @@ from core_harness.context import (
 )
 
 
-def get_weather(city: str, control_plane: EventControlPlane) -> str:
-    assert isinstance(control_plane, EventControlPlane)
+def get_weather(city: str, sink: EventSink) -> str:
+    assert isinstance(sink, EventSink)
     return f"It is sunny in {city}."
 
 
@@ -254,9 +253,9 @@ def call_fake_harness(
     prompt_tokens: int = 10,
     context_limit: int = 100,
     context_warn_threshold: Optional[int] = None,
-) -> tuple[FakeRegistry, EventControlPlane, Any]:
+) -> tuple[FakeRegistry, EventSink, Any]:
     registry = FakeRegistry(emit_usage=emit_usage, prompt_tokens=prompt_tokens)
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -266,10 +265,10 @@ def call_fake_harness(
             context_warn_threshold=context_warn_threshold,
         ),
         tools=[Tool(get_weather)],
-        control_plane=control_plane,
+        sink=sink,
     )
     result = asyncio.run(harness.run("What is the weather in San Francisco?"))
-    return registry, control_plane, result
+    return registry, sink, result
 
 
 def bulky_result() -> str:
@@ -506,14 +505,14 @@ def test_build_context_report_matches_stored_when_under_budget() -> None:
 
 def test_large_tool_results_are_bounded_before_reentering_context() -> None:
     registry = LargeToolRegistry()
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
         config=HarnessConfig(tool_result_max_chars=80),
         tools=[Tool(large_tool_result)],
-        control_plane=control_plane,
+        sink=sink,
     )
 
     result = asyncio.run(harness.run("run the tool"))
@@ -526,7 +525,7 @@ def test_large_tool_results_are_bounded_before_reentering_context() -> None:
     assert bounded.endswith("-END")
     assert "tool result truncated" in bounded
     completed = [
-        event for event in control_plane.events
+        event for event in sink.events
         if event.event_type == "tool_execution_completed"
     ]
     assert completed[0].payload["result"] == bounded
@@ -565,7 +564,7 @@ def test_truncated_tool_results_are_not_spilled_to_disk(tmp_path: Path) -> None:
 
 
 def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
-    registry, control_plane, result = call_fake_harness(prompt_tokens=10, context_limit=100)
+    registry, sink, result = call_fake_harness(prompt_tokens=10, context_limit=100)
 
     assert result.output_text == "It is sunny in San Francisco."
     assert len(registry.calls) == 2
@@ -586,7 +585,7 @@ def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
     assert result.context_limit == 100
     assert result.context_left == 80
 
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert event_types == [
         "run_started",
         "turn_started",
@@ -604,15 +603,15 @@ def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
         "context",
         "run_completed",
     ]
-    usage_events = [event for event in control_plane.events if event.event_type == "usage"]
+    usage_events = [event for event in sink.events if event.event_type == "usage"]
     assert usage_events[0].payload["cumulative_tokens"] == 12
     assert usage_events[0].payload["estimated"] is False
-    context_events = [event for event in control_plane.events if event.event_type == "context"]
+    context_events = [event for event in sink.events if event.event_type == "context"]
     assert context_events[0].payload["context_left"] == 90
     assert context_events[1].payload["context_left"] == 80
     assert "message_sizes" in context_events[0].payload
     assert context_events[0].payload["message_sizes"][0]["role"] == "system"
-    assert control_plane.events[-1].payload["usage"]["total_tokens"] == 38
+    assert sink.events[-1].payload["usage"]["total_tokens"] == 38
 
 
 def test_context_limit_uses_gemini_family_fallback() -> None:
@@ -623,9 +622,9 @@ def test_context_limit_uses_gemini_family_fallback() -> None:
 
 
 def test_core_harness_estimates_usage_when_provider_omits_it() -> None:
-    _, control_plane, result = call_fake_harness(emit_usage=False, context_limit=10_000)
+    _, sink, result = call_fake_harness(emit_usage=False, context_limit=10_000)
 
-    usage_events = [event for event in control_plane.events if event.event_type == "usage"]
+    usage_events = [event for event in sink.events if event.event_type == "usage"]
     assert len(usage_events) == 2
     assert all(event.payload["estimated"] is True for event in usage_events)
     assert usage_events[0].payload["prompt_tokens"] > 0
@@ -637,16 +636,16 @@ def test_core_harness_estimates_usage_when_provider_omits_it() -> None:
 
 
 def test_core_harness_emits_context_warning_below_threshold() -> None:
-    _, control_plane, result = call_fake_harness(
+    _, sink, result = call_fake_harness(
         prompt_tokens=90,
         context_limit=100,
         context_warn_threshold=15,
     )
 
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert "context_warning" in event_types
     warning = next(
-        event for event in control_plane.events if event.event_type == "context_warning"
+        event for event in sink.events if event.event_type == "context_warning"
     )
     assert warning.payload["threshold"] == 15
     assert warning.payload["context_left"] == 10
@@ -655,7 +654,7 @@ def test_core_harness_emits_context_warning_below_threshold() -> None:
 
 def test_core_harness_compacts_when_context_left_is_low() -> None:
     registry = FakeRegistry(prompt_tokens=90)
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -667,7 +666,7 @@ def test_core_harness_compacts_when_context_left_is_low() -> None:
             compaction_keep_recent=2,
         ),
         tools=[Tool(get_weather)],
-        control_plane=control_plane,
+        sink=sink,
         addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=2))],
     )
     prior = [Message(role="user", content=f"earlier task {index}") for index in range(6)]
@@ -675,7 +674,7 @@ def test_core_harness_compacts_when_context_left_is_low() -> None:
         harness.run("What is the weather in San Francisco?", conversation=prior)
     )
 
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert "compaction_started" in event_types
     assert "compaction_completed" in event_types
     compact_index = event_types.index("compaction_started")
@@ -688,7 +687,7 @@ def test_core_harness_compacts_when_context_left_is_low() -> None:
     assert first_turn < compact_index < second_turn
 
     completed = next(
-        event for event in control_plane.events if event.event_type == "compaction_completed"
+        event for event in sink.events if event.event_type == "compaction_completed"
     )
     assert completed.payload["message_count_after"] < completed.payload["message_count_before"]
     assert len(registry.calls[1]["messages"]) < len(registry.calls[0]["messages"]) + 2
@@ -1073,7 +1072,7 @@ def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
             yield StreamEvent(type="done", content_index=0)
 
     registry = CountingLoopRegistry(n_calls=16)
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -1085,13 +1084,13 @@ def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
             context_target_tokens=50,
         ),
         tools=[Tool(bulky_result)],
-        control_plane=control_plane,
+        sink=sink,
         addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=10))],
     )
 
     result = asyncio.run(harness.run("inspect files"))
 
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert "compaction_started" in event_types
     assert "compaction_completed" in event_types
     assert any(
@@ -1143,7 +1142,7 @@ def test_harness_forwards_multimodal_user_content() -> None:
     assert result.output_text == "seen"
     sizes = [
         event.payload["context"]["message_sizes"]
-        for event in harness.control_plane.events
+        for event in harness.sink.events
         if event.event_type == "run_completed"
     ]
     user_tokens = next(item["tokens"] for item in sizes[0] if item["role"] == "user")
@@ -1187,14 +1186,14 @@ def look_at_shot() -> list[dict[str, str]]:
 
 def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
     registry = ImageToolRegistry()
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="system",
         config=HarnessConfig(tool_result_max_chars=80),
         tools=[Tool(look_at_shot)],
-        control_plane=control_plane,
+        sink=sink,
     )
 
     result = asyncio.run(harness.run("look"))
@@ -1207,7 +1206,7 @@ def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
     assert followup.content[1]["data"] == "a" * 300
     completed = [
         event
-        for event in control_plane.events
+        for event in sink.events
         if event.event_type == "tool_execution_completed"
     ]
     preview = completed[0].payload["result"]
@@ -1216,34 +1215,41 @@ def test_harness_forwards_image_tool_results_without_dumping_bytes() -> None:
     assert result.output_text == "a cat"
 
 
-def test_control_plane_cancel_stops_harness() -> None:
-    registry = FakeRegistry()
-    control_plane = EventControlPlane()
+def test_cancelling_the_run_task_stops_harness() -> None:
+    class SlowRegistry:
+        async def stream(self, model_id, messages, tools):
+            del model_id, messages, tools
+            yield StreamEvent(type="text_delta", delta="hello")
+            await asyncio.sleep(30)
+            yield StreamEvent(type="done")
+
+    sink = EventSink()
+    harness = CoreHarness(
+        registry=SlowRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="You are a concise assistant.",
+        config=HarnessConfig(context_limits={"fake:test-model": 100}),
+        tools=[Tool(get_weather)],
+        sink=sink,
+    )
 
     async def _run() -> None:
-        await control_plane.send_command(ControlCommand.cancel(reason="stop-now"))
-        harness = CoreHarness(
-            registry=registry,  # type: ignore[arg-type]
-            model_id="fake:test-model",
-            system_prompt="You are a concise assistant.",
-            config=HarnessConfig(context_limits={"fake:test-model": 100}),
-            tools=[Tool(get_weather)],
-            control_plane=control_plane,
-        )
-        await harness.run("What is the weather in San Francisco?")
+        task = asyncio.create_task(harness.run("What is the weather in San Francisco?"))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        await task
 
-    with pytest.raises(HarnessCancelled, match="stop-now"):
+    with pytest.raises(HarnessCancelled, match="cancelled"):
         asyncio.run(_run())
-    assert control_plane.events[0].event_type == "run_started"
-    assert control_plane.events[-1].event_type == "run_cancelled"
-    assert control_plane.events[-1].payload["reason"] == "stop-now"
-    assert len(registry.calls) == 0
+    assert sink.events[0].event_type == "run_started"
+    assert sink.events[-1].event_type == "run_cancelled"
+    assert sink.events[-1].payload["reason"] == "cancelled"
 
 
 def test_e2e_two_tool_loop_answers_three_times_five() -> None:
     """Full loop: call_tool_a → call_tool_b → answer 3 * 5 as a number only."""
     registry = TwoToolLoopRegistry()
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:math-model",
@@ -1256,7 +1262,7 @@ def test_e2e_two_tool_loop_answers_three_times_five() -> None:
             context_limits={"fake:math-model": 1000},
         ),
         tools=[Tool(call_tool_a), Tool(call_tool_b)],
-        control_plane=control_plane,
+        sink=sink,
     )
 
     result = asyncio.run(
@@ -1273,21 +1279,21 @@ def test_e2e_two_tool_loop_answers_three_times_five() -> None:
     assert len(registry.calls) == 3
     assert result.usage.total_tokens == 61
 
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert event_types[0] == ControlPlaneEventType.RUN_STARTED.value
     assert event_types.count("tool_execution_completed") == 2
     assert event_types[-1] == ControlPlaneEventType.RUN_COMPLETED.value
 
     completed_tools = [
         event.payload["tool_name"]
-        for event in control_plane.events
+        for event in sink.events
         if event.event_type == "tool_execution_completed"
     ]
     assert completed_tools == ["call_tool_a", "call_tool_b"]
-    assert control_plane.events[-1].payload["output_text"] == "15"
+    assert sink.events[-1].payload["output_text"] == "15"
 
 
-def call_live_core_harness() -> tuple[EventControlPlane, object]:
+def call_live_core_harness() -> tuple[EventSink, object]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         pytest.skip("Set OPENAI_API_KEY to run the core harness integration test.")
@@ -1303,7 +1309,7 @@ def call_live_core_harness() -> tuple[EventControlPlane, object]:
             base_url="https://api.openai.com/v1",
         ),
     )
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,
         model_id=f"openai:{model_name}",
@@ -1313,17 +1319,17 @@ def call_live_core_harness() -> tuple[EventControlPlane, object]:
         ),
         config=HarnessConfig(),
         tools=[Tool(get_weather)],
-        control_plane=control_plane,
+        sink=sink,
     )
 
     try:
         result = asyncio.run(harness.run("What is the weather in San Francisco?"))
     except httpx.RequestError as exc:
         pytest.skip(f"OpenAI endpoint unavailable in this environment: {exc}")
-    return control_plane, result
+    return sink, result
 
 
-def call_live_two_tool_math_harness() -> tuple[EventControlPlane, object]:
+def call_live_two_tool_math_harness() -> tuple[EventSink, object]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         pytest.skip("Set OPENAI_API_KEY to run the core harness integration test.")
@@ -1339,7 +1345,7 @@ def call_live_two_tool_math_harness() -> tuple[EventControlPlane, object]:
             base_url="https://api.openai.com/v1",
         ),
     )
-    control_plane = EventControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,
         model_id=f"openai:{model_name}",
@@ -1350,7 +1356,7 @@ def call_live_two_tool_math_harness() -> tuple[EventControlPlane, object]:
         ),
         config=HarnessConfig(max_turns=8),
         tools=[Tool(call_tool_a), Tool(call_tool_b)],
-        control_plane=control_plane,
+        sink=sink,
     )
 
     try:
@@ -1361,38 +1367,38 @@ def call_live_two_tool_math_harness() -> tuple[EventControlPlane, object]:
         )
     except httpx.RequestError as exc:
         pytest.skip(f"OpenAI endpoint unavailable in this environment: {exc}")
-    return control_plane, result
+    return sink, result
 
 
 def test_core_harness_runs_tool_loop() -> None:
-    control_plane, result = call_live_core_harness()
+    sink, result = call_live_core_harness()
     assert "San Francisco" in result.output_text
     assert "sunny" in result.output_text.lower()
     assert result.tool_calls[0].name == "get_weather"
     assert result.tool_calls[0].arguments == {"city": "San Francisco"}
     assert result.usage.total_tokens > 0
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert event_types[0] == "run_started"
     assert "tool_call_delta" in event_types
     assert "tool_call_started" in event_types
     assert "tool_execution_completed" in event_types
     assert "context" in event_types
     assert event_types[-1] == "run_completed"
-    assert control_plane.events[-1].payload["usage"]["total_tokens"] > 0
-    assert "message_sizes" in control_plane.events[-1].payload["context"]
+    assert sink.events[-1].payload["usage"]["total_tokens"] > 0
+    assert "message_sizes" in sink.events[-1].payload["context"]
 
 
 def test_e2e_live_two_tool_loop_answers_three_times_five() -> None:
-    control_plane, result = call_live_two_tool_math_harness()
+    sink, result = call_live_two_tool_math_harness()
     assert result.output_text.strip() == "15"
     tool_names = [tool_call.name for tool_call in result.tool_calls]
     assert tool_names == ["call_tool_a", "call_tool_b"]
-    event_types = [event.event_type for event in control_plane.events]
+    event_types = [event.event_type for event in sink.events]
     assert event_types[0] == "run_started"
     assert event_types[-1] == "run_completed"
     completed_tools = [
         event.payload["tool_name"]
-        for event in control_plane.events
+        for event in sink.events
         if event.event_type == "tool_execution_completed"
     ]
     assert completed_tools == ["call_tool_a", "call_tool_b"]

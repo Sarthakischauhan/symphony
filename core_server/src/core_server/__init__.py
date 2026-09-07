@@ -7,7 +7,7 @@ from core_server.models import (
     RegistryProvider,
     SupportedModel,
 )
-from core_server.sse import SSEControlPlane, encode_sse
+from core_server.sse import SSEEventSink, encode_sse
 
 __all__ = [
     "DEFAULT_SYSTEM_PROMPT",
@@ -16,7 +16,7 @@ __all__ = [
     "ModelRegistryResponse",
     "RegistryModel",
     "RegistryProvider",
-    "SSEControlPlane",
+    "SSEEventSink",
     "ServerConfig",
     "SupportedModel",
     "build_config",

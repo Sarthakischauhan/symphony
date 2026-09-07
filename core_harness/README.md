@@ -29,7 +29,7 @@ import asyncio
 from pathlib import Path
 
 from core_ai import build_default_registry, default_model_id
-from core_harness import CoreHarness, HarnessConfig, EventControlPlane, Tool
+from core_harness import CoreHarness, HarnessConfig, EventSink, Tool
 
 
 WORKSPACE = Path(".")
@@ -46,10 +46,8 @@ def read_file(path: str) -> str:
 async def main() -> None:
     registry = build_default_registry()
 
-    # EventControlPlane records events, accepts pause/resume/cancel/inject,
-    # and allows tools (unattended default). Interactive products replace it
-    # with a plane that asks before running tools.
-    control_plane = EventControlPlane()
+    # EventSink records events in memory. Subclass emit() for a UI.
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,
         model_id=default_model_id(registry),
@@ -63,7 +61,7 @@ async def main() -> None:
             context_target_tokens=80_000,
         ),
         tools=[Tool(read_file)],
-        control_plane=control_plane,
+        sink=sink,
         session_id="example-session",
     )
 
@@ -75,7 +73,7 @@ async def main() -> None:
     print(f"tokens used: {result.usage.total_tokens}")
 
     # Every emitted event is available for logging, metrics, or a UI.
-    for event in control_plane.events:
+    for event in sink.events:
         print(event.event_type, event.payload)
 
 
@@ -124,11 +122,11 @@ harness.register_tool(
 )
 ```
 
-A tool may declare a `control_plane` parameter. The harness supplies the
+A tool may declare a `sink` parameter. The harness supplies the
 active control plane automatically; it is not exposed as a model argument:
 
 ```python
-def approve(action: str, control_plane: EventControlPlane) -> str:
+def approve(action: str, sink: EventSink) -> str:
     """Record an approval request."""
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
@@ -198,59 +196,37 @@ harness = CoreHarness(
 # or: config=load_harness_config("harness.json")
 ```
 
-The harness raises `HarnessCancelled` when a run is cancelled and
-`HarnessLimitExceeded` when a configured limit is reached. An inbound control
-plane can pause, resume, cancel, or inject a user/system message while a run
-is active:
+The harness raises `HarnessCancelled` when the run task is cancelled and
+`HarnessLimitExceeded` when a configured limit is reached. Cancel a run by
+cancelling the `asyncio.Task` that is awaiting `CoreHarness.run`.
 
-```python
-from core_harness import ControlCommand
-
-await control_plane.send_command(ControlCommand.pause())
-await control_plane.send_command(ControlCommand.resume())
-await control_plane.send_command(ControlCommand.inject_message(
-    role="user", content="Also include the security implications."
-))
-await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
-```
-
-## Events and control planes
+## Events
 
 The harness emits run, turn, text/reasoning stream, model-retry, tool, usage,
-context, compaction, pause/resume, injection, cancellation, limit, and
-subagent lifecycle events. Every harness event name is a member of
-`ControlPlaneEventType`; product add-ons (for example the coding agent's
-`run_summary`) may emit additional string event types through the same plane.
-`EventControlPlane` records events in memory and is the default.
+context, compaction, injection, cancellation, limit, and subagent lifecycle
+events. Every harness event name is a member of `ControlPlaneEventType`;
+product add-ons (for example the coding agent's `run_summary`) may emit
+additional string event types through the same sink. `EventSink` records
+events in memory and is the default (`EventSink` is an alias).
 
 The catalog with payload examples is in
 [docs/developer-guide/events.md](../docs/developer-guide/events.md) and
 [docs/events.md](./docs/events.md).
 
-The control plane is one object with three jobs: observe (`emit`), drive
-(`send_command` / cancel / pause / inject), and authorize
-(`approve_tool_call` / `request_user_input`). It does not persist, compact,
-or spawn.
-
-- `ControlPlane` — fail-closed base (deny tools, ignore commands).
-- `EventControlPlane` — unattended default: record events, accept commands,
-  allow tools.
-- `IdentifiedControlPlane` — wraps an inner plane and stamps `run_id`,
-  `session_id`, `agent_id`, `parent_id`, sequence, timestamp, and schema
-  version. Optionally appends to an `EventLog`.
-- `InMemoryEventLog` — a simple event-log implementation for tests and local
-  use.
-
-Interactive products (the TUI, a custom server plane) subclass `ControlPlane`
-and implement `request_user_input` / `approve_tool_call`. The harness calls
-the approval gate before invoking a registered tool.
+`EventSink` is an event sink (`emit`) plus an optional
+`request_user_input` for product tools such as `ask_user`. It does not
+authorize tools, cancel runs, persist, compact, or spawn. The harness stamps
+`run_id`, `session_id`, `seq`, `ts`, `schema_version`, `agent_id`, and
+`parent_id` on every event. Tools run unless a `before_tool` add-on returns
+a deny reason.
 
 ## Add-ons
 
 `CoreHarness` is an extension surface. It does not auto-build compaction,
 persistence, telemetry, or a spawn tool. Pass `addons=[...]` or call
 `register_addon`. Duplicate `name` values raise. Subclass `Addon` for
-no-op `before_turn`, `after_turn`, `on_tool`, and `on_compact` hooks.
+no-op `before_run`, `before_turn`, `before_tool`, `after_turn`, `on_tool`,
+and `on_compact` hooks.
 `fork_for_child` is the only inherit path onto a child harness; the
 default returns `None`. Skills can use this same attach path later;
 there is no directory discovery or loader.
@@ -268,7 +244,7 @@ bare harness run has no compaction and no `spawn_agent` tool.
 via `begin_child` / `run_child`. `SubagentAddon` builds the child
 `CoreHarness` (tools, config copy, system prompt, turns, add-ons) and
 formats the `spawn_agent` tool result. The child run itself uses
-`child_config.control_plane` when provided, otherwise the parent's plane.
+`child_config.sink` when provided, otherwise the parent's plane.
 
 Children collect add-ons by calling `fork_for_child` on each parent add-on
 (or `ChildConfig.addons` / `ChildConfig.addon_factory` when set). Compaction
@@ -356,15 +332,14 @@ harness = CoreHarness(
 
 The package exports the main types needed to integrate the harness:
 
-`Addon`, `AddonProtocol`, `PersistenceAddon`, `CompactionAddon`,
+`Addon`, `Addon`, `PersistenceAddon`, `CompactionAddon`,
 `SubagentAddon`, `CoreHarness`, `ChildConfig`, `ChildIdentity`, `Tool`, `HarnessResult`,
 `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
 `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `KeepDropPlan`,
 `plan_keep_drop`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `messages_for_model`,
-`prune_stale_tool_results`, `ControlPlane`, `ControlPlaneEvent`,
-`ControlPlaneEventType`, `ControlCommand`, `ControlCommandType`,
-`EventControlPlane`, `IdentifiedControlPlane`, `InMemoryEventLog`,
+`prune_stale_tool_results`, `EventSink`, `ControlPlaneEvent`,
+`ControlPlaneEventType`, `EventSink`, `EventSink`,
 `HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
 
 ## Development
