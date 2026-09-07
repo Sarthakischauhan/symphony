@@ -114,6 +114,7 @@ SLASH_COMMANDS = (
     SlashCommand("status", "Show session, model, and context details"),
     SlashCommand("context", "Inspect stored vs sent context"),
     SlashCommand("learning", "Open markdown-rendered agent learnings"),
+    SlashCommand("installed", "View installed skills and plugins"),
     SlashCommand("diff", "Open the current workspace diff in a modal"),
     SlashCommand("clear", "Clear the visible transcript"),
     SlashCommand("help", "Show available slash commands"),

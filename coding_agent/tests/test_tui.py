@@ -35,7 +35,7 @@ from coding_agent.tui.commands import (
     model_matches,
     model_supports_effort,
 )
-from coding_agent.tui.runtime import ControlPlaneEvent, TextualControlPlane
+from coding_agent.tui.runtime import ControlPlaneEvent, TextualEventSink
 from coding_agent.tui.screens.file_selector import (
     active_file_mention,
     complete_file_mention,
@@ -118,8 +118,8 @@ def test_tui_escape_cancels_busy_run_and_restores_composer(
             prompt.disabled = True
             await pilot.press("escape")
             await pilot.pause()
-            assert app.control_plane.cancelled
-            assert app.control_plane.cancel_reason == "user_cancel"
+            assert app.sink.cancelled
+            assert app.sink.cancel_reason == "user_cancel"
             assert not prompt.disabled
             assert prompt.has_focus
 
@@ -312,7 +312,7 @@ def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
             assert str(app.query_one("#composer-mode", Static).render()) == "BUILD"
             assert not app.query("#composer-hint")
             composer = app.query_one("#composer")
-            assert composer.styles.border_top[0] == "solid"
+            assert composer.styles.border_top[0] == "round"
             assert "esc cancel" in _footer_text(app)
 
             app.mode = "plan"
@@ -760,7 +760,7 @@ def test_textual_control_plane_posts_message() -> None:
         def post_message(self, message: ControlPlaneEvent) -> None:
             posted.append(message)
 
-    cp = TextualControlPlane()
+    cp = TextualEventSink()
     cp.bind(FakeApp())
 
     async def _emit() -> None:
@@ -773,15 +773,13 @@ def test_textual_control_plane_posts_message() -> None:
 
 
 def test_textual_control_plane_fork_isolates_approvals_and_shares_cancel() -> None:
-    parent = TextualControlPlane()
+    parent = TextualEventSink()
     parent.set_approval_mode("ask")
     child_allow = parent.fork(approvals=parent.approvals.model_copy(update={"mode": "always_allow"}))
     child_ask = parent.fork()
     assert parent.approvals.mode == "ask"
     assert child_allow.approvals.mode == "always_allow"
     assert child_ask.approvals.mode == "ask"
-    assert child_allow.cancel_event is parent.cancel_event
-    assert child_ask.cancel_event is parent.cancel_event
     assert child_allow._interaction_lock is parent._interaction_lock
     assert child_ask._question_futures is parent._question_futures
     parent.request_cancel("user_cancel")
@@ -792,7 +790,7 @@ def test_textual_control_plane_fork_isolates_approvals_and_shares_cancel() -> No
 
 
 def test_textual_control_plane_parent_answers_child_question() -> None:
-    parent = TextualControlPlane()
+    parent = TextualEventSink()
     child = parent.fork()
 
     async def _run() -> str:
@@ -940,7 +938,8 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
             process = app.query_one(RunProcess)
-            assert process.query_one(".process-complete") is not None
+            assert not list(process.query(".process-complete"))
+            assert app.query_one(".process-complete") is not None
             assert not list(process.query(ReasoningWidget))
             summary = process.query_one(ToolCallSummary)
             assert "1 thought" in summary.title
@@ -1506,7 +1505,7 @@ def test_permission_question_has_distinct_secure_design(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            answer = app.control_plane._get_question_future("approval-1")
+            answer = app.sink._get_question_future("approval-1")
             app._show_question(
                 {
                     "request_id": "approval-1",
@@ -1546,10 +1545,13 @@ def test_approval_enter_submits_highlighted_always_allow(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.control_plane.approvals.mode == "ask"
+            assert app.sink.approvals.mode == "ask"
 
+            from coding_agent.approvals import ApprovalAddon
+
+            addon = ApprovalAddon(tmp_path, app.sink)
             approval = asyncio.create_task(
-                app.control_plane.approve_tool_call(
+                addon.before_tool(
                     tool_name="bash",
                     arguments={"command": "echo hi"},
                 )
@@ -1569,7 +1571,7 @@ def test_approval_enter_submits_highlighted_always_allow(
 
             request_id = app._pending_question_id
             assert request_id is not None
-            answered = app.control_plane._question_futures[request_id]
+            answered = app.sink._question_futures[request_id]
             prompt = app.query_one("#prompt", PromptInput)
             assert prompt.submit_on_enter
             # Enter used to submit the empty prompt / "Allow once" default.
@@ -1577,14 +1579,14 @@ def test_approval_enter_submits_highlighted_always_allow(
             await pilot.pause()
 
             assert answered.result() == "Always allow"
-            assert await approval is True
-            assert app.control_plane.approvals.mode == "always_allow"
+            assert await approval is None
+            assert app.sink.approvals.mode == "always_allow"
 
-            second = await app.control_plane.approve_tool_call(
+            second = await addon.before_tool(
                 tool_name="bash",
                 arguments={"command": "echo again"},
             )
-            assert second is True
+            assert second is None
             assert app._pending_question_id is None
             assert not app.query_one("#approval-menu", SlashMenu).display
 
@@ -1600,7 +1602,7 @@ def test_subagent_approval_question_uses_parent_approval_menu(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            answer = app.control_plane._get_question_future("child-approval-1")
+            answer = app.sink._get_question_future("child-approval-1")
             app.on_harness_event(
                 ControlPlaneEvent(
                     "question_asked",
@@ -1650,7 +1652,7 @@ def test_subagent_approval_closes_nested_screen_before_prompting(
             await pilot.pause()
             assert isinstance(app.screen, SubagentScreen)
 
-            answer = app.control_plane._get_question_future("child-approval-2")
+            answer = app.sink._get_question_future("child-approval-2")
             app.on_harness_event(
                 ControlPlaneEvent(
                     "question_asked",
@@ -1942,7 +1944,7 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
     app = CodingAgentApp(workspace=tmp_path)
 
     class FakeAgent:
-        def __init__(self, plane: TextualControlPlane) -> None:
+        def __init__(self, plane: TextualEventSink) -> None:
             self.plane = plane
             self.session_id = "s"
             self.harness = SimpleNamespace(model_id="openai:gpt-4o-mini", session_id="s")
@@ -1970,7 +1972,7 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            app._agent = FakeAgent(app.control_plane)  # type: ignore[assignment]
+            app._agent = FakeAgent(app.sink)  # type: ignore[assignment]
             app.set_context_metrics(90_000, 120_000)
             assert "75% context" in _footer_text(app)
 
@@ -1990,7 +1992,7 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
 
 
 def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
-    class CapturingControlPlane:
+    class CapturingEventSink:
         def __init__(self) -> None:
             self.events: list[tuple[str, dict[str, Any]]] = []
 
@@ -2007,7 +2009,7 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
             yield StreamEvent(type="text_delta", delta="- user sent twelve numbered messages")
             yield StreamEvent(type="done")
 
-    control_plane = CapturingControlPlane()
+    sink = CapturingEventSink()
     registry = SummaryRegistry()
     config = CodingAgentConfig(learning=LearningConfig(enabled=False))
     config = config.model_copy(
@@ -2017,7 +2019,7 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
         registry=registry,  # type: ignore[arg-type]
         model_id="openai:gpt-4o-mini",
         workspace=tmp_path,
-        control_plane=control_plane,
+        sink=sink,
         config=config,
         tools=[],
     )
@@ -2040,11 +2042,11 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
 
     asyncio.run(_run())
     assert registry.model_ids == ["openai:gpt-4o-mini"]
-    assert [event for event, _ in control_plane.events] == [
+    assert [event for event, _ in sink.events] == [
         "compaction_started",
         "compaction_completed",
     ]
-    completed = control_plane.events[1][1]
+    completed = sink.events[1][1]
     assert completed["manual"] is True
     assert completed["message_count_before"] == 13
     assert completed["message_count_after"] == 11

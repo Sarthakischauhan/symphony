@@ -1,11 +1,10 @@
 # Control-plane events
 
 `CoreHarness` emits ordered control-plane events with an `event_type` and a
-`payload`. When the harness runs behind `IdentifiedControlPlane` (the default
-inside `CoreHarness.run`), every payload also carries `run_id`, `session_id`,
-`seq`, `ts`, `schema_version`, `agent_id`, and `parent_id`. Events marked
-conditional fire only when applicable. The SSE server forwards these names and
-bodies unchanged.
+`payload`. `CoreHarness.emit` stamps every payload with `run_id`,
+`session_id`, `seq`, `ts`, `schema_version`, `agent_id`, and `parent_id`.
+Events marked conditional fire only when applicable. The SSE server forwards
+these names and bodies unchanged.
 
 The authoritative list of harness event names is
 `core_harness.ControlPlaneEventType` (`core_harness/src/core_harness/models.py`).
@@ -20,7 +19,7 @@ event live in [`core_harness/docs/events.md`](../../core_harness/docs/events.md)
 | `TURN_STARTED` | `turn_started` | Each model turn (`turn`, `message_count`) |
 | `TURN_COMPLETED` | `turn_completed` | Turn finished (`had_tool_calls`) |
 | `RUN_COMPLETED` | `run_completed` | Final text, usage, context, session |
-| `RUN_CANCELLED` | `run_cancelled` | Cancel command landed (conditional; `reason`) |
+| `RUN_CANCELLED` | `run_cancelled` | The run task was cancelled (conditional; `reason`) |
 | `RUN_LIMIT_EXCEEDED` | `run_limit_exceeded` | A `HarnessConfig` cap was hit (conditional; `limit`, `value`, `max`, `message`) |
 | `RUN_FAILED` | `run_failed` | Unhandled error (conditional; `error_type`, `message`) |
 
@@ -81,9 +80,7 @@ compaction events.
 
 | Enum member | `event_type` | Payload notes |
 | --- | --- | --- |
-| `PAUSED` | `paused` | Inbound pause command (conditional) |
-| `RESUMED` | `resumed` | Inbound resume command (conditional) |
-| `MESSAGE_INJECTED` | `message_injected` | User or system message inserted mid-run (`role`, `content`; conditional) |
+| `MESSAGE_INJECTED` | `message_injected` | Child result delivered between turns (`role`, `content`, `source: "subagent"`; conditional) |
 
 ## Subagents
 

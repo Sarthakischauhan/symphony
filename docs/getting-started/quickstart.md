@@ -59,7 +59,7 @@ approval prompt may ask before overwrite or bash.
 uv run --package symphony-code symphony --resume
 ```
 
-Sessions live in `<workspace>/.symphony/sessions.sqlite3`. If resume lists the
+Sessions live in `<workspace>/.symphony/sessions/`. If resume lists the
 conversation you just had, persistence is working.
 
 ## 5. Same loop, as a library

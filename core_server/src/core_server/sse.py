@@ -7,13 +7,13 @@ import json
 import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
-from core_harness import ControlCommand
-from core_harness.events import NullControlPlane
+from core_harness.events import EventSink
 from core_harness.models import ControlPlaneEvent, ControlPlaneEventType
 
 
-class SSEControlPlane(NullControlPlane):
-    """Bounded SSE event queue with harness inbound-command support."""
+class SSEEventSink(EventSink):
+    """Bounded SSE event queue. Cancel the run task on disconnect; this
+    object only stops queueing events."""
 
     def __init__(self, *, max_queue_size: int = 256) -> None:
         if max_queue_size <= 0:
@@ -68,11 +68,11 @@ class SSEControlPlane(NullControlPlane):
         await self.queue.put(None)
 
     async def disconnect(self, reason: str = "client disconnected") -> None:
-        """Stop queueing events and cooperatively cancel the active harness run."""
+        """Stop queueing events. The server cancels the harness task."""
+        del reason
         if self._consumer_closed:
             return
         self._consumer_closed = True
-        await self.send_command(ControlCommand.cancel(reason=reason))
         while not self.queue.empty():
             self.queue.get_nowait()
 

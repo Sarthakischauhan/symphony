@@ -7,7 +7,7 @@ from coding_agent.tui.runtime import (
     ControlPlaneEvent,
     EventPresenter,
     HarnessEvent,
-    TextualControlPlane,
+    TextualEventSink,
     UiRunState,
 )
 
@@ -16,7 +16,7 @@ __all__ = [
     "ControlPlaneEvent",
     "EventPresenter",
     "HarnessEvent",
-    "TextualControlPlane",
+    "TextualEventSink",
     "UiRunState",
     "run_tui",
 ]

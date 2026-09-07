@@ -13,7 +13,11 @@ class WriteFileArgs(ToolArgsModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
 
-    path: str = Field(..., min_length=1, description="Workspace-relative path to write.")
+    path: str = Field(
+        ...,
+        min_length=1,
+        description="Path to write. Relative paths start at the working directory.",
+    )
     content: str = Field(..., description="Complete whitespace-significant UTF-8 file content.")
 
     @field_validator("path")
@@ -28,8 +32,8 @@ class WriteFileArgs(ToolArgsModel):
 class WriteFileTool(WorkspaceTool):
     name = "write_file"
     description = (
-        "Create or overwrite a UTF-8 text file inside the workspace while preserving "
-        "content exactly, including indentation and final newlines."
+        "Create or overwrite a UTF-8 text file while preserving content exactly, "
+        "including indentation and final newlines. Relative paths start at the working directory."
     )
     args_model = WriteFileArgs
 

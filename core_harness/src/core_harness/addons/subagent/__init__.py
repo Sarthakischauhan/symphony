@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, List, Optional, Sequence, TYPE_CHECK
 
 from core_ai.types import Content
 from core_harness.addons.addon import Addon
-from core_harness.events import ControlPlane, IdentifiedControlPlane
+from core_harness.events import EventSink
 from core_harness.models import HarnessResult
 from core_harness.tools import Tool, current_tool_call_id
 
@@ -22,7 +22,7 @@ class ChildConfig:
 
     model_id: Optional[str] = None
     max_turns: Optional[int] = None
-    control_plane: Optional[ControlPlane] = None
+    sink: Optional[EventSink] = None
     addons: Optional[Sequence[Addon]] = None
     addon_factory: Optional[Callable[[CoreHarness], Sequence[Addon]]] = None
 
@@ -34,7 +34,7 @@ class ChildConfig:
             max_turns=(
                 override.max_turns if override.max_turns is not None else self.max_turns
             ),
-            control_plane=override.control_plane or self.control_plane,
+            sink=override.sink or self.sink,
             addons=override.addons if override.addons is not None else self.addons,
             addon_factory=(
                 override.addon_factory
@@ -53,8 +53,8 @@ class ChildIdentity:
     spawn_depth: int
     label: str
     prompt_text: str
-    control_plane: ControlPlane
-    parent_plane: IdentifiedControlPlane
+    sink: EventSink
+    parent_session_id: str
     blocked: bool = False
     blocked_message: str = ""
     tool_call_id: str = ""
@@ -145,7 +145,7 @@ class SubagentAddon(Addon):
             tools=self.child_tools(
                 parent, tools=tools, exclude_tools=exclude_tools
             ),
-            control_plane=identity.control_plane,
+            sink=identity.sink,
             session_id=identity.agent_id,
             addons=self.child_addons(parent, child_config),
             agent_id=identity.agent_id,
@@ -178,7 +178,7 @@ class SubagentAddon(Addon):
         identity = await parent.begin_child(
             label=label,
             prompt=prompt,
-            control_plane=cfg.control_plane,
+            sink=cfg.sink,
         )
         identity.tool_call_id = current_tool_call_id.get()
         if identity.blocked:

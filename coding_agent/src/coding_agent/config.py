@@ -9,6 +9,7 @@ from typing import Any, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from core_harness.config import HarnessConfig
+from coding_agent.plugins.models import PluginConfig
 
 SPAWN_SETTINGS_NAME = "config.json"
 SettingsSource = Union["CodingAgentConfig", str, Path]
@@ -68,6 +69,21 @@ class LearningConfig(BaseModel):
     context_max_chars: int = Field(default=1400, ge=1)
 
 
+class SkillsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    max_skills: int = Field(default=100, ge=1)
+    roots: list[Path] = Field(default_factory=list)
+
+
+class PluginsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    entries: list[PluginConfig] = Field(default_factory=list)
+    authorized_roots: list[Path] = Field(default_factory=list)
+
+
 class CompactionConfig(BaseModel):
     """Bounds for the model-written compaction summary. Keep/drop limits live on ``harness``."""
 
@@ -99,6 +115,8 @@ class CodingAgentConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -202,10 +220,12 @@ __all__ = [
     "CodingAgentConfig",
     "CompactionConfig",
     "LearningConfig",
+    "PluginsConfig",
     "ReadFileConfig",
     "SPAWN_SETTINGS_NAME",
     "SearchConfig",
     "SettingsSource",
+    "SkillsConfig",
     "ToolsConfig",
     "ensure_spawn_settings",
     "load_coding_agent_config",

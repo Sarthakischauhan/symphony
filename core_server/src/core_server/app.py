@@ -18,7 +18,7 @@ from core_harness.addons.persistence import PersistenceAddon
 from core_server.config import ServerConfig
 from core_server.models import ModelRegistryResponse, RegistryModel, RegistryProvider
 from core_server.request_limits import RequestSizeLimitMiddleware
-from core_server.sse import SSEControlPlane, encode_sse
+from core_server.sse import SSEEventSink, encode_sse
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def create_app(config: ServerConfig) -> FastAPI:
     @app.post("/runs")
     async def start_run(request: RunRequest) -> StreamingResponse:
         _validate_request(request, config)
-        plane = SSEControlPlane(max_queue_size=config.sse_queue_size)
+        plane = SSEEventSink(max_queue_size=config.sse_queue_size)
         addons = []
         if config.persistence is not None:
             addons.append(PersistenceAddon(config.persistence))
@@ -98,7 +98,7 @@ def create_app(config: ServerConfig) -> FastAPI:
             system_prompt=config.system_prompt,
             config=config.to_harness_config(),
             tools=list(config.tools),
-            control_plane=plane,
+            sink=plane,
             session_id=request.session_id,
             addons=addons or None,
         )
@@ -110,7 +110,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                     conversation=request.conversation,
                     session_id=request.session_id,
                 )
-            except HarnessCancelled:
+            except (HarnessCancelled, asyncio.CancelledError):
                 logger.info("Harness run cancelled")
             except HarnessLimitExceeded as exc:
                 logger.warning("Harness run limit exceeded: %s", exc)
@@ -136,6 +136,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                     await task
                 elif not task.done():
                     await plane.disconnect()
+                    task.cancel()
                     try:
                         await asyncio.wait_for(
                             task,

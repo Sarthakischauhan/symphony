@@ -11,7 +11,7 @@ semantic index in the prompt.
 | `generate_image` | Generate png/jpeg/webp via the current OpenAI or Gemini provider, write it, show `[Image 1]`. |
 | `patch` | Unique-match exact-text edits. CRLF, trailing whitespace, and curly quotes are folded for matching. |
 | `search` | File names or literal/regex content, with path and glob filters. |
-| `bash` | Workspace-scoped shell with streamed, capped output, timeout, and process-group cleanup. |
+| `bash` | Shell in the working directory, streamed, capped, timed out, process-group cleanup. |
 | `spawn_agent` | Child harness run. Call more than once in a turn to run up to three children in parallel. |
 | `ask_user` | Clarifying questions routed through the control plane. |
 
@@ -36,5 +36,5 @@ spawns stop at `max_spawn_depth` (1 by default).
 ## Adding a tool
 
 One tool per file, same shape everywhere: subclass `WorkspaceTool`, implement
-`run`, register it. Shared base handles workspace binding, path-escape
-rejection, pydantic schemas, and `as_harness_tool()`.
+`run`, register it. Shared base handles working-directory relative paths,
+pydantic schemas, and `as_harness_tool()`. There is no path jail.

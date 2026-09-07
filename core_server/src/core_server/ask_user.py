@@ -34,16 +34,16 @@ async def ask_user(
     choices: list[str] | None = None,
     default: str = "",
     *,
-    control_plane: Any = None,
+    sink: Any = None,
 ) -> str:
     """Emit a question for the user; their reply is the next user message."""
     question = question.strip()
     if not question:
         return "error: question must be a non-empty string"
-    if control_plane is None:
+    if sink is None:
         return "error: ask_user requires a control plane"
 
-    await control_plane.request_user_input(
+    await sink.request_user_input(
         question=question,
         choices=list(choices or ()),
         default=default,

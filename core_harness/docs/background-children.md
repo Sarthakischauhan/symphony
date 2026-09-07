@@ -25,8 +25,8 @@ Lifecycle events use the active parent event sequencer.
 
 Conversation/checkpoint persistence remains pluggable. A persistence backend
 may additionally implement `append_event(event_type=..., payload=...)` to
-journal identified updates before they reach the UI. coding_agent's SQLite
-backend batches streaming deltas, flushes lifecycle boundaries, indexes child
+journal identified updates before they reach the UI. coding_agent's JSONL
+backend skips token deltas, appends lifecycle events, records child spawn
 metadata, and supports transcript reload by child session ID. Child persistence
 is selected through `ChildConfig`; coding_agent supplies the same backend in
 separate child persistence and compaction add-ons.

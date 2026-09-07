@@ -16,7 +16,7 @@ differ by layer on purpose; use the right one for the context you are in:
 
 Dependency direction is strictly `core_ai` → `core_harness` → `coding_agent` /
 `core_server`. The harness must stay product-agnostic: anything that knows
-about files, shells, TUIs, or SQLite belongs in `coding_agent`, not
+about files, shells, TUIs, or session files belongs in `coding_agent`, not
 `core_harness`.
 
 ## Commands
@@ -35,9 +35,9 @@ a live API from a test.
 ## Conventions
 
 - One tool per file under `coding_agent/src/coding_agent/tools/`, subclassing
-  `WorkspaceTool`. Tools resolve paths under the workspace root and reject
-  escapes; that is the only isolation that exists, so do not describe it as a
-  sandbox.
+  `WorkspaceTool`. Relative paths start at the working directory; absolute
+  and `~` paths are allowed. There is no path jail. Do not describe this as
+  a sandbox.
 - UIs consume control-plane events; they never scrape stdout. If you add or
   rename a harness event, update `ControlPlaneEventType` in
   `core_harness/src/core_harness/models.py` **and** both event docs

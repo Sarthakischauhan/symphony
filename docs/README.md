@@ -30,8 +30,9 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [Configuration](./user-guide/configuration.md) | `.symphony/config.json`, approvals, context |
 | [Tools](./user-guide/tools.md) | Workspace tool surface |
 | [Learning](./user-guide/learning.md) | Post-run reflection |
-| [Sessions](./user-guide/sessions.md) | SQLite resume |
+| [Sessions](./user-guide/sessions.md) | JSONL resume |
 | [Architecture](./developer-guide/architecture.md) | How the four packages fit |
+| [Changelog](../CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./developer-guide/events.md) | Control-plane catalog |
 | [CLI](./reference/cli.md) | Flags for `symphony` and `core-server` |
 | [Environment](./reference/environment.md) | Keys, models, base URLs |

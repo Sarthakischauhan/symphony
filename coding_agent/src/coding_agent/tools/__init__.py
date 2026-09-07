@@ -1,4 +1,4 @@
-"""Workspace-scoped tools for the coding agent."""
+"""Coding-agent tools."""
 
 from pathlib import Path
 from typing import List, Type

@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 import uvicorn
 from core_ai.types import Message, StreamEvent
-from core_harness import ControlCommandType, Tool
+from core_harness import Tool
 from core_harness.models import ControlPlaneEvent
 from fastapi.testclient import TestClient
 
@@ -24,7 +24,7 @@ from core_server import (
     create_app,
     encode_sse,
 )
-from core_server.sse import SSEControlPlane
+from core_server.sse import SSEEventSink
 
 
 class FakeRegistry:
@@ -292,7 +292,7 @@ def test_encode_sse_uses_harness_event_shape() -> None:
 
 def test_sse_control_plane_queues_events() -> None:
     async def scenario() -> None:
-        plane = SSEControlPlane()
+        plane = SSEEventSink()
         await plane.emit("run_started", {"model_id": "openai:test"})
         event = await plane.queue.get()
         assert event is not None
@@ -303,9 +303,9 @@ def test_sse_control_plane_queues_events() -> None:
     asyncio.run(scenario())
 
 
-def test_sse_control_plane_is_bounded_and_accepts_cancel() -> None:
+def test_sse_control_plane_is_bounded_and_disconnects() -> None:
     async def scenario() -> None:
-        plane = SSEControlPlane(max_queue_size=1)
+        plane = SSEEventSink(max_queue_size=1)
         await plane.emit("run_started", {})
         blocked_emit = asyncio.create_task(plane.emit("text_delta", {"delta": "hi"}))
         await asyncio.sleep(0)
@@ -315,10 +315,10 @@ def test_sse_control_plane_is_bounded_and_accepts_cancel() -> None:
         await blocked_emit
         await plane.disconnect("browser closed")
 
-        assert plane.cancelled is True
-        assert plane.cancel_reason == "browser closed"
-        commands = await plane.drain_commands()
-        assert commands[-1].type == ControlCommandType.CANCEL
+        assert plane._consumer_closed is True
+        blocked_after = asyncio.create_task(plane.emit("run_completed", {}))
+        await asyncio.sleep(0)
+        assert blocked_after.done()
 
     asyncio.run(scenario())
 
@@ -357,8 +357,8 @@ def test_run_request_limits() -> None:
 
 def test_ask_user_emits_question() -> None:
     async def scenario() -> None:
-        plane = SSEControlPlane()
-        task = asyncio.create_task(ask_user("Which option?", ["one", "two"], control_plane=plane))
+        plane = SSEEventSink()
+        task = asyncio.create_task(ask_user("Which option?", ["one", "two"], sink=plane))
         event = await plane.queue.get()
         assert event is not None
         assert event.event_type == "question_asked"

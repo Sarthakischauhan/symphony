@@ -6,7 +6,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from coding_agent.persistence import SqlitePersistence
+from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.tui.app import run_tui
 from coding_agent.tui.screens.resume import ResumeApp, load_session_options
 
@@ -16,7 +16,7 @@ def main() -> None:
     parser.add_argument(
         "--workspace",
         default=None,
-        help="Workspace directory for file/shell tools (default: current directory)",
+        help="Working directory for relative paths, bash cwd, and .symphony (default: .)",
     )
     parser.add_argument(
         "--model",
@@ -46,7 +46,7 @@ def main() -> None:
     workspace = Path(args.workspace or ".").resolve()
     session_id = None
     if args.resume:
-        persistence = SqlitePersistence(workspace / ".symphony" / "sessions.sqlite3")
+        persistence = JsonlPersistence(sessions_dir(workspace))
         sessions = asyncio.run(load_session_options(persistence))
         if not sessions:
             parser.error("no saved sessions found")

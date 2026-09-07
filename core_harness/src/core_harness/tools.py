@@ -55,7 +55,7 @@ class Tool:
             list: "array",
         }
         for param_name, param in self.signature.parameters.items():
-            if param_name == "control_plane":
+            if param_name == "sink":
                 continue
             if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
                 continue
@@ -68,7 +68,7 @@ class Tool:
                 required.append(param_name)
         return {"type": "object", "properties": properties, "required": required}
 
-    async def execute(self, *, control_plane: Any, args: Dict[str, Any]) -> Any:
+    async def execute(self, *, sink: Any, args: Dict[str, Any]) -> Any:
         if self.func is None:
             raise NotImplementedError(f"{type(self).__name__}.execute")
         kwargs: Dict[str, Any] = {}
@@ -77,8 +77,8 @@ class Tool:
             for param in self.signature.parameters.values()  # type: ignore[union-attr]
         )
         for param_name, param in self.signature.parameters.items():  # type: ignore[union-attr]
-            if param_name == "control_plane":
-                kwargs[param_name] = control_plane
+            if param_name == "sink":
+                kwargs[param_name] = sink
             elif param.kind != inspect.Parameter.VAR_KEYWORD and param_name in args:
                 kwargs[param_name] = args[param_name]
         if accepts_var_keyword:

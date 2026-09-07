@@ -16,7 +16,12 @@ from coding_agent.tui.transcript.messages import (
     UserMessage,
     Welcome,
 )
-from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
+from coding_agent.tui.transcript.process import (
+    ProcessComplete,
+    ReasoningWidget,
+    RunProcess,
+    ThinkingStatus,
+)
 
 
 class TranscriptSurface:
@@ -106,6 +111,13 @@ class TranscriptSurface:
         assert self._thinking is not None
         self._thinking.set_visible(True)
         self._thinking.set_working(detail)
+
+    def set_churning(self, turn: int = 0) -> None:
+        if self._thinking is None:
+            self.set_thinking("Churning")
+        assert self._thinking is not None
+        self._thinking.set_visible(True)
+        self._thinking.set_churning(turn)
 
     def _mount_process_item(self, widget: Widget) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
@@ -204,9 +216,17 @@ class TranscriptSurface:
         else:
             self._mount_transcript(widget)
 
-    def finish_process(self, title: str, *, collapse: bool = True) -> None:
+    def finish_process(
+        self,
+        title: str,
+        *,
+        collapse: bool = True,
+        add_completion: bool = True,
+    ) -> None:
         if self._process is not None:
-            self._process.complete(title, collapse=collapse)
+            self._process.complete(
+                title, collapse=collapse, add_completion=add_completion
+            )
             reconcile_live_tools(
                 self._process,
                 self._tools,
@@ -214,6 +234,12 @@ class TranscriptSurface:
                 final=True,
             )
         self._compact_transcript()
+        if add_completion and self._process is not None:
+            self._mount_transcript(ProcessComplete(title))
+
+    def add_run_completion(self, title: str) -> None:
+        """Place compact run metrics after the finalized assistant reply."""
+        self._mount_transcript(ProcessComplete(title))
 
     def mount_transcript(self, widget: Widget) -> None:
         """Public adapter used by the persisted-history loader."""

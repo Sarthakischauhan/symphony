@@ -1,9 +1,9 @@
 """TUI runtime: run state, events, control plane, and subagents."""
 
-from coding_agent.tui.runtime.control_plane import (
+from coding_agent.tui.runtime.sink import (
     ControlPlaneEvent,
     HarnessEvent,
-    TextualControlPlane,
+    TextualEventSink,
 )
 from coding_agent.tui.runtime.events import EventPresenter, TranscriptView
 from coding_agent.tui.runtime.state import RunMetrics, UiRunState
@@ -17,7 +17,7 @@ __all__ = [
     "SubagentRecord",
     "SubagentScreen",
     "SubagentWidget",
-    "TextualControlPlane",
+    "TextualEventSink",
     "TranscriptView",
     "UiRunState",
 ]

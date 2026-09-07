@@ -1,4 +1,4 @@
-"""Surgical exact-text editing for workspace files."""
+"""Surgical exact-text editing."""
 
 from __future__ import annotations
 
@@ -35,7 +35,11 @@ CHAR_FOLD = str.maketrans(
 class PatchArgs(ToolArgsModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
 
-    path: str = Field(..., min_length=1, description="Workspace-relative existing file path.")
+    path: str = Field(
+        ...,
+        min_length=1,
+        description="Existing file path. Relative paths start at the working directory.",
+    )
     old_str: str = Field(..., min_length=1, description="Exact whitespace-significant text to replace.")
     new_str: str = Field(..., description="Exact replacement text; empty deletes the match.")
     replace_all: bool = Field(default=False, description="Replace all matches instead of requiring one.")

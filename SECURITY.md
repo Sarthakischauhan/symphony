@@ -31,25 +31,25 @@ The project is pre-1.0 (`0.1.x`). Only the latest release on PyPI and the
 Symphony runs language-model output against real tools. Be aware of the
 following before deploying it:
 
-- `symphony-code` executes shell commands (`bash`), writes files, and spawns
-  child agents inside the workspace you point it at. Approval prompts gate
-  `bash`, file overwrites, and broad patches, but there is **no sandbox or
-  container isolation**: the agent runs with your user's permissions on your
-  machine. Treat it like any other tool that runs code on your behalf.
-- Workspace tools reject paths that resolve outside the workspace root, but
-  `bash` itself is not confined to that root.
-- Child agents use the shared workspace and run without per-tool approval
+- `symphony-code` executes shell commands (`bash`), reads and writes any path
+  the process can reach, and spawns child agents. The directory you launch
+  from is only the default for relative paths, bash cwd, and `.symphony`
+  state. Absolute and `~` paths are allowed. Approval prompts gate `bash`,
+  file overwrites, and broad patches, but there is **no sandbox, path jail,
+  or container isolation**: the agent runs with your user's permissions on
+  your machine. Treat it like any other tool that runs code on your behalf.
+- Child agents share the same filesystem and run without per-tool approval
   prompts. `spawn_agent` starts background work by default in `symphony-code`;
   a returned child ID acknowledges startup, not completion. The runtime delivers
   results automatically and waits before final completion. Closing a child
   transcript does not stop it; use Ctrl+X in that view to cancel that child.
   Cancelling the parent run, hitting its limits, or exiting the TUI stops its
   managed children. Background execution does not add filesystem isolation.
-- Provider API keys are read from the environment, a workspace `.env`, or
-  `~/.symphony/.env`. Keep those files out of version control.
+- Provider API keys are read from the environment, a working-directory `.env`,
+  or `~/.symphony/.env`. Keep those files out of version control.
 - `core-server` denies browser origins by default and enforces request-size
   limits, but it has no authentication of its own. Put it behind your own
   auth layer before exposing it.
 
 Reports about the trust model itself (for example, ways to bypass approval
-prompts or escape the workspace via a tool) are in scope and welcome.
+prompts) are in scope and welcome.

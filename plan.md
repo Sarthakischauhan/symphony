@@ -1,5 +1,7 @@
 # Symphony Plan
 
+- [x] Implement local skills and plugin discovery/loading (see `coding_agent/skills-plugins-plan.md`); hot unloading and package installation remain out of scope.
+
 What is in the tree today, and what is next. Everything in "Current state" is
 verifiable against `main`; anything not yet built lives under "Open backlog".
 Update this file in the PR that changes the facts.
@@ -16,13 +18,14 @@ Update this file in the PR that changes the facts.
 ## 1. Goal
 
 Ship a reusable agent stack where the harness is product-agnostic and every
-UI is driven by one typed control-plane event stream:
+UI is driven by one typed control-plane event stream. The plane observes,
+drives, and authorizes; it does not persist, compact, or spawn.
 
 | Layer | Package | Role |
 | --- | --- | --- |
 | Providers | `core_ai` | Provider registry, generated model catalog, `Message` / `StreamEvent` |
 | Loop | `core_harness` | Multi-turn tool loop, control plane, limits, compaction, add-ons, subagents |
-| Product | `coding_agent` | Workspace coding agent (tools, SQLite sessions, Textual TUI, learning) |
+| Product | `coding_agent` | Workspace coding agent (tools, JSONL sessions, Textual TUI, learning) |
 | Transport | `core_server` | FastAPI wrapper that streams harness events over SSE |
 
 ---
@@ -53,30 +56,32 @@ UI is driven by one typed control-plane event stream:
 - Tool protocol: every call ends `success`, `error`, `timeout`, or
   `cancelled`; results are bounded at insert time; stale tool bodies can be
   pruned on a copy of the conversation.
-- Control plane: `ControlPlaneEventType` covers run/turn lifecycle,
-  `text_delta`, `reasoning_delta`, `model_retry_scheduled`, tool calls,
-  `usage`, `context`, compaction, pause/resume, message injection, and
-  `agent_*` subagent lifecycle. `IdentifiedControlPlane` stamps `run_id`,
-  `session_id`, `seq`, `ts`, `schema_version`, `agent_id`, `parent_id`.
-  Inbound commands: cancel, pause, resume, inject message.
+- Event sink: `EventSink.emit` (default records in memory). The harness
+  stamps `run_id`, `session_id`, `seq`, `ts`, `schema_version`, `agent_id`,
+  `parent_id` on every event. Catalog: `ControlPlaneEventType` (run/turn
+  lifecycle, deltas, tools, usage, context, compaction, injection,
+  `agent_*`). Cancel a run by cancelling the `asyncio.Task`; that emits
+  `run_cancelled` / `HarnessCancelled`.
 - Limits: `max_turns`, `max_tool_calls`, `max_runtime_seconds`, `max_tokens`
-  → `run_limit_exceeded` / `HarnessLimitExceeded`. Cancellation stops model
-  streams and tools and emits `run_cancelled`.
-- Add-ons (`Addon` with `before_turn` / `after_turn` / `on_tool` /
-  `on_compact` / `fork_for_child`): `PersistenceAddon`, `CompactionAddon`
-  (+ template `KeepSystemRecentCompactor` and exported `plan_keep_drop`),
-  `TelemetryAddon` (protocol seam only; `NullTelemetry`), `SubagentAddon`.
+  → `run_limit_exceeded` / `HarnessLimitExceeded`.
+- Add-ons (`Addon` with `before_run` / `before_turn` / `before_tool` /
+  `after_turn` / `after_run` / `on_tool` / `on_compact` / `fork_for_child`):
+  `PersistenceAddon`, `CompactionAddon` (+ template
+  `KeepSystemRecentCompactor` and exported `plan_keep_drop`),
+  `SubagentAddon`. `before_tool` may return a deny reason. There is no
+  telemetry exporter and no skill loader.
 - Subagents: `CoreHarness.spawn()` / `spawn_agent`; lifecycle events on the
-  parent plane; child events tagged with `agent_id` / `parent_id`; parallel
+  parent sink; child events tagged with `agent_id` / `parent_id`; parallel
   children (up to three per turn); `max_spawn_depth`.
 - Parallel tool execution for tools that opt in (`max_parallel_tool_calls`).
-- Approval gate: an interactive plane can implement `approve_tool_call` and
-  `request_user_input`; the harness calls the gate before invoking a tool.
+- Approval is product-owned. `symphony-code` mounts `ApprovalAddon`
+  (`before_tool`); children skip it. The harness does not authorize tools.
 
 ### `coding_agent` (symphony-code)
 
 Tools, one module each under `WorkspaceTool` (`tools/base.py`), which binds a
-workspace root, rejects path escapes, and generates pydantic schemas:
+working directory for relative paths and generates pydantic schemas. Absolute
+and `~` paths are allowed:
 
 | Tool | Module | Purpose |
 | --- | --- | --- |
@@ -89,11 +94,13 @@ workspace root, rejects path escapes, and generates pydantic schemas:
 | `ask_user` | `tools/ask_user.py` | Clarifying questions through the control plane |
 | `spawn_agent` | via `SubagentAddon` | Focused child agent |
 
-- Default add-ons (`agent.default_addons`): `PersistenceAddon` (SQLite),
+- Default add-ons (`agent.default_addons`): `PersistenceAddon` (JSONL),
   `AiCompactionAddon` (`InferenceCompactor`: harness keep/drop plan + a
   model-written summary of dropped work), `SubagentAddon`.
-- Approvals (`ApprovalConfig`): ask before `bash`, overwrite, or a broad patch;
-  `always_allow` mode; allow-once answers.
+- Approvals (`coding_agent.approvals.ApprovalPolicy` + `ApprovalConfig`):
+  ask before `bash`, overwrite, or a broad patch; `always_allow` mode;
+  allow-once answers. The TUI renders the question; it does not own the
+  rules. Children still run without per-tool prompts (`SECURITY.md`).
 - Config: `.symphony/config.json` → `CodingAgentConfig` (harness, approvals,
   tools, learning, compaction). Defaults: 24 turns, 40 tool calls, 10 minutes.
 - Credentials: environment, workspace `.env`, `~/.symphony/.env`; first-run
@@ -138,9 +145,10 @@ workspace root, rejects path escapes, and generates pydantic schemas:
 
 1. **One tool per file.** Same shape everywhere (`WorkspaceTool` + `run` + register).
 2. **Harness stays product-agnostic.** Coding-agent specifics live in `coding_agent`.
-3. **Workspace root, not a sandbox.** File tools resolve under a root and
-   reject escapes. `bash` runs with the user's permissions behind an approval
-   prompt. There is no container or OS-level isolation; do not describe one.
+3. **Working directory, not a jail.** Relative paths and bash cwd start at
+   the launch directory. Absolute and `~` paths are allowed. Approval prompts
+   gate `bash`, overwrites, and broad patches. There is no container or
+   OS-level isolation; do not describe one.
 4. **Control plane for UX.** UIs subscribe to events; nothing scrapes stdout.
 5. **Tests without keys.** Providers are mocked; no test calls a live API.
 6. **Generated code is script-owned.** `generated.py` is refreshed by a
@@ -150,28 +158,80 @@ workspace root, rejects path escapes, and generates pydantic schemas:
 
 ## 4. Open backlog
 
-Nothing below exists in the tree yet.
+Nothing below exists in the tree yet. Items under **Symphony-later** are
+specified so a later `symphony` run on this repo can implement them; they are
+not part of 0.1.0.
+
+### Symphony-later
+
+These are product features the agent can build on itself after 0.1.0 ships.
+Do not start them in the release cut. Each item is one focused PR.
+
+**Durable memory.** Today `LearningStore` appends
+`.symphony/learning/lessons.jsonl` and injects the most recent lessons into
+the next system prompt. There is no retrieval and no curated playbook.
+
+- Keep the JSONL lesson log as the source of truth. Do not add a vector
+  database for the first version of this work.
+- Select lessons by task overlap (simple token/overlap score is enough),
+  not "last N".
+- Add a periodic synthesis pass that consolidates many lessons into
+  `.symphony/learning/playbook.md` and injects that instead of the raw tail.
+- Add a reviewed/trusted flag on a lesson. Unreviewed lessons stay
+  available but ranked below reviewed ones.
+- Tests: mock the provider; never call a live API.
+
+**Skills / plugin add-on.** Today add-ons are constructed in Python and
+passed to `CoreHarness`. There is no directory discovery.
+
+Detailed implementation and acceptance criteria:
+[Skills and plugins plan](coding_agent/skills-plugins-plan.md).
+
+- Discover skill metadata under `.symphony/skills/` and `~/.symphony/skills/`;
+  a product `SkillsAddon` supplies the catalog and explicit read-only skill roots.
+  Reuse `read_file` for instructions and references; add no skill-loading tools.
+  Extend only its read boundary, keeping writes and other tools unchanged.
+- Add local plugin manifests that package skills and optional existing-style
+  addon factories. Resolve plugins in `coding_agent` before harness construction;
+  do not introduce another runtime or replace the control plane.
+- Keep skills as instruction resources. Never import Python or execute scripts
+  merely because a skill was discovered or loaded.
+- Require explicit enablement and host authorization before importing executable
+  plugins. Discuss this trust-model addition before implementation and update
+  `SECURITY.md` when shipped. Model-facing actions retain existing approval paths.
+- Deliver skill resources, agent integration, local plugin loading, and docs in
+  focused phases. Remote installation, marketplaces, and hot reload are deferred.
+
+**Compaction as a view.** Today compaction rewrites message entries in the
+JSONL session. The TUI already hides compacted context from the transcript.
+
+- Append a `compaction` record (summary + which messages dropped). Never
+  delete user-visible messages from the log.
+- `load_conversation` for the model projects the compact view (Pi-style
+  `convertToLlm`). Resume and the TUI read the full log.
+- Token deltas stay unstored.
+
+**Approval remainder.** Policy lives in `ApprovalAddon` (`before_tool`).
+Children skip the add-on.
+
+- Typed authorization request/decision objects (allow/deny/reason, no
+  implicit approve on empty/cancel).
+- Per-run question IDs; stale answers cannot authorize another call.
+- Child permission inheritance is a trust-model change: discuss and update
+  `SECURITY.md` before spawning children with the parent's ask-mode.
 
 ### Coding agent
 
 - Configurable tool allowlist / denylist (today: approvals only, no way to
   disable a tool from config).
-- Pause / resume keybindings in the TUI (the harness supports the commands and
-  the TUI renders `paused`, but only `ask_user` pauses today).
-- Repository-structure context for the model (a token-budgeted repo map or a
-  symbol index). No AST layer, `ast_query`, or `RepositoryContextProvider`
-  exists; earlier versions of this file described one that was never merged.
-- Richer lesson synthesis: consolidating many lessons into a curated playbook
-  rather than replaying the most recent ones.
-- Reviewed / trusted lesson tiers (all stored lessons are currently treated
-  the same).
+- Repository-structure context for the model (a token-budgeted repo map).
+  No AST layer exists; earlier versions of this file described one that was
+  never merged.
 
 ### Harness
 
-- A concrete `Telemetry` implementation (JSONL or OTel trace export). The
-  add-on seam exists; there is no exporter.
-- Skills / add-on discovery (today add-ons are attached explicitly; there is
-  no loader).
+- A concrete telemetry exporter (JSONL or OTel). There is no telemetry
+  add-on in the tree today.
 
 ### Server
 
@@ -190,7 +250,8 @@ Nothing below exists in the tree yet.
 
 - Full IDE / LSP integration.
 - Remote sandbox / container isolation for `bash`.
-- Replacing the harness control plane with a UI-only event bus.
+- Putting approval, cancel, or pause back onto the harness event sink.
+- A plugin loader or durable memory system in 0.1.0.
 - Perfect ripgrep parity in `search` (Python search is enough for v1).
 
 ---

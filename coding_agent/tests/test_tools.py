@@ -22,7 +22,7 @@ from coding_agent.tools import (
     build_tools,
 )
 from coding_agent.config import ReadFileConfig
-from coding_agent.tui.runtime import TextualControlPlane
+from coding_agent.tui.runtime import TextualEventSink
 from coding_agent.tui.tools import GenerateImageWidget
 from coding_agent.tui.tools import ReadFileWidget
 from coding_agent.tui.tools import ToolCallWidget
@@ -76,7 +76,7 @@ def test_read_file_returns_image_parts_by_type(tmp_path: Path) -> None:
     assert tool.run("data.bin").startswith("error: file is not valid UTF-8 text")
 
     wrapped = tool.as_harness_tool()
-    executed = asyncio.run(wrapped.execute(control_plane=None, args={"path": "shot.png"}))
+    executed = asyncio.run(wrapped.execute(sink=None, args={"path": "shot.png"}))
     assert isinstance(executed, list)
     assert executed[1]["type"] == "image"
 
@@ -102,7 +102,7 @@ def test_write_file_preserves_whitespace_through_validation(tmp_path: Path) -> N
     assert args.path == "a.py"
     assert args.content == "    x = 1\n\n"
     tool = WriteFileTool(tmp_path).as_harness_tool()
-    result = asyncio.run(tool.execute(control_plane=None, args=args.model_dump()))
+    result = asyncio.run(tool.execute(sink=None, args=args.model_dump()))
     assert result.startswith("wrote a.py")
     assert (tmp_path / "a.py").read_text(encoding="utf-8") == "    x = 1\n\n"
 
@@ -126,7 +126,7 @@ def test_generate_image_writes_file_and_returns_image_parts(tmp_path: Path) -> N
     wrapped = tool.as_harness_tool()
     executed = asyncio.run(
         wrapped.execute(
-            control_plane=None,
+            sink=None,
             args={"prompt": "a red square", "path": "assets/icon.png"},
         )
     )
@@ -141,7 +141,11 @@ def test_generate_image_rejects_non_image_paths_and_missing_provider(tmp_path: P
 
     tool = GenerateImageTool(tmp_path, generate=fake_generate)
     assert "path must end in" in asyncio.run(tool.run("a cat", "notes.txt"))
-    assert "escapes workspace" in asyncio.run(tool.run("a cat", "../out.png"))
+    outside = tmp_path / "elsewhere" / "out.png"
+    written = asyncio.run(tool.run("a cat", str(outside)))
+    assert isinstance(written, list)
+    assert "Wrote image" in written[0]["text"]
+    assert outside.is_file()
 
     class EmptyRegistry:
         async def generate_image(self, prompt: str, **kwargs: object) -> tuple[bytes, str]:
@@ -171,14 +175,17 @@ def test_generate_image_widget_summarizes_and_opens_preview(tmp_path: Path) -> N
 
 
 def test_generate_image_overwrite_asks_for_approval(tmp_path: Path) -> None:
+    from coding_agent.approvals import ApprovalPolicy
+
     (tmp_path / "icon.png").write_bytes(PNG_1X1)
-    plane = TextualControlPlane(workspace=tmp_path)
-    prompt = plane._approval_prompt(
-        "generate_image", {"path": "icon.png", "prompt": "a cat"}
+    plane = TextualEventSink(workspace=tmp_path)
+    policy = ApprovalPolicy(tmp_path)
+    prompt = policy.prompt_for(
+        plane.approvals, "generate_image", {"path": "icon.png", "prompt": "a cat"}
     )
     assert "Overwrite" in prompt
-    fresh = plane._approval_prompt(
-        "generate_image", {"path": "new.png", "prompt": "a cat"}
+    fresh = policy.prompt_for(
+        plane.approvals, "generate_image", {"path": "new.png", "prompt": "a cat"}
     )
     assert fresh == ""
 
@@ -203,9 +210,15 @@ def test_search_file_names(tmp_path: Path) -> None:
     assert "notes.txt" not in result
 
 
-def test_search_rejects_escape_and_bad_regex(tmp_path: Path) -> None:
-    search = SearchTool(tmp_path)
-    assert "escapes workspace" in search.run(query="x", path="../outside")
+def test_search_outside_working_dir_and_bad_regex(tmp_path: Path) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "hit.txt").write_text("needle\n", encoding="utf-8")
+    search = SearchTool(cwd)
+    result = search.run(query="needle", path=str(outside))
+    assert "hit.txt" in result
     assert search.run(query="[", regex=True).startswith("error: invalid regex")
 
 
@@ -216,6 +229,19 @@ def test_patch_keeps_unique_match_contract(tmp_path: Path) -> None:
     assert "matched 2 times" in patch.run("a.txt", "x", "y")
     assert patch.run("a.txt", "x", "y", replace_all=True).startswith("patched")
     assert path.read_text(encoding="utf-8") == "y\ny\n"
+
+
+def test_tools_read_and_write_outside_working_directory(tmp_path: Path) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    outside = tmp_path / "elsewhere" / "note.txt"
+    outside.parent.mkdir()
+    outside.write_text("hello\n", encoding="utf-8")
+    read = ReadFileTool(cwd)
+    assert "hello" in read.run(str(outside))
+    writer = WriteFileTool(cwd)
+    assert writer.run("../elsewhere/note.txt", "bye\n").startswith("wrote")
+    assert outside.read_text(encoding="utf-8") == "bye\n"
 
 
 def test_bash_is_async_and_does_not_use_blocking_run() -> None:
@@ -229,7 +255,7 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
 
     async def _run() -> None:
         capped = await tool.execute(
-            control_plane=None,
+            sink=None,
             args={"command": "python3 -c \"print('x' * 80_000)\""},
         )
         assert "truncated" in capped
@@ -237,7 +263,7 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
 
         started = time.monotonic()
         timed_out = await tool.execute(
-            control_plane=None,
+            sink=None,
             args={
                 "command": (
                     "python3 -c \"import sys,time; print('HELLO_BEFORE_SLEEP', "
@@ -252,13 +278,13 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
         assert time.monotonic() - started < 5
 
         failed = await tool.execute(
-            control_plane=None,
+            sink=None,
             args={"command": "python3 -c \"import sys; sys.exit(7)\""},
         )
         assert failed.startswith("exit=7")
 
         tail = await tool.execute(
-            control_plane=None,
+            sink=None,
             args={
                 "command": (
                     "python3 -c \"print('HEAD_MARKER'); print('y' * 80_000); "
@@ -278,7 +304,7 @@ def test_bash_cancel_kills_process_group(tmp_path: Path) -> None:
     async def _run() -> None:
         task = asyncio.create_task(
             tool.execute(
-                control_plane=None,
+                sink=None,
                 args={"command": "sleep 30", "timeout": 30},
             )
         )
@@ -295,28 +321,32 @@ def test_bash_cancel_kills_process_group(tmp_path: Path) -> None:
 
 
 def test_control_plane_approval_policy_and_always_allow(tmp_path: Path) -> None:
+    from coding_agent.approvals import ApprovalAddon, ApprovalPolicy
+
     (tmp_path / "existing.txt").write_text("old", encoding="utf-8")
-    plane = TextualControlPlane(workspace=tmp_path)
-    prompt = plane._approval_prompt("bash", {"command": "ls"})
+    plane = TextualEventSink(workspace=tmp_path)
+    policy = ApprovalPolicy(tmp_path)
+    prompt = policy.prompt_for(plane.approvals, "bash", {"command": "ls"})
     assert "ls" in prompt
-    overwrite_prompt = plane._approval_prompt(
-        "write_file", {"path": "existing.txt"}
+    overwrite_prompt = policy.prompt_for(
+        plane.approvals, "write_file", {"path": "existing.txt"}
     )
     assert "Overwrite" in overwrite_prompt
-    broad = plane._approval_prompt(
+    broad = policy.prompt_for(
+        plane.approvals,
         "patch",
         {"path": "existing.txt", "old_str": "x" * 500, "new_str": "y", "replace_all": False},
     )
     assert broad
-    surgical = plane._approval_prompt(
+    surgical = policy.prompt_for(
+        plane.approvals,
         "patch",
         {"path": "existing.txt", "old_str": "old", "new_str": "new", "replace_all": False},
     )
     assert not surgical
     plane.set_approval_mode("always_allow")
-    assert asyncio.run(
-        plane.approve_tool_call(tool_name="bash", arguments={"command": "echo hi"})
-    )
+    addon = ApprovalAddon(tmp_path, plane)
+    assert asyncio.run(addon.before_tool(tool_name="bash", arguments={"command": "echo hi"})) is None
 
 
 def test_tool_widget_only_treats_error_prefix_as_failed() -> None:

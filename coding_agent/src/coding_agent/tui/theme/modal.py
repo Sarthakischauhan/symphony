@@ -328,6 +328,113 @@ DiffModal {
 """
 
 # --- learning.py ---
+EXTENSIONS_MODAL_CSS = MODAL_BASE_CSS + """
+ExtensionsModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.68);
+}
+#extensions-pane {
+    width: 86%;
+    max-width: 128;
+    height: 82%;
+    padding: 0 2;
+    background: #0a0a0a;
+    border: round #353535;
+}
+#extensions-header {
+    width: 100%;
+    height: 4;
+    min-height: 4;
+    padding: 1 1 0 1;
+    border-bottom: solid #2b2b2b;
+    background: #0a0a0a;
+}
+#extensions-title {
+    width: 1fr;
+    color: #e0e0e0;
+    text-style: bold;
+}
+#extensions-counter {
+    width: auto;
+    padding-right: 2;
+    color: #818181;
+}
+#extensions-header #modal-close {
+    dock: none;
+    width: auto;
+    min-width: 11;
+    color: #818181;
+    background: #0a0a0a;
+}
+#extensions-header #modal-close:hover,
+#extensions-header #modal-close:focus {
+    color: #f2d675;
+    background: #171717;
+}
+#extensions-subtitle {
+    width: 100%;
+    height: 2;
+    padding: 0 1;
+    color: #737373;
+    background: #0a0a0a;
+}
+#extensions-body {
+    padding: 0 1 1 1;
+    background: #0a0a0a;
+}
+.extensions-section {
+    width: 100%;
+    height: 2;
+    margin: 1 0 0 0;
+    padding: 0 1;
+    color: #f2d675;
+    text-style: bold;
+    background: #0a0a0a;
+}
+.extension-card {
+    width: 100%;
+    height: auto;
+    min-height: 6;
+    margin-bottom: 1;
+    padding: 1 2;
+    background: #151515;
+    border-left: thick #343434;
+}
+.extension-card:hover {
+    border-left: thick #f2d675;
+    background: #191919;
+}
+.extension-card-header {
+    width: 100%;
+    height: 2;
+}
+.extension-name {
+    width: 1fr;
+    color: #dedede;
+    text-style: bold;
+}
+.extension-origin,
+.extension-status {
+    width: auto;
+    color: #f2d675;
+    text-style: bold;
+}
+.extension-status.disabled {
+    color: #a06b6b;
+}
+.extension-description {
+    width: 100%;
+    height: auto;
+    color: #bdbdbd;
+}
+.extension-path {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    color: #707070;
+}
+"""
+
 LEARNING_MODAL_CSS = MODAL_BASE_CSS + """
 LearningModal {
     align: center middle;

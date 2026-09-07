@@ -19,7 +19,7 @@ class BashArgs(ToolArgsModel):
         ...,
         min_length=1,
         description=(
-            "Shell command to run with cwd set to the workspace root "
+            "Shell command to run with cwd set to the working directory "
             "(e.g. 'python -m pytest', 'ls -la')."
         ),
     )
@@ -33,7 +33,7 @@ class BashArgs(ToolArgsModel):
 class BashTool(WorkspaceTool):
     name = "bash"
     description = (
-        "Run a shell command inside the workspace directory and return combined "
+        "Run a shell command in the working directory and return combined "
         "stdout/stderr. Use for builds, tests, git, package managers, and other CLI work. "
         "Non-zero exits are returned as text (prefixed with exit=N), not as a tool failure. "
         "Timeouts include captured output. Output is capped to the last bytes. "

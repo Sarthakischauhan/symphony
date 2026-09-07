@@ -17,7 +17,7 @@ surface is listed in the [package README](../../core_harness/README.md).
 import asyncio
 from pathlib import Path
 from core_ai import build_default_registry, default_model_id
-from core_harness import CoreHarness, HarnessConfig, NullControlPlane, Tool
+from core_harness import CoreHarness, HarnessConfig, EventSink, Tool
 
 WORKSPACE = Path(".")
 
@@ -30,19 +30,19 @@ def read_file(path: str) -> str:
 
 async def main() -> None:
     registry = build_default_registry()
-    control_plane = NullControlPlane()
+    sink = EventSink()
     harness = CoreHarness(
         registry=registry,
         model_id=default_model_id(registry),
         system_prompt="You are a concise assistant. Use tools when they help.",
         config=HarnessConfig(max_turns=8, max_tool_calls=12, max_runtime_seconds=120),
         tools=[Tool(read_file)],
-        control_plane=control_plane,
+        sink=sink,
         session_id="example-session",
     )
     result = await harness.run("Inspect README.md and summarize it in three bullets.")
     print(result.output_text)
-    for event in control_plane.events:
+    for event in sink.events:
         print(event.event_type)
 
 asyncio.run(main())
@@ -68,7 +68,7 @@ harness.register_tool(
 )
 ```
 
-A tool may declare a `control_plane` parameter. The harness injects the active
+A tool may declare a `sink` parameter. The harness injects the active
 plane; it is not a model argument. Tool results are bounded to 4,000 characters
 at insert time (40/60 head/tail) unless you set `tool_result_max_chars=None`.
 
@@ -107,28 +107,22 @@ result = await parent.spawn(
 ## Limits and cancellation
 
 Pass a `HarnessConfig` or a JSON file path. The harness raises
-`HarnessCancelled` on cancel and `HarnessLimitExceeded` when a cap is hit.
-Inbound commands: pause, resume, inject a message, cancel.
+`HarnessCancelled` when the run task is cancelled and `HarnessLimitExceeded`
+when a cap is hit. Cancel a run by cancelling that task:
 
 ```python
-from core_harness import ControlCommand
-
-await control_plane.send_command(ControlCommand.pause())
-await control_plane.send_command(ControlCommand.resume())
-await control_plane.send_command(ControlCommand.cancel("user stopped the run"))
+task = asyncio.create_task(harness.run("…"))
+task.cancel()
 ```
 
-## Control planes
+## Events
 
-- `NullControlPlane` — records events, accepts inbound commands. Default.
-- `InteractiveControlPlane` — optional subscribers / event log.
-- `FanoutControlPlane` — send to multiple planes in order.
-- `PersistingControlPlane` — appends to an `EventLog`.
-- `IdentifiedControlPlane` — stamps `run_id`, `session_id`, `agent_id`,
-  `parent_id`, seq, ts, schema version.
+`EventSink` is an event sink (`emit`) plus optional `request_user_input`
+for product tools such as `ask_user`. Persistence, compaction, and spawn are
+add-ons. Tools run unless a `before_tool` add-on denies them. The harness
+stamps `run_id`, `session_id`, `agent_id`, `parent_id`, seq, ts, and schema
+version on every event. `EventSink` is an alias of `EventSink`.
 
-Observation-only integrations implement `emit(event_type, payload)`.
-Interactive planes can implement `request_user_input` and `approve_tool_call`.
 The full catalog is on [Control-plane events](../developer-guide/events.md).
 
 ## Context

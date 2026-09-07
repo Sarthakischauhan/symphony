@@ -10,20 +10,17 @@ import pytest
 
 from core_ai.types import Message, StreamEvent
 from core_harness import (
-    ControlCommand,
-    ControlPlane,
+    Addon,
     CoreHarness,
     EVENT_SCHEMA_VERSION,
     HarnessCancelled,
     HarnessConfig,
     HarnessLimitExceeded,
-    IdentifiedControlPlane,
-    NullControlPlane,
+    EventSink,
     NullPersistence,
     Tool,
 )
 from core_harness.addons.persistence import Checkpoint, PersistenceAddon
-from core_harness.models import ControlPlaneEvent
 
 
 IDENTITY_KEYS = ("run_id", "session_id", "agent_id", "parent_id", "seq", "ts", "schema_version")
@@ -100,9 +97,9 @@ def _harness(
     max_runtime_seconds: Optional[float] = None,
     max_tokens: Optional[int] = None,
     persistence: Any = None,
-    control_plane: Any = None,
+    sink: Any = None,
 ) -> tuple[Any, Any, CoreHarness]:
-    plane = control_plane or NullControlPlane()
+    plane = sink or EventSink()
     addons = []
     if persistence is not None:
         addons.append(PersistenceAddon(persistence))
@@ -117,7 +114,7 @@ def _harness(
             max_tokens=max_tokens,
         ),
         tools=tools or [],
-        control_plane=plane,
+        sink=plane,
         addons=addons or None,
     )
     return registry, plane, harness
@@ -170,7 +167,7 @@ def test_tool_exception_returns_error_result() -> None:
     assert plane.events[-1].event_type == "run_completed"
 
 
-def test_control_plane_can_deny_tool_before_execution() -> None:
+def test_before_tool_addon_can_deny_tool_before_execution() -> None:
     registry = ScriptedRegistry([_tool_turn("mutate"), _text_turn("denied")])
     executed: list[bool] = []
 
@@ -178,14 +175,21 @@ def test_control_plane_can_deny_tool_before_execution() -> None:
         executed.append(True)
         return "changed"
 
-    class DenyingPlane(NullControlPlane):
-        async def approve_tool_call(self, **_: Any) -> bool:
-            return False
+    class DenyingAddon(Addon):
+        name = "deny"
 
-    _, plane, harness = _harness(
-        registry,
+        async def before_tool(self, **_: Any) -> str:
+            return "tool call denied by user"
+
+    plane = EventSink()
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="system",
+        config=HarnessConfig(max_turns=8),
         tools=[Tool(mutate)],
-        control_plane=DenyingPlane(),
+        sink=plane,
+        addons=[DenyingAddon()],
     )
     result = asyncio.run(harness.run("go"))
 
@@ -196,49 +200,24 @@ def test_control_plane_can_deny_tool_before_execution() -> None:
     assert "PermissionError" in completed[0].payload["result"]
 
 
-def test_control_plane_without_approve_override_denies_tool() -> None:
-    registry = ScriptedRegistry([_tool_turn("mutate"), _text_turn("denied")])
+def test_bare_harness_allows_tools_without_an_approval_addon() -> None:
+    registry = ScriptedRegistry([_tool_turn("mutate"), _text_turn("ok")])
     executed: list[bool] = []
 
     def mutate() -> str:
         executed.append(True)
         return "changed"
 
-    class RecordingPlane(ControlPlane):
-        def __init__(self) -> None:
-            self.events: list[Any] = []
-
-        async def emit(self, event_type: Any, payload: dict[str, Any]) -> None:
-            self.events.append(ControlPlaneEvent.typed(event_type, payload))
-
-    _, plane, harness = _harness(
-        registry,
-        tools=[Tool(mutate)],
-        control_plane=RecordingPlane(),
-    )
+    _, plane, harness = _harness(registry, tools=[Tool(mutate)])
     result = asyncio.run(harness.run("go"))
 
-    assert executed == []
-    assert result.output_text == "denied"
-    assert result.tool_calls[0].result_status == "error"
-    completed = [e for e in plane.events if e.event_type == "tool_execution_completed"]
-    assert completed[0].payload["status"] == "error"
-    assert "PermissionError" in completed[0].payload["result"]
+    assert executed == [True]
+    assert result.output_text == "ok"
+    assert result.tool_calls[0].result_status == "success"
+    assert plane.events[-1].event_type == "run_completed"
 
 
-def test_identified_plane_does_not_auto_allow_missing_approve() -> None:
-    class EmitOnly(ControlPlane):
-        async def emit(self, event_type: Any, payload: dict[str, Any]) -> None:
-            del event_type, payload
-
-    plane = IdentifiedControlPlane(EmitOnly(), run_id="r", session_id="s")
-    allowed = asyncio.run(
-        plane.approve_tool_call(tool_name="bash", arguments={"command": "id"})
-    )
-    assert allowed is False
-
-
-def test_every_parallel_tool_call_gets_a_result_on_cancel() -> None:
+def test_cancelling_the_run_task_stops_parallel_tools() -> None:
     events = [
         StreamEvent(type="toolcall_start", content_index=0, tool_call_id="a", tool_name="hold"),
         StreamEvent(type="toolcall_delta", content_index=0, delta="{}"),
@@ -248,7 +227,7 @@ def test_every_parallel_tool_call_gets_a_result_on_cancel() -> None:
         StreamEvent(type="done"),
     ]
     registry = ScriptedRegistry([events])
-    plane = NullControlPlane()
+    plane = EventSink()
 
     async def hold() -> str:
         await asyncio.sleep(30)
@@ -260,22 +239,18 @@ def test_every_parallel_tool_call_gets_a_result_on_cancel() -> None:
     _, _, harness = _harness(
         registry,
         tools=[Tool(hold), Tool(second)],
-        control_plane=plane,
+        sink=plane,
     )
 
     async def _run() -> None:
         task = asyncio.create_task(harness.run("go"))
         await asyncio.sleep(0.05)
-        await plane.send_command(ControlCommand.cancel(reason="stop-tools"))
+        task.cancel()
         await task
 
-    with pytest.raises(HarnessCancelled, match="stop-tools"):
+    with pytest.raises(HarnessCancelled, match="cancelled"):
         asyncio.run(_run())
 
-    completed = [e for e in plane.events if e.event_type == "tool_execution_completed"]
-    assert len(completed) == 2
-    assert {e.payload["status"] for e in completed} <= {"cancelled", "success"}
-    assert any(e.payload["status"] == "cancelled" for e in completed)
     assert plane.events[-1].event_type == "run_cancelled"
 
 
@@ -288,27 +263,27 @@ def test_cancel_stops_active_model_stream_and_persists() -> None:
             yield StreamEvent(type="done")
 
     persistence = RecordingPersistence()
-    plane = NullControlPlane()
+    plane = EventSink()
     _, _, harness = _harness(
         SlowRegistry(),
         persistence=persistence,
-        control_plane=plane,
+        sink=plane,
     )
 
     async def _run() -> None:
         task = asyncio.create_task(harness.run("go"))
         await asyncio.sleep(0.05)
-        await plane.send_command(ControlCommand.cancel(reason="user_cancel"))
+        task.cancel()
         await asyncio.wait_for(task, timeout=2)
 
     started = time.monotonic()
-    with pytest.raises(HarnessCancelled, match="user_cancel"):
+    with pytest.raises(HarnessCancelled, match="cancelled"):
         asyncio.run(_run())
     assert time.monotonic() - started < 2
     assert plane.events[-1].event_type == "run_cancelled"
     assert persistence.checkpoints
     assert persistence.checkpoints[-1].status == "cancelled"
-    assert persistence.checkpoints[-1].metadata["reason"] == "user_cancel"
+    assert persistence.checkpoints[-1].metadata["reason"] == "cancelled"
     _assert_identity(plane.events)
 
 

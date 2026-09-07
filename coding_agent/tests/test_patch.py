@@ -13,7 +13,7 @@ from coding_agent.tools import PatchArgs, PatchTool
 
 
 async def invoke(tool, **kwargs):
-    return await tool.execute(control_plane=None, args=kwargs)
+    return await tool.execute(sink=None, args=kwargs)
 
 
 def test_patch_args_preserve_whitespace() -> None:
@@ -91,15 +91,18 @@ def test_patch_utf8_content(tmp_path: Path) -> None:
     assert (tmp_path / "u.txt").read_text(encoding="utf-8") == "☕\n"
 
 
-def test_patch_path_escape_rejected(tmp_path: Path) -> None:
-    tool = PatchTool(tmp_path).as_harness_tool()
-    result = asyncio.run(
-        invoke(tool, path="../outside.txt", old_str="a", new_str="b")
-    )
-    assert "escapes workspace" in result
+def test_patch_outside_working_directory(tmp_path: Path) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("a\n", encoding="utf-8")
+    tool = PatchTool(cwd).as_harness_tool()
+    result = asyncio.run(invoke(tool, path=str(outside), old_str="a", new_str="b"))
+    assert result.startswith("patched")
+    assert outside.read_text(encoding="utf-8") == "b\n"
 
 
-def test_patch_symlink_escape_rejected(tmp_path: Path) -> None:
+def test_patch_follows_symlink(tmp_path: Path) -> None:
     outside = tmp_path / "outside_dir"
     outside.mkdir()
     victim = outside / "secret.txt"
@@ -112,8 +115,8 @@ def test_patch_symlink_escape_rejected(tmp_path: Path) -> None:
 
     tool = PatchTool(workspace).as_harness_tool()
     result = asyncio.run(invoke(tool, path="link.txt", old_str="secret", new_str="x"))
-    assert "escapes workspace" in result or "error:" in result
-    assert victim.read_text(encoding="utf-8") == "secret\n"
+    assert result.startswith("patched")
+    assert victim.read_text(encoding="utf-8") == "x\n"
 
 
 def test_patch_write_failure(tmp_path: Path) -> None:

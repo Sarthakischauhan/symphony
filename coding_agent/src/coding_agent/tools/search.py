@@ -1,4 +1,4 @@
-"""Unified workspace search for file names and text content."""
+"""Unified search for file names and text content."""
 
 from __future__ import annotations
 
@@ -140,13 +140,23 @@ def is_ignored(path: Path, workspace: Path) -> bool:
     return False
 
 
+def _display_path(path: Path, base: Path) -> str:
+    try:
+        return path.relative_to(base).as_posix()
+    except ValueError:
+        return str(path)
+
+
 DEFAULT_SEARCH_CONFIG = SearchConfig()
 
 
 class SearchArgs(ToolArgsModel):
     query: str = Field(..., min_length=1, description="Text or regular expression to search for.")
     mode: str = Field(default="content", description="Search mode: 'content' or 'files'.")
-    path: str = Field(default=".", description="Workspace-relative file or directory to search.")
+    path: str = Field(
+        default=".",
+        description="File or directory to search. Relative paths start at the working directory.",
+    )
     glob: str = Field(default="", description="Optional file glob, for example '*.py'.")
     regex: bool = Field(default=False, description="Interpret query as a regular expression.")
     case_insensitive: bool = Field(default=False, description="Match without regard to case.")
@@ -157,9 +167,10 @@ class SearchArgs(ToolArgsModel):
 class SearchTool(WorkspaceTool):
     name = "search"
     description = (
-        "Search workspace file names or text content. Returns file paths for mode=files "
+        "Search file names or text content. Returns file paths for mode=files "
         "and path:line:content for mode=content. Supports literal or regex queries, "
-        "path/glob scoping, case-insensitive matching, and bounded output."
+        "path/glob scoping, case-insensitive matching, and bounded output. "
+        "Relative paths start at the working directory."
     )
     args_model = SearchArgs
 
@@ -211,18 +222,19 @@ class SearchTool(WorkspaceTool):
         limit = max(1, max_results)
         line_cap = max(1, max_line_chars)
         results: list[str] = []
-        files = list(self._iter_files(root, glob))
+        base = root if root.is_dir() else root.parent
+        files = list(self._iter_files(root, glob, base))
 
         if mode == "files":
             for file_path in files:
-                relative = file_path.relative_to(self.workspace).as_posix()
+                relative = _display_path(file_path, base)
                 if matcher.search(relative):
                     results.append(relative)
                     if len(results) >= limit:
                         break
         else:
             for file_path in files:
-                relative = file_path.relative_to(self.workspace).as_posix()
+                relative = _display_path(file_path, base)
                 for line_no, line in self._iter_text_lines(file_path):
                     if not matcher.search(line):
                         continue
@@ -240,12 +252,12 @@ class SearchTool(WorkspaceTool):
         suffix = " (capped)" if len(results) >= limit else ""
         return f"{len(results)} {mode} matches{suffix}\n" + "\n".join(results)
 
-    def _iter_files(self, root: Path, glob_pattern: str):
+    def _iter_files(self, root: Path, glob_pattern: str, base: Path):
         candidates = [root] if root.is_file() else sorted(root.rglob("*"))
         for candidate in candidates:
-            if not candidate.is_file() or not self._searchable(candidate):
+            if not candidate.is_file() or not self._searchable(candidate, base):
                 continue
-            relative = candidate.relative_to(self.workspace).as_posix()
+            relative = _display_path(candidate, base)
             if glob_pattern and not (
                 fnmatch.fnmatch(candidate.name, glob_pattern)
                 or fnmatch.fnmatch(relative, glob_pattern)
@@ -253,13 +265,16 @@ class SearchTool(WorkspaceTool):
                 continue
             yield candidate
 
-    def _searchable(self, path: Path) -> bool:
-        relative_parts = path.relative_to(self.workspace).parts
+    def _searchable(self, path: Path, base: Path) -> bool:
+        try:
+            relative_parts = path.relative_to(base).parts
+        except ValueError:
+            relative_parts = path.parts
         if any(part in DEFAULT_SKIP_DIRS for part in relative_parts):
             return False
         if any(part.startswith(".") for part in relative_parts):
             return False
-        return not is_ignored(path, self.workspace)
+        return not is_ignored(path, base)
 
     def _iter_text_lines(self, path: Path):
         try:

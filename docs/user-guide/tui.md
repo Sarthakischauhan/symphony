@@ -30,6 +30,20 @@ uv run --package symphony-code symphony --model gemini:gemini-3.7-flash
 | `/` | Slash-command palette |
 | `@` | Workspace file search (after whitespace) |
 
+## Run metrics
+
+Completed runs show a compact line such as
+`3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls`.
+The arrows indicate cumulative input and output tokens for the displayed agent's
+run; `k` and `M` abbreviate thousands and millions, and `~` marks estimated usage.
+Elapsed time covers the run, including tools and approval waits.
+
+Model calls count main-loop turns, excluding retry attempts, compaction, and
+learning requests. Tool calls count distinct calls reaching tool dispatch,
+including denied or failed calls, rather than streamed argument fragments.
+Child transcripts show their own metrics; the parent line does not aggregate
+child usage. Context usage remains available in the footer and `/context`.
+
 ## Tool transcript
 
 Completed tools fold into an expandable **Explored** widget in batches of 10.
@@ -67,10 +81,11 @@ searchable picker of saved workspace plans.
 
 ## Approvals
 
-The control plane owns approval, not wrapped tools. Default `approvals.mode`
-is `ask`. Choose **Allow once**, **Deny**, or **Always allow**. Always-allow
-is a **run-level** override — it applies to the current run and its children,
-and does not rewrite `.symphony/config.json`.
+Product policy (`coding_agent.approvals`) decides which tools need a prompt;
+the TUI only renders the question. Default `approvals.mode` is `ask`. Choose
+**Allow once**, **Deny**, or **Always allow**. Always-allow is a **run-level**
+override — it applies to the current run and its children, and does not
+rewrite `.symphony/config.json`.
 
 ## Subagent sessions
 
@@ -90,8 +105,8 @@ screen uses the parent's thought titles, tool widgets, 10-tool/final-completion
 folding, and usage footer. **Esc** or **q** returns to the parent without
 stopping the child; **Ctrl+X** inside the child screen cancels that child.
 
-Each child has a separate saved conversation and transcript update stream in
-the workspace's `sessions.sqlite3`, linked to the parent session. Resuming the
+Each child has a separate JSONL file under `.symphony/sessions/`, linked to
+the parent session. Resuming the
 parent restores its child list and transcripts. Closing the app stops its
 background children; after an unclean exit, unfinished saved children appear
 as **interrupted**. Saved transcripts are inspectable, but opening one does

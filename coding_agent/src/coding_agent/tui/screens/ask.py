@@ -52,7 +52,7 @@ class QuestionSurface:
         self._pending_question_default = ""
         self.query_one("#slash-menu", SlashMenu).set_commands(())
         self.query_one("#approval-menu", SlashMenu).set_commands(())
-        await self.control_plane.answer_user(request_id, answer)
+        await self.sink.answer_user(request_id, answer)
         self._ui_state.phase = "thinking" if self._busy else "idle"
         self._ui_state.detail = "resuming" if self._busy else "ready"
         prompt = self.query_one("#prompt", PromptInput)

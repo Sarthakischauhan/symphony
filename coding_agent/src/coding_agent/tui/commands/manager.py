@@ -9,7 +9,7 @@ from core_ai import get_model, get_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
-from coding_agent.tui.screens import ContextModal, DiffModal, LearningModal, PlanModal
+from coding_agent.tui.screens import ContextModal, DiffModal, ExtensionsModal, LearningModal, PlanModal
 from coding_agent.tui.commands.provider import open_provider_onboard
 from coding_agent.tui.commands.catalog import (
     EFFORT_CATALOG,
@@ -203,7 +203,7 @@ async def reload_project(app: Any) -> None:
         reloaded_config = ensure_spawn_settings(app.workspace)
         reloaded_agent = build_agent(
             workspace=app.workspace,
-            control_plane=app.control_plane,
+            sink=app.sink,
             model_id=app.model_id,
             session_id=session_id,
             enable_learning=app.enable_learning,
@@ -219,7 +219,7 @@ async def reload_project(app: Any) -> None:
         )
         app._agent = reloaded_agent
         app.config = reloaded_config
-        app.control_plane.approvals = reloaded_config.approvals
+        app.sink.approvals = reloaded_config.approvals
         app._model_options = model_options(reloaded_agent.registry.namespaces())
         app.session_id = reloaded_agent.session_id
 
@@ -272,7 +272,7 @@ def show_status(app: Any) -> None:
     lines.extend(
         [
             f"mode      {app.mode}",
-            f"approval  {app.control_plane.approvals.mode}",
+            f"approval  {app.sink.approvals.mode}",
             f"session   {app._agent.session_id}",
             f"context   {context}",
             f"current   {metrics.tokens_used:,} tokens",
@@ -349,6 +349,8 @@ class CommandManager:
             await show_context(app)
         elif command == "learning":
             app.push_screen(LearningModal(app.workspace))
+        elif command in {"installed", "extensions", "plugins", "skills"}:
+            app.push_screen(ExtensionsModal(app.workspace, app._agent))
         elif command == "plan":
             open_plan_modal(app, argument) if argument else show_plan_picker(app)
         elif command == "effort":

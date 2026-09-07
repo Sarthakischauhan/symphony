@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.text import Text
 from textual.widgets import Static
 
+from coding_agent.tui.motion import reveal
 from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.theme import SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.tools.images import IMAGE_MARKER_RE, ImageAttachment, ImageModal
@@ -235,6 +236,10 @@ class Notice(Static):
 
 class RunSummary(Static):
     """User-message-like purple block for a summary emitted during a run."""
+
+    def on_mount(self) -> None:
+        """Reveal completed run details with a short, non-blocking animation."""
+        reveal(self, duration=0.28)
 
     def __init__(
         self,

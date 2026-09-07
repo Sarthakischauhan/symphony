@@ -23,7 +23,7 @@ from coding_agent.tui.composer.surface import ComposerSurface
 from coding_agent.tui.runtime import (
     EventPresenter,
     SubagentRecord,
-    TextualControlPlane,
+    TextualEventSink,
     UiRunState,
 )
 from coding_agent.tui.runtime.subagent import SubagentSurface
@@ -87,7 +87,7 @@ class CodingAgentApp(
             overrides = {"learning": {"enabled": enable_learning}}
         self.config = ensure_spawn_settings(self.workspace, overrides=overrides)
         self.mode: AgentMode = "build"
-        self.control_plane = TextualControlPlane(
+        self.sink = TextualEventSink(
             workspace=self.workspace,
             approvals=self.config.approvals,
         )
@@ -125,7 +125,7 @@ class CodingAgentApp(
 
     def on_mount(self) -> None:
         self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)
-        self.control_plane.bind(self)
+        self.sink.bind(self)
         self._presenter = EventPresenter(
             state=self._ui_state,
             view=self,
@@ -140,7 +140,7 @@ class CodingAgentApp(
         try:
             self._agent = build_agent(
                 workspace=self.workspace,
-                control_plane=self.control_plane,
+                sink=self.sink,
                 model_id=self.model_id,
                 session_id=self.session_id,
                 enable_learning=self.enable_learning,
@@ -187,17 +187,19 @@ class CodingAgentApp(
         self._pending_question_default = ""
         menu.set_commands(())
         approval_menu.set_commands(())
-        self.control_plane.request_cancel("user_cancel")
+        self.sink.request_cancel("user_cancel")
+        self.workers.cancel_group(self, "run_agent")
         self.add_notice("Cancelling…", "warning")
         prompt = self.query_one("#prompt", PromptInput)
-        prompt.submit_on_enter = False
+        prompt.submit_on_enter = True
         prompt.disabled = False
         self._update_composer_hint()
         prompt.focus()
 
     def action_quit(self) -> None:
         if self._busy:
-            self.control_plane.request_cancel("quit")
+            self.sink.request_cancel("quit")
+            self.workers.cancel_group(self, "run_agent")
         if self._agent is not None and self._agent.learning_loop is not None:
             self._agent.learning_loop.cancel()
         self.exit()
@@ -208,7 +210,8 @@ class CodingAgentApp(
         if callable(shutdown_children):
             await shutdown_children()
         if self._busy:
-            self.control_plane.request_cancel("quit")
+            self.sink.request_cancel("quit")
+            self.workers.cancel_group(self, "run_agent")
         shutdown = getattr(self._agent, "shutdown_learning", None)
         if callable(shutdown):
             await shutdown()

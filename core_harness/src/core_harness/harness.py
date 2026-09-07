@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -14,9 +15,11 @@ from core_harness.addons import Addon
 from core_harness.addons.persistence import Checkpoint, NullPersistence
 from core_harness.addons.subagent import ChildConfig, ChildIdentity
 from core_harness.config import SettingsSource, resolve_harness_config
-from core_harness.events import ControlPlane, IdentifiedControlPlane, NullControlPlane
+from core_harness.events import EventSink, normalize_event_type
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import (
+    EVENT_SCHEMA_VERSION,
+    ControlPlaneEventType,
     HarnessResult,
     RunLimits,
     UsageTotals,
@@ -37,7 +40,7 @@ class CoreHarness:
         config: SettingsSource,
         reasoning_effort: Optional[str] = None,
         tools: Optional[List[Tool]] = None,
-        control_plane: Optional[ControlPlane] = None,
+        sink: Optional[EventSink] = None,
         session_id: Optional[str] = None,
         addons: Optional[Sequence[Addon]] = None,
         agent_id: Optional[str] = None,
@@ -49,7 +52,7 @@ class CoreHarness:
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort
         self.system_prompt = system_prompt
-        self.control_plane = control_plane or NullControlPlane()
+        self.sink = sink or EventSink()
         self.persistence = NullPersistence()
         self.session_id = session_id
         self.limits = RunLimits(
@@ -69,7 +72,7 @@ class CoreHarness:
         self.max_spawn_depth = self.config.max_spawn_depth
         self._active_run_id: Optional[str] = None
         self._active_session_id: Optional[str] = None
-        self._active_plane: Optional[IdentifiedControlPlane] = None
+        self._event_seq = 0
         self.child_tasks: Dict[str, Any] = {}
         self._child_results: List[Message] = []
         self._last_run_status = "idle"
@@ -93,9 +96,17 @@ class CoreHarness:
         addon.attach(self)
         self.addons.append(addon)
 
-    async def notify_addons(self, hook: str, **payload: Any) -> None:
+    async def notify_addons(self, hook: str, **payload: Any) -> Any:
+        if hook == "before_tool":
+            for addon in self.addons:
+                reason = await addon.before_tool(**payload)
+                if reason:
+                    return reason
+            return None
         for addon in self.addons:
-            if hook == "before_turn":
+            if hook == "before_run":
+                await addon.before_run(**payload)
+            elif hook == "before_turn":
                 await addon.before_turn(**payload)
             elif hook == "after_turn":
                 await addon.after_turn(**payload)
@@ -107,8 +118,11 @@ class CoreHarness:
                 await addon.on_compact(**payload)
             else:
                 raise ValueError(f"unknown addon hook: {hook!r}")
+        return None
 
     def register_tool(self, tool: Tool) -> None:
+        if tool.name in self.tools:
+            raise ValueError(f"duplicate tool name: {tool.name!r}")
         self.tools[tool.name] = tool
 
     def tool_schemas(self) -> List[Dict[str, Any]]:
@@ -117,18 +131,36 @@ class CoreHarness:
     def _set_active_identity(self, run_id: str, session_id: str) -> None:
         self._active_run_id = run_id
         self._active_session_id = session_id
+        self._event_seq = 0
 
-    def _parent_plane(self) -> IdentifiedControlPlane:
-        if self._active_plane is not None:
-            return self._active_plane
-        return IdentifiedControlPlane(
-            self.control_plane,
-            run_id=self._active_run_id or str(uuid.uuid4()),
-            session_id=self._active_session_id or self.session_id or str(uuid.uuid4()),
-            agent_id=self.agent_id,
-            parent_id=self.parent_id,
-            persistence=self.persistence,
-        )
+    def _ensure_identity(self) -> None:
+        if self._active_run_id is None:
+            self._active_run_id = str(uuid.uuid4())
+            self._event_seq = 0
+        if self._active_session_id is None:
+            self._active_session_id = self.session_id or str(uuid.uuid4())
+
+    async def emit(
+        self,
+        event_type: Union[str, ControlPlaneEventType],
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Stamp run identity, journal, and forward to the product sink."""
+        self._ensure_identity()
+        self._event_seq += 1
+        event_name = normalize_event_type(event_type)
+        stamped = {
+            **(payload or {}),
+            "run_id": self._active_run_id,
+            "session_id": self._active_session_id,
+            "seq": self._event_seq,
+            "ts": time.time(),
+            "schema_version": EVENT_SCHEMA_VERSION,
+            "agent_id": self.agent_id,
+            "parent_id": self.parent_id,
+        }
+        await self.persistence.append_event(event_type=event_name, payload=stamped)
+        await self.sink.emit(event_name, stamped)
 
     def _subagent_addon(self):
         from core_harness.addons.subagent import SubagentAddon
@@ -143,19 +175,20 @@ class CoreHarness:
         *,
         label: str = "",
         prompt: Content = "",
-        control_plane: Optional[ControlPlane] = None,
+        sink: Optional[EventSink] = None,
     ) -> ChildIdentity:
         """Mint child identity and check depth. Does not construct a harness."""
+        self._ensure_identity()
         prompt_text = text_from_content(prompt)
         child_id = str(uuid.uuid4())
-        parent_plane = self._parent_plane()
-        child_plane = control_plane or self.control_plane
+        child_sink = sink or self.sink
+        parent_session_id = self._active_session_id or self.session_id or ""
         if self.spawn_depth >= self.max_spawn_depth:
             message = (
                 f"error: spawn depth {self.spawn_depth} exceeds "
                 f"max_spawn_depth={self.max_spawn_depth}"
             )
-            await parent_plane.emit(
+            await self.emit(
                 "agent_failed",
                 {
                     "child_id": child_id,
@@ -170,8 +203,8 @@ class CoreHarness:
                 spawn_depth=self.spawn_depth + 1,
                 label=label,
                 prompt_text=prompt_text,
-                control_plane=child_plane,
-                parent_plane=parent_plane,
+                sink=child_sink,
+                parent_session_id=parent_session_id,
                 blocked=True,
                 blocked_message=message,
             )
@@ -181,8 +214,8 @@ class CoreHarness:
             spawn_depth=self.spawn_depth + 1,
             label=label,
             prompt_text=prompt_text,
-            control_plane=child_plane,
-            parent_plane=parent_plane,
+            sink=child_sink,
+            parent_session_id=parent_session_id,
         )
 
     async def run_child(
@@ -194,7 +227,6 @@ class CoreHarness:
         announce: bool = True,
     ) -> HarnessResult:
         """Emit lifecycle events and await ``child.run``."""
-        plane = identity.parent_plane
         if announce:
             await self.announce_child(child, identity)
         child._last_run_status = "running"
@@ -202,34 +234,34 @@ class CoreHarness:
             result = await child.run(prompt)
         except asyncio.CancelledError:
             child._last_run_status = "cancelled"
-            await plane.emit("agent_failed", {
+            await self.emit("agent_failed", {
                 "child_id": child.agent_id, "label": identity.label,
                 "message": "Child cancelled", "error_type": "HarnessCancelled",
             })
             raise
         except (HarnessCancelled, HarnessLimitExceeded) as exc:
             child._last_run_status = "cancelled" if isinstance(exc, HarnessCancelled) else "failed"
-            await plane.emit("agent_failed", {
+            await self.emit("agent_failed", {
                 "child_id": child.agent_id, "label": identity.label,
                 "message": str(exc), "error_type": type(exc).__name__,
             })
             return HarnessResult(output_text=f"error: subagent {type(exc).__name__}: {exc}", messages=[])
         except Exception as exc:
             child._last_run_status = "failed"
-            await plane.emit("agent_failed", {
+            await self.emit("agent_failed", {
                 "child_id": child.agent_id, "label": identity.label,
                 "message": str(exc), "error_type": type(exc).__name__,
             })
             return HarnessResult(output_text=f"error: subagent failed: {exc}", messages=[])
         child._last_run_status = "completed"
-        await plane.emit("agent_completed", {
+        await self.emit("agent_completed", {
             "child_id": child.agent_id, "label": identity.label,
             "output_text": result.output_text, "usage": result.usage.model_dump(),
         })
         return result
 
     async def announce_child(self, child: CoreHarness, identity: ChildIdentity) -> None:
-        await identity.parent_plane.emit(
+        await self.emit(
             "agent_spawned",
             {
                 "child_id": child.agent_id,
@@ -238,7 +270,7 @@ class CoreHarness:
                 "model_id": child.model_id,
                 "depth": child.spawn_depth,
                 "child_session_id": child.session_id,
-                "parent_session_id": identity.parent_plane.session_id,
+                "parent_session_id": identity.parent_session_id,
                 "tool_call_id": identity.tool_call_id,
                 "max_turns": child.max_turns,
                 "reasoning_effort": child.reasoning_effort,

@@ -9,7 +9,7 @@ Canonical user-facing catalog:
 event emitted by the `symphony-code` learning add-on. Events marked conditional
 are emitted only when applicable. Identity fields (`run_id`, `session_id`,
 `seq`, `ts`, `schema_version`, `agent_id`, `parent_id`) are added by
-`IdentifiedControlPlane` and omitted from the examples.
+`CoreHarness.emit` and omitted from the examples.
 
 ## `run_started`
 
@@ -247,28 +247,6 @@ A user-requested compact (for example `/compact` in the TUI) adds
 Surfaces can re-derive `tokens_used` / `context_left` from
 `estimated_tokens_after` and `context_limit` without waiting for the next
 `context` event.
-
-## `paused` (conditional)
-
-```json
-{
-  "event_type": "paused",
-  "payload": {
-    "turn": 1
-  }
-}
-```
-
-## `resumed` (conditional)
-
-```json
-{
-  "event_type": "resumed",
-  "payload": {
-    "turn": 1
-  }
-}
-```
 
 ## `message_injected` (conditional)
 

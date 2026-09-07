@@ -14,7 +14,7 @@ from core_harness import (
     CoreHarness,
     HarnessConfig,
     KeepSystemRecentCompactor,
-    NullControlPlane,
+    EventSink,
     NullPersistence,
     PersistenceAddon,
     SubagentAddon,
@@ -30,6 +30,9 @@ class RecordingAddon(Addon):
 
     def attach(self, harness: Any) -> None:
         self.harness = harness
+
+    async def before_run(self, **_: Any) -> None:
+        self.hooks.append("before_run")
 
     async def before_turn(self, **_: Any) -> None:
         self.hooks.append("before_turn")
@@ -92,7 +95,7 @@ def test_bare_harness_does_not_auto_build_compactor() -> None:
     assert isinstance(harness.persistence, NullPersistence)
     result = asyncio.run(harness.run("hi"))
     assert result.output_text == "ok"
-    assert "compaction_started" not in [event.event_type for event in harness.control_plane.events]
+    assert "compaction_started" not in [event.event_type for event in harness.sink.events]
 
 
 def test_bare_harness_has_no_spawn_tool() -> None:
@@ -112,7 +115,7 @@ def test_register_addon_mounts_compaction_and_fires_hooks() -> None:
     registry = ScriptedRegistry(
         [_tool_turn("ping", prompt_tokens=90), _text_turn("done", prompt_tokens=90)]
     )
-    plane = NullControlPlane()
+    plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test",
@@ -124,13 +127,14 @@ def test_register_addon_mounts_compaction_and_fires_hooks() -> None:
             compaction_keep_recent=2,
         ),
         tools=[Tool(ping)],
-        control_plane=plane,
+        sink=plane,
         addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=2)), recorder],
     )
     prior = [Message(role="user", content=f"earlier task {index}") for index in range(6)]
     result = asyncio.run(harness.run("go", conversation=prior))
     assert result.output_text == "done"
     assert harness.state.compactor is not None
+    assert "before_run" in recorder.hooks
     assert "before_turn" in recorder.hooks
     assert "after_turn" in recorder.hooks
     assert "after_run" in recorder.hooks
