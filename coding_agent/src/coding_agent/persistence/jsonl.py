@@ -103,14 +103,6 @@ class JsonlPersistence:
             for entry in entries:
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    def _write_entries(self, session_id: str, entries: List[Dict[str, Any]]) -> None:
-        path = self._path(session_id)
-        tmp = path.with_name(path.name + ".tmp")
-        with tmp.open("w", encoding="utf-8") as handle:
-            for entry in entries:
-                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        tmp.replace(path)
-
     def _next_seq(self, entries: List[Dict[str, Any]]) -> int:
         return max((int(entry.get("seq", 0)) for entry in entries if str(entry.get("seq", "0")).isdigit()), default=0) + 1
 
