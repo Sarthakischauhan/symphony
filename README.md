@@ -61,17 +61,15 @@ flowchart TD
         SSE["core-server SSE"]
     end
 
-    subgraph CP["control plane"]
-        OBS["observe · events out"]
-        DRV["drive · cancel / pause / inject"]
-        AUTH["authorize · allow or deny"]
+    subgraph EV["events"]
+        SINK["EventSink.emit"]
     end
 
-    subgraph SYM["core_harness · the run"]
+    subgraph SYM["core_harness · the loop"]
         U["user message"] --> M["model stream"]
         M --> TC["tool calls"]
-        TC --> AUTH
-        AUTH --> RT["run tools"]
+        TC --> HOOK["before_tool add-on"]
+        HOOK --> RT["run tools"]
         RT --> M
         TC --> FR["final reply"]
     end
@@ -80,15 +78,15 @@ flowchart TD
 
     subgraph COD["coding_agent"]
         WT["workspace tools"]
-        POL["approval policy"]
+        POL["ApprovalAddon"]
         JSONL["JSONL sessions"]
         ADD["addons: persist / compact / spawn / learn"]
     end
 
-    TUI --> CP
-    SSE --> CP
-    CP --> SYM
-    POL --> AUTH
+    TUI --> SINK
+    SSE --> SINK
+    SYM --> SINK
+    POL --> HOOK
     ADD --> SYM
     WT --> TC
     JSONL --> ADD
@@ -214,7 +212,7 @@ print(result.output_text)
 | **Streaming providers** | OpenAI Responses / Chat Completions, Anthropic Messages, Gemini generateContent, and Grok Chat Completions share `Message` / `StreamEvent`. Credentials register automatically. Models are `provider:model`. |
 | **Generated catalog** | A checked-in snapshot of tool-calling text models (`core_ai/models/generated.py`), generated from [models.dev](https://models.dev) by a maintainer script. Installing or building the package never refreshes it. |
 | **Turn-based harness** | Multi-turn tool calls, schema generation, run caps (turns, tools, runtime, tokens). |
-| **Control plane** | One object, three jobs: observe (typed events), drive (cancel / pause / inject), authorize (tool gate + questions). Persistence and compaction are add-ons. Every event has `run_id`, `session_id`, seq, timestamp, schema version. |
+| **Events** | `EventSink.emit` for UIs. The harness stamps `run_id`, `session_id`, seq, timestamp, schema version. Persistence and compaction are add-ons. Approval is a product `before_tool` add-on. Cancel the run task to stop a run. |
 | **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `ask_user`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning with a two-line **summary so far**. |
 | **Context** | Warn thresholds, token estimates, pluggable compaction that keeps the system prompt, original task, and recent turns. |
 | **Persistence** | `Persistence` protocol with checkpoints; JSONL sessions for TUI resume. |
@@ -239,7 +237,7 @@ All package docs live under **[`docs/`](./docs/README.md)**:
 | [symphony-code](./docs/packages/symphony-code.md) | Workspace agent and TUI |
 | [core-server](./docs/packages/core-server.md) | FastAPI + SSE |
 | [TUI](./docs/user-guide/tui.md) | Composer, modes, keybindings, images |
-| [Configuration](./docs/user-guide/configuration.md) | `.symphony/config.json`, approvals, context |
+| [Configuration](./docs/user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
 | [Tools](./docs/user-guide/tools.md) | Workspace tool surface |
 | [Learning](./docs/user-guide/learning.md) | Post-run reflection |
 | [Sessions](./docs/user-guide/sessions.md) | JSONL resume |

@@ -16,17 +16,17 @@ Three packages on PyPI: `symphony-core`, `symphony-harness`, `symphony-code`.
 ### symphony-harness
 
 - Multi-turn tool loop with run caps (turns, tools, runtime, tokens).
-- Control plane: observe events, drive cancel/pause/inject, authorize tools.
-  One object, three jobs. Persistence, compaction, and spawn are add-ons.
-- `EventControlPlane` is the unattended default (record events, allow tools).
-  Interactive products replace it with a plane that asks.
+- Event sink (`EventSink.emit`) plus compaction. Persistence and spawn
+  are add-ons. Cancel a run by cancelling the `asyncio.Task`.
+- Tools run unless a `before_tool` add-on denies them. `symphony-code`
+  mounts `ApprovalAddon`; the harness does not authorize tools.
 - Subagents, parallel tool calls, keep/drop compaction planner.
 
 ### symphony-code
 
 - Workspace tools: `read_file`, `write_file`, `patch`, `search`, `bash`,
   `generate_image`, `ask_user`, `spawn_agent`.
-- Textual TUI, plan mode, JSONL sessions under `.symphony/sessions/`.
+- Textual TUI, plan mode, JSONL sessions under `.sessions/`.
 - Approval policy lives in `coding_agent.approvals`; the TUI only renders the
   question. Children still run without per-tool prompts (see `SECURITY.md`).
 - Post-run learning into `.symphony/learning/lessons.jsonl`.

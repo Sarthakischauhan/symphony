@@ -8,7 +8,9 @@ needed. Discovery does not execute scripts.
 
 ## Configuration
 
-Plugins are local directories configured in `.symphony/config.json`:
+Plugins are local directories configured in `~/.symphony/config.json`. Relative
+plugin paths resolve from the project root; absolute paths can point to
+user-wide plugins such as `~/.symphony/plugins/<name>`:
 
 ```json
 {

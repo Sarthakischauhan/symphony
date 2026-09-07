@@ -1,7 +1,7 @@
 # Configuration
 
 Starting a coding agent writes a complete settings file to
-`<workspace>/.symphony/config.json`. That file is the source of truth for the
+`~/.symphony/config.json`. That file is the source of truth for the
 spawn. There is no packaged defaults JSON. If the file is missing, spawn
 generates it from `CodingAgentConfig` field defaults.
 

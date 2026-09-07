@@ -57,4 +57,4 @@ print((await agent.run("Fix the failing test")).output_text)
 
 The agent asks before bash, overwrite, or a broad patch. Approval rules live
 in `coding_agent.approvals`; the TUI only renders the question. Sessions
-persist in `.symphony/sessions/<session_id>.jsonl`.
+persist in `~/.symphony/sessions/<session_id>.jsonl`.
