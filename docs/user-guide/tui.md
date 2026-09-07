@@ -30,6 +30,20 @@ uv run --package symphony-code symphony --model gemini:gemini-3.7-flash
 | `/` | Slash-command palette |
 | `@` | Workspace file search (after whitespace) |
 
+## Run metrics
+
+Completed runs show a compact line such as
+`3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls`.
+The arrows indicate cumulative input and output tokens for the displayed agent's
+run; `k` and `M` abbreviate thousands and millions, and `~` marks estimated usage.
+Elapsed time covers the run, including tools and approval waits.
+
+Model calls count main-loop turns, excluding retry attempts, compaction, and
+learning requests. Tool calls count distinct calls reaching tool dispatch,
+including denied or failed calls, rather than streamed argument fragments.
+Child transcripts show their own metrics; the parent line does not aggregate
+child usage. Context usage remains available in the footer and `/context`.
+
 ## Tool transcript
 
 Completed tools fold into an expandable **Explored** widget in batches of 10.

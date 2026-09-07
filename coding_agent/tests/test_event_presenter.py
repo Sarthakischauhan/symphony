@@ -94,6 +94,56 @@ def _presenter(
     return presenter, view, status_calls
 
 
+def test_completed_metrics_use_run_usage_and_unique_call_counts() -> None:
+    presenter, view, _ = _presenter()
+    presenter.handle("run_started", {"ts": 100.0})
+    for turn in range(44):
+        presenter.handle("turn_started", {"turn": turn})
+    # Replayed starts and streaming fragments must not inflate the counters.
+    presenter.handle("turn_started", {"turn": 43})
+    for index in range(56):
+        call = {"tool_call_id": str(index), "tool_name": "read_file"}
+        presenter.handle("tool_call_started", call)
+        presenter.handle("tool_call_delta", {**call, "delta": "{}"})
+        presenter.handle("tool_execution_started", call)
+    presenter.handle("tool_execution_started", call)
+    presenter.handle("usage", {"prompt_tokens": 42030, "completion_tokens": 100})
+    presenter.handle("run_completed", {
+        "ts": 292.9,
+        "usage": {"prompt_tokens": 1620916, "completion_tokens": 7031,
+                  "reasoning_tokens": 2137, "total_tokens": 1627947},
+        "context": {"tokens_used": 42030},
+    })
+    assert view.finished_process[-1] == (
+        "3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls"
+    )
+    # Exact values remain available to context/status consumers.
+    assert presenter.state.metrics.prompt_tokens == 1620916
+    assert presenter.state.metrics.reasoning_tokens == 2137
+    assert presenter.state.metrics.tokens_used == 42030
+
+
+def test_completed_metrics_reset_and_use_monotonic_time_without_timestamps(monkeypatch) -> None:
+    presenter, view, _ = _presenter()
+    presenter.handle("run_started", {"ts": 100.0})
+    presenter.handle("turn_started", {"turn": 0})
+    presenter.handle("tool_execution_started", {"tool_call_id": "old"})
+    presenter.handle("usage", {"prompt_tokens": 100, "estimated": True})
+    presenter.handle("run_completed", {"ts": 105.0, "usage": {"prompt_tokens": 100}})
+    assert "↑~100" in view.finished_process[-1]
+
+    clock = iter([10.0, 15.9])
+    monkeypatch.setattr("coding_agent.tui.runtime.events.time.monotonic", lambda: next(clock))
+    presenter.handle("run_started", {})
+    presenter.handle("turn_started", {"turn": 0})
+    presenter.handle("model_retry_scheduled", {"attempt": 2, "retry_after": 1})
+    # Logical model calls count turns; retries do not count as extra turns.
+    presenter.handle("run_completed", {
+        "usage": {"prompt_tokens": 1, "completion_tokens": 53, "total_tokens": 54},
+    })
+    assert view.finished_process[-1] == "5s (↑1 ↓53) · 1 model call · 0 tool calls"
+
+
 def test_text_deltas_coalesce_to_one_scheduled_paint() -> None:
     scheduled: list = []
     presenter, view, chrome = _presenter(schedule=scheduled)

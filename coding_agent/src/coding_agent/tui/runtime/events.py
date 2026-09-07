@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 
 from coding_agent.tui.runtime.state import UiRunState
@@ -29,6 +30,23 @@ def _clean_reasoning(text: str) -> str:
         count=1,
         flags=re.IGNORECASE,
     )
+
+
+def _compact_tokens(value: int) -> str:
+    for divisor, suffix in ((1_000_000, "M"), (1_000, "k")):
+        if value >= divisor:
+            return f"{value / divisor:.2f}".rstrip("0").rstrip(".") + suffix
+    return str(value)
+
+
+def _duration(seconds: float) -> str:
+    minutes, seconds = divmod(max(0, int(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes}m {seconds}s"
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
 
 
 def _compaction_notice(payload: Mapping[str, Any]) -> str:
@@ -111,6 +129,12 @@ class EventPresenter:
         self._pending_tool_paints: dict[str, None] = {}
         self._flush_scheduled = False
         self._last_chrome: Optional[ChromeSnapshot] = None
+        self._started_at: Optional[float] = None
+        self._started_ts: Optional[float] = None
+        self._elapsed_seconds: Optional[float] = None
+        self._model_turns: set[int] = set()
+        self._tool_executions: set[str] = set()
+        self._usage_estimated = False
 
     def _chrome_snapshot(self) -> ChromeSnapshot:
         m = self.state.metrics
@@ -232,6 +256,12 @@ class EventPresenter:
     # Run lifecycle
     def _on_run_started(self, payload: Dict[str, Any]) -> None:
         self.state.reset_for_run(model_id=str(payload.get("model_id") or self.state.model_id))
+        self._started_at = time.monotonic()
+        self._started_ts = payload.get("ts")
+        self._elapsed_seconds = None
+        self._model_turns.clear()
+        self._tool_executions.clear()
+        self._usage_estimated = False
         self._assistant_open = False
         self._tool_names.clear()
         self._tool_argument_chunks.clear()
@@ -247,6 +277,10 @@ class EventPresenter:
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
         self.view.finish_assistant()
+        if self._started_ts is not None and payload.get("ts") is not None:
+            self._elapsed_seconds = max(0.0, payload["ts"] - self._started_ts)
+        elif self._started_at is not None:
+            self._elapsed_seconds = max(0.0, time.monotonic() - self._started_at)
         usage = payload.get("usage") or {}
         context = payload.get("context") or {}
         if usage:
@@ -254,7 +288,7 @@ class EventPresenter:
                 {
                     **usage,
                     "cumulative_tokens": usage.get("total_tokens", 0),
-                    "estimated": False,
+                    "estimated": self._usage_estimated,
                 }
             )
         if context:
@@ -275,16 +309,16 @@ class EventPresenter:
 
     def _completed_text(self) -> str:
         m = self.state.metrics
-        current = f"{m.tokens_used:,} context" if m.tokens_used else "context unknown"
-        cumulative = (
-            f"{m.cumulative_tokens:,} cumulative input"
-            if m.cumulative_tokens
-            else "input unknown"
+        elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else "—"
+        estimate = "~" if m.estimated else ""
+        models = len(self._model_turns)
+        tools = len(self._tool_executions)
+        return (
+            f"{elapsed} (↑{estimate}{_compact_tokens(m.prompt_tokens)} "
+            f"↓{estimate}{_compact_tokens(m.completion_tokens)})"
+            f" · {models} model call{'s' if models != 1 else ''}"
+            f" · {tools} tool call{'s' if tools != 1 else ''}"
         )
-        output = f"{m.completion_tokens:,} out"
-        if m.reasoning_tokens:
-            output += f" · {m.reasoning_tokens:,} reasoning"
-        return f"Completed · {current} · {cumulative} · {output}"
 
     def _on_run_failed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
@@ -317,6 +351,7 @@ class EventPresenter:
     # Turns and streaming
     def _on_turn_started(self, payload: Dict[str, Any]) -> None:
         turn = int(payload.get("turn") or 0)
+        self._model_turns.add(turn)
         self.state.begin_turn(turn)
         self._assistant_open = False
         self.view.set_thinking(self._usage_text())
@@ -433,6 +468,7 @@ class EventPresenter:
 
     def _on_tool_execution_started(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
+        self._tool_executions.add(call_id)
         name = str(payload.get("tool_name") or self._tool_names.get(call_id, "tool"))
         if call_id not in self._tool_names:
             self._tool_names[call_id] = name
@@ -452,6 +488,7 @@ class EventPresenter:
 
     # Metrics and context
     def _on_usage(self, payload: Dict[str, Any]) -> None:
+        self._usage_estimated |= bool(payload.get("estimated", False))
         self.state.update_usage(payload)
         self.view.set_thinking(self._usage_text())
 
