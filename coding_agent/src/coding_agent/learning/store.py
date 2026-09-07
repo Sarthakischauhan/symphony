@@ -99,6 +99,10 @@ class LearningStore:
         path.write_text(content, encoding="utf-8")
         return f"{target} updated: {action}; entries: {len(entries)}"
 
+    def append_legacy_summary(self, summary: str, *, source_task: str = "") -> None:
+        """Archive a compatibility review without using it for prompt injection."""
+        self.append(Lesson(summary=summary, source_task=source_task))
+
     def append(self, lesson: Lesson) -> None:
         clean = Lesson(
             summary=sanitize_text(lesson.summary, max_chars=240),

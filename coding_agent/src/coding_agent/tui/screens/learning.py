@@ -11,7 +11,7 @@ from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
 from coding_agent.learning import LearningStore, Lesson
-from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
+from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import LEARNING_MODAL_CSS
 
 def _human_date(value: str) -> str:
@@ -74,23 +74,22 @@ class LearningModal(ModalBase[None]):
         self.workspace = workspace
 
     def compose(self):  # type: ignore[no-untyped-def]
-        lessons = list(reversed(LearningStore(self.workspace).load()))
+        store = LearningStore(self.workspace)
+        memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
+        user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
         with Container(id="learning-pane", classes="modal-pane"):
             with Horizontal(id="learning-header"):
                 yield Static("learning", id="learning-title")
                 yield Static(
-                    f"{len(lessons)} lessons",
+                    "durable memory",
                     id="learning-counter",
                 )
                 yield ModalCloseButton("esc  close", id="modal-close")
             with ModalScroll(id="learning-body", classes="modal-body"):
-                if not lessons:
-                    yield EmptyState(
-                        "No learnings yet",
-                        "Lessons from successful agent runs will collect here.",
-                    )
-                for index, lesson in enumerate(lessons, start=1):
-                    yield LearningCard(lesson, index)
+                yield Static("MEMORY.md", classes="learning-section")
+                yield Static(memory or "(empty)", classes="learning-content")
+                yield Static("USER.md", classes="learning-section")
+                yield Static(user or "(empty)", classes="learning-content")
             yield Static(
                 "↑↓ scroll   ·   Esc close",
                 id="learning-hint",

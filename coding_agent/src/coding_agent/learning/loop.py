@@ -16,7 +16,7 @@ from core_harness import HarnessResult
 from coding_agent.config import LearningConfig
 from coding_agent.learning.prompts import REVIEWER_SYSTEM_PROMPT
 from coding_agent.learning.sanitize import sanitize_task, sanitize_text
-from coding_agent.learning.store import LearningStore, Lesson
+from coding_agent.learning.store import LearningStore
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ Emit = Callable[[str, dict[str, object]], Awaitable[None]]
 class MemoryOp(BaseModel):
     action: str = "add"
     text: str = ""
+    match: str = ""
 
     model_config = {"extra": "ignore"}
 
@@ -106,21 +107,19 @@ class LearningLoop:
                     "run_summary",
                     {"label": "summary so far", "summary": recap},
                 )
-            if review.memory_ops:
-                for op in review.memory_ops[:4]:
-                    if op.action == "add" and op.text.strip():
-                        self.store.append(Lesson(summary=op.text, source_task=task))
-            elif review.should_save and review.summary.strip():
-                self.store.append(
-                    Lesson(
-                        summary=review.summary,
-                        worked=review.worked,
-                        failed=review.failed,
-                        applicable_when=review.applicable_when,
-                        confidence=review.confidence,
-                        source_task=task,
-                    )
-                )
+            for op in review.memory_ops[:4]:
+                action = op.action.strip().lower()
+                if action == "add" and op.text.strip():
+                    self.store.memory_operation("add", text=op.text)
+                elif action in {"replace", "remove"} and op.text.strip():
+                    self.store.memory_operation(action, text=op.text, match=op.match)
+            # Backward-compatible reviewers may still return the legacy fields;
+            # convert that proposal into the new bounded memory file.
+            if not review.memory_ops and review.should_save and review.summary.strip():
+                self.store.memory_operation("add", text=review.summary)
+                # Keep the legacy archive populated for existing consumers while
+                # the markdown file is the only injected prompt source.
+                self.store.append_legacy_summary(review.summary, source_task=task)
         except Exception:
             logger.exception("learning reflection failed; original run is unaffected")
 

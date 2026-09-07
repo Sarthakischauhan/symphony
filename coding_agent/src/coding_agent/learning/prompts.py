@@ -3,7 +3,7 @@
 REVIEWER_SYSTEM_PROMPT = """Review a completed coding-agent run and return JSON only.
 
 Schema:
-{"memory_ops": [{"action": "add|replace|remove", "text": string}],
+{"memory_ops": [{"action": "add|replace|remove", "text": string, "match": string}],
  "transcript_summary": string}
 Use at most four memory_ops. Do not emit should_save.
 
