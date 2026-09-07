@@ -88,8 +88,12 @@ class TranscriptSurface:
                     reconcile_live_tools(item, tools, limit=limit, final=final or item.completed)
 
     def finalize_transcript_history(self) -> None:
-        """Apply tool condensation after restored history has mounted."""
+        """Apply condensation and freeze completed message renders."""
         self._compact_transcript(final=True)
+        for message in self.query(".message"):
+            freeze = getattr(message, "freeze_render", None)
+            if freeze is not None:
+                freeze()
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         if new or self._assistant is None:

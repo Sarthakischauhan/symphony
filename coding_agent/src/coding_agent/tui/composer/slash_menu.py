@@ -26,6 +26,13 @@ class SlashMenu(OptionList):
 
     _files_cache: tuple[FileOption, ...] | None = None
     _plans_cache: tuple[PlanOption, ...] | None = None
+    _matches_cache: dict[tuple[str, str], tuple[Option, ...]] = {}
+
+    @classmethod
+    def clear_session_cache(cls) -> None:
+        cls._files_cache = None
+        cls._plans_cache = None
+        cls._matches_cache.clear()
 
     """Discoverable command suggestions displayed above the composer."""
 
@@ -193,6 +200,9 @@ class SlashMenu(OptionList):
         else:
             self._plans_cache = plans
         self._replace_choices(plans=plans)
+
+    def invalidate_data_cache(self) -> None:
+        self.clear_session_cache()
 
     def set_files(self, files: tuple[FileOption, ...]) -> None:
         if self._files_cache == files:

@@ -38,6 +38,12 @@ class _SelectableStatic(Static):
     def _render_content(self):
         return super()._render_content()
 
+    def freeze_render(self) -> None:
+        """Retain the completed render and prevent width-independent reparsing."""
+        if getattr(self, "_streaming", False):
+            return
+        self._render_cache_content = self.render()
+
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         # Static's default implementation cannot extract from Group/Table/Markdown.
         # The compositor has already rendered the exact wrapped lines, so use those
