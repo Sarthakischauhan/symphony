@@ -111,7 +111,9 @@ class LearningLoop:
                 action = op.action.strip().lower()
                 if action == "add" and op.text.strip():
                     self.store.memory_operation("add", text=op.text)
-                elif action in {"replace", "remove"} and op.text.strip():
+                elif action == "replace" and op.text.strip() and op.match.strip():
+                    self.store.memory_operation(action, text=op.text, match=op.match)
+                elif action == "remove" and op.match.strip():
                     self.store.memory_operation(action, text=op.text, match=op.match)
             # Backward-compatible reviewers may still return the legacy fields;
             # convert that proposal into the new bounded memory file.

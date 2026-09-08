@@ -218,7 +218,11 @@ class CodingAgent:
         task_text = text_from_content(user_input)
         self.harness.system_prompt = self.base_system_prompt
         if self.learning_loop:
-            memory = self.learning_store.snapshot(max_chars=self.config.learning.context_max_chars)
+            memory = self.learning_store.query(
+                task_text,
+                limit=self.config.learning.context_limit,
+                max_chars=self.config.learning.context_max_chars,
+            )
             if memory:
                 self.harness.system_prompt += f"\n\n{memory}"
         if mode == "plan":
