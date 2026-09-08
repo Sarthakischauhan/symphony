@@ -105,6 +105,8 @@ class CodingAgent:
                 registry=registry,
                 model_id=model_id,
                 max_output_tokens=self.config.learning.max_output_tokens,
+                context_limit=self.config.learning.context_limit,
+                context_max_chars=self.config.learning.context_max_chars,
             )
             if self.config.learning.enabled
             else None
@@ -217,14 +219,6 @@ class CodingAgent:
         mode = self.mode
         task_text = text_from_content(user_input)
         self.harness.system_prompt = self.base_system_prompt
-        if self.learning_loop:
-            memory = self.learning_store.query(
-                task_text,
-                limit=self.config.learning.context_limit,
-                max_chars=self.config.learning.context_max_chars,
-            )
-            if memory:
-                self.harness.system_prompt += f"\n\n{memory}"
         if mode == "plan":
             self.harness.system_prompt += f"\n\n{PLAN_MODE_PROMPT}"
         if self.config.skills.enabled and self.skill_registry.skills:
