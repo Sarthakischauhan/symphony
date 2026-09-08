@@ -118,21 +118,33 @@ def show_effort_picker(app: Any) -> None:
     app.query_one("#slash-menu").set_efforts(efforts, current)
 
 
+def sync_app_mode(app: Any, mode: str, *, plan_path: str | None = None) -> None:
+    """Keep TUI mode, agent mode, and the plan-mode gate in lockstep."""
+    app.mode = mode
+    agent = getattr(app, "_agent", None)
+    if agent is not None:
+        agent.set_mode(mode)
+        plan_state = getattr(agent, "plan_mode", None)
+        if plan_state is not None:
+            if mode == "plan":
+                plan_state.begin(plan_path)
+            else:
+                plan_state.reset()
+    app._update_composer_hint()
+
+
+def current_plan_path(app: Any) -> str | None:
+    store = getattr(app, "_plan_store", None)
+    path = getattr(store, "path", None) if store is not None else None
+    return str(path) if path is not None else None
+
+
 def select_mode(app: Any, argument: str) -> None:
     selected = find_mode(argument)
     if selected is None:
         app.add_notice(f"Unknown mode: {argument}. Run /mode to see available modes.", "warning")
         return
-    app.mode = selected.id
-    if app._agent is not None:
-        plan_state = getattr(app._agent, "plan_mode", None)
-        if plan_state is not None:
-            if app.mode == "plan":
-                plan_state.begin()
-            else:
-                plan_state.reset()
-        app._agent.set_mode(app.mode)
-    app._update_composer_hint()
+    sync_app_mode(app, selected.id)
     app.add_notice(f"Switched to {selected.label} mode", "success")
 
 
@@ -144,16 +156,8 @@ def show_mode_picker(app: Any) -> None:
 
 
 def toggle_mode(app: Any) -> None:
-    app.mode = "plan" if app.mode == "build" else "build"
-    if app._agent is not None:
-        plan_state = getattr(app._agent, "plan_mode", None)
-        if plan_state is not None:
-            if app.mode == "plan":
-                plan_state.begin()
-            else:
-                plan_state.reset()
-        app._agent.set_mode(app.mode)
-    app._update_composer_hint()
+    sync_app_mode(app, "plan" if app.mode == "build" else "build")
+
 
 # --- plan_list.py ---
 def list_plan_options(app: Any, query: str = "") -> tuple[PlanOption, ...]:
@@ -203,26 +207,19 @@ def on_plan_action(app: Any, action: str | None) -> None:
     if app._busy:
         return
     if action == "quit":
-        app.mode = "build"
-        if app._agent is not None:
-            app._agent.set_mode("build")
-        app._update_composer_hint()
+        sync_app_mode(app, "build")
         return
     if action == "changes":
-        app.mode = "plan"
-        app._update_composer_hint()
+        sync_app_mode(app, "plan", plan_path=current_plan_path(app))
         app.query_one("#prompt").focus()
         return
     if action != "build":
         return
-    app.mode = "build"
-    if app._agent is not None:
-        plan_state = getattr(app._agent, "plan_mode", None)
-        if plan_state is not None:
-            plan_state.approve()
-            plan_state.reset()
-        app._agent.set_mode("build")
-    app._update_composer_hint()
+    agent = getattr(app, "_agent", None)
+    plan_state = getattr(agent, "plan_mode", None) if agent is not None else None
+    if plan_state is not None:
+        plan_state.approve()
+    sync_app_mode(app, "build")
     prompt = app.query_one("#prompt")
     plan_path = app._plan_store.path.relative_to(app.workspace)
     prompt.value = f"Build the approved plan in {plan_path}."
