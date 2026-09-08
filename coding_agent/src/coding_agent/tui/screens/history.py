@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Protocol
 
+from textual.widgets import Static
+
 from coding_agent.agent import CodingAgent
 from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.tools import ToolCallWidget, make_tool_widget
@@ -12,9 +14,9 @@ from coding_agent.tui.transcript import UserMessage
 from core_ai.content import text_from_content
 from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
-# Textual lays out every mounted child. Keep the active tail responsive while
-# the persistence layer still retains the complete transcript for the harness.
-HISTORY_RENDER_MESSAGE_LIMIT = 200
+# Older transcript entries remain visible as inexpensive plain widgets. Only
+# this recent window gets interactive Markdown/tool-card construction.
+HISTORY_ACTIVE_ITEMS = 200
 
 
 class HistoryView(Protocol):
@@ -38,8 +40,31 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     view.add_notice(f"Resumed session · {agent.session_id}")
     pending_tools: dict[str, ToolCallWidget] = {}
     restored: list[Any] = []
+    archive: list[str] = []
+    active_start = max(0, len(messages) - HISTORY_ACTIVE_ITEMS)
 
-    for message in messages:
+    for index, message in enumerate(messages):
+        if index < active_start:
+            if message.role == "user":
+                text = text_from_content(message.content)
+                if text and not text.startswith(COMPACTED_CONTEXT_MARK):
+                    archive.append(f"> {text}")
+            elif message.role == "assistant":
+                text = text_from_content(message.content)
+                if text:
+                    archive.append(f"◆  SYMPHONY\n{text}")
+                for call in message.tool_calls or []:
+                    function = call.get("function") or {}
+                    name = function.get("name") or call.get("name") or "tool"
+                    archive.append(f"  ✓ {name}")
+            elif message.role == "tool":
+                result = text_from_content(message.content)
+                if result:
+                    archive.append(f"  └ {result}")
+            continue
+        if archive:
+            restored.append(Static("\n\n".join(archive), classes="history-archive"))
+            archive.clear()
         if message.role == "user":
             # Compaction summaries are internal context-management messages.
             # Keep them in the model history, but do not expose them as user turns.
@@ -56,14 +81,6 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
             if widget:
                 widget.set_result(text_from_content(message.content))
                 widget.add_class("history-compact")
-    # Keep only the recent active window as live widgets. Older entries are
-    # represented by compact archive rows, so opening a huge session does not
-    # ask Textual/Rich to lay out thousands of historical cards.
-    if len(restored) > HISTORY_RENDER_MESSAGE_LIMIT:
-        from coding_agent.tui.transcript import Notice
-
-        archived = len(restored) - HISTORY_RENDER_MESSAGE_LIMIT
-        restored = [Notice(f"{archived} earlier transcript items hidden · history remains available")] + restored[-HISTORY_RENDER_MESSAGE_LIMIT:]
     mount_batch = getattr(view, "mount_transcript_batch", None)
     if callable(mount_batch):
         mount_batch(restored)
