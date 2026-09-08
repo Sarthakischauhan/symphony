@@ -17,6 +17,7 @@ from coding_agent.learning import (
     LearningAddon,
     LearningLoop,
     LearningStore,
+    strip_memory_context,
     two_line_summary,
 )
 
@@ -205,19 +206,19 @@ def test_run_embeds_durable_memory_once(tmp_path: Path) -> None:
 
 def test_before_turn_replaces_memory_block(tmp_path: Path) -> None:
     store = LearningStore(tmp_path)
-    store.memory_operation("add", text="Python tests use pytest -q")
-    store.memory_operation("add", text="Ruby tests use rspec")
+    store.memory_operation("add", text="Prefer pytest -q for Python unit suites")
+    store.memory_operation("add", text="Lock the bundler version for Ruby gems")
     loop = LearningLoop(store, registry=ReviewRegistry(), model_id="test:model")
     addon = LearningAddon(loop)
     messages = [
         Message(role="system", content="You are a coding assistant."),
-        Message(role="user", content="fix the Python tests"),
+        Message(role="user", content="fix the Python pytest suite"),
     ]
 
     async def scenario() -> str:
         await addon.before_turn(messages=messages)
         first = str(messages[0].content)
-        messages[1] = Message(role="user", content="fix the Ruby tests")
+        messages[1] = Message(role="user", content="fix the Ruby bundler lock")
         await addon.before_turn(messages=messages)
         return first
 
@@ -225,9 +226,23 @@ def test_before_turn_replaces_memory_block(tmp_path: Path) -> None:
     second = str(messages[0].content)
     assert first.count(MEMORY_CONTEXT_PREFIX) == 1
     assert "pytest" in first
+    assert "bundler" not in first
     assert second.count(MEMORY_CONTEXT_PREFIX) == 1
-    assert "rspec" in second
+    assert "bundler" in second
     assert "pytest" not in second
+
+
+def test_strip_memory_context_removes_stacked_blocks() -> None:
+    stacked = (
+        "You are a coding assistant.\n\n"
+        f"{MEMORY_CONTEXT_PREFIX}\n- Prefer pytest -q\n\n"
+        f"{MEMORY_CONTEXT_PREFIX}\n- Lock the bundler version"
+    )
+    stripped = strip_memory_context(stacked)
+    assert MEMORY_CONTEXT_PREFIX not in stripped
+    assert "pytest" not in stripped
+    assert "bundler" not in stripped
+    assert stripped.startswith("You are a coding assistant.")
 
 
 def test_learning_config_overrides_reach_injection(tmp_path: Path) -> None:
