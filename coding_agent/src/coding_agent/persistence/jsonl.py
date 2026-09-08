@@ -25,6 +25,7 @@ from core_harness.context import COMPACTED_CONTEXT_MARK
 _SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _SKIP_EVENTS = frozenset({"text_delta", "reasoning_delta", "tool_call_delta"})
 _MESSAGE_FIELDS = ("role", "content", "tool_calls", "tool_call_id", "tool_call_metadata")
+_MESSAGE_TYPES = frozenset({"system", "user", "assistant", "tool_result"})
 
 
 def _utc_now() -> str:
@@ -364,24 +365,35 @@ class JsonlPersistence:
                 session_id = path.stem
                 if not _SESSION_ID.match(session_id):
                     continue
-                entries = self._read_entries(session_id)
-                for entry in entries:
-                    if entry.get("type") != "spawn":
-                        continue
-                    child_session = str(entry.get("session_id") or "")
-                    if child_session:
-                        child_ids.add(child_session)
-                transcript = self._transcript_messages(entries)
-                first_message = next(
-                    (
-                        text_from_content(message.get("content")).strip()
-                        for message in transcript
-                        if message.get("role") == "user"
-                        and message.get("content")
-                        and not text_from_content(message.get("content")).startswith(COMPACTED_CONTEXT_MARK)
-                    ),
-                    "",
-                )
+                # The picker only needs file metadata and the first user
+                # message. Do not decode every JSON object in large transcripts.
+                first_message = ""
+                message_count = 0
+                with path.open(encoding="utf-8") as handle:
+                    for raw in handle:
+                        if not raw.strip():
+                            continue
+                        try:
+                            entry = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(entry, dict):
+                            continue
+                        if entry.get("type") == "spawn":
+                            child_session = str(entry.get("session_id") or "")
+                            if child_session:
+                                child_ids.add(child_session)
+                        if entry.get("type") not in _MESSAGE_TYPES:
+                            continue
+                        message_count += 1
+                        if first_message:
+                            continue
+                        content = entry.get("content")
+                        if entry.get("type") == "tool_result":
+                            content = entry.get("message", {}).get("content")
+                        text = text_from_content(content).strip()
+                        if entry.get("type") == "user" and text and not text.startswith(COMPACTED_CONTEXT_MARK):
+                            first_message = text
                 updated = datetime.fromtimestamp(
                     path.stat().st_mtime, tz=timezone.utc
                 ).isoformat()
@@ -391,7 +403,7 @@ class JsonlPersistence:
                         SessionSummary(
                             session_id=session_id,
                             updated_at=updated,
-                            message_count=len(transcript),
+                            message_count=message_count,
                             first_message=first_message,
                         ),
                     )
