@@ -36,13 +36,20 @@ class _SelectableStatic(Static):
         self.refresh(layout=True)
 
     def _render_content(self):
-        return super()._render_content()
+        """Return the frozen renderable without rebuilding Markdown."""
+        if self._render_cache_content is not None and not getattr(self, "_streaming", False):
+            return self._render_cache_content
+        content = super()._render_content()
+        if not getattr(self, "_streaming", False):
+            self._render_cache_content = content
+        return content
 
     def freeze_render(self) -> None:
-        """Retain the completed render and prevent width-independent reparsing."""
+        """Retain the completed render and prevent Markdown reparsing."""
         if getattr(self, "_streaming", False):
             return
-        self._render_cache_content = self.render()
+        self._render_cache_content = super()._render_content()
+        self._render_cache_width = self.size.width
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         # Static's default implementation cannot extract from Group/Table/Markdown.

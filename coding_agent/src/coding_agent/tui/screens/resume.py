@@ -46,25 +46,27 @@ async def load_session_options(persistence: Any) -> list[SessionOption]:
     """Build display rows through the existing persistence interface."""
     options: list[SessionOption] = []
     for session in await persistence.list_sessions():
-        loader = getattr(persistence, "load_transcript", persistence.load_conversation)
-        messages = await loader(session_id=session.session_id)
-        first_message = next(
-            (
-                str(message.content).strip()
-                for message in messages
-                if message.role == "user"
-                and message.content
-                and not text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK)
-            ),
-            "Untitled conversation",
-        )
-        options.append(
-            SessionOption(
-                session.session_id,
-                session.updated_at,
-                first_message,
-                len(messages),
+        # JsonlPersistence computes these cheap row fields while scanning each
+        # file. Avoid reparsing every transcript when opening the picker.
+        if getattr(session, "message_count", 0) or getattr(session, "first_message", ""):
+            first_message = getattr(session, "first_message", "") or "Untitled conversation"
+            message_count = getattr(session, "message_count", 0)
+        else:
+            loader = getattr(persistence, "load_transcript", persistence.load_conversation)
+            messages = await loader(session_id=session.session_id)
+            first_message = next(
+                (
+                    text_from_content(message.content).strip()
+                    for message in messages
+                    if message.role == "user"
+                    and message.content
+                    and not text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK)
+                ),
+                "Untitled conversation",
             )
+            message_count = len(messages)
+        options.append(
+            SessionOption(session.session_id, session.updated_at, first_message, message_count)
         )
     return options
 

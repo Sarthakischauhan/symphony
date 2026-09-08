@@ -17,8 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from core_ai.content import text_from_content
 from core_ai.types import Message
 from core_harness import Checkpoint
+from core_harness.context import COMPACTED_CONTEXT_MARK
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _SKIP_EVENTS = frozenset({"text_delta", "reasoning_delta", "tool_call_delta"})
@@ -61,6 +63,8 @@ class SessionSummary:
 
     session_id: str
     updated_at: str
+    message_count: int = 0
+    first_message: str = ""
 
 
 class JsonlPersistence:
@@ -367,11 +371,30 @@ class JsonlPersistence:
                     child_session = str(entry.get("session_id") or "")
                     if child_session:
                         child_ids.add(child_session)
+                transcript = self._transcript_messages(entries)
+                first_message = next(
+                    (
+                        text_from_content(message.get("content")).strip()
+                        for message in transcript
+                        if message.get("role") == "user"
+                        and message.get("content")
+                        and not text_from_content(message.get("content")).startswith(COMPACTED_CONTEXT_MARK)
+                    ),
+                    "",
+                )
                 updated = datetime.fromtimestamp(
                     path.stat().st_mtime, tz=timezone.utc
                 ).isoformat()
                 summaries.append(
-                    (path.stat().st_mtime, SessionSummary(session_id=session_id, updated_at=updated))
+                    (
+                        path.stat().st_mtime,
+                        SessionSummary(
+                            session_id=session_id,
+                            updated_at=updated,
+                            message_count=len(transcript),
+                            first_message=first_message,
+                        ),
+                    )
                 )
         return [
             summary

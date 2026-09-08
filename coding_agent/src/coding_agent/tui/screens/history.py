@@ -48,6 +48,7 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
             widget = pending_tools.get(str(message.tool_call_id))
             if widget:
                 widget.set_result(text_from_content(message.content))
+                widget.add_class("history-compact")
     view.finalize_transcript_history()
 
 
