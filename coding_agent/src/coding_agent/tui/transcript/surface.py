@@ -259,6 +259,23 @@ class TranscriptSurface:
         """Public adapter used by the persisted-history loader."""
         self._mount_transcript(widget)
 
+    def mount_transcript_batch(self, widgets: list[Widget]) -> None:
+        """Mount restored history in one layout pass instead of one per row."""
+        if not widgets:
+            return
+        transcript = self.query_one("#transcript", VerticalScroll)
+        for welcome in self.query(".welcome"):
+            welcome.remove()
+        for widget in widgets:
+            if isinstance(widget, UserMessage):
+                turn = TranscriptTurn(widget)
+                self._transcript_turns.append(turn)
+                self._current_transcript_turn = turn
+            elif self._current_transcript_turn is not None:
+                self._current_transcript_turn.add_item(widget)
+            transcript.mount(widget)
+        self._compact_transcript(final=True)
+
     def action_clear_transcript(self) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
         transcript.remove_children()
