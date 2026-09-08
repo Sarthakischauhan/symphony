@@ -165,7 +165,7 @@ class CodingAgent:
                 )
             )
         self.tools.extend([
-            EnterPlanModeTool(self.workspace, self.plan_mode),
+            EnterPlanModeTool(self.workspace, self.plan_mode, self),
             ExitPlanModeTool(self.workspace, self.plan_mode),
         ])
         self.harness = CoreHarness(
@@ -235,7 +235,7 @@ class CodingAgent:
             self.harness.system_prompt += "\n" + "\n".join(catalog)
         self.harness.system_prompt += "\n"
 
-        if mode == "plan":
+        if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
         result = await self.harness.run(

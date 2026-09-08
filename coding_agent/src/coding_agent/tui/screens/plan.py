@@ -133,6 +133,6 @@ class PlanModal(ModalBase[PlanAction | None]):
                     yield PlanSectionCard(title, body, index)
             with Horizontal(id="plan-actions"):
                 yield Static("↑↓ scroll   ·   Esc close", id="plan-hint")
+                yield PlanActionButton("Build now", "build", id="plan-build")
                 yield PlanActionButton("Request changes", "changes", id="plan-changes")
                 yield PlanActionButton("Quit", "quit", id="plan-quit")
-                yield PlanBuildAction("Build now  →", id="plan-build")

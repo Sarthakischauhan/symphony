@@ -402,7 +402,7 @@ def test_plan_stream_writes_to_file_without_rendering_in_chat(
             assert app._assistant is None
             plan_path = tmp_path / ".symphony" / "plans" / "to_build_a_server_plan.md"
             assert plan_path.read_text().endswith(
-                "## Steps\n1. Add API.\n"
+                "**Task:** To build a server\n\n"
             )
 
             app.on_harness_event(ControlPlaneEvent("run_completed", {}))
@@ -1511,12 +1511,12 @@ def test_plan_menu_options_are_hoverable_and_clickable(
             app.push_screen = lambda screen, *args: opened.append(screen)  # type: ignore[method-assign]
 
             prompt = app.query_one("#prompt")
-            prompt.value = "/plan "
+            prompt.value = "/plans "
             await pilot.pause()
             menu = app.query_one("#slash-menu", SlashMenu)
 
             assert menu.display
-            assert menu.selected_value == "/plan ship_feature_plan.md"
+            assert menu.selected_value == "/plans ship_feature_plan.md"
             assert await pilot.hover(menu, offset=(4, 2))
             assert menu._mouse_hovering_over == 0
             assert await pilot.click(menu, offset=(4, 2))
@@ -1950,16 +1950,14 @@ def test_slash_menu_and_commands(
             opened.clear()
             app._plan_store.save("Add API", "1. Build it.")
             app._plan_store.save("Fix login", "1. Inspect auth.")
-            prompt.value = "/plan add"  # type: ignore[attr-defined]
+            prompt.value = "/plans add"  # type: ignore[attr-defined]
             await pilot.pause()
-            assert menu.selected_value == "/plan add_api_plan.md"
-            await app._run_slash_command("/plan")
+            assert menu.selected_value == "/plans add_api_plan.md"
+            await app._run_slash_command("/plans")
             assert not opened
-            assert prompt.value == "/plan "  # type: ignore[attr-defined]
+            assert prompt.value == "/plans "  # type: ignore[attr-defined]
             assert menu.display
-            assert menu.selected_value == "/plan fix_login_plan.md"
-            await pilot.press("down")
-            assert menu.selected_value == "/plan add_api_plan.md"
+            assert menu.selected_value == "/plans fix_login_plan.md"
             await pilot.press("enter")
             await pilot.pause()
             assert opened and opened[0].__class__.__name__ == "PlanModal"

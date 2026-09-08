@@ -26,6 +26,12 @@ class PlanModeState:
         if not self.active:
             raise RuntimeError("no active plan")
         self.approved = True
+
+    def set_mode(self, mode: str) -> None:
+        if mode == "build":
+            self.reset()
+        elif mode == "plan" and not self.active:
+            self.begin()
     def reset(self) -> None:
         self.active = self.approved = False
         self.plan_path = None

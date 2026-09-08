@@ -65,7 +65,7 @@ class SlashMenu(OptionList):
         if self._modes:
             return f"/mode {self._modes[self.selected_index].id}"
         if self._plans:
-            return f"/plan {self._plans[self.selected_index].id}"
+            return f"{getattr(self, '_plan_command', '/plan')} {self._plans[self.selected_index].id}"
         if self._questions:
             return self._questions[self.selected_index]
         if self._commands:
@@ -193,8 +193,9 @@ class SlashMenu(OptionList):
         self._current_mode = current
         self._replace_choices(modes=modes)
 
-    def set_plans(self, plans: tuple[PlanOption, ...], current: str = "") -> None:
+    def set_plans(self, plans: tuple[PlanOption, ...], current: str = "", command: str = "/plan") -> None:
         self._current_plan = current
+        self._plan_command = command
         if self._plans_cache == plans:
             plans = self._plans_cache
         else:

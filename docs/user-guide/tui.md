@@ -60,11 +60,12 @@ visible even when collapsed.
 
 ## Build vs plan
 
-**Build** can read, edit, and run. **Plan** is read-only: it inspects the repo
-and writes a streamed plan to a task-named file such as
-`.symphony/plans/to_build_a_server_plan.md`. Plan mode uses a yellow composer
-border. When planning finishes, a modal offers **Build now**. `/plan` opens a
-searchable picker of saved workspace plans.
+**Build** can read, edit, and run. **Plan** allows inspection and `bash`, but
+only the active plan file may be written; `generate_image` and `spawn_agent` are
+blocked. Plans live at `.symphony/plans/<task>_plan.md`. Plan mode uses a yellow
+composer border. When planning finishes, a modal offers **Build now**, **Request
+changes**, or **Quit**. `/plan` enters planning (and `/plan <text>` submits a
+planning turn); `/plans` opens the searchable picker of saved plans.
 
 ## Composer extras
 

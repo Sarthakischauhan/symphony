@@ -173,14 +173,14 @@ def show_plan_picker(app: Any) -> None:
         app.add_notice("No saved plans yet. Switch to Plan mode to create one.")
         return
     prompt = app.query_one("#prompt")
-    prompt.value = "/plan "
+    prompt.value = "/plans "
     prompt.cursor_position = len(prompt.value)
-    app.query_one("#slash-menu").set_plans(plans, app._plan_store.path.name)
+    app.query_one("#slash-menu").set_plans(plans, app._plan_store.path.name, command="/plans")
 
 
 def open_plan_modal(app: Any, plan_name: str | None = None) -> None:
     if plan_name is not None and app._plan_store.select(plan_name) is None:
-        app.add_notice(f"Unknown plan: {plan_name}. Run /plan to choose one.", "warning")
+        app.add_notice(f"Unknown plan: {plan_name}. Run /plans to choose one.", "warning")
         return
     if not app._plan_store.path.exists():
         app.add_notice("No saved plans yet. Switch to Plan mode to create one.")
@@ -209,9 +209,8 @@ def on_plan_action(app: Any, action: str | None) -> None:
         plan_state = getattr(app._agent, "plan_mode", None)
         if plan_state is not None:
             plan_state.approve()
-        # Approval is consumed by the next build turn; do not reset the gate
-        # before the harness has observed it.
-        app._agent.mode = "build"
+            plan_state.reset()
+        app._agent.set_mode("build")
     app._update_composer_hint()
     prompt = app.query_one("#prompt")
     plan_path = app._plan_store.path.relative_to(app.workspace)
@@ -382,10 +381,9 @@ class CommandManager:
         elif command in {"installed", "extensions", "plugins", "skills"}:
             app.push_screen(ExtensionsModal(app.workspace, app._agent))
         elif command == "plan":
+            select_mode(app, "plan")
             if argument:
-                open_plan_modal(app, argument)
-            else:
-                select_mode(app, "plan")
+                app.query_one("#prompt").value = argument
         elif command == "plans":
             open_plan_modal(app, argument) if argument else show_plan_picker(app)
         elif command == "effort":

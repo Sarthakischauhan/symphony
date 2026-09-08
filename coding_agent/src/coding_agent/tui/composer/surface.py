@@ -109,10 +109,11 @@ class ComposerSurface:
             )
         elif event.text_area.text.startswith("/mode "):
             menu.set_modes(mode_matches(event.text_area.text.removeprefix("/mode ")), self.mode)
-        elif event.text_area.text.startswith("/plan "):
+        elif event.text_area.text.startswith("/plans "):
             menu.set_plans(
-                self._command_manager.plan_options(event.text_area.text.removeprefix("/plan ")),
+                self._command_manager.plan_options(event.text_area.text.removeprefix("/plans ")),
                 self._plan_store.path.name,
+                command="/plans",
             )
         else:
             model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")

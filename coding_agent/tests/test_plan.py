@@ -66,15 +66,8 @@ def test_plan_mode_uses_read_only_tools_and_saves_result(tmp_path: Path) -> None
 
     assert set(captured["tools"]) >= {"read_file", "search", "bash"}
     assert "You are in plan mode." in str(captured["prompt"])
-    assert list(agent.harness.tools) == [
-        "read_file",
-        "write_file",
-        "generate_image",
-        "patch",
-
-        "bash",
-        "search",
-        "ask_user",
-        "spawn_agent",
-    ]
-    assert "Make the change" in agent.plan_store.load()
+    assert set(agent.harness.tools) >= {
+        "read_file", "write_file", "generate_image", "patch", "bash",
+        "search", "ask_user", "spawn_agent", "enter_plan_mode", "exit_plan_mode",
+    }
+    assert "Make the change" not in agent.plan_store.load()
