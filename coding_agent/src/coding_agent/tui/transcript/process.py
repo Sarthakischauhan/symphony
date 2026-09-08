@@ -258,6 +258,7 @@ class ReasoningWidget(Collapsible):
         self._content_without_heading = content
         self._body = Static(classes="reasoning-text")
         self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
+        self._markdown = None
         super().__init__(
             self._scroll,
             title="Thinking…",
@@ -299,17 +300,18 @@ class ReasoningWidget(Collapsible):
         self._scroll.anchor()
 
     def complete(self) -> None:
+        if self.has_class("is-complete"):
+            return
         if self.is_mounted:
             self._scroll.anchor(False)
             self._scroll.scroll_home(animate=False, force=True)
-        if self._summary_heading:
-            self.title = f"Thought - {self._summary_heading}"
-            self._body.update(
-                themed_markdown(self._content_without_heading or " ", style="#858585")
-            )
-        else:
-            self.title = "Thought"
-            self._body.update(themed_markdown(self.reasoning_text or " ", style="#858585"))
+        source = self._content_without_heading if self._summary_heading else self.reasoning_text
+        if self._markdown is None:
+            self._markdown = themed_markdown(source or " ", style="#858585")
+        self.title = (
+            f"Thought - {self._summary_heading}" if self._summary_heading else "Thought"
+        )
+        self._body.update(self._markdown)
         self.collapsed = True
         self.remove_class("is-live")
         self.add_class("is-complete")

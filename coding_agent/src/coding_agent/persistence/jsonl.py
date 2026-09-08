@@ -17,12 +17,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from core_ai.content import text_from_content
 from core_ai.types import Message
 from core_harness import Checkpoint
+from core_harness.context import COMPACTED_CONTEXT_MARK
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _SKIP_EVENTS = frozenset({"text_delta", "reasoning_delta", "tool_call_delta"})
 _MESSAGE_FIELDS = ("role", "content", "tool_calls", "tool_call_id", "tool_call_metadata")
+_MESSAGE_TYPES = frozenset({"system", "user", "assistant", "tool_result"})
 
 
 def _utc_now() -> str:
@@ -61,6 +64,8 @@ class SessionSummary:
 
     session_id: str
     updated_at: str
+    message_count: int = 0
+    first_message: str = ""
 
 
 class JsonlPersistence:
@@ -360,18 +365,48 @@ class JsonlPersistence:
                 session_id = path.stem
                 if not _SESSION_ID.match(session_id):
                     continue
-                entries = self._read_entries(session_id)
-                for entry in entries:
-                    if entry.get("type") != "spawn":
-                        continue
-                    child_session = str(entry.get("session_id") or "")
-                    if child_session:
-                        child_ids.add(child_session)
+                # The picker only needs file metadata and the first user
+                # message. Do not decode every JSON object in large transcripts.
+                first_message = ""
+                message_count = 0
+                with path.open(encoding="utf-8") as handle:
+                    for raw in handle:
+                        if not raw.strip():
+                            continue
+                        try:
+                            entry = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(entry, dict):
+                            continue
+                        if entry.get("type") == "spawn":
+                            child_session = str(entry.get("session_id") or "")
+                            if child_session:
+                                child_ids.add(child_session)
+                        if entry.get("type") not in _MESSAGE_TYPES:
+                            continue
+                        message_count += 1
+                        if first_message:
+                            continue
+                        content = entry.get("content")
+                        if entry.get("type") == "tool_result":
+                            content = entry.get("message", {}).get("content")
+                        text = text_from_content(content).strip()
+                        if entry.get("type") == "user" and text and not text.startswith(COMPACTED_CONTEXT_MARK):
+                            first_message = text
                 updated = datetime.fromtimestamp(
                     path.stat().st_mtime, tz=timezone.utc
                 ).isoformat()
                 summaries.append(
-                    (path.stat().st_mtime, SessionSummary(session_id=session_id, updated_at=updated))
+                    (
+                        path.stat().st_mtime,
+                        SessionSummary(
+                            session_id=session_id,
+                            updated_at=updated,
+                            message_count=message_count,
+                            first_message=first_message,
+                        ),
+                    )
                 )
         return [
             summary

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from rich.console import Group
 from rich.style import Style
@@ -17,6 +17,34 @@ from textual.widgets import Collapsible, Static
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.transcript.messages import clip_text, compact_json
+
+TOOL_LABELS = {
+    "bash": ("Bash", "$"),
+    "search": ("Search", "⌕"),
+    "write_file": ("Write", "+"),
+    "generate_image": ("Image", "└"),
+    "patch": ("Edit", "±"),
+    "read_file": ("Read", "└"),
+}
+
+
+def tool_label(tool_name: str) -> tuple[str, str]:
+    return TOOL_LABELS.get(tool_name, (tool_name.replace("_", " ").title(), "›"))
+
+
+def tool_detail(
+    tool_name: str,
+    arguments: Mapping[str, Any] | None = None,
+    raw_arguments: str = "",
+) -> str:
+    args = dict(arguments or {})
+    if tool_name == "bash":
+        return str(args.get("command") or raw_arguments)
+    if tool_name == "search":
+        return str(args.get("query") or args.get("pattern") or compact_json(args))
+    if tool_name in {"write_file", "patch", "generate_image", "read_file"}:
+        return str(args.get("path") or compact_json(args))
+    return compact_json(args) or raw_arguments
 
 
 class BashToolHeader(Horizontal, can_focus=True):
@@ -38,13 +66,7 @@ class BashToolHeader(Horizontal, can_focus=True):
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
-    LABELS = {
-        "bash": ("Bash", "$"),
-        "search": ("Search", "⌕"),
-        "write_file": ("Write", "+"),
-        "generate_image": ("Image", "└"),
-        "patch": ("Edit", "±"),
-    }
+    LABELS = TOOL_LABELS
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._body = self._make_body()
@@ -122,20 +144,10 @@ class ToolCallWidget(Collapsible):
         self.refresh_content()
 
     def _tool_title(self) -> tuple[str, str]:
-        return self.LABELS.get(self.tool_name, (self.tool_name.replace("_", " ").title(), "›"))
+        return tool_label(self.tool_name)
 
     def _summary(self) -> str:
-        if self.tool_name == "bash":
-            return str(self.arguments.get("command") or self.raw_arguments)
-        if self.tool_name == "search":
-            return str(
-                self.arguments.get("query")
-                or self.arguments.get("pattern")
-                or compact_json(self.arguments)
-            )
-        if self.tool_name in {"write_file", "patch", "generate_image", "read_file"}:
-            return str(self.arguments.get("path") or compact_json(self.arguments))
-        return compact_json(self.arguments) or self.raw_arguments
+        return tool_detail(self.tool_name, self.arguments, self.raw_arguments)
 
     def _result_summary(self) -> str:
         if not self.result:
@@ -236,15 +248,37 @@ class ToolCallSnapshot:
         return line
 
 
+def snapshot_from_call(
+    *,
+    call_id: str,
+    tool_name: str,
+    arguments: Mapping[str, Any] | None = None,
+    raw_arguments: str = "",
+    status: str = "done",
+    result: str = "",
+) -> ToolCallSnapshot:
+    label, _icon = tool_label(tool_name)
+    return ToolCallSnapshot(
+        call_id=call_id,
+        tool_name=tool_name,
+        label=label,
+        detail=clip_text(tool_detail(tool_name, arguments, raw_arguments), 300),
+        status=status,
+        result=clip_text(result, 260) if result else "",
+    )
+
+
 class ToolCallSummary(Static, can_focus=True):
     """A compact disclosure containing non-interactive tool snapshots."""
 
-    def __init__(self) -> None:
+    def __init__(self, calls: Sequence[ToolCallSnapshot] | None = None) -> None:
         self.calls: list[ToolCallSnapshot] = []
         self.entries: list[ToolCallSnapshot | str] = []
         self.is_expanded = False
-        self.title = self._summary_title()
         super().__init__(classes="tool-call-summary")
+        for call in calls or ():
+            self.add_call(call, layout=False)
+        self.title = self._summary_title()
 
     def _summary_title(self) -> str:
         failed = sum(call.status == "failed" for call in self.calls)
@@ -294,7 +328,12 @@ class ToolCallSummary(Static, can_focus=True):
     def count(self) -> int:
         return len(self.calls)
 
-    def add_call(self, call: str | ToolCallWidget | ToolCallSnapshot) -> None:
+    def add_call(
+        self,
+        call: str | ToolCallWidget | ToolCallSnapshot,
+        *,
+        layout: bool = True,
+    ) -> None:
         if isinstance(call, ToolCallWidget):
             snapshot = call.snapshot()
         elif isinstance(call, ToolCallSnapshot):
@@ -308,16 +347,17 @@ class ToolCallSummary(Static, can_focus=True):
 
         try:
             self.title = self._summary_title()
-            self.set_class(any(call.status == "failed" for call in self.calls), "has-failures")
-            self.refresh(layout=True)
+            self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+            if layout:
+                self.refresh(layout=True)
         except NoActiveAppError:
             pass
 
-    def add_thought(self, title: str) -> None:
-        """Retain only the completed thought's title in the disclosure."""
+    def add_thought(self, title: str, *, layout: bool = True) -> None:
         self.entries.append(title)
         self.title = self._summary_title()
-        self.refresh(layout=True)
+        if layout:
+            self.refresh(layout=True)
 
     def toggle(self) -> None:
         self.is_expanded = not self.is_expanded

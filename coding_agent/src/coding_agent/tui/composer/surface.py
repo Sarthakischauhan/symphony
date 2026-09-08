@@ -64,7 +64,6 @@ class ComposerSurface:
         )
         self.set_thinking("Thinking…")
         if self.mode == "plan":
-            self._plan_store.begin(text)
             self._plan_run_active = True
         self._busy = True
         event.input.disabled = True
@@ -85,7 +84,13 @@ class ComposerSurface:
         mention = active_file_mention(event.text_area.text)
         if mention is not None:
             _start, query = mention
-            menu.set_files(file_matches(self.workspace, query))
+            menu.set_files(
+                file_matches(
+                    self.workspace,
+                    query,
+                    index=getattr(self, "_file_index", None),
+                )
+            )
         elif event.text_area.text.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
             menu.set_models(
@@ -110,10 +115,11 @@ class ComposerSurface:
             )
         elif event.text_area.text.startswith("/mode "):
             menu.set_modes(mode_matches(event.text_area.text.removeprefix("/mode ")), self.mode)
-        elif event.text_area.text.startswith("/plan "):
+        elif event.text_area.text.startswith("/plans "):
             menu.set_plans(
-                self._command_manager.plan_options(event.text_area.text.removeprefix("/plan ")),
+                self._command_manager.plan_options(event.text_area.text.removeprefix("/plans ")),
                 self._plan_store.path.name,
+                command="/plans",
             )
         else:
             model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")

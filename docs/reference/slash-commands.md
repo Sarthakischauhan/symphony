@@ -8,7 +8,8 @@ menu.
 | `/model [id]` | Show the credential-filtered catalog, or switch model |
 | `/mode [mode]` | View or switch **build** / **plan** |
 | `/effort [level]` | Set reasoning effort (`none` … `max`) |
-| `/plan [plan]` | Searchable picker for saved workspace plans |
+| `/plan [text]` | Enter plan mode; with text, submit it as the next planning turn |
+| `/plans [name]` | Pick or open a saved workspace plan |
 | `/provider [name]` | Add or update a provider API key (OpenAI, Anthropic, Gemini, Grok) |
 | `/new` | Start a fresh persisted session |
 | `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |

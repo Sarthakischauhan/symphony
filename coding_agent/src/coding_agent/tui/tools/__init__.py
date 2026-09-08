@@ -10,6 +10,7 @@ from coding_agent.tui.tools.calls import (
     ToolCallSummary,
     ToolCallWidget,
     make_tool_widget,
+    snapshot_from_call,
 )
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import (
@@ -40,5 +41,6 @@ __all__ = [
     "dropped_image_paths",
     "make_tool_widget",
     "make_unified_diff",
+    "snapshot_from_call",
     "render_half_block",
 ]

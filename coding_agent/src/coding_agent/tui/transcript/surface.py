@@ -80,8 +80,12 @@ class TranscriptSurface:
                     reconcile_live_tools(item, tools, limit=limit, final=final or item.completed)
 
     def finalize_transcript_history(self) -> None:
-        """Apply tool condensation after restored history has mounted."""
+        """Apply condensation and freeze completed message renders."""
         self._compact_transcript(final=True)
+        for message in self.query(".message"):
+            freeze = getattr(message, "freeze_render", None)
+            if freeze is not None:
+                freeze()
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         if new or self._assistant is None:
@@ -96,6 +100,13 @@ class TranscriptSurface:
     def finish_assistant(self) -> None:
         if self._assistant is not None:
             self._assistant.finish_stream()
+
+    def invalidate_workspace_caches(self) -> None:
+        index = getattr(self, "_file_index", None)
+        if index is not None:
+            index.invalidate()
+        if hasattr(self, "_plan_list_cache"):
+            self._plan_list_cache = None
 
     def set_thinking(self, text: str) -> None:
         if self._thinking is None:
@@ -184,12 +195,12 @@ class TranscriptSurface:
             if status == "failed":
                 widget.status = "failed"
                 widget.refresh_content()
+            if widget.tool_name in {"write_file", "patch", "bash"}:
+                self.invalidate_workspace_caches()
         else:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
         if status in {"done", "failed"}:
-            # Only completed cards count toward the live cap, so a run's
-            # timeline can only overflow when a tool reaches a terminal state.
             reconcile_live_tools(
                 self._process,
                 self._tools,
@@ -246,6 +257,23 @@ class TranscriptSurface:
     def mount_transcript(self, widget: Widget) -> None:
         """Public adapter used by the persisted-history loader."""
         self._mount_transcript(widget)
+
+    def mount_transcript_batch(self, widgets: list[Widget]) -> None:
+        """Mount restored history in one layout pass instead of one per row."""
+        if not widgets:
+            return
+        transcript = self.query_one("#transcript", VerticalScroll)
+        for welcome in self.query(".welcome"):
+            welcome.remove()
+        for widget in widgets:
+            if isinstance(widget, UserMessage):
+                turn = TranscriptTurn(widget)
+                self._transcript_turns.append(turn)
+                self._current_transcript_turn = turn
+            elif self._current_transcript_turn is not None:
+                self._current_transcript_turn.add_item(widget)
+            transcript.mount(widget)
+        self._compact_transcript(final=True)
 
     def action_clear_transcript(self) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)

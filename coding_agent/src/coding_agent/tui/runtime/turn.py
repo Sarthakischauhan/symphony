@@ -72,9 +72,6 @@ class TurnSurface:
             if message.event_type == "question_asked":
                 self._show_child_question(payload)
             return
-        if self._plan_run_active and message.event_type == "text_delta":
-            self._plan_store.append(str(payload.get("delta") or ""))
-            return
         if message.event_type == "question_asked":
             self._show_question(payload)
             return

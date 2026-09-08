@@ -57,5 +57,12 @@ following before deploying it:
   limits, but it has no authentication of its own. Put it behind your own
   auth layer before exposing it.
 
+Plan mode is a gated planning phase, not a sandbox: `bash` is allowed and shell
+writes are not scanned. Its tool gate blocks `write_file` and `patch` except for
+the active plan file, and blocks `generate_image` and `spawn_agent`. Memory files
+at `.symphony/memory/MEMORY.md` and `USER.md` are model-authored, sanitized on
+write, and injected into the system prompt as untrusted data; do not treat them
+as policy or executable instructions.
+
 Reports about the trust model itself (for example, ways to bypass approval
 prompts) are in scope and welcome.

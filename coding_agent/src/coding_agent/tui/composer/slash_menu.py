@@ -22,6 +22,18 @@ from coding_agent.tui.screens.file_selector import FileOption
 
 
 class SlashMenu(OptionList):
+    """Cached completion menu for files, commands, and plans."""
+
+    _files_cache: tuple[FileOption, ...] | None = None
+    _plans_cache: tuple[PlanOption, ...] | None = None
+    _matches_cache: dict[tuple[str, str], tuple[Option, ...]] = {}
+
+    @classmethod
+    def clear_session_cache(cls) -> None:
+        cls._files_cache = None
+        cls._plans_cache = None
+        cls._matches_cache.clear()
+
     """Discoverable command suggestions displayed above the composer."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -53,7 +65,7 @@ class SlashMenu(OptionList):
         if self._modes:
             return f"/mode {self._modes[self.selected_index].id}"
         if self._plans:
-            return f"/plan {self._plans[self.selected_index].id}"
+            return f"{getattr(self, '_plan_command', '/plan')} {self._plans[self.selected_index].id}"
         if self._questions:
             return self._questions[self.selected_index]
         if self._commands:
@@ -181,11 +193,23 @@ class SlashMenu(OptionList):
         self._current_mode = current
         self._replace_choices(modes=modes)
 
-    def set_plans(self, plans: tuple[PlanOption, ...], current: str = "") -> None:
+    def set_plans(self, plans: tuple[PlanOption, ...], current: str = "", command: str = "/plan") -> None:
         self._current_plan = current
+        self._plan_command = command
+        if self._plans_cache == plans:
+            plans = self._plans_cache
+        else:
+            self._plans_cache = plans
         self._replace_choices(plans=plans)
 
+    def invalidate_data_cache(self) -> None:
+        self.clear_session_cache()
+
     def set_files(self, files: tuple[FileOption, ...]) -> None:
+        if self._files_cache == files:
+            files = self._files_cache
+        else:
+            self._files_cache = files
         self._replace_choices(files=files)
 
     def set_question(

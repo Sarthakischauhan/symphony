@@ -118,15 +118,33 @@ def show_effort_picker(app: Any) -> None:
     app.query_one("#slash-menu").set_efforts(efforts, current)
 
 
+def sync_app_mode(app: Any, mode: str, *, plan_path: str | None = None) -> None:
+    """Keep TUI mode, agent mode, and the plan-mode gate in lockstep."""
+    app.mode = mode
+    agent = getattr(app, "_agent", None)
+    if agent is not None:
+        agent.set_mode(mode)
+        plan_state = getattr(agent, "plan_mode", None)
+        if plan_state is not None:
+            if mode == "plan":
+                plan_state.begin(plan_path)
+            else:
+                plan_state.reset()
+    app._update_composer_hint()
+
+
+def current_plan_path(app: Any) -> str | None:
+    store = getattr(app, "_plan_store", None)
+    path = getattr(store, "path", None) if store is not None else None
+    return str(path) if path is not None else None
+
+
 def select_mode(app: Any, argument: str) -> None:
     selected = find_mode(argument)
     if selected is None:
         app.add_notice(f"Unknown mode: {argument}. Run /mode to see available modes.", "warning")
         return
-    app.mode = selected.id
-    if app._agent is not None:
-        app._agent.set_mode(app.mode)
-    app._update_composer_hint()
+    sync_app_mode(app, selected.id)
     app.add_notice(f"Switched to {selected.label} mode", "success")
 
 
@@ -138,21 +156,30 @@ def show_mode_picker(app: Any) -> None:
 
 
 def toggle_mode(app: Any) -> None:
-    app.mode = "plan" if app.mode == "build" else "build"
-    if app._agent is not None:
-        app._agent.set_mode(app.mode)
-    app._update_composer_hint()
+    sync_app_mode(app, "plan" if app.mode == "build" else "build")
+
 
 # --- plan_list.py ---
 def list_plan_options(app: Any, query: str = "") -> tuple[PlanOption, ...]:
+    cached = getattr(app, "_plan_list_cache", None)
+    if cached is None:
+        cached = tuple(
+            PlanOption(
+                path.name,
+                app._plan_store.task_for(path),
+                str(path.relative_to(app.workspace)),
+            )
+            for path in app._plan_store.list_paths()
+        )
+        app._plan_list_cache = cached
     needle = query.strip().lower()
-    options: list[PlanOption] = []
-    for path in app._plan_store.list_paths():
-        task = app._plan_store.task_for(path)
-        if needle and needle not in path.name.lower() and needle not in task.lower():
-            continue
-        options.append(PlanOption(path.name, task, str(path.relative_to(app.workspace))))
-    return tuple(options)
+    if not needle:
+        return cached
+    return tuple(
+        option
+        for option in cached
+        if needle in option.id.lower() or needle in option.label.lower()
+    )
 
 
 def show_plan_picker(app: Any) -> None:
@@ -161,14 +188,14 @@ def show_plan_picker(app: Any) -> None:
         app.add_notice("No saved plans yet. Switch to Plan mode to create one.")
         return
     prompt = app.query_one("#prompt")
-    prompt.value = "/plan "
+    prompt.value = "/plans "
     prompt.cursor_position = len(prompt.value)
-    app.query_one("#slash-menu").set_plans(plans, app._plan_store.path.name)
+    app.query_one("#slash-menu").set_plans(plans, app._plan_store.path.name, command="/plans")
 
 
 def open_plan_modal(app: Any, plan_name: str | None = None) -> None:
     if plan_name is not None and app._plan_store.select(plan_name) is None:
-        app.add_notice(f"Unknown plan: {plan_name}. Run /plan to choose one.", "warning")
+        app.add_notice(f"Unknown plan: {plan_name}. Run /plans to choose one.", "warning")
         return
     if not app._plan_store.path.exists():
         app.add_notice("No saved plans yet. Switch to Plan mode to create one.")
@@ -177,12 +204,22 @@ def open_plan_modal(app: Any, plan_name: str | None = None) -> None:
 
 
 def on_plan_action(app: Any, action: str | None) -> None:
-    if action != "build" or app._busy:
+    if app._busy:
         return
-    app.mode = "build"
-    if app._agent is not None:
-        app._agent.set_mode("build")
-    app._update_composer_hint()
+    if action == "quit":
+        sync_app_mode(app, "build")
+        return
+    if action == "changes":
+        sync_app_mode(app, "plan", plan_path=current_plan_path(app))
+        app.query_one("#prompt").focus()
+        return
+    if action != "build":
+        return
+    agent = getattr(app, "_agent", None)
+    plan_state = getattr(agent, "plan_mode", None) if agent is not None else None
+    if plan_state is not None:
+        plan_state.approve()
+    sync_app_mode(app, "build")
     prompt = app.query_one("#prompt")
     plan_path = app._plan_store.path.relative_to(app.workspace)
     prompt.value = f"Build the approved plan in {plan_path}."
@@ -232,6 +269,9 @@ async def reload_project(app: Any) -> None:
         app._ui_state.set_context_limit(context_limit)
         app.query_one("#topbar").set_context(app.workspace, model_id)
         app._set_status("")
+        invalidate = getattr(app, "invalidate_workspace_caches", None)
+        if callable(invalidate):
+            invalidate()
         app.add_notice("Configuration reloaded.", "success")
         app.query_one("#prompt").focus()
     except Exception as exc:  # noqa: BLE001
@@ -352,6 +392,10 @@ class CommandManager:
         elif command in {"installed", "extensions", "plugins", "skills"}:
             app.push_screen(ExtensionsModal(app.workspace, app._agent))
         elif command == "plan":
+            select_mode(app, "plan")
+            if argument:
+                app.query_one("#prompt").value = argument
+        elif command == "plans":
             open_plan_modal(app, argument) if argument else show_plan_picker(app)
         elif command == "effort":
             if app._busy:

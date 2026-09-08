@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
+import os
 from pathlib import Path
 
 from types import SimpleNamespace
@@ -37,6 +39,7 @@ from coding_agent.tui.commands import (
 )
 from coding_agent.tui.runtime import ControlPlaneEvent, TextualEventSink
 from coding_agent.tui.screens.file_selector import (
+    WorkspaceFileIndex,
     active_file_mention,
     complete_file_mention,
     file_matches,
@@ -54,8 +57,7 @@ from coding_agent.tui.screens import (
     DiffModal,
     ImageModal,
     PlanModal,
-    PlanSectionCard,
-    _plan_sections,
+    _plan_document,
 )
 from coding_agent.tui.runtime import SubagentRecord, SubagentScreen, SubagentWidget
 from coding_agent.tui.screens.history import load_session_history
@@ -383,7 +385,7 @@ def test_themed_markdown_avoids_rich_monokai_default() -> None:
     assert themed.inline_code_theme is SYMPHONY_CODE_THEME
 
 
-def test_plan_stream_writes_to_file_without_rendering_in_chat(
+def test_plan_stream_renders_in_chat(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -398,11 +400,15 @@ def test_plan_stream_writes_to_file_without_rendering_in_chat(
             app.on_harness_event(
                 ControlPlaneEvent("text_delta", {"delta": "1. Add API.\n"})
             )
+            assert app._presenter is not None
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
 
-            assert app._assistant is None
+            assert app._assistant is not None
+            assert "Add API" in app._assistant.message_text
             plan_path = tmp_path / ".symphony" / "plans" / "to_build_a_server_plan.md"
             assert plan_path.read_text().endswith(
-                "## Steps\n1. Add API.\n"
+                "**Task:** To build a server\n\n"
             )
 
             app.on_harness_event(ControlPlaneEvent("run_completed", {}))
@@ -423,7 +429,9 @@ def test_plan_modal_offers_build_now(
         async with app.run_test() as pilot:
             app.push_screen(PlanModal(tmp_path), actions.append)
             await pilot.pause()
-            assert app.screen.query_one(PlanSectionCard) is not None
+            assert app.screen.query_one("#plan-markdown") is not None
+            assert app.screen.query_one("#plan-changes") is not None
+            assert app.screen.query_one("#plan-quit") is not None
             await pilot.click("#plan-build")
             await pilot.pause()
             assert actions == ["build"]
@@ -431,15 +439,14 @@ def test_plan_modal_offers_build_now(
     asyncio.run(_run())
 
 
-def test_plan_modal_normalizes_top_level_heading() -> None:
-    _task, sections = _plan_sections(
+def test_plan_document_strips_store_chrome() -> None:
+    title, body = _plan_document(
         "# Plan\n\n**Task:** Keep tool output small\n\n"
         "# Plan: Limit Large Tool Results\n\n1. Clip output.\n"
     )
 
-    assert sections == [
-        ("Overview", "**Plan: Limit Large Tool Results**\n\n1. Clip output.")
-    ]
+    assert title == "Keep tool output small"
+    assert body == "# Plan: Limit Large Tool Results\n\n1. Clip output."
 
 
 def test_pasted_prompt_is_compacted_without_changing_agent_input(
@@ -745,6 +752,123 @@ def test_history_hides_compaction_summary() -> None:
         "AssistantMessage",
     ]
     assert all(COMPACTED_CONTEXT_MARK not in str(widget.render()) for widget in view.mounted)
+
+
+def test_history_resume_folds_tools_into_explored() -> None:
+    tool_calls = [
+        {
+            "id": f"read-{index}",
+            "function": {
+                "name": "read_file",
+                "arguments": json.dumps({"path": f"src/f{index}.py"}),
+            },
+        }
+        for index in range(12)
+    ]
+
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            messages = [
+                Message(role="user", content="Inspect the files"),
+                Message(role="assistant", content="Reading them.", tool_calls=tool_calls),
+            ]
+            messages.extend(
+                Message(role="tool", content="ok", tool_call_id=f"read-{index}")
+                for index in range(12)
+            )
+            return messages
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+
+    kinds = [type(widget).__name__ for widget in view.mounted]
+    assert kinds[0] == "UserMessage"
+    assert kinds[1] == "AssistantMessage"
+    assert kinds[2:] == ["ToolCallSummary", "ToolCallSummary"]
+    assert "ToolCallWidget" not in kinds
+    summaries = [widget for widget in view.mounted if isinstance(widget, ToolCallSummary)]
+    assert sum(summary.count for summary in summaries) == 12
+
+
+def test_finished_assistant_does_not_reparse_markdown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    parsed: list[str] = []
+    original = themed_markdown
+
+    def spy(markup: str, **kwargs: object):
+        parsed.append(str(markup))
+        return original(markup, **kwargs)
+
+    monkeypatch.setattr("coding_agent.tui.transcript.messages.themed_markdown", spy)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_assistant("# Hello\n\nworld", new=True)
+            await pilot.pause()
+            assert parsed == []
+            app.finish_assistant()
+            await pilot.pause()
+            assert parsed == ["# Hello\n\nworld"]
+            app.mount_transcript(UserMessage("next"))
+            assert app._presenter is not None
+            app._presenter.refresh_chrome()
+            app.finish_assistant()
+            await pilot.pause()
+            assert parsed == ["# Hello\n\nworld"]
+
+    asyncio.run(_run())
+
+
+def test_workspace_file_index_scans_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "turn.py").write_text("pass\n", encoding="utf-8")
+    walks = {"n": 0}
+    real_walk = os.walk
+
+    def counting_walk(*args: object, **kwargs: object):
+        walks["n"] += 1
+        yield from real_walk(*args, **kwargs)
+
+    monkeypatch.setattr("coding_agent.tui.screens.file_selector.os.walk", counting_walk)
+    index = WorkspaceFileIndex(tmp_path)
+    first = file_matches(tmp_path, "turn", index=index)
+    second = file_matches(tmp_path, "turn", index=index)
+    assert [item.path for item in first] == ["src/turn.py"]
+    assert second == first
+    assert walks["n"] == 1
+    index.invalidate()
+    file_matches(tmp_path, "src", index=index)
+    assert walks["n"] == 2
 
 
 def test_resume_options_use_existing_persistence_api() -> None:
@@ -1511,12 +1635,12 @@ def test_plan_menu_options_are_hoverable_and_clickable(
             app.push_screen = lambda screen, *args: opened.append(screen)  # type: ignore[method-assign]
 
             prompt = app.query_one("#prompt")
-            prompt.value = "/plan "
+            prompt.value = "/plans "
             await pilot.pause()
             menu = app.query_one("#slash-menu", SlashMenu)
 
             assert menu.display
-            assert menu.selected_value == "/plan ship_feature_plan.md"
+            assert menu.selected_value == "/plans ship_feature_plan.md"
             assert await pilot.hover(menu, offset=(4, 2))
             assert menu._mouse_hovering_over == 0
             assert await pilot.click(menu, offset=(4, 2))
@@ -1950,16 +2074,14 @@ def test_slash_menu_and_commands(
             opened.clear()
             app._plan_store.save("Add API", "1. Build it.")
             app._plan_store.save("Fix login", "1. Inspect auth.")
-            prompt.value = "/plan add"  # type: ignore[attr-defined]
+            prompt.value = "/plans add"  # type: ignore[attr-defined]
             await pilot.pause()
-            assert menu.selected_value == "/plan add_api_plan.md"
-            await app._run_slash_command("/plan")
+            assert menu.selected_value == "/plans add_api_plan.md"
+            await app._run_slash_command("/plans")
             assert not opened
-            assert prompt.value == "/plan "  # type: ignore[attr-defined]
+            assert prompt.value == "/plans "  # type: ignore[attr-defined]
             assert menu.display
-            assert menu.selected_value == "/plan fix_login_plan.md"
-            await pilot.press("down")
-            assert menu.selected_value == "/plan add_api_plan.md"
+            assert menu.selected_value == "/plans fix_login_plan.md"
             await pilot.press("enter")
             await pilot.pause()
             assert opened and opened[0].__class__.__name__ == "PlanModal"

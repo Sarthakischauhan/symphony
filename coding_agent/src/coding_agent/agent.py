@@ -34,10 +34,11 @@ from coding_agent.config import (
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.plan import PlanStore
+from coding_agent.plan_mode import PlanModeAddon, PlanModeState
 from coding_agent.plugins import PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.skills import SkillRegistry, SkillsAddon
-from coding_agent.tools import build_tools
+from coding_agent.tools import EnterPlanModeTool, ExitPlanModeTool, build_tools
 
 AgentMode = Literal["build", "plan"]
 
@@ -92,6 +93,7 @@ class CodingAgent:
         self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
         self.base_system_prompt = system_prompt.rstrip()
         self.mode = mode
+        self.plan_mode = PlanModeState(workspace=self.workspace, active=mode == "plan")
         self.plan_store = PlanStore(self.workspace)
         self.learning_store = LearningStore(
             self.workspace,
@@ -141,6 +143,7 @@ class CodingAgent:
         self.tools = tools if tools is not None else build_tools(
             self.workspace,
             config=self.config.tools,
+            learning_enabled=self.config.learning.enabled,
         )
         include_subagent = tools is None
         addons = default_addons(
@@ -150,6 +153,7 @@ class CodingAgent:
             spawn_configure=self._spawn_child_config if include_subagent else None,
             include_subagent=include_subagent,
         )
+        addons.append(PlanModeAddon(self.plan_mode))
         addons.append(ApprovalAddon(self.workspace, self.sink))
         if self.config.skills.enabled:
             addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
@@ -160,6 +164,10 @@ class CodingAgent:
                     should_review=lambda: self.mode != "plan",
                 )
             )
+        self.tools.extend([
+            EnterPlanModeTool(self.workspace, self.plan_mode, self),
+            ExitPlanModeTool(self.workspace, self.plan_mode),
+        ])
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -208,18 +216,11 @@ class CodingAgent:
         """Run the agent; learning is scheduled from the after_run add-on hook."""
         mode = self.mode
         task_text = text_from_content(user_input)
-        lessons = (
-            self.learning_store.context_for(
-                task_text,
-                limit=self.config.learning.context_limit,
-                max_chars=self.config.learning.context_max_chars,
-            )
-            if self.learning_loop
-            else ""
-        )
         self.harness.system_prompt = self.base_system_prompt
-        if lessons:
-            self.harness.system_prompt += f"\n\n{lessons}"
+        if self.learning_loop:
+            memory = self.learning_store.snapshot(max_chars=self.config.learning.context_max_chars)
+            if memory:
+                self.harness.system_prompt += f"\n\n{memory}"
         if mode == "plan":
             self.harness.system_prompt += f"\n\n{PLAN_MODE_PROMPT}"
         if self.config.skills.enabled and self.skill_registry.skills:
@@ -234,29 +235,22 @@ class CodingAgent:
             self.harness.system_prompt += "\n" + "\n".join(catalog)
         self.harness.system_prompt += "\n"
 
-        tools = self.harness.tools
-        if mode == "plan":
-            self.plan_store.begin(task_text)
-            self.harness.tools = {
-                name: tool
-                for name, tool in tools.items()
-                if name in {"read_file", "search"}
-            }
-        try:
-            result = await self.harness.run(
-                user_input,
-                conversation=conversation,
-                session_id=session_id or self.session_id,
-            )
-        finally:
-            self.harness.tools = tools
-
-        if mode == "plan":
-            self.plan_store.save(task_text, result.output_text)
+        if mode == "plan" and not self.plan_mode.plan_path:
+            plan_path = self.plan_store.begin(task_text)
+            self.plan_mode.begin(str(plan_path))
+        result = await self.harness.run(
+            user_input,
+            conversation=conversation,
+            session_id=session_id or self.session_id,
+        )
         return result
 
     def set_mode(self, mode: AgentMode) -> None:
         self.mode = mode
+        if mode == "plan":
+            self.plan_mode.begin()
+        else:
+            self.plan_mode.reset()
 
     async def wait_for_learning(self) -> None:
         """Optionally drain pending reflections before application shutdown."""

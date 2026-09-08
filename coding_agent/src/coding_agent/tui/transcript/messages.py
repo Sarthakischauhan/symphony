@@ -10,6 +10,8 @@ from rich.console import Group
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
+from textual.selection import Selection
+from textual.strip import Strip
 from textual.widgets import Static
 
 from coding_agent.tui.motion import reveal
@@ -20,6 +22,43 @@ from coding_agent.tui.tools.images import IMAGE_MARKER_RE, ImageAttachment, Imag
 # Accent glyph that opens every user prompt in the transcript (mock: purple `>`).
 USER_PROMPT_GLYPH = ">"
 USER_PROMPT_GUTTER = 3
+
+
+class _SelectableStatic(Static):
+    """Static widget that reuses a completed render instead of rebuilding it."""
+
+    _render_cache_content: object | None = None
+
+    def _invalidate_render_cache(self, *, layout: bool = False) -> None:
+        self._render_cache_content = None
+        self.refresh(layout=layout)
+
+    def _render_content(self):
+        if self._render_cache_content is not None and not getattr(self, "_streaming", False):
+            return self._render_cache_content
+        content = super()._render_content()
+        if not getattr(self, "_streaming", False):
+            self._render_cache_content = content
+        return content
+
+    def freeze_render(self) -> None:
+        if getattr(self, "_streaming", False) or self._render_cache_content is not None:
+            return
+        self._render_cache_content = super()._render_content()
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        # Static's default implementation cannot extract from Group/Table/Markdown.
+        # The compositor has already rendered the exact wrapped lines, so use those
+        # strips rather than re-rendering with a potentially different width.
+        if self._dirty_regions:
+            self._render_content()
+        lines = [line.text.rstrip() for line in self._render_cache.lines]
+        return selection.extract("\n".join(lines)), "\n"
+
+    def render_line(self, y: int) -> Strip:
+        """Attach Textual's selection offsets to every rendered cell."""
+        line = super().render_line(y)
+        return line.apply_offsets(0, y)
 
 
 def compact_json(value: Mapping[str, Any]) -> str:
@@ -62,7 +101,7 @@ class Welcome(Static):
         )
         super().__init__(body, classes="welcome")
 
-class UserMessage(Static):
+class UserMessage(_SelectableStatic):
     """A user prompt with long pasted chunks and images hidden behind compact links."""
 
     COMPACT_PASTE_AFTER = 100
@@ -186,16 +225,30 @@ class UserMessage(Static):
             self.app.push_screen(ImageModal(image))
 
 
-class AssistantMessage(Static):
+class AssistantMessage(_SelectableStatic):
     def __init__(self, content: str = "", *, streaming: bool = False) -> None:
         self._streaming = False
+        self._markdown = None
         super().__init__(classes="message assistant-message")
         self.set_content(content, streaming=streaming)
 
     def set_content(self, content: str, *, streaming: bool = False) -> None:
+        if (
+            not streaming
+            and not self._streaming
+            and content == getattr(self, "message_text", None)
+            and self._markdown is not None
+        ):
+            return
         self.message_text = content
         self._streaming = streaming
-        body = Text(content or " ") if streaming else themed_markdown(content or " ")
+        if streaming:
+            self._markdown = None
+            body: object = Text(content or " ")
+        else:
+            self._markdown = themed_markdown(content or " ")
+            body = self._markdown
+        self._invalidate_render_cache(layout=True)
         self.update(
             Group(
                 Text("◆  SYMPHONY", style="bold #d0d0d0"),
@@ -206,6 +259,7 @@ class AssistantMessage(Static):
     def finish_stream(self) -> None:
         if self._streaming:
             self.set_content(self.message_text)
+        self.freeze_render()
 
     def archive_text(self) -> str:
         return f"SYMPHONY\n{self.message_text}"
