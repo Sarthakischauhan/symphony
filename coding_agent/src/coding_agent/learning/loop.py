@@ -58,8 +58,12 @@ class LearningLoop:
         registry: ModelRegistry,
         model_id: str,
         max_output_tokens: int = LearningConfig().max_output_tokens,
+        context_limit: int = LearningConfig().context_limit,
+        context_max_chars: int = LearningConfig().context_max_chars,
     ) -> None:
         self.store = store
+        self.context_limit = context_limit
+        self.context_max_chars = context_max_chars
         self.registry = registry
         self.model_id = model_id
         self.max_output_tokens = max_output_tokens
