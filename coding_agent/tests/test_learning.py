@@ -204,6 +204,29 @@ def test_run_embeds_durable_memory_once(tmp_path: Path) -> None:
     assert "pytest" in system
 
 
+def test_second_run_reinjects_durable_memory(tmp_path: Path) -> None:
+    store = LearningStore(tmp_path)
+    store.memory_operation("add", text="Python tests use pytest -q")
+    registry = SplitRegistry()
+
+    async def scenario() -> None:
+        agent = CodingAgent(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="test:model",
+            workspace=tmp_path,
+            tools=[],
+        )
+        await agent.run("fix the Python tests")
+        await agent.run("fix the Python tests")
+
+    asyncio.run(scenario())
+    assert len(registry.turns) == 2
+    for messages in registry.turns:
+        system = _system_text(messages)
+        assert system.count(MEMORY_CONTEXT_PREFIX) == 1
+        assert "pytest" in system
+
+
 def test_before_turn_replaces_memory_block(tmp_path: Path) -> None:
     store = LearningStore(tmp_path)
     store.memory_operation("add", text="Prefer pytest -q for Python unit suites")

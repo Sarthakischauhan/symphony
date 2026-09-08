@@ -23,6 +23,19 @@ def strip_memory_context(content: str) -> str:
     return _MEMORY_BLOCK.sub("", content).rstrip()
 
 
+def apply_memory_context(content: str, context: str) -> str:
+    """Write ``context`` in place of any prior labeled memory block."""
+    base = strip_memory_context(content)
+    return f"{base}\n\n{context}" if context else base
+
+
+def _has_desired_memory(content: str, context: str) -> bool:
+    """True when the system text already carries the exact queried block."""
+    if context:
+        return context in content
+    return MEMORY_CONTEXT_PREFIX not in content
+
+
 class LearningAddon(Addon):
     """Inject relevant memory each turn and schedule post-run reflection.
 
@@ -42,7 +55,6 @@ class LearningAddon(Addon):
         self.loop = loop
         self.should_review = should_review or (lambda: True)
         self.should_inject = should_inject or (lambda: True)
-        self._last_context: str | None = None
 
     async def before_turn(self, **payload: Any) -> None:
         """Replace the labeled memory block on the current turn's system message."""
@@ -59,13 +71,12 @@ class LearningAddon(Addon):
             limit=self.loop.context_limit,
             max_chars=self.loop.context_max_chars,
         )
-        if context == self._last_context:
-            return
-        self._last_context = context
         for message in messages:
             if isinstance(message, Message) and message.role == "system":
-                base = strip_memory_context(text_from_content(message.content))
-                message.content = f"{base}\n\n{context}" if context else base
+                current = text_from_content(message.content)
+                if _has_desired_memory(current, context):
+                    return
+                message.content = apply_memory_context(current, context)
                 break
 
     def fork_for_child(self, parent_harness: Any) -> None:
