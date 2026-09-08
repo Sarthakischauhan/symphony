@@ -84,7 +84,13 @@ class ComposerSurface:
         mention = active_file_mention(event.text_area.text)
         if mention is not None:
             _start, query = mention
-            menu.set_files(file_matches(self.workspace, query))
+            menu.set_files(
+                file_matches(
+                    self.workspace,
+                    query,
+                    index=getattr(self, "_file_index", None),
+                )
+            )
         elif event.text_area.text.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
             menu.set_models(

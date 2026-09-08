@@ -157,14 +157,25 @@ def toggle_mode(app: Any) -> None:
 
 # --- plan_list.py ---
 def list_plan_options(app: Any, query: str = "") -> tuple[PlanOption, ...]:
+    cached = getattr(app, "_plan_list_cache", None)
+    if cached is None:
+        cached = tuple(
+            PlanOption(
+                path.name,
+                app._plan_store.task_for(path),
+                str(path.relative_to(app.workspace)),
+            )
+            for path in app._plan_store.list_paths()
+        )
+        app._plan_list_cache = cached
     needle = query.strip().lower()
-    options: list[PlanOption] = []
-    for path in app._plan_store.list_paths():
-        task = app._plan_store.task_for(path)
-        if needle and needle not in path.name.lower() and needle not in task.lower():
-            continue
-        options.append(PlanOption(path.name, task, str(path.relative_to(app.workspace))))
-    return tuple(options)
+    if not needle:
+        return cached
+    return tuple(
+        option
+        for option in cached
+        if needle in option.id.lower() or needle in option.label.lower()
+    )
 
 
 def show_plan_picker(app: Any) -> None:
@@ -261,6 +272,9 @@ async def reload_project(app: Any) -> None:
         app._ui_state.set_context_limit(context_limit)
         app.query_one("#topbar").set_context(app.workspace, model_id)
         app._set_status("")
+        invalidate = getattr(app, "invalidate_workspace_caches", None)
+        if callable(invalidate):
+            invalidate()
         app.add_notice("Configuration reloaded.", "success")
         app.query_one("#prompt").focus()
     except Exception as exc:  # noqa: BLE001

@@ -573,82 +573,118 @@ PlanModal {
     display: none;
 }
 
+#plan-header {
+    width: 100%;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
+    border-bottom: solid #262626;
+    background: #0A0A0A;
+}
+
+#plan-kicker {
+    width: auto;
+    color: #c7b66e;
+    text-style: bold;
+    background: #0A0A0A;
+}
+
+#plan-title {
+    width: 1fr;
+    padding-left: 2;
+    color: #d9dde0;
+    text-style: bold;
+    background: #0A0A0A;
+}
+
+#plan-header #modal-close {
+    dock: none;
+    width: auto;
+    min-width: 11;
+    margin-left: 2;
+    color: #858d91;
+    background: #0A0A0A;
+}
+
+#plan-header #modal-close:hover,
+#plan-header #modal-close:focus {
+    color: #f2d675;
+    background: #171b1c;
+}
+
 #plan-body {
     height: 1fr;
     padding: 0;
     background: #0A0A0A;
 }
 
-.plan-section-card {
+#plan-markdown {
     width: 100%;
     height: auto;
-    margin-bottom: 1;
-    padding: 0;
-    background: #0A0A0A;
-    border-top: solid #262626;
-}
-
-.plan-section-card:hover {
-    border-top: solid #687b83;
-}
-
-.plan-section-header {
-    width: 100%;
-    height: 1;
-    padding: 0 1;
-    background: #171717;
-}
-
-.plan-section-number {
-    width: 4;
-    color: #c7b66e;
-    text-style: bold;
-    content-align: left middle;
-    background: #171717;
-}
-
-.plan-section-title {
-    width: 1fr;
+    padding: 1 2 2 2;
     color: #d0d0d0;
-    text-style: bold;
-    background: #171717;
-}
-
-.plan-section-body {
-    width: 100%;
-    height: auto;
-    padding: 1 1 2 1;
-    color: #bdbdbd;
     background: #0A0A0A;
-}
-
-#plan-hint {
-    width: 1fr;
-    height: 2;
-    padding: 1 0 0 1;
-    color: #686868;
 }
 
 #plan-actions {
     width: 100%;
     height: 3;
+    min-height: 3;
+    padding: 0 1;
+    border-top: solid #262626;
     background: #0A0A0A;
 }
 
-#plan-build {
-    width: 16;
+#plan-hint {
+    width: 1fr;
+    height: 3;
+    content-align: left middle;
+    color: #737b7f;
+    background: #0A0A0A;
+}
+
+#plan-build,
+#plan-changes,
+#plan-quit {
     height: 3;
     padding: 0 1;
-    color: #c7b66e;
     content-align: center middle;
+    margin-left: 1;
+}
+
+#plan-build {
+    width: 14;
+    color: #c7b66e;
     background: #181712;
     border: round #4a4532;
+}
+
+#plan-changes {
+    width: 20;
+    color: #aeb8bc;
+    background: #121212;
+    border: round #333333;
+}
+
+#plan-quit {
+    width: 10;
+    color: #aeb8bc;
+    background: #121212;
+    border: round #333333;
 }
 
 #plan-build:hover,
 #plan-build:focus {
     color: #f2d675;
     background: #302c20;
+}
+
+#plan-changes:hover,
+#plan-changes:focus,
+#plan-quit:hover,
+#plan-quit:focus {
+    color: #f2d675;
+    background: #171b1c;
 }
 
 """

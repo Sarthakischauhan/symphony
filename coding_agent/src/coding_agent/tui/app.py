@@ -29,6 +29,7 @@ from coding_agent.tui.runtime import (
 from coding_agent.tui.runtime.subagent import SubagentSurface
 from coding_agent.tui.runtime.turn import TurnSurface
 from coding_agent.tui.screens.ask import QuestionSurface
+from coding_agent.tui.screens.file_selector import WorkspaceFileIndex
 from coding_agent.tui.screens.onboard import OnboardApp
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
@@ -104,6 +105,8 @@ class CodingAgentApp(
         self._tools: dict[str, ToolCallWidget | ToolCallSummary] = {}
         self._subagents: dict[str, SubagentRecord] = {}
         self._plan_store = PlanStore(self.workspace)
+        self._file_index = WorkspaceFileIndex(self.workspace)
+        self._plan_list_cache: tuple | None = None
         self._plan_run_active = False
         self._pending_question_id: str | None = None
         self._pending_question_agent_id = ""

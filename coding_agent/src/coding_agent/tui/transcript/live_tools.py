@@ -57,8 +57,14 @@ def reconcile_live_tools(
             widget, snapshot, replace, remove, tools, batch_summary
         )
     if batch_summary is not None:
-        # Removal happens bottom-up; disclosures read in original event order.
         batch_summary.entries.reverse()
+        batch_summary.title = batch_summary._summary_title()
+        from textual._context import NoActiveAppError
+
+        try:
+            batch_summary.refresh(layout=True)
+        except NoActiveAppError:
+            pass
 
 
 def _timeline_ops(
@@ -132,9 +138,9 @@ def _fold_into_explored(
     from coding_agent.tui.transcript.process import ReasoningWidget
 
     if isinstance(widget, ReasoningWidget):
-        summary.add_thought(str(widget.title))
+        summary.add_thought(str(widget.title), layout=False)
     else:
-        summary.add_call(widget)
+        summary.add_call(widget, layout=False)
         if tools is not None:
             tools[widget.call_id] = summary
     return summary

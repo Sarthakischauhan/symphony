@@ -25,18 +25,15 @@ USER_PROMPT_GUTTER = 3
 
 
 class _SelectableStatic(Static):
-    """Static widget with a width-aware reusable render cache."""
+    """Static widget that reuses a completed render instead of rebuilding it."""
 
-    _render_cache_width: int | None = None
     _render_cache_content: object | None = None
 
-    def _invalidate_render_cache(self) -> None:
-        self._render_cache_width = None
+    def _invalidate_render_cache(self, *, layout: bool = False) -> None:
         self._render_cache_content = None
-        self.refresh(layout=True)
+        self.refresh(layout=layout)
 
     def _render_content(self):
-        """Return the frozen renderable without rebuilding Markdown."""
         if self._render_cache_content is not None and not getattr(self, "_streaming", False):
             return self._render_cache_content
         content = super()._render_content()
@@ -45,11 +42,9 @@ class _SelectableStatic(Static):
         return content
 
     def freeze_render(self) -> None:
-        """Retain the completed render and prevent Markdown reparsing."""
-        if getattr(self, "_streaming", False):
+        if getattr(self, "_streaming", False) or self._render_cache_content is not None:
             return
         self._render_cache_content = super()._render_content()
-        self._render_cache_width = self.size.width
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         # Static's default implementation cannot extract from Group/Table/Markdown.
@@ -233,14 +228,27 @@ class UserMessage(_SelectableStatic):
 class AssistantMessage(_SelectableStatic):
     def __init__(self, content: str = "", *, streaming: bool = False) -> None:
         self._streaming = False
+        self._markdown = None
         super().__init__(classes="message assistant-message")
         self.set_content(content, streaming=streaming)
 
     def set_content(self, content: str, *, streaming: bool = False) -> None:
+        if (
+            not streaming
+            and not self._streaming
+            and content == getattr(self, "message_text", None)
+            and self._markdown is not None
+        ):
+            return
         self.message_text = content
         self._streaming = streaming
-        body = Text(content or " ") if streaming else themed_markdown(content or " ")
-        self._invalidate_render_cache()
+        if streaming:
+            self._markdown = None
+            body: object = Text(content or " ")
+        else:
+            self._markdown = themed_markdown(content or " ")
+            body = self._markdown
+        self._invalidate_render_cache(layout=True)
         self.update(
             Group(
                 Text("◆  SYMPHONY", style="bold #d0d0d0"),
@@ -251,6 +259,7 @@ class AssistantMessage(_SelectableStatic):
     def finish_stream(self) -> None:
         if self._streaming:
             self.set_content(self.message_text)
+        self.freeze_render()
 
     def archive_text(self) -> str:
         return f"SYMPHONY\n{self.message_text}"

@@ -27,13 +27,6 @@ from coding_agent.tui.transcript.process import (
 class TranscriptSurface:
     """TranscriptView implementation mixed into CodingAgentApp."""
 
-    def _freeze_completed_messages(self) -> None:
-        """Freeze completed assistant widgets so their render cache is reusable."""
-        for turn in self._transcript_turns:
-            for item in turn.timeline_items():
-                if isinstance(item, (AssistantMessage, UserMessage)):
-                    item.refresh(layout=True)
-
     def _follow_transcript_tail(
         self, transcript: VerticalScroll, *, was_at_end: bool
     ) -> None:
@@ -60,7 +53,6 @@ class TranscriptSurface:
         welcome = self.query(".welcome")
         if welcome:
             welcome.first().remove()
-        self._freeze_completed_messages()
         if isinstance(widget, UserMessage):
             turn = TranscriptTurn(widget)
             self._transcript_turns.append(turn)
@@ -108,6 +100,13 @@ class TranscriptSurface:
     def finish_assistant(self) -> None:
         if self._assistant is not None:
             self._assistant.finish_stream()
+
+    def invalidate_workspace_caches(self) -> None:
+        index = getattr(self, "_file_index", None)
+        if index is not None:
+            index.invalidate()
+        if hasattr(self, "_plan_list_cache"):
+            self._plan_list_cache = None
 
     def set_thinking(self, text: str) -> None:
         if self._thinking is None:
@@ -196,12 +195,12 @@ class TranscriptSurface:
             if status == "failed":
                 widget.status = "failed"
                 widget.refresh_content()
+            if widget.tool_name in {"write_file", "patch", "bash"}:
+                self.invalidate_workspace_caches()
         else:
             widget.set_arguments(arguments, raw_arguments)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
         if status in {"done", "failed"}:
-            # Only completed cards count toward the live cap, so a run's
-            # timeline can only overflow when a tool reaches a terminal state.
             reconcile_live_tools(
                 self._process,
                 self._tools,

@@ -72,12 +72,6 @@ class TurnSurface:
             if message.event_type == "question_asked":
                 self._show_child_question(payload)
             return
-        if self._plan_run_active and message.event_type == "text_delta":
-            # Plan output is ordinary transcript content.  The plan file is
-            # authored by the model through write_file/patch.
-            if self._presenter is not None:
-                self._presenter.handle("text_delta", payload)
-            return
         if message.event_type == "question_asked":
             self._show_question(payload)
             return
