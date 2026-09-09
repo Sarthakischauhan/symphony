@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 from rich.table import Table
 from rich.text import Text
 
-from coding_agent.tui.theme.colors import SYMPHONY_COLORS
+from coding_agent.tui.theme import SYMPHONY_COLORS
 
 if TYPE_CHECKING:
     from coding_agent.tui.runtime.state import RunMetrics, UiRunState
