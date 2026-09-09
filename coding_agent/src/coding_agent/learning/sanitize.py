@@ -48,6 +48,16 @@ def sanitize_task(task: str) -> str:
     return sanitize_text(task, max_chars=240)
 
 
+def sanitize_memory(text: str, *, max_chars: int = 1400) -> str:
+    """Sanitize memory at injection time while preserving Markdown line breaks."""
+    cleaned = neutralize_injection(redact_secrets(str(text or "")))
+    lines = [" ".join(line.split()) for line in cleaned.splitlines()]
+    cleaned = "\n".join(lines).strip()
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[: max_chars - 3].rstrip() + "..."
+    return cleaned
+
+
 def _redact_match(match: re.Match[str]) -> str:
     if match.lastindex and match.lastindex >= 2:
         return f"{match.group(1)}[REDACTED]"
