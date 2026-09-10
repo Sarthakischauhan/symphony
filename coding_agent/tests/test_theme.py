@@ -43,8 +43,15 @@ def test_app_css_includes_accent_and_background() -> None:
     assert SYMPHONY_COLORS["accent"] == theme.colors["accent"]
 
 
-def test_home_theme_overrides_packaged_default() -> None:
+def test_home_theme_overrides_packaged_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
     home_theme = user_theme_path()
+    assert home_theme == tmp_path / ".symphony" / "theme.toml"
     assert home_theme == Path.home() / ".symphony" / "theme.toml"
     home_theme.parent.mkdir(parents=True)
     home_theme.write_text(
