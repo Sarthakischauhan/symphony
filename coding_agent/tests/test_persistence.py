@@ -224,6 +224,36 @@ def test_compaction_is_append_only_and_latest_projection_is_resumed(tmp_path: Pa
     assert "newer answer" in transcript_text
 
 
+def test_compacted_boundary_alias_honors_through_seq(tmp_path: Path) -> None:
+    root = tmp_path / "sessions"
+    root.mkdir()
+    path = root / "alias.jsonl"
+    entries = [
+        {"type": "header", "session_id": "alias", "seq": 1},
+        {"type": "user", "role": "user", "content": "old", "seq": 2},
+        {
+            "type": "compacted",
+            "seq": 3,
+            "through_seq": 2,
+            "summary": {"role": "user", "content": "summary"},
+        },
+        {"type": "assistant", "role": "assistant", "content": "new", "seq": 4},
+    ]
+    path.write_text(
+        "".join(json.dumps(entry) + "\n" for entry in entries),
+        encoding="utf-8",
+    )
+
+    resumed = asyncio.run(
+        JsonlPersistence(root).load_conversation(session_id="alias")
+    )
+
+    assert [(message.role, message.content) for message in resumed] == [
+        ("user", "summary"),
+        ("assistant", "new"),
+    ]
+
+
 def test_harness_persists_and_reloads_conversation(tmp_path: Path) -> None:
     store = JsonlPersistence(tmp_path / "sessions")
     registry = FakeRegistry()

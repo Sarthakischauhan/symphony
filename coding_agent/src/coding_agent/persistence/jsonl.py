@@ -135,7 +135,14 @@ class JsonlPersistence:
     def _messages_from(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Build the model context; never use this for rendering history."""
         dumped: List[Dict[str, Any]] = []
-        latest = next((entry for entry in reversed(entries) if entry.get("type") == "compaction"), None)
+        latest = next(
+            (
+                entry
+                for entry in reversed(entries)
+                if entry.get("type") in {"compaction", "compacted"}
+            ),
+            None,
+        )
         if latest is None:
             return [payload for entry in entries
                     if (payload := self._message_payload_from_entry(entry)) is not None]

@@ -32,8 +32,12 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     """Load saved messages as text plus compact Explored rows, not live tool cards."""
     loader = getattr(agent.persistence, "load_transcript", agent.persistence.load_conversation)
     messages = await loader(session_id=agent.session_id)
+    # The visual transcript may retain turns that were compacted out of the
+    # model context. Footer usage must describe the active context projection,
+    # which is what /context reports and what the next request will send.
+    context_messages = await agent.persistence.load_conversation(session_id=agent.session_id)
     context_limit = agent.harness.state.context_limit(agent.harness.model_id)
-    view.set_context_metrics(estimate_prompt_tokens(messages), context_limit)
+    view.set_context_metrics(estimate_prompt_tokens(context_messages), context_limit)
     view.add_notice(f"Resumed session · {agent.session_id}")
 
     restored = _history_widgets(messages)
