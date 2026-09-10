@@ -89,6 +89,8 @@ class TranscriptSurface:
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         if new or self._assistant is None:
+            if self._thinking is not None:
+                self._thinking.set_visible(False)
             self._assistant = AssistantMessage(text, streaming=True)
             self._mount_transcript(self._assistant)
         else:
@@ -158,6 +160,14 @@ class TranscriptSurface:
             return
         self._reasoning.complete()
         self._reasoning = None
+        if self._process is not None:
+            reconcile_live_tools(
+                self._process,
+                self._tools,
+                limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
+                final=self._process.completed,
+            )
+        self._compact_transcript()
 
     def add_tool(self, call_id: str, name: str) -> None:
         from coding_agent.tui.tools.calls import make_tool_widget

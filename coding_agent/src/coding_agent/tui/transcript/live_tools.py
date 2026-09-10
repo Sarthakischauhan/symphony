@@ -1,10 +1,67 @@
-"""Fold completed tools and thought titles into Explored batches."""
+"""Active vs collected tool cards: keep the hot cell, fold the rest into Explored."""
 
 from __future__ import annotations
 
 from typing import Any, Callable, MutableMapping, Sequence
 
 LIVE_TOOL_WIDGET_LIMIT = 10
+
+
+def is_hot_tool(widget: Any) -> bool:
+    """True while a tool card is still the in-progress cell."""
+    from coding_agent.tui.tools.calls import ToolCallWidget
+
+    return isinstance(widget, ToolCallWidget) and widget.status in {"preparing", "running"}
+
+
+def is_interactive_tool(widget: Any) -> bool:
+    """Cards that stay mounted after completion (image preview, child transcript)."""
+    return bool(getattr(widget, "keep_in_transcript", False)) or getattr(
+        widget, "tool_name", ""
+    ) in {"generate_image", "spawn_agent"}
+
+
+def is_collectable_tool(widget: Any, *, include_interactive: bool = False) -> bool:
+    """Terminal tool cards that should leave the hot live set."""
+    from coding_agent.tui.tools.calls import ToolCallWidget
+
+    if not isinstance(widget, ToolCallWidget) or is_hot_tool(widget):
+        return False
+    if is_interactive_tool(widget) and not include_interactive:
+        return False
+    return True
+
+
+def is_collectable_thought(widget: Any) -> bool:
+    """Completed reasoning that can fold into Explored."""
+    from coding_agent.tui.transcript.process import ReasoningWidget
+
+    return isinstance(widget, ReasoningWidget) and widget.has_class("is-complete")
+
+
+def release_live_binding(
+    tools: MutableMapping[str, Any] | None,
+    widget: Any,
+    collected: Any,
+) -> None:
+    """Point the live map at the collected form so the hot widget is gone."""
+    call_id = getattr(widget, "call_id", None)
+    if tools is None or not call_id:
+        return
+    tools[call_id] = collected
+
+
+def collectable_tools(
+    items: Sequence[Any],
+    *,
+    include_interactive: bool = False,
+) -> list[Any]:
+    """Terminal tool cards in timeline order (oldest first)."""
+    return [
+        item
+        for item in items
+        if is_collectable_tool(item, include_interactive=include_interactive)
+    ]
 
 
 def reconcile_live_tools(
@@ -14,57 +71,62 @@ def reconcile_live_tools(
     limit: int = LIVE_TOOL_WIDGET_LIMIT,
     final: bool = False,
 ) -> None:
-    """Compact completed tool cards in batches of ``limit``.
+    """Collect completed tool cards into Explored as they leave the hot set.
 
-    The live tool window is deliberately simple: once ``limit`` completed
-    widgets have accumulated, the whole batch is folded into one ``Explored``
-    row together with completed thoughts preceding the batch's last tool.
-    A partial batch remains visible until it reaches the limit.
-
-    Finalization also folds partial batches and completed subagent cards.
-    In-progress tools always stay live.
+    In-progress tools stay live. Interactive cards (subagents, generated
+    images) stay mounted until finalization. Every other completed tool is
+    folded immediately: it appends to the open Explored batch when that
+    batch is under ``limit``, otherwise it starts a new one. Finalization
+    also folds remaining interactive cards, completed thoughts, and closes
+    expanded batches.
     """
     if timeline is None or limit < 1:
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
     if final:
-        from coding_agent.tui.tools.calls import ToolCallSummary
+        _collapse_expanded_summaries(snapshot())
 
-        for item in snapshot():
-            if isinstance(item, ToolCallSummary) and item.is_expanded:
-                item.toggle()
-    # Copy first: folding mutates the live timeline while we iterate.  Only
-    # the current batch is folded; a partial batch remains visible.
-    items = snapshot()
-    completed = _completed_tools(items, include_subagents=final)
-    if not final and len(completed) < limit:
-        return
-    from coding_agent.tui.transcript.process import ReasoningWidget
+    previous: tuple[int, ...] | None = None
+    while True:
+        items = snapshot()
+        completed = collectable_tools(items, include_interactive=final)
+        thoughts = [item for item in items if is_collectable_thought(item)]
+        progress = tuple(id(item) for item in completed + thoughts)
+        if progress == previous:
+            return
+        previous = progress
+        if not completed and not (final and thoughts):
+            return
 
-    selected = completed if final else completed[:limit]
-    boundary = len(items) if final else items.index(selected[-1]) + 1
-    batch = [
-        item for item in items[:boundary]
-        if item in selected
-        or isinstance(item, ReasoningWidget) and item.has_class("is-complete")
-    ]
-    # Compact the oldest full batch, walking it newest-to-oldest so the
-    # summary replaces the batch's final card. Existing summaries stay put.
-    batch_summary = None
-    for widget in reversed(batch):
-        batch_summary = _fold_into_explored(
-            widget, snapshot, replace, remove, tools, batch_summary
+        open_batch = (
+            None
+            if final
+            else _open_collect_batch(
+                items, completed[0] if completed else None, limit=limit
+            )
         )
-    if batch_summary is not None:
-        batch_summary.entries.reverse()
-        batch_summary.title = batch_summary._summary_title()
-        from textual._context import NoActiveAppError
+        if open_batch is not None and completed:
+            room = max(0, limit - open_batch.count)
+            selected = completed[:room]
+            if selected:
+                _fold_batch(
+                    _batch_with_thoughts(items, selected),
+                    snapshot,
+                    replace,
+                    remove,
+                    tools,
+                    batch_summary=open_batch,
+                )
+                continue
 
-        try:
-            batch_summary.refresh(layout=True)
-        except NoActiveAppError:
-            pass
+        selected = completed if final else completed[:limit]
+        batch = _batch_with_thoughts(items, selected) if selected else thoughts
+        if not batch:
+            return
+        _fold_batch(batch, snapshot, replace, remove, tools)
+        if final:
+            return
 
 
 def _timeline_ops(
@@ -90,28 +152,81 @@ def _timeline_ops(
     return snapshot, replace, remove
 
 
-def _counts_toward_live_cap(item: Any) -> bool:
-    from coding_agent.tui.tools.calls import ToolCallWidget
+def _collapse_expanded_summaries(items: Sequence[Any]) -> None:
+    from coding_agent.tui.tools.calls import ToolCallSummary
 
-    return isinstance(item, ToolCallWidget) and item.tool_name != "spawn_agent"
-
-
-def _is_in_progress_tool(widget: Any) -> bool:
-    return widget.status in {"preparing", "running"}
+    for item in items:
+        if isinstance(item, ToolCallSummary) and item.is_expanded:
+            item.toggle()
 
 
-def _completed_tools(items: Sequence[Any], *, include_subagents: bool = False) -> list[Any]:
-    """Terminal tool cards in timeline order (oldest first)."""
-    from coding_agent.tui.tools.calls import ToolCallWidget
+def _open_collect_batch(
+    items: Sequence[Any],
+    widget: Any,
+    *,
+    limit: int,
+) -> Any | None:
+    from coding_agent.tui.tools.calls import ToolCallSummary
 
+    if widget in items:
+        index = items.index(widget)
+        neighbors = []
+        if index:
+            neighbors.append(items[index - 1])
+        if index + 1 < len(items):
+            neighbors.append(items[index + 1])
+        for neighbor in neighbors:
+            if isinstance(neighbor, ToolCallSummary) and neighbor.count < limit:
+                return neighbor
+    last = None
+    for item in items:
+        if isinstance(item, ToolCallSummary):
+            last = item
+    if last is not None and last.count < limit:
+        return last
+    return None
+
+
+def _batch_with_thoughts(items: Sequence[Any], selected: Sequence[Any]) -> list[Any]:
+    if not selected:
+        return [item for item in items if is_collectable_thought(item)]
+    boundary = items.index(selected[-1]) + 1
+    chosen = {id(item) for item in selected}
     return [
         item
-        for item in items
-        if isinstance(item, ToolCallWidget)
-        and not getattr(item, "keep_in_transcript", False)
-        and (include_subagents or _counts_toward_live_cap(item))
-        and not _is_in_progress_tool(item)
+        for item in items[:boundary]
+        if id(item) in chosen or is_collectable_thought(item)
     ]
+
+
+def _fold_batch(
+    batch: Sequence[Any],
+    snapshot: Callable[[], list[Any]],
+    replace: Callable[[Any, Any], None],
+    remove: Callable[[Any], None],
+    tools: MutableMapping[str, Any] | None,
+    batch_summary: Any = None,
+) -> None:
+    summary = batch_summary
+    for widget in batch:
+        summary = _fold_into_explored(
+            widget, snapshot, replace, remove, tools, summary
+        )
+    if summary is not None:
+        _refresh_summary(summary)
+
+
+def _refresh_summary(summary: Any) -> None:
+    summary.title = summary._summary_title()
+    from textual._context import NoActiveAppError
+
+    try:
+        summary.refresh(layout=True)
+    except NoActiveAppError:
+        pass
+    from coding_agent.tui.motion import settle_row
+
+    settle_row(summary)
 
 
 def _fold_into_explored(
@@ -126,11 +241,11 @@ def _fold_into_explored(
 
     items = snapshot()
     if widget not in items:
-        return
+        return batch_summary
     summary = batch_summary
     if summary is None:
-        # The first fold is the batch's newest card. Once the earlier cards
-        # are removed, its summary lands above every card that stays live.
+        # The first fold is the batch's oldest card, so Explored sits where
+        # that stretch of completed work began.
         summary = ToolCallSummary()
         replace(widget, summary)
     else:
@@ -141,6 +256,5 @@ def _fold_into_explored(
         summary.add_thought(str(widget.title), layout=False)
     else:
         summary.add_call(widget, layout=False)
-        if tools is not None:
-            tools[widget.call_id] = summary
+        release_live_binding(tools, widget, summary)
     return summary

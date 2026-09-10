@@ -18,25 +18,57 @@ def reveal(
     Textual runs the animation on its event loop and completes it immediately
     when the application disables full motion.
     """
+    from textual._context import NoActiveAppError
+
     widget.styles.opacity = 0.0
-    widget.styles.animate(
-        "opacity",
-        1.0,
-        duration=duration,
-        delay=delay,
-        easing="out_cubic",
-        level="full",
-    )
-    if offset_y:
-        widget.offset = (0, offset_y)
-        widget.animate(
-            "offset",
-            Offset(0, 0),
+    try:
+        widget.styles.animate(
+            "opacity",
+            1.0,
             duration=duration,
             delay=delay,
             easing="out_cubic",
             level="full",
         )
+        if offset_y:
+            widget.offset = (0, offset_y)
+            widget.animate(
+                "offset",
+                Offset(0, 0),
+                duration=duration,
+                delay=delay,
+                easing="out_cubic",
+                level="full",
+            )
+    except NoActiveAppError:
+        widget.styles.opacity = 1.0
 
 
-__all__ = ["reveal"]
+def enter_row(widget: Widget, *, duration: float = 0.16) -> None:
+    """Subtle fade-in for a newly mounted transcript row."""
+    reveal(widget, duration=duration)
+
+
+def settle_row(widget: Widget, *, duration: float = 0.12) -> None:
+    """Soft settle when a live cell is collected or folded.
+
+    Demand-driven: one opacity animation, and only while the widget is mounted.
+    """
+    if not widget.is_mounted:
+        return
+    from textual._context import NoActiveAppError
+
+    widget.styles.opacity = 0.78
+    try:
+        widget.styles.animate(
+            "opacity",
+            1.0,
+            duration=duration,
+            easing="out_cubic",
+            level="full",
+        )
+    except NoActiveAppError:
+        widget.styles.opacity = 1.0
+
+
+__all__ = ["enter_row", "reveal", "settle_row"]

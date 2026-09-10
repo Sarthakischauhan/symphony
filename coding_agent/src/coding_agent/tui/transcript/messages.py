@@ -14,7 +14,7 @@ from textual.selection import Selection
 from textual.strip import Strip
 from textual.widgets import Static
 
-from coding_agent.tui.motion import reveal
+from coding_agent.tui.motion import enter_row, reveal, settle_row
 from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.theme import SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.tools.images import IMAGE_MARKER_RE, ImageAttachment, ImageModal
@@ -112,14 +112,20 @@ class UserMessage(_SelectableStatic):
         *,
         pasted_chunks: tuple[str, ...] = (),
         images: Sequence[ImageAttachment] = (),
+        enter: bool = True,
     ) -> None:
         self.message_text = content
+        self._enter = enter
         self._hidden_content: dict[str, str] = {}
         self._images = {image.number: image for image in images}
         super().__init__(
             self._with_prompt_glyph(self._compact_content(content, pasted_chunks)),
             classes="message user-message",
         )
+
+    def on_mount(self) -> None:
+        if self._enter:
+            enter_row(self)
 
     def archive_text(self) -> str:
         return f"USER\n{self.message_text}"
@@ -226,11 +232,18 @@ class UserMessage(_SelectableStatic):
 
 
 class AssistantMessage(_SelectableStatic):
-    def __init__(self, content: str = "", *, streaming: bool = False) -> None:
+    def __init__(
+        self, content: str = "", *, streaming: bool = False, enter: bool = True
+    ) -> None:
         self._streaming = False
+        self._enter = enter
         self._markdown = None
         super().__init__(classes="message assistant-message")
         self.set_content(content, streaming=streaming)
+
+    def on_mount(self) -> None:
+        if self._enter:
+            enter_row(self)
 
     def set_content(self, content: str, *, streaming: bool = False) -> None:
         if (
@@ -260,6 +273,7 @@ class AssistantMessage(_SelectableStatic):
         if self._streaming:
             self.set_content(self.message_text)
         self.freeze_render()
+        settle_row(self)
 
     def archive_text(self) -> str:
         return f"SYMPHONY\n{self.message_text}"
