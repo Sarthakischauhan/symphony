@@ -7,13 +7,11 @@ import logging
 from typing import List, Optional
 
 from core_ai.types import Message
+from core_harness import CoreHarness, HarnessCancelled, HarnessLimitExceeded
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-
-from core_harness import CoreHarness, HarnessCancelled, HarnessLimitExceeded
-from core_harness.addons.persistence import PersistenceAddon
 
 from core_server.config import ServerConfig
 from core_server.models import ModelRegistryResponse, RegistryModel, RegistryProvider
@@ -21,6 +19,8 @@ from core_server.request_limits import RequestSizeLimitMiddleware
 from core_server.sse import SSEEventSink, encode_sse
 
 logger = logging.getLogger(__name__)
+
+PACKAGE_VERSION = "0.2.0"
 
 
 class RunRequest(BaseModel):
@@ -30,6 +30,7 @@ class RunRequest(BaseModel):
     conversation: Optional[List[Message]] = None
     session_id: Optional[str] = None
     model_id: Optional[str] = Field(default=None, min_length=1)
+    reasoning_effort: Optional[str] = Field(default=None, min_length=1)
 
 
 def _validate_request(request: RunRequest, config: ServerConfig) -> None:
@@ -47,8 +48,79 @@ def _validate_request(request: RunRequest, config: ServerConfig) -> None:
         raise HTTPException(status_code=422, detail="Unsupported model_id")
 
 
+def _build_harness(
+    request: RunRequest,
+    config: ServerConfig,
+    sink: SSEEventSink,
+) -> CoreHarness:
+    addons = config.addons_for_run()
+    return CoreHarness(
+        registry=config.registry,
+        model_id=request.model_id or config.model_id,
+        system_prompt=config.system_prompt,
+        config=config.to_harness_config(),
+        reasoning_effort=request.reasoning_effort or config.reasoning_effort,
+        tools=list(config.tools),
+        sink=sink,
+        session_id=request.session_id,
+        agent_id=request.session_id,
+        addons=addons or None,
+    )
+
+
+async def _run_harness(
+    harness: CoreHarness,
+    request: RunRequest,
+    plane: SSEEventSink,
+) -> None:
+    try:
+        await harness.run(
+            request.message,
+            conversation=request.conversation,
+            session_id=request.session_id,
+        )
+    except (HarnessCancelled, asyncio.CancelledError):
+        logger.info("Harness run cancelled")
+    except HarnessLimitExceeded as exc:
+        logger.warning("Harness run limit exceeded: %s", exc)
+    except Exception:
+        # The harness owns terminal failure events; the server records the
+        # exception without emitting a duplicate run_failed event.
+        logger.exception("Harness run failed")
+    finally:
+        await plane.close()
+
+
+async def _iter_sse_frames(
+    plane: SSEEventSink,
+    task: asyncio.Task[None],
+    *,
+    disconnect_cancel_timeout: float,
+):
+    stream_completed = False
+    try:
+        while True:
+            event = await plane.queue.get()
+            if event is None:
+                stream_completed = True
+                break
+            yield encode_sse(event)
+    finally:
+        if stream_completed:
+            await task
+        elif not task.done():
+            await plane.disconnect()
+            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=disconnect_cancel_timeout)
+            except asyncio.TimeoutError:
+                logger.warning("Harness cancellation timed out")
+            except asyncio.CancelledError:
+                raise
+
+
 def create_app(config: ServerConfig) -> FastAPI:
-    app = FastAPI(title="core-server", version="0.1.0")
+    app = FastAPI(title="core-server", version=PACKAGE_VERSION)
     app.add_middleware(
         RequestSizeLimitMiddleware,
         max_bytes=config.max_request_bytes,
@@ -65,7 +137,7 @@ def create_app(config: ServerConfig) -> FastAPI:
         return {
             "ok": True,
             "model_id": config.model_id,
-            "tools": [tool.name for tool in config.tools],
+            "tools": config.model_facing_tool_names(),
         }
 
     @app.get("/models", response_model=ModelRegistryResponse)
@@ -89,63 +161,16 @@ def create_app(config: ServerConfig) -> FastAPI:
     async def start_run(request: RunRequest) -> StreamingResponse:
         _validate_request(request, config)
         plane = SSEEventSink(max_queue_size=config.sse_queue_size)
-        addons = []
-        if config.persistence is not None:
-            addons.append(PersistenceAddon(config.persistence))
-        harness = CoreHarness(
-            registry=config.registry,
-            model_id=request.model_id or config.model_id,
-            system_prompt=config.system_prompt,
-            config=config.to_harness_config(),
-            tools=list(config.tools),
-            sink=plane,
-            session_id=request.session_id,
-            addons=addons or None,
-        )
-
-        async def run_harness() -> None:
-            try:
-                await harness.run(
-                    request.message,
-                    conversation=request.conversation,
-                    session_id=request.session_id,
-                )
-            except (HarnessCancelled, asyncio.CancelledError):
-                logger.info("Harness run cancelled")
-            except HarnessLimitExceeded as exc:
-                logger.warning("Harness run limit exceeded: %s", exc)
-            except Exception:
-                # The harness owns terminal failure events; the server records the
-                # exception without emitting a duplicate run_failed event.
-                logger.exception("Harness run failed")
-            finally:
-                await plane.close()
+        harness = _build_harness(request, config, plane)
 
         async def event_stream():
-            task = asyncio.create_task(run_harness())
-            stream_completed = False
-            try:
-                while True:
-                    event = await plane.queue.get()
-                    if event is None:
-                        stream_completed = True
-                        break
-                    yield encode_sse(event)
-            finally:
-                if stream_completed:
-                    await task
-                elif not task.done():
-                    await plane.disconnect()
-                    task.cancel()
-                    try:
-                        await asyncio.wait_for(
-                            task,
-                            timeout=config.disconnect_cancel_timeout,
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning("Harness cancellation timed out")
-                    except asyncio.CancelledError:
-                        raise
+            task = asyncio.create_task(_run_harness(harness, request, plane))
+            async for frame in _iter_sse_frames(
+                plane,
+                task,
+                disconnect_cancel_timeout=config.disconnect_cancel_timeout,
+            ):
+                yield frame
 
         return StreamingResponse(
             event_stream(),

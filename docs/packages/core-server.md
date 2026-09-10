@@ -39,6 +39,10 @@ event: text_delta
 data: {"event_type":"text_delta","payload":{"turn":0,"delta":"Hello"}}
 ```
 
+Harness-stamped payloads include `run_id`, `session_id`, `seq`, `ts`,
+`schema_version`, `agent_id`, and `parent_id`. SSE `id` is
+`<run_id>:<seq>`.
+
 ## Embed in your app
 
 ```python
@@ -65,14 +69,27 @@ app = create_app(
 
 - `conversation` can include earlier provider messages; `session_id` selects
   the session.
-- `model_id` can select a model for one run. Unadvertised slugs are rejected.
+- `model_id` and `reasoning_effort` can be set per run. Unadvertised model
+  slugs are rejected.
 - When `supported_models` is omitted, only the default model is exposed. The
   catalog does not auto-advertise every known model.
 - No tools are enabled by default. `ask_user` is opt-in until you provide a
   resume/input flow.
-- Client disconnect sends the harness cancel command so streams and tools stop
-  cleanly.
+- Client disconnect cancels the `asyncio.Task` awaiting `CoreHarness.run`,
+  which emits `run_cancelled`.
 - Browser origins are denied by default. Set `cors_origins` explicitly.
+
+## Harness add-ons
+
+`CoreHarness` does not auto-build persistence, compaction, or spawn. The
+server mounts them from `ServerConfig`:
+
+- `persistence=` → `PersistenceAddon`
+- compact thresholds → `compaction_from_config`
+- `enable_subagents=True` → `SubagentAddon` (`spawn_agent` on `/health` and
+  the run)
+- `addons=` for extra `Addon` hooks. Tool authorization is
+  `Addon.before_tool`; there is no control-plane `approve` method.
 
 ## Limits
 
