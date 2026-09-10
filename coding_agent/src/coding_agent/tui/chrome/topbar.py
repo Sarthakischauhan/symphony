@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from rich.table import Table
 from rich.text import Text
+from textual import events
 from textual.widgets import Static
 
 CLUSTER_GAP = " " * 4
@@ -73,6 +74,7 @@ class TopBar(Static):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._branch = ""
         self._model = ""
+        self._label = ""
         super().__init__(*args, **kwargs)
 
     def set_context(
@@ -83,16 +85,45 @@ class TopBar(Static):
         label: str = "",
     ) -> None:
         self._branch = read_git_branch(workspace)
-        self._model = model
+        self._model = model or ""
+        self._label = label
+        self.update(self._render_row(max(self.content_size.width, 1)))
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Rebudget both columns whenever the terminal changes width."""
+        content_width = max(event.size.width - self.styles.gutter.width, 1)
+        self.update(self._render_row(content_width))
+
+    def _render_row(self, width: int) -> Table:
+        """Build the row for the widget's current width.
+
+        Both sides are deliberately allowed to ellipsize. Without explicit
+        width budgets Rich treats the no-wrap model and branch as indivisible,
+        which makes narrow terminals crop the entire header.
+        """
         left = self._branch
-        if label:
-            left = f"{left}  ›  subagent  ›  {label}" if left else f"subagent  ›  {label}"
+        if self._label:
+            left = (
+                f"{left}  ›  subagent  ›  {self._label}"
+                if left
+                else f"subagent  ›  {self._label}"
+            )
+        model_width = min(len(self._model), max(width // 2, 1))
         row = Table.grid(expand=True, padding=0)
-        row.add_column(ratio=1, no_wrap=True)
-        row.add_column(justify="right", no_wrap=True)
+        row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
+        row.add_column(
+            justify="right",
+            overflow="ellipsis",
+            no_wrap=True,
+            max_width=model_width,
+        )
         branch = Text(
             f"{BRANCH_ICON} {left}" if left else "",
+            overflow="ellipsis",
             no_wrap=True,
         )
-        row.add_row(branch, Text(self._model, no_wrap=True))
-        self.update(row)
+        row.add_row(
+            branch,
+            Text(self._model, overflow="ellipsis", no_wrap=True),
+        )
+        return row
