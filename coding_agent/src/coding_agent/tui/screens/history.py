@@ -71,11 +71,11 @@ def _history_widgets(messages: list[Any]) -> list[Any]:
             flush_batch()
             pending.clear()
             text, images = display_from_content(message.content)
-            restored.append(UserMessage(text, images=images))
+            restored.append(UserMessage(text, images=images, enter=False))
         elif message.role == "assistant":
             content = text_from_content(message.content)
             if content:
-                restored.append(AssistantMessage(content))
+                restored.append(AssistantMessage(content, enter=False))
             for call in message.tool_calls or []:
                 fields = _call_fields(call)
                 pending[str(fields["call_id"])] = fields

@@ -85,7 +85,7 @@ change child-approval defaults (`SECURITY.md`: children skip
 | Deltas throttled to ~15 fps; stream bodies are plain text | `tui/runtime/turn.py`, `tui/runtime/events.py`, `transcript/process.py` |
 | Completed assistant/reasoning switch to `themed_markdown` | `transcript/process.py` `ReasoningWidget.complete`, assistant finish path |
 | Resume remounts every conversation message as widgets | `tui/screens/history.py` `load_session_history` |
-| Live tool cards capped; older tools fold to Explored/Archived | `transcript/surface.py`, `transcript/archive.py` |
+| Completed tools leave the live set immediately and collect into Explored | `transcript/live_tools.py`, `transcript/surface.py` |
 | `@` file search and `/plan` picker recompute on every key | `tui/composer/surface.py` |
 
 ---
