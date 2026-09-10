@@ -94,6 +94,10 @@ rebuilds the provider registry and model choices from `.env`. `/provider`
 writes a key into `~/.symphony/.env`, then reloads so `/model` lists the new
 catalog.
 
+The TUI reads colors and CSS from `~/.symphony/theme.toml` when that file
+exists. If it is missing, the packaged default dark theme is used. Copy
+`coding_agent/tui/theme/theme.toml` to `~/.symphony/theme.toml` to edit.
+
 
 ## Harness-only config
 

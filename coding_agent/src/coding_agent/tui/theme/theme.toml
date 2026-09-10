@@ -1,9 +1,8 @@
 # Symphony TUI theme — palette tokens and Textual CSS.
 #
-# This file is the source of truth for the default dark theme. The TUI
-# loader reads it (repo `config/theme.toml` when present, otherwise the
-# copy packaged with symphony-code) and exposes the same Python names as
-# before: APP_CSS, SYMPHONY_COLORS, per-surface *_CSS, and Rich helpers.
+# Packaged default for the dark theme. At runtime the TUI reads
+# ~/.symphony/theme.toml when that file exists; otherwise this copy is
+# used in memory. Copy this file to ~/.symphony/theme.toml to edit.
 #
 # [css.variables] maps Textual `$name` declarations onto [colors] keys so
 # chrome CSS and Rich tokens stay on one palette.

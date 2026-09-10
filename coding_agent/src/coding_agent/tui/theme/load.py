@@ -1,4 +1,4 @@
-"""Load the Symphony TUI theme from theme.toml."""
+"""Load the Symphony TUI theme from ~/.symphony/theme.toml."""
 
 from __future__ import annotations
 
@@ -80,45 +80,31 @@ class ThemeDocument:
         return glue_css(glue_css(self.chrome_css, self.tools_css), self.composer_css)
 
 
+def user_theme_path() -> Path:
+    """Runtime theme file: ~/.symphony/theme.toml."""
+    return Path.home() / ".symphony" / THEME_FILE
+
+
 def packaged_theme_path() -> Path:
     """Filesystem path of the theme.toml shipped next to this package."""
     return Path(__file__).with_name(THEME_FILE)
 
 
-def find_repo_theme(start: Path | None = None) -> Path | None:
-    """Return repo-root config/theme.toml when this tree looks like Symphony."""
-    seen: set[Path] = set()
-    origins = []
-    if start is not None:
-        origins.append(Path(start))
-    origins.append(Path.cwd())
-    origins.append(Path(__file__).resolve())
-    for origin in origins:
-        for directory in (origin, *origin.resolve().parents):
-            if directory in seen:
-                continue
-            seen.add(directory)
-            candidate = directory / "config" / THEME_FILE
-            if candidate.is_file() and _is_repo_root(directory):
-                return candidate
-    return None
-
-
 def resolve_theme_path(path: Path | None = None) -> Path:
-    """Prefer an explicit path, then repo config/theme.toml, then the package copy."""
+    """Prefer an explicit path, then ~/.symphony/theme.toml, then the package copy."""
     if path is not None:
         resolved = Path(path)
         if not resolved.is_file():
             raise ThemeConfigError(f"theme file not found: {resolved}")
         return resolved
-    repo = find_repo_theme()
-    if repo is not None:
-        return repo
+    user = user_theme_path()
+    if user.is_file():
+        return user
     packaged = packaged_theme_path()
     if packaged.is_file():
         return packaged
     raise ThemeConfigError(
-        "theme.toml not found (no packaged copy and no repo config/theme.toml)"
+        "theme.toml not found (no packaged copy and no ~/.symphony/theme.toml)"
     )
 
 
@@ -186,12 +172,8 @@ def textual_variable_block(colors: Mapping[str, str], variables: Mapping[str, st
     return "\n".join(lines) + "\n\n"
 
 
-def _is_repo_root(directory: Path) -> bool:
-    return (directory / "coding_agent").is_dir() and (directory / "pyproject.toml").is_file()
-
-
 def _read_theme(path: Path | None) -> tuple[str, str]:
-    if path is not None or find_repo_theme() is not None or packaged_theme_path().is_file():
+    if path is not None or user_theme_path().is_file() or packaged_theme_path().is_file():
         resolved = resolve_theme_path(path)
         return str(resolved), resolved.read_text(encoding="utf-8")
     resource = files(PACKAGE_NAME).joinpath(THEME_FILE)

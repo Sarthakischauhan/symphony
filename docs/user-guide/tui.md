@@ -7,6 +7,8 @@ control-plane event.
 On first launch with no credentials, a provider screen asks which API to use
 and for a key. That key is saved to `~/.symphony/.env`. Add more providers
 later with `/provider`; `/model` then lists every credentialed catalog.
+Colors and CSS come from `~/.symphony/theme.toml` when present; otherwise
+the packaged default dark theme is used.
 
 ```sh
 uv run --package symphony-code symphony
