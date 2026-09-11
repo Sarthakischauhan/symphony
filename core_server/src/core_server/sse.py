@@ -1,4 +1,4 @@
-"""Control-plane adapter that turns harness events into SSE frames."""
+"""Event-sink adapter that turns harness events into SSE frames."""
 
 from __future__ import annotations
 
@@ -7,8 +7,7 @@ import json
 import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 
-from core_harness.events import EventSink
-from core_harness.models import ControlPlaneEvent, ControlPlaneEventType
+from core_harness import ControlPlaneEvent, ControlPlaneEventType, EventSink
 
 
 class SSEEventSink(EventSink):
@@ -28,11 +27,11 @@ class SSEEventSink(EventSink):
     async def emit(
         self,
         event_type: Union[str, ControlPlaneEventType],
-        payload: Dict[str, Any],
+        payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         if self._consumer_closed:
             return
-        await self.queue.put(ControlPlaneEvent.typed(event_type, payload))
+        await self.queue.put(ControlPlaneEvent.typed(event_type, payload or {}))
 
     async def request_user_input(
         self,
@@ -59,7 +58,7 @@ class SSEEventSink(EventSink):
                 **(metadata or {}),
             },
         )
-        return ""
+        return default
 
     async def close(self) -> None:
         if self._closed or self._consumer_closed:

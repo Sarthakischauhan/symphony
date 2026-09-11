@@ -41,14 +41,16 @@ async def ask_user(
     if not question:
         return "error: question must be a non-empty string"
     if sink is None:
-        return "error: ask_user requires a control plane"
+        return "error: ask_user requires an event sink"
 
     await sink.request_user_input(
         question=question,
         choices=list(choices or ()),
         default=default,
     )
-    return "Question sent to the user. Wait for their next message before continuing."
+    return (
+        "Question sent to the user. Wait for their next message before continuing."
+    )
 
 
 def build_ask_user_tool() -> Tool:

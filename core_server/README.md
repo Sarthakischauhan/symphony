@@ -68,8 +68,8 @@ data: {"event_type":"text_delta","payload":{"turn":0,"delta":"Hello"}}
 ```
 
 `conversation` can include earlier provider messages and `session_id` selects
-the session. `model_id` can select a model for an individual run and otherwise
-falls back to the server default. The system prompt and tools remain
+the session. `model_id` and `reasoning_effort` can be set per run; otherwise
+they fall back to the server default. The system prompt and tools remain
 server-owned and cannot be overridden by a run request.
 
 `GET /models` returns the Chat SDK `RegistryConfig` shape. Each model `id` is
@@ -79,6 +79,21 @@ model is exposed. The generated `core_ai` catalog and registered credentials
 do not automatically advertise every known model; `supported_models` remains
 the server allowlist.
 
+## Harness add-ons
+
+`CoreHarness` does not auto-build persistence, compaction, or `spawn_agent`.
+The server mounts those seams from `ServerConfig`:
+
+- `persistence=` — wrapped in `PersistenceAddon` so `session_id` can load and
+  save conversations
+- `context_compact_threshold` / `context_target_tokens` — mounts
+  `compaction_from_config` (`KeepSystemRecentCompactor`)
+- `enable_subagents=True` — registers `SubagentAddon` (`spawn_agent`); child
+  events share the parent SSE stream and carry `agent_id` / `parent_id`
+- `addons=` — extra `Addon` instances (for example a `before_tool` policy).
+  The harness no longer has a control-plane `approve` method; deny a tool by
+  returning a reason from `Addon.before_tool`
+
 ## Environment configuration
 
 The default registry recognizes `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
@@ -87,21 +102,23 @@ The default registry recognizes `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 is registered.
 
 The server selects its model in this order: an explicit `model_id` / `--model`,
-`SYMPHONY_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`, `GROK_MODEL`, then
-`openai:gpt-5.6-luna`. Unqualified names beginning with `claude-`, `gemini-`, or
-`grok-` are assigned to the corresponding provider; other unqualified names
-are assigned to OpenAI. Ensure the selected model's provider has a
-credential. For custom deployments, pass an explicit `ModelRegistry` to
-`build_config()` or construct `ServerConfig` directly.
+`SYMPHONY_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`, `GROK_MODEL`,
+`XAI_MODEL`, then `openai:gpt-5.6-luna`. Unqualified names beginning with
+`claude-`, `gemini-`, or `grok-` are assigned to the corresponding provider;
+other unqualified names are assigned to OpenAI. Ensure the selected model's
+provider has a credential. For custom deployments, pass an explicit
+`ModelRegistry` to `build_config()` or construct `ServerConfig` directly.
 
 No tools are enabled by default. `ask_user` remains available as an explicit
 tool, but should only be enabled once the application provides a matching
-resume/input flow for the same run.
+resume/input flow for the same run. `question_asked` is a product event
+emitted through `EventSink.request_user_input`; the SSE sink does not wait
+for an answer on the current request.
 
 Run requests and history are size-limited, and the SSE event queue is bounded.
-When a client disconnects, the server sends the harness cancellation command
-so active model streams and tools stop cleanly and the harness records
-`run_cancelled`.
+When a client disconnects, the server cancels the `asyncio.Task` that is
+awaiting `CoreHarness.run`. The harness then emits `run_cancelled` and raises
+`HarnessCancelled`.
 
 The defaults are a 1 MiB request body, 32,000-character user message, 100
 history messages, 500,000 serialized history characters, and a 256-event SSE

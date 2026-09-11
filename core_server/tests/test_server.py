@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 import uvicorn
 from core_ai.types import Message, StreamEvent
-from core_harness import Tool
+from core_harness import Addon, NullPersistence, Tool
 from core_harness.models import ControlPlaneEvent
 from fastapi.testclient import TestClient
 
@@ -36,9 +36,15 @@ class FakeRegistry:
         model_id: str,
         messages: list[Message],
         tools: list[dict[str, Any]],
+        **options: Any,
     ):
         self.calls.append(
-            {"model_id": model_id, "messages": messages, "tools": tools}
+            {
+                "model_id": model_id,
+                "messages": messages,
+                "tools": tools,
+                "options": options,
+            }
         )
         tool_names = {item.get("name") for item in tools}
         if "echo" in tool_names and len(self.calls) == 1:
@@ -71,6 +77,7 @@ class BlockingRegistry:
         model_id: str,
         messages: list[Message],
         tools: list[dict[str, Any]],
+        **_: Any,
     ):
         self.started.set()
         try:
@@ -159,16 +166,26 @@ def test_models_uses_chat_sdk_registry_contract() -> None:
     }
 
 
-def test_default_model_is_luna() -> None:
+def test_default_model_is_luna(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("SYMPHONY_MODEL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("GROK_MODEL", raising=False)
+    monkeypatch.delenv("XAI_MODEL", raising=False)
     config = build_config(registry=FakeRegistry())  # type: ignore[arg-type]
     assert config.model_id == "openai:gpt-5.6-luna"
     assert config.tools == []
+    assert config.enable_subagents is False
+    assert config.addons_for_run() == []
 
 
 def test_qualifies_anthropic_and_gemini_model_ids(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.delenv("SYMPHONY_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("GROK_MODEL", raising=False)
+    monkeypatch.delenv("XAI_MODEL", raising=False)
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     config = build_config(registry=FakeRegistry())  # type: ignore[arg-type]
     assert config.model_id == "anthropic:claude-sonnet-5"
@@ -177,6 +194,11 @@ def test_qualifies_anthropic_and_gemini_model_ids(monkeypatch) -> None:
     monkeypatch.setenv("GEMINI_MODEL", "gemini-3.7-flash")
     config = build_config(registry=FakeRegistry())  # type: ignore[arg-type]
     assert config.model_id == "gemini:gemini-3.7-flash"
+
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.setenv("GROK_MODEL", "grok-4")
+    config = build_config(registry=FakeRegistry())  # type: ignore[arg-type]
+    assert config.model_id == "grok:grok-4"
 
 
 def test_runs_stream_harness_events() -> None:
@@ -197,6 +219,8 @@ def test_runs_stream_harness_events() -> None:
     payloads = [payload["payload"] for _, payload in events]
     assert len({payload["run_id"] for payload in payloads}) == 1
     assert len({payload["session_id"] for payload in payloads}) == 1
+    assert len({payload["agent_id"] for payload in payloads}) == 1
+    assert all(payload["parent_id"] is None for payload in payloads)
     assert [payload["seq"] for payload in payloads] == list(
         range(1, len(payloads) + 1)
     )
@@ -219,6 +243,8 @@ def test_server_owned_prompt_and_tools_are_used() -> None:
     assert "Use the echo tool." in str(registry.calls[0]["messages"][0].content)
     result = next(payload for name, payload in events if name == "tool_execution_completed")
     assert result["payload"]["result"] == "pong"
+    assert result["payload"]["status"] == "success"
+    assert result["payload"]["tool_name"] == "echo"
 
 
 def test_run_accepts_model_override_but_rejects_prompt_override() -> None:
@@ -370,6 +396,22 @@ def test_ask_user_emits_question() -> None:
     asyncio.run(scenario())
 
 
+def test_sse_request_user_input_returns_default() -> None:
+    async def scenario() -> None:
+        plane = SSEEventSink()
+        answer = await plane.request_user_input(
+            question="Continue?",
+            default="yes",
+        )
+        event = await plane.queue.get()
+        assert event is not None
+        assert event.event_type == "question_asked"
+        assert event.payload["default"] == "yes"
+        assert answer == "yes"
+
+    asyncio.run(scenario())
+
+
 def test_running_uvicorn_server_streams_events() -> None:
     app, _ = make_app()
     sock = socket.socket()
@@ -443,3 +485,241 @@ def test_client_disconnect_cancels_active_model_stream() -> None:
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+class ScriptedRegistry:
+    def __init__(self, turns: list[list[StreamEvent]]) -> None:
+        self.turns = turns
+        self.calls: list[dict[str, Any]] = []
+
+    async def stream(
+        self,
+        model_id: str,
+        messages: list[Message],
+        tools: list[dict[str, Any]],
+        **_: Any,
+    ):
+        self.calls.append(
+            {"model_id": model_id, "messages": list(messages), "tools": tools}
+        )
+        events = self.turns[min(len(self.calls) - 1, len(self.turns) - 1)]
+        for event in events:
+            yield event
+
+
+def _text_turn(text: str, prompt_tokens: int = 1) -> list[StreamEvent]:
+    return [
+        StreamEvent(type="text_delta", delta=text),
+        StreamEvent(
+            type="usage",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=1,
+            total_tokens=prompt_tokens + 1,
+        ),
+        StreamEvent(type="done"),
+    ]
+
+
+def _tool_turn(name: str, arguments: str, call_id: str, prompt_tokens: int = 1) -> list[StreamEvent]:
+    return [
+        StreamEvent(
+            type="toolcall_start",
+            content_index=0,
+            tool_call_id=call_id,
+            tool_name=name,
+        ),
+        StreamEvent(type="toolcall_delta", content_index=0, delta=arguments),
+        StreamEvent(
+            type="usage",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=1,
+            total_tokens=prompt_tokens + 1,
+        ),
+        StreamEvent(type="done"),
+    ]
+
+
+class MemoryPersistence(NullPersistence):
+    def __init__(self) -> None:
+        self.conversations: dict[str, list[Message]] = {}
+
+    async def save_conversation(self, *, session_id: str, messages: list[Message]) -> None:
+        self.conversations[session_id] = list(messages)
+
+    async def load_conversation(self, *, session_id: str) -> list[Message]:
+        return list(self.conversations.get(session_id, []))
+
+
+class DenyAddon(Addon):
+    name = "deny"
+
+    async def before_tool(self, **_: Any) -> str:
+        return "tool call denied by policy"
+
+
+def ping() -> str:
+    return "pong"
+
+
+def inspect_repo(path: str) -> str:
+    return f"contents of {path}"
+
+
+def test_health_lists_spawn_agent_when_enabled() -> None:
+    app = create_app(
+        ServerConfig(
+            registry=FakeRegistry(),  # type: ignore[arg-type]
+            model_id="openai:test",
+            enable_subagents=True,
+        )
+    )
+    body = TestClient(app).get("/health").json()
+    assert body["tools"] == ["spawn_agent"]
+
+
+def test_persistence_resumes_session() -> None:
+    store = MemoryPersistence()
+    registry = FakeRegistry()
+    app = create_app(
+        ServerConfig(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="openai:test",
+            persistence=store,
+        )
+    )
+    client = TestClient(app)
+    with client.stream(
+        "POST",
+        "/runs",
+        json={"message": "remember this", "session_id": "sess-1"},
+    ) as response:
+        parse_sse(response.read().decode())
+    assert any(
+        message.content == "remember this"
+        for message in store.conversations["sess-1"]
+    )
+
+    with client.stream(
+        "POST",
+        "/runs",
+        json={"message": "what did I say?", "session_id": "sess-1"},
+    ) as response:
+        parse_sse(response.read().decode())
+    contents = [message.content for message in registry.calls[-1]["messages"]]
+    assert "remember this" in contents
+    assert "what did I say?" in contents
+
+
+def test_compaction_streams_when_threshold_is_set() -> None:
+    registry = ScriptedRegistry(
+        [
+            _tool_turn("ping", "{}", "call-1", prompt_tokens=90),
+            _text_turn("done", prompt_tokens=90),
+        ]
+    )
+    app = create_app(
+        ServerConfig(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="openai:test",
+            tools=[Tool(ping)],
+            context_limits={"openai:test": 100},
+            context_compact_threshold=20,
+            compaction_keep_recent=2,
+        )
+    )
+    prior = [{"role": "user", "content": f"earlier task {index}"} for index in range(6)]
+    with TestClient(app).stream(
+        "POST",
+        "/runs",
+        json={"message": "go", "conversation": prior},
+    ) as response:
+        events = parse_sse(response.read().decode())
+    names = [name for name, _ in events]
+    assert "compaction_started" in names
+    assert "compaction_completed" in names
+
+
+def test_subagents_stream_child_identity_events() -> None:
+    registry = ScriptedRegistry(
+        [
+            _tool_turn(
+                "spawn_agent",
+                '{"prompt": "Inspect README.md", "label": "inspect readme"}',
+                "spawn-1",
+            ),
+            _tool_turn("inspect_repo", '{"path": "README.md"}', "child-tool"),
+            _text_turn("README is the project intro."),
+            _text_turn("The child found that README is the project intro."),
+        ]
+    )
+    app = create_app(
+        ServerConfig(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="openai:test",
+            tools=[Tool(inspect_repo)],
+            enable_subagents=True,
+            max_turns=4,
+        )
+    )
+    with TestClient(app).stream(
+        "POST",
+        "/runs",
+        json={"message": "Inspect the repo via a subagent.", "session_id": "parent-session"},
+    ) as response:
+        events = parse_sse(response.read().decode())
+    names = [name for name, _ in events]
+    assert "agent_spawned" in names
+    assert "agent_completed" in names
+    spawned = next(payload for name, payload in events if name == "agent_spawned")
+    assert spawned["payload"]["label"] == "inspect readme"
+    assert spawned["payload"]["agent_id"] == "parent-session"
+    child_id = spawned["payload"]["child_id"]
+    child_events = [
+        payload for _, payload in events if payload["payload"].get("agent_id") == child_id
+    ]
+    assert child_events
+    assert all(payload["payload"]["parent_id"] == "parent-session" for payload in child_events)
+
+
+def test_before_tool_addon_denies_execution() -> None:
+    registry = ScriptedRegistry(
+        [
+            _tool_turn("echo", '{"text": "secret"}', "call-echo"),
+            _text_turn("denied"),
+        ]
+    )
+    app = create_app(
+        ServerConfig(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="openai:test",
+            tools=[Tool(echo)],
+            addons=[DenyAddon()],
+        )
+    )
+    with TestClient(app).stream(
+        "POST",
+        "/runs",
+        json={"message": "echo secret"},
+    ) as response:
+        events = parse_sse(response.read().decode())
+    completed = next(payload for name, payload in events if name == "tool_execution_completed")
+    assert completed["payload"]["status"] == "error"
+    assert "denied by policy" in completed["payload"]["result"]
+
+
+def test_run_accepts_reasoning_effort_override() -> None:
+    registry = FakeRegistry()
+    app = create_app(
+        ServerConfig(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="openai:test",
+        )
+    )
+    with TestClient(app).stream(
+        "POST",
+        "/runs",
+        json={"message": "hi", "reasoning_effort": "high"},
+    ) as response:
+        assert response.status_code == 200
+        parse_sse(response.read().decode())
+    assert registry.calls[0]["options"]["reasoning_effort"] == "high"
