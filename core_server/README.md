@@ -88,13 +88,16 @@ the session. `model_id` and `reasoning_effort` can be set per run; otherwise
 they fall back to the server default. The system prompt and tools remain
 server-owned and cannot be overridden by a run request.
 
-`GET /models` returns the Chat SDK `RegistryConfig` shape. Provider `id`s are
-the registry namespaces (`openai`, `anthropic`, `gemini`, `grok`, or a custom
-namespace). Labels and per-provider defaults come from the core_ai `PROVIDERS`
-catalog when the namespace is known. Each model `id` is the qualified
-`provider:model` slug accepted as `model_id` by `POST /runs`. `/runs` accepts
-any such slug the registry can route; it does not use a disconnected hand
-list. `supported_models` is an optional extra allowlist on top of that.
+The request schema is strict. Clients must use those snake_case field names;
+unknown fields are rejected.
+
+`GET /models` returns the model-picker registry shape. Provider `id`s are the
+registry namespaces and each provider includes an absolute models.dev logo
+URL. Model IDs are the qualified core_ai routing slugs accepted by
+`POST /runs` (for example, `openai:gpt-4.1`).
+Each model's `thinkingLevels` contains the supported public reasoning-effort
+values (`none` through `max`) from the generated core_ai catalog.
+`supported_models` remains an optional extra allowlist over those slugs.
 
 ## Harness add-ons
 

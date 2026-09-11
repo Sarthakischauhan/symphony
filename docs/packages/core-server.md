@@ -63,7 +63,10 @@ app = create_app(
 ```
 
 `GET /models` lists every provider registered on the config's `ModelRegistry`,
-with models from the core_ai catalog for those providers. Pass
+with models from the core_ai catalog for those providers. The response uses
+qualified core_ai `provider:model` IDs and absolute models.dev logo URLs. Each
+model's typed `thinkingLevels` array is derived from the generated core_ai
+thinking-level map. Pass
 `supported_models=` only when you want a further allowlist:
 
 ```python
@@ -85,6 +88,8 @@ app = create_app(
 
 - `conversation` can include earlier provider messages; `session_id` selects
   the session.
+- The request schema is strict and uses snake_case field names. Unknown fields
+  are rejected.
 - `model_id` and `reasoning_effort` can be set per run. `model_id` must be a
   qualified `provider:model` the registry can route (the provider is
   registered). Unregistered providers and unqualified ids are rejected.

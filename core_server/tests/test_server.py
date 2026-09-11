@@ -157,16 +157,21 @@ def test_models_lists_registry_providers_and_catalog() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["defaultProviderId"] == "openai"
-    assert [provider["id"] for provider in body["providers"]] == ["openai"]
+    assert [provider["id"] for provider in body["providers"]] == ["openai", "anthropic"]
 
     openai = body["providers"][0]
     assert openai["label"] == "OpenAI"
+    assert openai["logo"] == "https://models.dev/logos/openai.svg"
     assert openai["defaultModel"] == "openai:gpt-5.6-luna"
 
     openai_ids = [model["id"] for model in openai["models"]]
     assert openai_ids == [model.full_id for model in list_models("openai")]
-    assert {"id": "openai:gpt-5.6-luna", "label": "gpt-5.6-luna"} in openai["models"]
-    assert "anthropic" not in [provider["id"] for provider in body["providers"]]
+    assert {
+        "id": "openai:gpt-5.6-luna",
+        "label": "GPT 5.6 Luna",
+        "thinkingLevels": ["none", "low", "medium", "high", "xhigh", "max"],
+    } in openai["models"]
+    assert "anthropic" in [provider["id"] for provider in body["providers"]]
     assert "gemini" not in [provider["id"] for provider in body["providers"]]
 
 
@@ -185,10 +190,19 @@ def test_models_allowlist_filters_registry_catalog() -> None:
             {
                 "id": "openai",
                 "label": "OpenAI",
+                "logo": "https://models.dev/logos/openai.svg",
                 "defaultModel": "openai:test",
                 "models": [
-                    {"id": "openai:test", "label": "Test model"},
-                    {"id": "openai:other", "label": "Other model"},
+                    {
+                        "id": "openai:test",
+                        "label": "Test model",
+                        "thinkingLevels": [],
+                    },
+                    {
+                        "id": "openai:other",
+                        "label": "Other model",
+                        "thinkingLevels": [],
+                    },
                 ],
             }
         ],
@@ -205,7 +219,7 @@ def test_models_omits_unregistered_providers_even_when_allowlisted() -> None:
     body = TestClient(app).get("/models").json()
     assert [provider["id"] for provider in body["providers"]] == ["openai"]
     assert body["providers"][0]["models"] == [
-        {"id": "openai:test", "label": "Test model"}
+        {"id": "openai:test", "label": "Test model", "thinkingLevels": []}
     ]
 
 
@@ -851,3 +865,19 @@ def test_run_accepts_reasoning_effort_override() -> None:
         assert response.status_code == 200
         parse_sse(response.read().decode())
     assert registry.calls[0]["options"]["reasoning_effort"] == "high"
+
+
+def test_run_rejects_noncanonical_thinking_level_fields() -> None:
+    app, _ = make_app()
+    response = TestClient(app).post(
+        "/runs",
+        json={
+            "message": "hi",
+            "thinking_level": "medium",
+            "thinkingLevel": "medium",
+            "reasoning_effort": "medium",
+        },
+    )
+    assert response.status_code == 422
+    rejected = {error["loc"][-1] for error in response.json()["detail"]}
+    assert rejected == {"thinking_level", "thinkingLevel"}
