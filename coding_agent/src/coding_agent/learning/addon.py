@@ -41,6 +41,10 @@ def _has_desired_memory(content: str, context: str) -> bool:
 class LearningAddon(Addon):
     """Inject relevant memory each turn and schedule post-run reflection.
 
+    Review waits ``LEARNING_IDLE_DELAY_SECONDS`` (two minutes) after a run
+    finishes with no further run. A new user message cancels that review
+    (pending delay or in-flight) so ``run_summary`` is not shown.
+
     Children do not inherit this add-on. Plan-mode runs can skip review via
     ``should_review`` while still receiving memory through ``before_turn``.
     """
@@ -84,6 +88,10 @@ class LearningAddon(Addon):
     def fork_for_child(self, parent_harness: Any) -> None:
         del parent_harness
         return None
+
+    async def before_run(self, **payload: Any) -> None:
+        del payload
+        self.loop.cancel()
 
     async def after_run(self, **payload: Any) -> None:
         if not self.should_review():

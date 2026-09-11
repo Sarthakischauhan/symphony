@@ -68,6 +68,7 @@ class LearningLoop:
         self.model_id = model_id
         self.max_output_tokens = max_output_tokens
         self._tasks: set[asyncio.Task[None]] = set()
+        self._generation = 0
 
     def schedule(
         self,
@@ -83,14 +84,15 @@ class LearningLoop:
         delay a debounce window: the reviewer runs only after ``delay_seconds``
         have elapsed since the most recent completed turn.
         """
-        for pending in tuple(self._tasks):
-            pending.cancel()
+        self.cancel()
+        generation = self._generation
         background = asyncio.create_task(
             self._delayed_review(
                 task,
                 result,
                 emit=emit,
                 delay_seconds=max(0.0, delay_seconds),
+                generation=generation,
             )
         )
         self._tasks.add(background)
@@ -103,13 +105,22 @@ class LearningLoop:
         *,
         emit: Optional[Emit],
         delay_seconds: float,
+        generation: int,
     ) -> None:
-        if delay_seconds:
-            await asyncio.sleep(delay_seconds)
-        await self._review_and_store(task, result, emit=emit)
+        try:
+            if delay_seconds:
+                await asyncio.sleep(delay_seconds)
+            if generation != self._generation:
+                return
+            await self._review_and_store(
+                task, result, emit=emit, generation=generation
+            )
+        except asyncio.CancelledError:
+            return
 
     def cancel(self) -> None:
-        """Cancel pending reflections without waiting for them to finish."""
+        """Cancel pending or in-flight reflection so it does not emit a summary."""
+        self._generation += 1
         for task in tuple(self._tasks):
             task.cancel()
 
@@ -129,9 +140,12 @@ class LearningLoop:
         result: HarnessResult,
         *,
         emit: Optional[Emit] = None,
+        generation: Optional[int] = None,
     ) -> None:
         try:
             review = await self.review(task, result)
+            if generation is not None and generation != self._generation:
+                return
             recap = two_line_summary(review.transcript_summary)
             if recap and emit is not None:
                 await emit(
