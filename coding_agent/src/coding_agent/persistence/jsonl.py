@@ -130,12 +130,42 @@ class JsonlPersistence:
         return None
 
     def _message_payload(self, message: Message) -> Dict[str, Any]:
-        return message.model_dump()
+        dumped = message.model_dump()
+        return {field: dumped.get(field) for field in _MESSAGE_FIELDS}
+
+    def _canonical_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return {field: payload.get(field) for field in _MESSAGE_FIELDS}
+
+    def _is_compact_mark(self, payload: Dict[str, Any]) -> bool:
+        content = payload.get("content")
+        text = content if isinstance(content, str) else text_from_content(content or "")
+        return text.startswith(COMPACTED_CONTEXT_MARK)
+
+    def _is_compact_rewrite(
+        self,
+        stored: List[Dict[str, Any]],
+        incoming: List[Dict[str, Any]],
+    ) -> bool:
+        """True only when the runtime conversation actually dropped history."""
+        if len(incoming) < len(stored):
+            return True
+        stored_marks = [item for item in stored if self._is_compact_mark(item)]
+        incoming_marks = [item for item in incoming if self._is_compact_mark(item)]
+        return bool(incoming_marks) and (
+            not stored_marks or stored_marks[-1] != incoming_marks[-1]
+        )
 
     def _messages_from(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Build the model context; never use this for rendering history."""
         dumped: List[Dict[str, Any]] = []
-        latest = next((entry for entry in reversed(entries) if entry.get("type") == "compaction"), None)
+        latest = next(
+            (
+                entry
+                for entry in reversed(entries)
+                if entry.get("type") in {"compaction", "compacted"}
+            ),
+            None,
+        )
         if latest is None:
             return [payload for entry in entries
                     if (payload := self._message_payload_from_entry(entry)) is not None]
@@ -293,7 +323,7 @@ class JsonlPersistence:
         incoming = [self._message_payload(message) for message in messages]
         with self._lock:
             entries = self._read_entries(session_id)
-            stored = self._messages_from(entries)
+            stored = [self._canonical_payload(item) for item in self._messages_from(entries)]
             if not entries:
                 header = self._header(session_id)
                 self._append_entries(
@@ -306,6 +336,19 @@ class JsonlPersistence:
                 return
             if stored == incoming[: len(stored)] and len(incoming) >= len(stored):
                 extra = incoming[len(stored) :]
+                if extra:
+                    next_seq = self._next_seq(entries)
+                    self._append_entries(
+                        session_id,
+                        [self._message_entry(item, seq=next_seq + index) for index, item in enumerate(extra)],
+                    )
+                return
+            if not self._is_compact_rewrite(stored, incoming):
+                # In-place edits (pruned tool bodies, injected memory) must
+                # not mint a compaction boundary. Re-emitting the whole
+                # conversation after through_seq is what ballooned session
+                # files to thousands of duplicate message lines.
+                extra = incoming[len(stored) :] if len(incoming) > len(stored) else []
                 if extra:
                     next_seq = self._next_seq(entries)
                     self._append_entries(

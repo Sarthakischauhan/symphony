@@ -14,6 +14,7 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tui.motion import enter_row, settle_row
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.transcript.messages import clip_text, compact_json
@@ -91,6 +92,9 @@ class ToolCallWidget(Collapsible):
             classes="tool-call",
         )
         self.refresh_content()
+
+    def on_mount(self) -> None:
+        enter_row(self, duration=0.14)
 
     def _make_body(self) -> Static:
         return Static()
@@ -279,6 +283,9 @@ class ToolCallSummary(Static, can_focus=True):
         for call in calls or ():
             self.add_call(call, layout=False)
         self.title = self._summary_title()
+
+    def on_mount(self) -> None:
+        settle_row(self)
 
     def _summary_title(self) -> str:
         failed = sum(call.status == "failed" for call in self.calls)

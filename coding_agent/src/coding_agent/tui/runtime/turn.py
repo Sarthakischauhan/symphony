@@ -8,7 +8,7 @@ from typing import Callable
 from textual import work
 from textual.widgets import Static
 
-from coding_agent.tui.chrome import display_workspace_path, footer_hint, render_footer
+from coding_agent.tui.chrome import TopBar, display_workspace_path, footer_hint, render_footer
 from coding_agent.tui.composer.input import PromptInput
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.screens.history import load_session_history
@@ -22,7 +22,11 @@ class TurnSurface:
     """Harness event routing and the exclusive agent-turn worker."""
 
     def _set_status(self, _value: str) -> None:
-        """Repaint the footer from run state; the presenter's text summary is unused."""
+        """Repaint the footer from run state; the header only when the model changes.
+
+        Usage events refresh this often. Re-reading git and rebuilding the
+        top bar on every token made the composer stutter during a live run.
+        """
         hint = footer_hint(question_pending=self._pending_question_id is not None)
         self.query_one("#status", Static).update(
             render_footer(
@@ -31,6 +35,10 @@ class TurnSurface:
                 workspace=display_workspace_path(self.workspace),
             )
         )
+        model_id = self._ui_state.model_id or getattr(self, "model_id", "") or ""
+        if model_id != getattr(self, "_topbar_model", None):
+            self._topbar_model = model_id
+            self.query_one("#topbar", TopBar).set_context(self.workspace, model_id)
 
     def _schedule_stream_flush(self, callback: Callable[[], None]) -> None:
         """Coalesce stream paints to keep Markdown/widget work bounded."""
@@ -88,6 +96,7 @@ class TurnSurface:
 
     @work(exclusive=True, group="run_agent")
     async def run_agent(self, user_input: Content) -> None:
+        generation = self._run_generation
         try:
             await self._run_agent_turn(user_input)
         except (HarnessCancelled, HarnessLimitExceeded, asyncio.CancelledError):
@@ -99,7 +108,31 @@ class TurnSurface:
             if self._ui_state.detail != "failed":
                 self.add_notice(f"Error · {exc}", "error")
         finally:
-            child_question_pending = bool(self._pending_question_id and self._pending_question_agent_id)
+            if generation != self._run_generation:
+                # A newer turn already started; do not clobber its busy state
+                # or dispatch the queue a second time.
+                return
+            child_question_pending = bool(
+                self._pending_question_id and self._pending_question_agent_id
+            )
+            cancel_reason = self.sink.cancel_reason if self.sink.cancelled else None
+            dispatch_queued = (
+                not child_question_pending
+                and bool(self._queued_turns)
+                and cancel_reason not in {"user_cancel", "quit"}
+            )
+            if dispatch_queued:
+                # Skip the idle chrome/focus pass — it forced a full layout
+                # immediately before the next turn mounted more widgets.
+                user_content, text, pasted_chunks, images = self.pop_queued_turn()
+                self.call_after_refresh(
+                    self._start_turn,
+                    user_content,
+                    text,
+                    pasted_chunks,
+                    images,
+                )
+                return
             if self._presenter is not None:
                 self._ui_state.phase = "paused" if child_question_pending else "idle"
                 self._presenter.refresh_chrome()

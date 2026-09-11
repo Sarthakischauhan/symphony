@@ -109,6 +109,25 @@ class RunLimits(BaseModel):
     max_tokens: Optional[int] = None
 
 
+class StreamedTurn(BaseModel):
+    assistant_text: str = ""
+    reasoning_texts: Dict[int, str] = Field(default_factory=dict)
+    pending_calls: Dict[int, PendingToolCall] = Field(default_factory=dict)
+    saw_usage: bool = False
+    attempt_usage: UsageTotals = Field(default_factory=UsageTotals)
+    budget_tokens: int = 0
+    estimated_message_tokens: int = 0
+
+
+class TurnResult(BaseModel):
+    assistant_text: str
+    tool_calls: List[ToolCall]
+    usage: UsageTotals
+    budget_tokens: int
+    context_left: Optional[int]
+    message_sizes: List[Dict[str, Any]]
+
+
 class HarnessResult(BaseModel):
     output_text: str
     messages: List[Message]
@@ -122,6 +141,8 @@ __all__ = [
     "ControlPlaneEventType",
     "EVENT_SCHEMA_VERSION",
     "HarnessResult",
+    "StreamedTurn",
+    "TurnResult",
     "PendingToolCall",
     "RunLimits",
     "ToolCall",

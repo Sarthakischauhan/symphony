@@ -132,11 +132,13 @@ boundary. Assistant and reasoning bodies remain plain text while streaming, then
 their full Markdown rendering once complete. Tool cards update fixed one-line fields
 without requesting layout and build expandable bodies only when opened.
 
-The visible transcript has a global budget of ten completed tool cards. Reasoning does
-not reset that budget. Older cards become one `Explored` snapshot row, and completed
-turns beyond the budget are removed from the widget tree and accumulated into one
-`Archived` row. Opening the archive creates its detail modal on demand; restored session
-history goes through the same compaction path.
+Only in-progress tool and reasoning widgets stay in the live set. Completed
+tools collect into an `Explored` snapshot row as they finish (ten entries per
+row). Interactive cards (generated images, subagents) stay mounted until the
+run finalizes. Reasoning does not reset that batch size. Completed turns
+beyond the budget are removed from the widget tree and accumulated into one
+`Archived` row. Opening the archive creates its detail modal on demand; restored
+session history goes through the same compaction path.
 
 In plan mode, plan storage has two layers: the TUI initializes the selected plan before
 the worker starts and appends root `text_delta` events as they arrive; `CodingAgent.run()`

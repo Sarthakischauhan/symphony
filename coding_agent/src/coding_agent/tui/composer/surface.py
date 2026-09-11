@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual import events
-from textual.widgets import OptionList, Static, TextArea
+from textual.widgets import Button, OptionList, Static, TextArea
 
 from coding_agent.credentials import OFFLINE_HINT
 from coding_agent.tui.commands import (
@@ -34,7 +34,17 @@ class ComposerSurface:
         pasted_chunks = event.input.take_pasted_chunks()
         event.input.load_text("")
         if self._pending_question_id is not None:
-            event.input.take_images()
+            images = event.input.take_images()
+            approval_menu = self.query_one("#approval-menu", SlashMenu)
+            if approval_menu.display and approval_menu.selected_value:
+                await self._answer_question(approval_menu.selected_value)
+                if text:
+                    user_content = build_user_content(text, images)
+                    if self._busy:
+                        self.queue_turn((user_content, text, pasted_chunks, images))
+                    else:
+                        self._start_turn(user_content, text, pasted_chunks, images)
+                return
             await self._answer_question(self._submitted_question_answer(text))
             return
         if not text:
@@ -49,11 +59,18 @@ class ComposerSurface:
         if self._agent is None:
             self.add_notice(OFFLINE_HINT, "error")
             return
+        user_content = build_user_content(text, images)
         if self._busy:
-            self.add_notice("A turn is already in progress.", "warning")
+            # Do not disable the editor while the harness is working: a follow-up
+            # can be prepared and submitted, then is dispatched FIFO afterward.
+            self.queue_turn((user_content, text, pasted_chunks, images))
             return
 
-        user_content = build_user_content(text, images)
+        self._start_turn(user_content, text, pasted_chunks, images)
+
+    def _start_turn(self, user_content, text, pasted_chunks, images) -> None:
+        self._run_generation += 1
+        self.sink.reset_cancel()
         self._assistant = None
         self._thinking = None
         self._reasoning = None
@@ -66,9 +83,31 @@ class ComposerSurface:
         if self.mode == "plan":
             self._plan_run_active = True
         self._busy = True
-        event.input.disabled = True
         self._set_status("")
         self.run_agent(user_content)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id not in {"queued-send-now", "queued-edit"} or not self._queued_turns:
+            return
+        prompt = self.query_one("#prompt", PromptInput)
+        if event.button.id == "queued-edit":
+            _user_content, text, _pasted_chunks, _images = self.pop_queued_turn()
+            prompt.load_text(text)
+            prompt.submit_on_enter = True
+            prompt.disabled = False
+            prompt.focus()
+            return
+        if not self._busy:
+            user_content, text, pasted_chunks, images = self.pop_queued_turn()
+            self._start_turn(user_content, text, pasted_chunks, images)
+            return
+        # Interrupt the in-flight run and leave the prompt queued. The
+        # cancelled worker starts it from ``finally`` only after the previous
+        # harness call has actually returned, so two runs cannot overlap.
+        self._pending_question_id = None
+        self._pending_question_default = ""
+        self._pending_question_agent_id = ""
+        self._cancel_active_run("queued_send_now")
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id != "prompt":
@@ -191,7 +230,6 @@ class ComposerSurface:
         if self._pending_question_id is not None and submit:
             answer = menu.selected_value
             menu.set_commands(())
-            prompt.load_text("")
             self.call_later(self._answer_question, answer)
             prompt.focus()
             return

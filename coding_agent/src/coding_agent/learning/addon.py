@@ -13,6 +13,8 @@ from coding_agent.learning.loop import LearningLoop
 from coding_agent.learning.store import MEMORY_CONTEXT_PREFIX
 
 
+LEARNING_IDLE_DELAY_SECONDS = 120.0
+
 _MEMORY_BLOCK = re.compile(
     r"\n*" + re.escape(MEMORY_CONTEXT_PREFIX) + r"(?:\n[^\n]+)*"
 )
@@ -38,6 +40,10 @@ def _has_desired_memory(content: str, context: str) -> bool:
 
 class LearningAddon(Addon):
     """Inject relevant memory each turn and schedule post-run reflection.
+
+    Review waits ``LEARNING_IDLE_DELAY_SECONDS`` (two minutes) after a run
+    finishes with no further run. A new user message cancels that review
+    (pending delay or in-flight) so ``run_summary`` is not shown.
 
     Children do not inherit this add-on. Plan-mode runs can skip review via
     ``should_review`` while still receiving memory through ``before_turn``.
@@ -83,6 +89,10 @@ class LearningAddon(Addon):
         del parent_harness
         return None
 
+    async def before_run(self, **payload: Any) -> None:
+        del payload
+        self.loop.cancel()
+
     async def after_run(self, **payload: Any) -> None:
         if not self.should_review():
             return
@@ -93,4 +103,5 @@ class LearningAddon(Addon):
             str(payload.get("task") or ""),
             result,
             emit=payload.get("emit"),
+            delay_seconds=LEARNING_IDLE_DELAY_SECONDS,
         )

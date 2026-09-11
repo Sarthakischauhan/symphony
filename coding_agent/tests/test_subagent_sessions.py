@@ -47,8 +47,8 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             emit("text_delta", delta="Child answer")
             app.set_assistant("Parent continues while child view is open")
             await pilot.pause()
-            assert len(list(screen.query(ToolCallSummary))) == 1
-            assert len(list(screen.query(ToolCallWidget))) == 1
+            assert len(list(screen.query(ToolCallSummary))) == 2
+            assert not list(screen.query(ToolCallWidget))
             assert [item.message_text for item in screen.query(AssistantMessage)] == ["Child answer"]
             assert app._assistant.parent is not screen.query_one("#transcript")
             emit("run_completed", output_text="Child answer")

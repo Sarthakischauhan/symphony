@@ -6,6 +6,8 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from core_ai.types import Message, StreamEvent
 from core_harness import HarnessResult, EventSink
 from core_harness.models import UsageTotals
@@ -20,6 +22,7 @@ from coding_agent.learning import (
     strip_memory_context,
     two_line_summary,
 )
+from coding_agent.learning.addon import LEARNING_IDLE_DELAY_SECONDS
 
 
 def _result() -> HarnessResult:
@@ -159,7 +162,45 @@ def test_agent_returns_before_reflection_finishes(tmp_path: Path) -> None:
     assert "learning" in addon_names
 
 
-def test_after_run_hook_emits_summary_on_the_control_plane(tmp_path: Path) -> None:
+def test_learning_waits_two_minutes_of_idle_before_review() -> None:
+    assert LEARNING_IDLE_DELAY_SECONDS == 120.0
+
+
+def test_user_message_cancels_in_flight_review_without_summary(tmp_path: Path) -> None:
+    emitted: list[tuple[str, dict]] = []
+    started = asyncio.Event()
+
+    class SlowReview:
+        async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
+            del model_id, messages, tools, max_output_tokens, kwargs
+            started.set()
+            await asyncio.Event().wait()
+            yield StreamEvent(type="done")
+
+    async def emit(event_type: str, payload: dict) -> None:
+        emitted.append((event_type, payload))
+
+    async def scenario() -> None:
+        store = LearningStore(tmp_path)
+        loop = LearningLoop(store, registry=SlowReview(), model_id="test:model")
+        addon = LearningAddon(loop)
+        loop.schedule("fix bug", _result(), emit=emit)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        await addon.before_run()
+        await loop.wait()
+
+    asyncio.run(scenario())
+    assert emitted == []
+
+
+def test_after_run_hook_emits_summary_on_the_control_plane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "coding_agent.learning.addon.LEARNING_IDLE_DELAY_SECONDS",
+        0.0,
+    )
+
     async def scenario():
         plane = EventSink()
         agent = CodingAgent(

@@ -1,4 +1,4 @@
-"""Shared color tokens for Rich content embedded in the Textual UI."""
+"""Rich and Pygments glue for tokens loaded from theme.toml."""
 
 from __future__ import annotations
 
@@ -19,37 +19,7 @@ from rich.markdown import Markdown
 from rich.syntax import PygmentsSyntaxTheme
 from rich.theme import Theme
 
-
-# The palette is kept in one place so Rich content and Textual CSS can be
-# changed together.  These are the semantic tokens from the Symphony dark
-# theme (rather than terminal colour names, which vary by terminal).
-#
-# Chrome tokens (background / accent / muted) mirror the `$...` variables in
-# theme/chrome.py so Rich renderables and Textual CSS share one palette.
-SYMPHONY_COLORS = {
-    "background": "#0A0A0A",
-    "foreground": "#EDEDED",
-    "accent": "#A371F7",
-    "muted": "#737373",
-    "muted_dim": "#737373",
-    "edge": "#262626",
-    "comment": "#737373",
-    "keyword": "#db6767",
-    "type_keywords": "#db6767",
-    "string": "#799e7c",
-    "function": "#6374d0",
-    "variable": "#EDEDED",
-    "number": "#d08a61",
-    "operator": "#6b6b6b",
-    "punctuation": "#525252",
-    "type": "#cda059",
-    "tag": "#5a9a95",
-    "attribute": "#8ca0cc",
-    "constant": "#d08a61",
-    "surface": "#171717",
-    "overlay": "#262626",
-    "subtext": "#A3A3A3",
-}
+from coding_agent.tui.theme.load import SYMPHONY_COLORS
 
 
 class SymphonyCodeStyle(Style):

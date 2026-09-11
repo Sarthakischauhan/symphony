@@ -11,7 +11,7 @@ from textual.containers import Container, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.motion import reveal
+from coding_agent.tui.motion import enter_row, reveal, settle_row
 from coding_agent.tui.theme import themed_markdown
 
 
@@ -33,7 +33,6 @@ class ThinkingStatus(Static):
         self._churning = False
         self._working_detail = ""
         self._gradient_step = 0
-        self._pulse_step = 0
         self._churning_started_at = 0.0
         self._animation_timer: Any = None
         super().__init__(classes="thinking-status")
@@ -83,13 +82,11 @@ class ThinkingStatus(Static):
         self._render_churning()
 
     def _render_churning(self) -> None:
+        # Elapsed text only. Opacity pulses here fight transcript enter/settle
+        # and stack a new animation on every timer tick.
         elapsed = time.monotonic() - self._churning_started_at
         self.update(Text(f"Churning {elapsed:.1f}s", style="#858585"))
-        target = 0.62 if self._pulse_step % 2 else 1.0
-        self.styles.animate(
-            "opacity", target, duration=0.6, easing="in_out_sine", level="full"
-        )
-        self._pulse_step += 1
+        self.styles.opacity = 1.0
 
     def set_working(self, detail: str = "") -> None:
         """Show a moving color gradient while a model request is retrying."""
@@ -152,6 +149,8 @@ class RunProcess(Container):
 
     def place_thinking_last(self) -> None:
         """Keep the live status below the work it is describing."""
+        if self._items and self._items[-1] is self._thinking:
+            return
         if not self._thinking.is_attached:
             if self._thinking in self._items:
                 self._items.remove(self._thinking)
@@ -298,6 +297,7 @@ class ReasoningWidget(Collapsible):
 
     def on_mount(self) -> None:
         self._scroll.anchor()
+        enter_row(self, duration=0.14)
 
     def complete(self) -> None:
         if self.has_class("is-complete"):
@@ -315,3 +315,4 @@ class ReasoningWidget(Collapsible):
         self.collapsed = True
         self.remove_class("is-live")
         self.add_class("is-complete")
+        settle_row(self)

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core_ai.types import Message, StreamEvent
+from core_harness.context import COMPACTED_CONTEXT_MARK
 from core_harness import Checkpoint, CoreHarness, HarnessConfig, EventSink, Tool
 from core_harness.addons.persistence import PersistenceAddon
 from core_harness import ChildConfig, SubagentAddon
@@ -222,6 +223,97 @@ def test_compaction_is_append_only_and_latest_projection_is_resumed(tmp_path: Pa
     assert "original question" in transcript_text
     assert "original answer" in transcript_text
     assert "newer answer" in transcript_text
+
+
+def test_compacted_boundary_alias_honors_through_seq(tmp_path: Path) -> None:
+    root = tmp_path / "sessions"
+    root.mkdir()
+    path = root / "alias.jsonl"
+    entries = [
+        {"type": "header", "session_id": "alias", "seq": 1},
+        {"type": "user", "role": "user", "content": "old", "seq": 2},
+        {
+            "type": "compacted",
+            "seq": 3,
+            "through_seq": 2,
+            "summary": {"role": "user", "content": "summary"},
+        },
+        {"type": "assistant", "role": "assistant", "content": "new", "seq": 4},
+    ]
+    path.write_text(
+        "".join(json.dumps(entry) + "\n" for entry in entries),
+        encoding="utf-8",
+    )
+
+    resumed = asyncio.run(
+        JsonlPersistence(root).load_conversation(session_id="alias")
+    )
+
+    assert [(message.role, message.content) for message in resumed] == [
+        ("user", "summary"),
+        ("assistant", "new"),
+    ]
+
+
+def test_in_place_tool_prune_does_not_duplicate_conversation(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    session_id = "no-dup"
+    mark = f"{COMPACTED_CONTEXT_MARK}\nDropped earlier work."
+    base = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="task"),
+        Message(role="user", content=mark),
+        Message(role="assistant", content="", tool_calls=[{"id": "c1", "function": {"name": "read_file"}}]),
+        Message(role="tool", content="line\n" * 200, tool_call_id="c1"),
+        Message(role="user", content="next"),
+    ]
+    pruned = list(base)
+    pruned[4] = Message(role="tool", content="[tool result cleared: read_file]", tool_call_id="c1")
+    grown = pruned + [Message(role="assistant", content="ok")]
+    path = tmp_path / "sessions" / f"{session_id}.jsonl"
+
+    async def _run() -> None:
+        await store.save_conversation(session_id=session_id, messages=base)
+        await store.save_conversation(session_id=session_id, messages=pruned)
+        await store.save_conversation(session_id=session_id, messages=grown)
+
+    asyncio.run(_run())
+
+    entries = _message_lines(path)
+    assert sum(1 for entry in entries if entry.get("type") == "compaction") == 0
+    assert sum(1 for entry in entries if entry.get("type") == "message") == len(grown)
+    loaded = asyncio.run(store.load_conversation(session_id=session_id))
+    assert [message.role for message in loaded] == [message.role for message in grown]
+    assert loaded[-1].content == "ok"
+
+
+def test_true_compact_is_one_boundary_and_stable_on_resave(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    session_id = "one-compact"
+    history = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="task"),
+        *[Message(role="assistant", content=f"old {index}") for index in range(8)],
+    ]
+    compacted = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="task"),
+        Message(role="user", content=f"{COMPACTED_CONTEXT_MARK}\nsummary"),
+        Message(role="assistant", content="old 7"),
+    ]
+    path = tmp_path / "sessions" / f"{session_id}.jsonl"
+
+    async def _run() -> None:
+        await store.save_conversation(session_id=session_id, messages=history)
+        await store.save_conversation(session_id=session_id, messages=compacted)
+        await store.save_conversation(session_id=session_id, messages=compacted)
+
+    asyncio.run(_run())
+
+    entries = _message_lines(path)
+    assert sum(1 for entry in entries if entry.get("type") == "compaction") == 1
+    loaded = asyncio.run(store.load_conversation(session_id=session_id))
+    assert loaded == compacted
 
 
 def test_harness_persists_and_reloads_conversation(tmp_path: Path) -> None:

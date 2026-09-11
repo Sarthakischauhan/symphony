@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from coding_agent.tui.motion import enter_row, settle_row
 from coding_agent.tui.tools.calls import (
     ToolCallSnapshot,
     ToolCallSummary,
     ToolCallWidget,
     make_tool_widget,
 )
-from coding_agent.tui.transcript.live_tools import reconcile_live_tools
+from coding_agent.tui.transcript.live_tools import (
+    collectable_tools,
+    is_collectable_thought,
+    is_collectable_tool,
+    is_hot_tool,
+    is_interactive_tool,
+    reconcile_live_tools,
+    release_live_binding,
+)
 from coding_agent.tui.transcript.process import ReasoningWidget
 
 
@@ -32,8 +41,79 @@ def _summaries(items: list[object]) -> list[ToolCallSummary]:
     return [item for item in items if isinstance(item, ToolCallSummary)]
 
 
+def test_hot_vs_collectable_policy_helpers() -> None:
+    running = _running_tool("run")
+    done = _done_tool("read")
+    image = _done_tool("img", "generate_image")
+    spawn = _done_tool("child", "spawn_agent")
+    spawn.keep_in_transcript = True
+    thought = ReasoningWidget("## Inspecting\n\nBody")
+    thought.complete()
+    live_thought = ReasoningWidget("Still thinking")
+
+    assert is_hot_tool(running)
+    assert not is_hot_tool(done)
+    assert is_collectable_tool(done)
+    assert not is_collectable_tool(running)
+    assert not is_collectable_tool(image)
+    assert is_collectable_tool(image, include_interactive=True)
+    assert is_interactive_tool(image)
+    assert is_interactive_tool(spawn)
+    assert not is_collectable_tool(spawn)
+    assert is_collectable_thought(thought)
+    assert not is_collectable_thought(live_thought)
+    assert collectable_tools([running, done, image]) == [done]
+
+
+def test_release_live_binding_points_at_collected_form() -> None:
+    widget = _done_tool("read")
+    summary = ToolCallSummary()
+    tools = {widget.call_id: widget}
+
+    release_live_binding(tools, widget, summary)
+
+    assert tools["read"] is summary
+    assert not isinstance(tools["read"], ToolCallWidget)
+
+
+def test_reconcile_collects_completed_tools_immediately() -> None:
+    """Completed cards leave the live set without waiting for a full batch."""
+    tools: dict[str, object] = {}
+    timeline: list[object] = []
+    for index in range(3):
+        widget = _done_tool(f"read-{index}")
+        tools[widget.call_id] = widget
+        timeline.append(widget)
+
+    reconcile_live_tools(timeline, tools, limit=10)
+
+    assert _call_ids(timeline) == []
+    summaries = _summaries(timeline)
+    assert len(summaries) == 1
+    assert summaries[0].count == 3
+    assert summaries[0].call_ids == ["read-0", "read-1", "read-2"]
+    assert all(tools[call_id] is summaries[0] for call_id in summaries[0].call_ids)
+
+
+def test_reconcile_appends_to_open_explored_until_limit() -> None:
+    tools: dict[str, object] = {}
+    timeline: list[object] = []
+    for index in range(5):
+        widget = _done_tool(f"read-{index}")
+        tools[widget.call_id] = widget
+        timeline.append(widget)
+        reconcile_live_tools(timeline, tools, limit=3)
+
+    summaries = _summaries(timeline)
+    assert len(summaries) == 2
+    assert summaries[0].call_ids == ["read-0", "read-1", "read-2"]
+    assert summaries[1].call_ids == ["read-3", "read-4"]
+    assert _call_ids(timeline) == []
+    assert all(isinstance(tools[call_id], ToolCallSummary) for call_id in tools)
+
+
 def test_reconcile_compacts_a_full_batch_from_the_last_widget() -> None:
-    """A full batch folds newest-first into one Explored row."""
+    """A dump of completed cards folds into limit-sized Explored rows."""
     limit, extra = 8, 2
     tools: dict[str, object] = {}
     timeline: list[object] = []
@@ -46,13 +126,13 @@ def test_reconcile_compacts_a_full_batch_from_the_last_widget() -> None:
 
     summaries = _summaries(timeline)
     live = [item for item in timeline if isinstance(item, ToolCallWidget)]
-    assert len(live) == extra
-    assert _call_ids(live) == [f"read-{index}" for index in range(limit, limit + extra)]
-    assert len(summaries) == 1
+    assert live == []
+    assert len(summaries) == 2
     assert summaries[0].count == limit
-    assert summaries[0].call_ids == [f"read-{index}" for index in range(limit - 1, -1, -1)]
-    assert timeline.index(summaries[0]) < min(timeline.index(item) for item in live)
-    assert all(tools[call_id] is summaries[0] for call_id in summaries[0].call_ids)
+    assert summaries[0].call_ids == [f"read-{index}" for index in range(limit)]
+    assert summaries[1].count == extra
+    assert summaries[1].call_ids == [f"read-{index}" for index in range(limit, limit + extra)]
+    assert all(isinstance(tools[call_id], ToolCallSummary) for call_id in tools)
 
 
 def test_reconcile_is_per_run_and_ignores_reasoning_boundaries() -> None:
@@ -73,34 +153,15 @@ def test_reconcile_is_per_run_and_ignores_reasoning_boundaries() -> None:
     reconcile_live_tools(timeline, tools, limit=3)
 
     summaries = _summaries(timeline)
-    assert len(summaries) == 1
-    assert summaries[0].call_ids == ["a-2", "a-1", "a-0"]
-    assert _call_ids(timeline) == ["a-3", "a-4", "b-0", "b-1", "b-2", "b-3", "b-4"]
-    assert timeline.index(summaries[0]) < timeline.index(reasoning)
-    assert reasoning in timeline
-
-
-def test_reconcile_leaves_everything_live_under_the_limit() -> None:
-    thinking = object()
-    tools: dict[str, object] = {}
-    timeline: list[object] = [thinking]
-    for index in range(5):
-        widget = _done_tool(f"a-{index}")
-        tools[widget.call_id] = widget
-        timeline.append(widget)
-    timeline.append(ReasoningWidget("Considering the next batch."))
-    for index in range(3):
-        widget = _done_tool(f"b-{index}")
-        tools[widget.call_id] = widget
-        timeline.append(widget)
-
-    reconcile_live_tools(timeline, tools)
-
-    assert _summaries(timeline) == []
-    assert _call_ids(timeline) == [f"a-{index}" for index in range(5)] + [
-        f"b-{index}" for index in range(3)
+    assert [summary.call_ids for summary in summaries] == [
+        ["a-0", "a-1", "a-2"],
+        ["a-3", "a-4", "b-0"],
+        ["b-1", "b-2", "b-3"],
+        ["b-4"],
     ]
-    assert timeline[0] is thinking
+    assert _call_ids(timeline) == []
+    assert reasoning in timeline
+    assert all("thought" not in summary.title for summary in summaries)
 
 
 def test_reconcile_in_progress_tools_stay_live_and_do_not_count() -> None:
@@ -112,12 +173,14 @@ def test_reconcile_in_progress_tools_stay_live_and_do_not_count() -> None:
 
     reconcile_live_tools(timeline, tools, limit=2)
 
-    assert [summary.call_ids for summary in _summaries(timeline)] == [["read-1", "read-0"]]
+    assert [summary.call_ids for summary in _summaries(timeline)] == [["read-0", "read-1"]]
     assert _call_ids(timeline) == ["run-0", "run-1", "run-2"]
+    assert all(is_hot_tool(item) for item in timeline if isinstance(item, ToolCallWidget))
 
 
 def test_reconcile_does_not_collapse_spawn_or_running_tools() -> None:
     spawn = _done_tool("spawn-1", "spawn_agent")
+    spawn.keep_in_transcript = True
     running = _running_tool("run-1")
     done = [_done_tool(f"read-{index}") for index in range(4)]
     timeline: list[object] = [spawn, running, *done]
@@ -128,35 +191,41 @@ def test_reconcile_does_not_collapse_spawn_or_running_tools() -> None:
     assert spawn in timeline
     assert running in timeline
     summaries = _summaries(timeline)
-    assert len(summaries) == 1
-    assert summaries[0].call_ids == ["read-1", "read-0"]
-    assert _call_ids(timeline) == ["spawn-1", "run-1", "read-2", "read-3"]
+    assert [summary.call_ids for summary in summaries] == [
+        ["read-0", "read-1"],
+        ["read-2", "read-3"],
+    ]
+    assert _call_ids(timeline) == ["spawn-1", "run-1"]
 
 
 def test_reconcile_late_finisher_joins_existing_explored() -> None:
-    """An older card that completes later folds into the same Explored row."""
+    """An older card that completes later appends to the open Explored row."""
     late = _running_tool("late")
     done = [_done_tool(f"read-{index}") for index in range(3)]
     timeline: list[object] = [late, *done]
     tools = {item.call_id: item for item in timeline if isinstance(item, ToolCallWidget)}
 
     reconcile_live_tools(timeline, tools, limit=2)
-    assert _call_ids(timeline) == ["late", "read-2"]
-    assert [summary.call_ids for summary in _summaries(timeline)] == [["read-1", "read-0"]]
+    assert _call_ids(timeline) == ["late"]
+    assert [summary.call_ids for summary in _summaries(timeline)] == [
+        ["read-0", "read-1"],
+        ["read-2"],
+    ]
 
     late.status = "done"
     reconcile_live_tools(timeline, tools, limit=2)
 
     summaries = _summaries(timeline)
     assert len(summaries) == 2
-    assert summaries[0].call_ids == ["read-1", "read-0"]
+    assert summaries[0].call_ids == ["read-0", "read-1"]
     assert summaries[1].call_ids == ["read-2", "late"]
     assert tools["late"] is summaries[1]
     assert timeline.index(summaries[0]) < timeline.index(summaries[1])
+    assert _call_ids(timeline) == []
 
 
 def test_reconcile_folds_incrementally_as_tools_complete() -> None:
-    """Bottom-up: as each new card completes, the oldest live card folds."""
+    """Each completion collects immediately; a full batch starts the next Explored."""
     timeline: list[object] = []
     tools: dict[str, object] = {}
     for index in range(6):
@@ -167,9 +236,29 @@ def test_reconcile_folds_incrementally_as_tools_complete() -> None:
 
     summaries = _summaries(timeline)
     assert len(summaries) == 2
-    assert summaries[0].call_ids == ["read-2", "read-1", "read-0"]
-    assert summaries[1].call_ids == ["read-5", "read-4", "read-3"]
+    assert summaries[0].call_ids == ["read-0", "read-1", "read-2"]
+    assert summaries[1].call_ids == ["read-3", "read-4", "read-5"]
     assert _call_ids(timeline) == []
+
+
+def test_completed_cards_do_not_expand_the_live_tree_unbounded() -> None:
+    tools: dict[str, object] = {}
+    timeline: list[object] = [_running_tool("hot")]
+    tools["hot"] = timeline[0]
+    for index in range(25):
+        widget = _done_tool(f"read-{index}")
+        tools[widget.call_id] = widget
+        timeline.append(widget)
+        reconcile_live_tools(timeline, tools, limit=4)
+
+    live = [item for item in timeline if isinstance(item, ToolCallWidget)]
+    assert _call_ids(live) == ["hot"]
+    assert sum(summary.count for summary in _summaries(timeline)) == 25
+    assert all(
+        isinstance(tools[call_id], ToolCallSummary)
+        for call_id in tools
+        if call_id != "hot"
+    )
 
 
 def test_tool_call_summary_line_uses_subtle_explored_and_muted_count() -> None:
@@ -218,6 +307,7 @@ def test_tool_call_summary_keeps_snapshots_of_folded_tools() -> None:
 def test_finalization_folds_partial_batch_and_completed_subagents() -> None:
     done = _done_tool("read")
     spawn = _done_tool("child", "spawn_agent")
+    spawn.keep_in_transcript = True
     running = _running_tool("running")
     timeline = [done, spawn, running]
     tools = {item.call_id: item for item in timeline}
@@ -279,3 +369,10 @@ def test_finalization_folds_thought_only_runs() -> None:
     summary = _summaries(timeline)[0]
     assert summary.title == "Explored · 1 thought"
     assert summary.archive_text() == "Thought - Answering"
+
+
+def test_motion_helpers_are_safe_without_an_app() -> None:
+    summary = ToolCallSummary()
+    settle_row(summary)
+    enter_row(summary)
+    assert summary.styles.opacity == 1.0
