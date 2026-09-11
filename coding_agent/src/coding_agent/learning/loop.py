@@ -75,11 +75,38 @@ class LearningLoop:
         result: HarnessResult,
         *,
         emit: Optional[Emit] = None,
+        delay_seconds: float = 0.0,
     ) -> None:
-        """Start reflection after a completed run without delaying its result."""
-        background = asyncio.create_task(self._review_and_store(task, result, emit=emit))
+        """Schedule reflection after a quiet period without delaying the run.
+
+        A later schedule replaces an earlier pending reflection.  This makes the
+        delay a debounce window: the reviewer runs only after ``delay_seconds``
+        have elapsed since the most recent completed turn.
+        """
+        for pending in tuple(self._tasks):
+            pending.cancel()
+        background = asyncio.create_task(
+            self._delayed_review(
+                task,
+                result,
+                emit=emit,
+                delay_seconds=max(0.0, delay_seconds),
+            )
+        )
         self._tasks.add(background)
         background.add_done_callback(self._tasks.discard)
+
+    async def _delayed_review(
+        self,
+        task: str,
+        result: HarnessResult,
+        *,
+        emit: Optional[Emit],
+        delay_seconds: float,
+    ) -> None:
+        if delay_seconds:
+            await asyncio.sleep(delay_seconds)
+        await self._review_and_store(task, result, emit=emit)
 
     def cancel(self) -> None:
         """Cancel pending reflections without waiting for them to finish."""

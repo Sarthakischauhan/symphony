@@ -13,6 +13,8 @@ from coding_agent.learning.loop import LearningLoop
 from coding_agent.learning.store import MEMORY_CONTEXT_PREFIX
 
 
+LEARNING_IDLE_DELAY_SECONDS = 120.0
+
 _MEMORY_BLOCK = re.compile(
     r"\n*" + re.escape(MEMORY_CONTEXT_PREFIX) + r"(?:\n[^\n]+)*"
 )
@@ -93,4 +95,5 @@ class LearningAddon(Addon):
             str(payload.get("task") or ""),
             result,
             emit=payload.get("emit"),
+            delay_seconds=LEARNING_IDLE_DELAY_SECONDS,
         )
