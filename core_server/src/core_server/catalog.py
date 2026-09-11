@@ -32,7 +32,7 @@ def model_registry_response(config: ServerConfig) -> ModelRegistryResponse:
         models.append(RegistryModel(id=model_id, label=allowlist.get(model_id, None).label if model_id in allowlist else label))
 
     for model in config.registry.models("openai"):
-        add(model.full_id, model.id)
+        add(f"openai:{model.id}", model.id)
     add(config.model_id, config.model_id.partition(":")[2] or config.model_id)
     for model in config.supported_models:
         if model.slug.startswith("openai:"):
