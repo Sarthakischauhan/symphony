@@ -21,7 +21,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 @dataclass(frozen=True)
 class SupportedModel:
-    """A model slug accepted by ``POST /runs`` and shown in the client."""
+    """Optional allowlist entry that further restricts ``GET /models`` and ``POST /runs``.
+
+    When omitted, the live ``ModelRegistry`` and core_ai catalog are the source
+    of truth. When provided, only these slugs are advertised and accepted, and
+    each must still be routable by the registry (``provider:model``).
+    """
 
     slug: str
     label: str = ""
