@@ -79,7 +79,9 @@ class SkillsConfig(BaseModel):
 
 class PluginsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    enabled: bool = False
+    # Installed plugins are discovered from the user and workspace scopes by
+    # default. Their executable add-ons still require trusted authorization.
+    enabled: bool = True
     entries: list[PluginConfig] = Field(default_factory=list)
     authorized_roots: list[Path] = Field(default_factory=list)
 

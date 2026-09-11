@@ -128,9 +128,17 @@ class CodingAgent:
                 for value in os.environ.get("SYMPHONY_PLUGIN_AUTHORIZED_ROOTS", "").split(os.pathsep)
                 if value
             ]
-            plugin_addons, plugin_skill_roots, self.plugin_diagnostics = PluginManager(
-                self.workspace, authorized_roots=trusted_roots
-            ).load(self.config.plugins.entries)
+            plugin_manager = PluginManager(self.workspace, authorized_roots=trusted_roots)
+            configured_plugins = tuple(self.config.plugins.entries)
+            discovered_plugins = plugin_manager.discover()
+            # Explicit entries override auto-discovered paths by resolved path;
+            # this keeps the installed layout convenient without losing settings.
+            configured_paths = {entry.path.expanduser().resolve() for entry in configured_plugins}
+            plugin_entries = configured_plugins + tuple(
+                entry for entry in discovered_plugins
+                if entry.path.expanduser().resolve() not in configured_paths
+            )
+            plugin_addons, plugin_skill_roots, self.plugin_diagnostics = plugin_manager.load(plugin_entries)
             if self.plugin_diagnostics:
                 details = "; ".join(
                     f"{diagnostic.source}: {diagnostic.message}"

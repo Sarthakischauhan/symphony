@@ -98,6 +98,17 @@ The TUI reads colors and CSS from `~/.symphony/theme.toml` when that file
 exists. If it is missing, the packaged default dark theme is used. Copy
 `coding_agent/tui/theme/theme.toml` to `~/.symphony/theme.toml` to edit.
 
+Skills are discovered from `~/.symphony/skills/` and the workspace's
+`.symphony/skills/` directory, followed by any configured skill roots. Plugins
+are discovered from `~/.symphony/plugins/<name>/` and the workspace's
+`.symphony/plugins/<name>/` directory when plugins are enabled. Each plugin
+must contain a `plugin.json` manifest; its `skills` entries are loaded without
+executing code. Plugin add-ons remain disabled unless their root is explicitly
+listed in `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS`.
+
+This gives installed extensions predictable user/repository scopes while
+keeping executable plugin code behind an explicit trust boundary.
+
 
 ## Harness-only config
 
