@@ -9,6 +9,34 @@ from core_ai.providers.gemini import GeminiProvider
 from core_ai.providers.grok import GrokProvider
 from core_ai.providers.openai import OpenAIProvider
 
+PROVIDER_ENV = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "XAI_API_KEY",
+    "SYMPHONY_MODEL",
+    "OPENAI_MODEL",
+    "ANTHROPIC_MODEL",
+    "GEMINI_MODEL",
+    "GROK_MODEL",
+    "XAI_MODEL",
+    "OLLAMA_API_KEY",
+    "OLLAMA_BASE_URL",
+    "OLLAMA_HOST",
+    "OLLAMA_ENABLED",
+    "OLLAMA_MODEL",
+    "LOCAL_API_KEY",
+    "LOCAL_BASE_URL",
+    "LOCAL_MODEL",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in PROVIDER_ENV:
+        monkeypatch.delenv(name, raising=False)
+
 
 def test_build_default_registry_registers_available_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
@@ -25,13 +53,7 @@ def test_build_default_registry_registers_available_providers(monkeypatch: pytes
     assert isinstance(registry._providers["grok"], GrokProvider)
 
 
-def test_build_default_registry_requires_at_least_one_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-
+def test_build_default_registry_requires_at_least_one_key() -> None:
     with pytest.raises(MissingProviderCredentials, match="OPENAI_API_KEY"):
         build_default_registry()
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
@@ -39,14 +61,6 @@ def test_build_default_registry_requires_at_least_one_key(monkeypatch: pytest.Mo
 
 
 def test_default_model_id_prefers_first_registered_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.delenv("SYMPHONY_MODEL", raising=False)
-    monkeypatch.delenv("OPENAI_MODEL", raising=False)
-    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-    monkeypatch.delenv("GEMINI_MODEL", raising=False)
-    monkeypatch.delenv("GROK_MODEL", raising=False)
-    monkeypatch.delenv("XAI_MODEL", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
 
     registry = build_default_registry()
@@ -56,10 +70,6 @@ def test_default_model_id_prefers_first_registered_provider(monkeypatch: pytest.
 
 
 def test_gemini_google_api_key_alias_counts_as_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
 
     assert configured_provider_ids() == ("gemini",)
@@ -72,14 +82,12 @@ def test_find_provider_matches_id_and_label() -> None:
     assert find_provider("OpenAI").id == "openai"  # type: ignore[union-attr]
     assert find_provider("grok").id == "grok"  # type: ignore[union-attr]
     assert find_provider("xai").id == "grok"  # type: ignore[union-attr]
+    assert find_provider("ollama").id == "ollama"  # type: ignore[union-attr]
+    assert find_provider("local").id == "local"  # type: ignore[union-attr]
     assert find_provider("missing") is None
 
 
 def test_grok_registers_from_xai_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("XAI_API_KEY", "xai-key")
 
     assert configured_provider_ids() == ("grok",)

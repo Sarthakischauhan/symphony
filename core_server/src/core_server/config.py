@@ -175,6 +175,8 @@ def build_config(
         or os.getenv("GEMINI_MODEL")
         or os.getenv("GROK_MODEL")
         or os.getenv("XAI_MODEL")
+        or os.getenv("OLLAMA_MODEL")
+        or os.getenv("LOCAL_MODEL")
         or "gpt-5.6-luna"
     )
     if ":" not in resolved_model:
