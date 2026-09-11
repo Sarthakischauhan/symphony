@@ -30,11 +30,17 @@ def split_model_id(model_id: str) -> Optional[tuple[str, str]]:
 
 
 def registered_namespaces(registry: ModelRegistry) -> tuple[str, ...]:
-    return tuple(registry.namespaces())
+    """Return the currently supported provider namespaces.
+
+    The server currently exposes the OpenAI catalog only. Provider routing can
+    remain broader internally, but additional provider model lists are not part
+    of the public registry until they are explicitly supported here.
+    """
+    return tuple(namespace for namespace in registry.namespaces() if namespace == "openai")
 
 
 def registry_can_run(registry: ModelRegistry, model_id: str) -> bool:
-    """Whether ``ModelRegistry.stream`` can route this qualified id."""
+    """Whether the currently exposed OpenAI registry can route this id."""
     parsed = split_model_id(model_id)
     if parsed is None:
         return False

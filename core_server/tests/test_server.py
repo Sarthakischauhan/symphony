@@ -157,21 +157,16 @@ def test_models_lists_registry_providers_and_catalog() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["defaultProviderId"] == "openai"
-    assert [provider["id"] for provider in body["providers"]] == ["openai", "anthropic"]
+    assert [provider["id"] for provider in body["providers"]] == ["openai"]
 
     openai = body["providers"][0]
-    anthropic = body["providers"][1]
     assert openai["label"] == "OpenAI"
     assert openai["defaultModel"] == "openai:gpt-5.6-luna"
-    assert anthropic["label"] == "Anthropic"
-    assert anthropic["defaultModel"] == "anthropic:claude-sonnet-5"
 
     openai_ids = [model["id"] for model in openai["models"]]
-    anthropic_ids = [model["id"] for model in anthropic["models"]]
     assert openai_ids == [model.full_id for model in list_models("openai")]
-    assert anthropic_ids == [model.full_id for model in list_models("anthropic")]
     assert {"id": "openai:gpt-5.6-luna", "label": "gpt-5.6-luna"} in openai["models"]
-    assert {"id": "anthropic:claude-sonnet-5", "label": "claude-sonnet-5"} in anthropic["models"]
+    assert "anthropic" not in [provider["id"] for provider in body["providers"]]
     assert "gemini" not in [provider["id"] for provider in body["providers"]]
 
 
