@@ -15,8 +15,24 @@ load_dotenv(override=True)
 _FORMAT_MEDIA = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
 
 
+def openai_compat_base_url(value: str, *, default: str = "") -> str:
+    """Normalize a host or URL to an OpenAI-compatible `.../v1` base."""
+    raw = (value or "").strip() or (default or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    raw = raw.rstrip("/")
+    if raw.endswith("/v1"):
+        return raw
+    return f"{raw}/v1"
+
+
 class OpenAIProvider(BaseProvider):
     """OpenAI chat-completions, responses, and image generation."""
+
+    include_stream_options = True
+    max_tokens_field = "max_completion_tokens"
 
     def __init__(
         self,
@@ -57,13 +73,14 @@ class OpenAIProvider(BaseProvider):
         payload: Dict[str, Any] = {
             "model": model_name,
             "stream": True,
-            "stream_options": {"include_usage": True},
             "messages": self._chat_messages(messages),
         }
+        if self.include_stream_options:
+            payload["stream_options"] = {"include_usage": True}
         if tools:
             payload["tools"] = [{"type": "function", "function": tool} for tool in tools]
         if max_output_tokens is not None:
-            payload["max_completion_tokens"] = max_output_tokens
+            payload[self.max_tokens_field] = max_output_tokens
         if self._is_reasoning_model(model_name):
             payload["reasoning_effort"] = reasoning_effort or "medium"
 
