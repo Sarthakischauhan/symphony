@@ -106,6 +106,14 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "GOOGLE_API_KEY",
         "XAI_API_KEY",
         "SYMPHONY_MODEL",
+        "OLLAMA_API_KEY",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_HOST",
+        "OLLAMA_ENABLED",
+        "OLLAMA_MODEL",
+        "LOCAL_API_KEY",
+        "LOCAL_BASE_URL",
+        "LOCAL_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
 

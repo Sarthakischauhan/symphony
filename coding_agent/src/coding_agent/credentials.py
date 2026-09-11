@@ -47,12 +47,37 @@ def load_provider_env(workspace: str | Path) -> None:
 
 
 def save_provider_key(provider_id: str, api_key: str) -> ProviderSpec:
+    return save_provider_settings(provider_id, api_key=api_key)
+
+
+def save_provider_settings(
+    provider_id: str,
+    *,
+    api_key: str = "",
+    base_url: str = "",
+) -> ProviderSpec:
+    """Persist a provider key and/or base URL to `~/.symphony/.env`."""
     spec = get_provider(provider_id)
     key = api_key.strip()
-    if not key:
-        raise ValueError(f"{spec.label} API key cannot be empty")
-    upsert_dotenv(global_env_path(), {spec.env_key: key})
-    os.environ[spec.env_key] = key
+    url = base_url.strip()
+    updates: dict[str, str] = {}
+    if spec.requires_key:
+        if not key:
+            raise ValueError(f"{spec.label} API key cannot be empty")
+        updates[spec.env_key] = key
+    else:
+        if key:
+            updates[spec.env_key] = key
+        resolved_url = url or spec.default_base_url
+        if spec.base_url_env:
+            if not resolved_url:
+                raise ValueError(f"{spec.label} base URL cannot be empty")
+            updates[spec.base_url_env] = resolved_url
+        elif not key:
+            raise ValueError(f"{spec.label} needs a base URL or API key")
+    upsert_dotenv(global_env_path(), updates)
+    for name, value in updates.items():
+        os.environ[name] = value
     return spec
 
 

@@ -10,6 +10,7 @@ from coding_agent.credentials import (
     global_env_path,
     load_provider_env,
     save_provider_key,
+    save_provider_settings,
     upsert_dotenv,
     workspace_env_path,
 )
@@ -22,6 +23,14 @@ PROVIDER_ENV = (
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
     "SYMPHONY_MODEL",
+    "OLLAMA_API_KEY",
+    "OLLAMA_BASE_URL",
+    "OLLAMA_HOST",
+    "OLLAMA_ENABLED",
+    "OLLAMA_MODEL",
+    "LOCAL_API_KEY",
+    "LOCAL_BASE_URL",
+    "LOCAL_MODEL",
 )
 
 
@@ -84,6 +93,25 @@ def test_save_provider_key_rejects_empty_key(tmp_path: Path) -> None:
         save_provider_key("openai", "   ")
     assert not global_env_path().exists()
     assert not workspace_env_path(tmp_path).exists()
+
+
+def test_save_provider_settings_writes_ollama_default_base_url(tmp_path: Path) -> None:
+    spec = save_provider_settings("ollama")
+    assert spec.id == "ollama"
+    env_path = global_env_path()
+    assert "OLLAMA_BASE_URL=http://localhost:11434/v1" in env_path.read_text(encoding="utf-8")
+    assert os.environ["OLLAMA_BASE_URL"] == "http://localhost:11434/v1"
+    assert not workspace_env_path(tmp_path).exists()
+
+
+def test_save_provider_settings_requires_local_base_url(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="base URL cannot be empty"):
+        save_provider_settings("local")
+    spec = save_provider_settings("local", base_url="http://127.0.0.1:1234/v1")
+    assert spec.id == "local"
+    assert "LOCAL_BASE_URL=http://127.0.0.1:1234/v1" in global_env_path().read_text(
+        encoding="utf-8"
+    )
 
 
 def test_load_provider_env_precedence(
