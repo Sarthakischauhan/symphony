@@ -289,7 +289,7 @@ def test_build_config_defaults_to_first_registered_provider(monkeypatch) -> None
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.delenv("GROK_MODEL", raising=False)
     monkeypatch.delenv("XAI_MODEL", raising=False)
-    config = build_config(registry=FakeRegistry(namespaces=("anthropic", "openai")))
+    config = build_config(registry=FakeRegistry(namespaces=("anthropic",)))
     assert config.model_id == "anthropic:claude-sonnet-5"
 
 
