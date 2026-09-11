@@ -8,7 +8,7 @@ from typing import Any
 from textual import events
 from textual.containers import Container, Horizontal
 from textual.message import Message
-from textual.widgets import Static, TextArea
+from textual.widgets import Button, Static, TextArea
 
 from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal, dropped_image_paths
@@ -170,12 +170,29 @@ def mode_label(mode: str) -> str:
     return mode.upper()
 
 
+class QueuedPrompt(Container):
+    """Follow-up prompt controls shown on one line inside the composer."""
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        yield Static("", id="queued-prompt-text")
+        yield Button("Send now", id="queued-send-now", variant="default")
+        yield Button("Edit", id="queued-edit", variant="default")
+
+    def refresh_queue(self, queued) -> None:
+        visible = bool(queued)
+        if self.display != visible:
+            self.display = visible
+        if queued:
+            self.query_one("#queued-prompt-text", Static).update(queued[0][1])
+
+
 class Composer(Container):
     """Borderless prompt under a thin separator, with the mode badge at the right."""
 
     def compose(self):  # type: ignore[no-untyped-def]
         from coding_agent.tui.composer.slash_menu import SlashMenu
 
+        yield QueuedPrompt(id="queued-prompt-row")
         yield SlashMenu(id="approval-menu")
         with Horizontal(id="composer-row"):
             yield PromptInput(

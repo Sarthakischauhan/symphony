@@ -84,8 +84,12 @@ class TopBar(Static):
         *,
         label: str = "",
     ) -> None:
-        self._branch = read_git_branch(workspace)
-        self._model = model or ""
+        branch = read_git_branch(workspace)
+        model = model or ""
+        if branch == self._branch and model == self._model and label == self._label:
+            return
+        self._branch = branch
+        self._model = model
         self._label = label
         self.update(self._render_row(max(self.content_size.width, 1)))
 

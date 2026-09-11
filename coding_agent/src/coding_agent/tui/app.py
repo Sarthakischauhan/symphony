@@ -18,7 +18,7 @@ from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.plan import PlanStore
 from coding_agent.tui.chrome import TopBar
 from coding_agent.tui.commands import CommandManager, model_options
-from coding_agent.tui.composer import Composer, PromptInput, SlashMenu
+from coding_agent.tui.composer import Composer, PromptInput, QueuedPrompt, SlashMenu
 from coding_agent.tui.composer.surface import ComposerSurface
 from coding_agent.tui.runtime import (
     EventPresenter,
@@ -94,6 +94,22 @@ class CodingAgentApp(
         )
         self._agent: Optional[CodingAgent] = None
         self._busy = False
+        # Prompts submitted while a turn is running are dispatched FIFO.
+        self._queued_turns: list[tuple[object, str, tuple[str, ...], tuple[object, ...]]] = []
+        self._init_runtime_state()
+
+    def queue_turn(self, turn: tuple[object, str, tuple[str, ...], tuple[object, ...]]) -> None:
+        """Add a follow-up prompt and refresh the queue control."""
+        self._queued_turns.append(turn)
+        self.query_one("#queued-prompt-row", QueuedPrompt).refresh_queue(self._queued_turns)
+
+    def pop_queued_turn(self):
+        """Remove and return the oldest queued prompt."""
+        turn = self._queued_turns.pop(0)
+        self.query_one("#queued-prompt-row", QueuedPrompt).refresh_queue(self._queued_turns)
+        return turn
+
+    def _init_runtime_state(self) -> None:
         self._ui_state = UiRunState()
         self._presenter: Optional[EventPresenter] = None
         self._assistant: Optional[AssistantMessage] = None
@@ -117,6 +133,8 @@ class CodingAgentApp(
         self._scroll_end_scheduled = False
         self._pending_scroll_end = False
         self._stream_flush_timer = None
+        self._run_generation = 0
+        self._topbar_model: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")

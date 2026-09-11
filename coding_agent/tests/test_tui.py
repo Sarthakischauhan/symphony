@@ -20,7 +20,11 @@ from textual.widgets import Static
 from core_ai.types import Message, StreamEvent
 from coding_agent.tui.screens import ContextModal
 from core_harness import HarnessResult
-from core_harness.context import COMPACTED_CONTEXT_MARK, build_context_report
+from core_harness.context import (
+    COMPACTED_CONTEXT_MARK,
+    build_context_report,
+    estimate_prompt_tokens,
+)
 from coding_agent.agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LearningConfig
 from coding_agent.tui.app import CodingAgentApp
@@ -159,6 +163,176 @@ def test_tui_escape_stops_in_flight_turn(
     asyncio.run(_run())
 
 
+def test_queued_send_now_waits_for_previous_run_to_stop(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    started: list[str] = []
+    finished: list[str] = []
+    concurrent = 0
+    max_concurrent = 0
+
+    class FakeAgent:
+        async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
+            del kwargs
+            nonlocal concurrent, max_concurrent
+            label = str(user_input)
+            started.append(label)
+            concurrent += 1
+            max_concurrent = max(max_concurrent, concurrent)
+            try:
+                if label == "first":
+                    await asyncio.sleep(30)
+                return HarnessResult(output_text=label, messages=[])
+            finally:
+                concurrent -= 1
+                finished.append(label)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            app._busy = True
+            app._run_generation = 1
+            app.run_agent("first")
+            await pilot.pause()
+            app.queue_turn(("second", "second", (), ()))
+            await pilot.pause()
+            app.query_one("#queued-send-now").press()
+            for _ in range(40):
+                await pilot.pause()
+                if started == ["first", "second"] and finished == ["first", "second"]:
+                    break
+            else:
+                raise AssertionError(
+                    f"steer did not run sequentially: started={started!r} finished={finished!r}"
+                )
+            assert max_concurrent == 1
+            assert not app._queued_turns
+            assert not app.sink.cancelled
+
+    asyncio.run(_run())
+
+
+def test_queued_follow_up_starts_after_current_run_finishes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    started: list[str] = []
+    gate = asyncio.Event()
+
+    class FakeAgent:
+        async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
+            del kwargs
+            label = str(user_input)
+            started.append(label)
+            if label == "first":
+                await gate.wait()
+            return HarnessResult(output_text=label, messages=[])
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            app._busy = True
+            app._run_generation = 1
+            app.run_agent("first")
+            await pilot.pause()
+            app.queue_turn(("second", "second", (), ()))
+            await pilot.pause()
+            assert started == ["first"]
+            gate.set()
+            for _ in range(40):
+                await pilot.pause()
+                if started == ["first", "second"]:
+                    break
+            else:
+                raise AssertionError(f"queued follow-up did not start: {started!r}")
+
+    asyncio.run(_run())
+
+
+def test_escape_keeps_queued_follow_up(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    started: list[str] = []
+
+    class FakeAgent:
+        async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
+            del kwargs
+            started.append(str(user_input))
+            await asyncio.sleep(30)
+            return HarnessResult(output_text="late", messages=[])
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._agent = FakeAgent()  # type: ignore[assignment]
+            app._busy = True
+            app._run_generation = 1
+            app.run_agent("first")
+            await pilot.pause()
+            app.queue_turn(("second", "second", (), ()))
+            await pilot.press("escape")
+            for _ in range(20):
+                await pilot.pause()
+                if not app._busy:
+                    break
+            else:
+                raise AssertionError("escape did not stop the in-flight turn")
+            assert started == ["first"]
+            assert app._queued_turns
+            assert app._queued_turns[0][1] == "second"
+
+    asyncio.run(_run())
+
+
+def test_approval_keeps_composer_follow_up_and_queued_turn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt", PromptInput)
+            prompt.load_text("then run the linter")
+            app.queue_turn(("queued", "queued follow-up", (), ()))
+            await pilot.pause()
+            app.sink._get_question_future("approval-keep")
+            app._busy = True
+            app._show_question(
+                {
+                    "request_id": "approval-keep",
+                    "question": "Allow bash command once?\n`uv run pytest`",
+                    "choices": ["Allow once", "Deny"],
+                    "default": "Allow once",
+                    "kind": "approval",
+                    "tool_name": "bash",
+                }
+            )
+            await pilot.pause()
+            assert prompt.value == "then run the linter"
+            assert app._queued_turns
+            assert app._queued_turns[0][1] == "queued follow-up"
+            assert app.query_one("#queued-prompt-row").display
+
+            menu = app.query_one("#approval-menu", SlashMenu)
+            app._choose_menu_option(menu, submit=True)
+            await pilot.pause()
+            assert prompt.value == "then run the linter"
+            assert app._queued_turns
+            assert app._queued_turns[0][1] == "queued follow-up"
+            assert not prompt.disabled
+
+    asyncio.run(_run())
+
+
 def test_tui_quit_cancels_pending_learning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -280,6 +454,27 @@ def test_topbar_renders_branch_and_right_aligned_model(
     asyncio.run(_run())
 
 
+def test_topbar_rebudgets_columns_after_terminal_resize(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text(
+        "ref: refs/heads/feature/responsive-chrome\n",
+        encoding="utf-8",
+    )
+    app = CodingAgentApp(workspace=tmp_path, model_id="anthropic:claude-sonnet-5")
+
+    async def _run() -> None:
+        async with app.run_test(size=(90, 30)) as pilot:
+            await pilot.resize_terminal(32, 30)
+            await pilot.pause()
+            topbar = app.query_one(TopBar)
+            rendered = _render_plain(topbar.content, width=26).rstrip("\n")
+            assert "feature" in rendered
+            assert "anthropic" in rendered
+            assert len(rendered) <= 26
+
+    asyncio.run(_run())
+
+
 def test_footer_hint_switches_for_pending_question() -> None:
     assert footer_hint(question_pending=False) == "esc cancel"
     assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"
@@ -333,6 +528,25 @@ def test_footer_separates_usage_from_hint_with_long_workspace() -> None:
         ).rstrip("\n")
         assert "6% context" in line
         assert line.endswith("22,082/400,000   esc cancel")
+
+
+def test_footer_preserves_context_and_hint_at_narrow_widths() -> None:
+    state = UiRunState(model_id="gpt-5.6")
+    state.metrics = RunMetrics(context_limit=400_000, tokens_used=22_082)
+
+    narrow = _render_plain(
+        render_footer(state, hint="esc cancel", workspace="~/a/very/long/workspace"),
+        width=30,
+    ).rstrip("\n")
+    medium = _render_plain(
+        render_footer(state, hint="esc cancel", workspace="~/a/very/long/workspace"),
+        width=40,
+    ).rstrip("\n")
+
+    assert "6% context" in narrow
+    assert narrow.endswith("esc cancel")
+    assert "22,082/400,000" in medium
+    assert medium.endswith("esc cancel")
 
 
 def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
@@ -752,6 +966,54 @@ def test_history_hides_compaction_summary() -> None:
         "AssistantMessage",
     ]
     assert all(COMPACTED_CONTEXT_MARK not in str(widget.render()) for widget in view.mounted)
+
+
+def test_history_uses_compacted_projection_for_context_metrics() -> None:
+    archived = [
+        Message(role="user", content="old prompt " * 100),
+        Message(role="assistant", content="old answer " * 100),
+    ]
+    active = [
+        Message(role="system", content="system"),
+        Message(role="user", content=f"{COMPACTED_CONTEXT_MARK}\nsummary"),
+        Message(role="user", content="current prompt"),
+    ]
+
+    class Persistence:
+        async def load_transcript(self, *, session_id: str) -> list[Message]:
+            return [*archived, active[-1]]
+
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            return active
+
+    class View:
+        def __init__(self) -> None:
+            self.metrics: tuple[int, int] | None = None
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            pass
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            self.metrics = (tokens_used, context_limit)
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 10_000),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+
+    assert view.metrics == (estimate_prompt_tokens(active), 10_000)
 
 
 def test_history_resume_folds_tools_into_explored() -> None:
