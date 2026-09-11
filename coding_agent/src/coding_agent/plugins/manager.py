@@ -14,7 +14,34 @@ class PluginManager:
         self.workspace = workspace.resolve()
         self.authorized_roots = tuple(p.expanduser().resolve() for p in authorized_roots)
 
+    def discover(self) -> tuple[PluginConfig, ...]:
+        """Discover installed plugins without executing any plugin code.
+
+        Plugins use the same two scopes as skills: a repository-local
+        ``.symphony/plugins/<id>`` directory and a user-wide
+        ``~/.symphony/plugins/<id>`` directory.  The manifest is read later by
+        ``load``; discovery only returns directories containing ``plugin.json``.
+        """
+        entries: list[PluginConfig] = []
+        seen: set[Path] = set()
+        for root in (
+            Path.home() / ".symphony" / "plugins",
+            self.workspace / ".symphony" / "plugins",
+        ):
+            root = root.expanduser().resolve()
+            if not root.is_dir():
+                continue
+            for plugin_root in sorted(root.iterdir(), key=lambda path: path.name):
+                if not plugin_root.is_dir() or not (plugin_root / "plugin.json").is_file():
+                    continue
+                plugin_root = plugin_root.resolve()
+                if plugin_root not in seen:
+                    seen.add(plugin_root)
+                    entries.append(PluginConfig(path=plugin_root))
+        return tuple(entries)
+
     def load(self, entries: Iterable[PluginConfig]):
+        """Load manifests, skill directories, and authorized executable add-ons."""
         addons = []
         diagnostics = []
         skill_roots = []
