@@ -35,12 +35,14 @@ drives, and authorizes; it does not persist, compact, or spawn.
 ### `core_ai` (symphony-core)
 
 - Providers: OpenAI (Responses and Chat Completions, plus `gpt-image-*`),
-  Anthropic Messages, Gemini `streamGenerateContent`, Grok Chat Completions.
-  All translate to the shared `StreamEvent` contract, including
+  Anthropic Messages, Gemini `streamGenerateContent`, Grok Chat Completions,
+  Ollama and generic local OpenAI-compatible servers (opt-in; no localhost
+  probe). All translate to the shared `StreamEvent` contract, including
   `reasoning_delta` and retry signals (429, SSL MAC, 5xx, connection).
-- `build_default_registry()` registers every provider with a credential;
-  `default_model_id()` resolves `SYMPHONY_MODEL`, provider-specific overrides,
-  then the first registered provider.
+- `build_default_registry()` registers every provider with a credential, plus
+  Ollama (`OLLAMA_ENABLED` / `OLLAMA_BASE_URL` / `OLLAMA_HOST`) and local
+  (`LOCAL_BASE_URL`); `default_model_id()` resolves `SYMPHONY_MODEL`,
+  provider-specific overrides, then the first registered provider.
 - Canonical text/image `Message.content` parts translated per provider.
 - Model catalog: `src/core_ai/models/generated.py` is a checked-in snapshot
   produced from models.dev by `scripts/generate_models.py`. It records id,

@@ -15,6 +15,27 @@ those files and rebuilds the registry.
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini |
 | `XAI_API_KEY` | Grok |
 
+## Local providers
+
+Ollama and generic OpenAI-compatible servers (LM Studio, vLLM, llama.cpp,
+SGLang) are **opt-in**. Symphony does not probe `localhost` on startup.
+
+| Variable | Role |
+| --- | --- |
+| `OLLAMA_ENABLED=1` | Register Ollama at `http://localhost:11434/v1` |
+| `OLLAMA_BASE_URL` | OpenAI-compatible Ollama URL (implies opt-in) |
+| `OLLAMA_HOST` | Native Ollama host, e.g. `127.0.0.1:11434` (implies opt-in) |
+| `OLLAMA_API_KEY` | Optional; dummy `ollama` is used when unset |
+| `LOCAL_BASE_URL` | Required to register a local OpenAI-compatible server |
+| `LOCAL_API_KEY` | Optional; dummy `local` is used when unset |
+
+`/provider ollama` writes `OLLAMA_BASE_URL` (blank submit uses the default).
+`/provider local` asks for the base URL.
+
+Pulled models are discovered at registry build (`/api/tags` for Ollama,
+`/v1/models` for local) and registered into the runtime catalog so `/model`
+can list them. They are not added to the checked-in models.dev snapshot.
+
 ## Model selection
 
 | Variable | Role |
@@ -24,6 +45,8 @@ those files and rebuilds the registry.
 | `ANTHROPIC_MODEL` | Anthropic default |
 | `GEMINI_MODEL` | Gemini default |
 | `GROK_MODEL` or `XAI_MODEL` | Grok default |
+| `OLLAMA_MODEL` | Ollama default when that provider is registered |
+| `LOCAL_MODEL` | Local default when that provider is registered |
 
 ## Base URLs
 
@@ -33,6 +56,8 @@ those files and rebuilds the registry.
 | `ANTHROPIC_BASE_URL` | Anthropic-compatible endpoints |
 | `GEMINI_BASE_URL` | Gemini-compatible endpoints |
 | `XAI_BASE_URL` | xAI-compatible endpoints |
+| `OLLAMA_BASE_URL` | Ollama OpenAI-compatible endpoint |
+| `LOCAL_BASE_URL` | Local OpenAI-compatible endpoint |
 
 ## Catalog generation (maintainers)
 

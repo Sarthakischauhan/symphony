@@ -98,12 +98,13 @@ The server mounts those seams from `ServerConfig`:
 
 The default registry recognizes `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `GEMINI_API_KEY` / `GOOGLE_API_KEY`, and `XAI_API_KEY`, along with `OPENAI_BASE_URL`,
-`ANTHROPIC_BASE_URL`, `GEMINI_BASE_URL`, and `XAI_BASE_URL`. Every provider with a credential
-is registered.
+`ANTHROPIC_BASE_URL`, `GEMINI_BASE_URL`, and `XAI_BASE_URL`. Ollama opts in with
+`OLLAMA_ENABLED`, `OLLAMA_BASE_URL`, or `OLLAMA_HOST`. Local OpenAI-compatible
+servers opt in with `LOCAL_BASE_URL`. Every configured provider is registered.
 
 The server selects its model in this order: an explicit `model_id` / `--model`,
 `SYMPHONY_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`, `GROK_MODEL`,
-`XAI_MODEL`, then `openai:gpt-5.6-luna`. Unqualified names beginning with
+`XAI_MODEL`, `OLLAMA_MODEL`, `LOCAL_MODEL`, then `openai:gpt-5.6-luna`. Unqualified names beginning with
 `claude-`, `gemini-`, or `grok-` are assigned to the corresponding provider;
 other unqualified names are assigned to OpenAI. Ensure the selected model's
 provider has a credential. For custom deployments, pass an explicit

@@ -17,8 +17,8 @@ Docs: **[symphony-core](../docs/packages/symphony-core.md)** ·
 ## What it provides
 
 - `ModelRegistry` for routing `provider:model` requests
-- `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, and `GrokProvider` for streaming
-  model output
+- `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, `GrokProvider`,
+  `OllamaProvider`, and `LocalProvider` for streaming model output
 - `build_default_registry()` to register every provider that has credentials
   in the environment
 - A generated model catalog (`ModelCatalog`, `ModelInfo`, `list_models()`,
@@ -39,7 +39,8 @@ openai_models = list_models("openai")
 print(model_id, len(openai_models))
 ```
 
-Set one or more provider credentials. Every provider with a key is registered:
+Set one or more provider credentials. Cloud providers register from an API
+key. Ollama and local servers are opt-in (no localhost probe):
 
 | Provider | Credential | Optional base URL | Model override |
 | --- | --- | --- | --- |
@@ -47,19 +48,24 @@ Set one or more provider credentials. Every provider with a key is registered:
 | Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_BASE_URL` | `GEMINI_MODEL` |
 | Grok | `XAI_API_KEY` | `XAI_BASE_URL` | `GROK_MODEL` or `XAI_MODEL` |
+| Ollama | `OLLAMA_ENABLED=1`, `OLLAMA_BASE_URL`, or `OLLAMA_HOST` | `OLLAMA_BASE_URL` | `OLLAMA_MODEL` |
+| Local | `LOCAL_BASE_URL` | — | `LOCAL_MODEL` |
 
 `SYMPHONY_MODEL` has priority over provider-specific model variables. Model
 ids should use `provider:model`; an unqualified explicit id is assigned to
 OpenAI when OpenAI is registered, otherwise to the first registered provider.
 With no model override, `default_model_id()` chooses the default for the first
-available provider in OpenAI, Anthropic, Gemini, Grok order. It raises if no
-credential is set.
+available provider in OpenAI, Anthropic, Gemini, Grok, Ollama, Local order.
+For Ollama/local it prefers a discovered model (or `OLLAMA_MODEL` /
+`LOCAL_MODEL`). It raises if no credential or local opt-in is set.
 
 The providers translate streamed text, reasoning, tool calls, usage,
 completion, and retry signals (429, SSL MAC, 5xx, connection) into the shared
 `StreamEvent` format. OpenAI selects Responses or Chat Completions from the
 catalog (with an `o1` / `o3` / `o4` fallback); Anthropic uses Messages,
-Gemini uses streamGenerateContent, and Grok uses Chat Completions.
+Gemini uses streamGenerateContent, and Grok, Ollama, and local servers use
+Chat Completions. Ollama/local omit `stream_options` and send `max_tokens`,
+matching OpenAI-compatible daemons.
 
 ## Model catalog
 
@@ -107,7 +113,7 @@ from core_ai.models import register_model
 
 openai_models = list_models("openai")
 model = get_model("openai", "gpt-4.1")
-register_model(ModelInfo(id="local-model", provider="local", api="responses"))
+register_model(ModelInfo(id="local-model", provider="custom", api="chat_completions"))
 ```
 
 ## Development

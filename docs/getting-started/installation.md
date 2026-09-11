@@ -59,9 +59,11 @@ PyPI names and import names differ on purpose:
 
 ## Provider credentials
 
-Every provider with a key is registered. Set keys in the environment,
-`~/.symphony/.env`, a workspace `.env` (local override), or from the TUI:
-first-run onboarding and `/provider`.
+Every cloud provider with a key is registered. Ollama and local
+OpenAI-compatible servers are opt-in (set `OLLAMA_ENABLED=1` /
+`OLLAMA_BASE_URL` / `OLLAMA_HOST`, or `LOCAL_BASE_URL`). Set keys in the
+environment, `~/.symphony/.env`, a workspace `.env` (local override), or from
+the TUI: first-run onboarding and `/provider`.
 
 
 | Provider | Credential | Optional |
@@ -70,6 +72,8 @@ first-run onboarding and `/provider`.
 | Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
 | Grok | `XAI_API_KEY` | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL` |
+| Ollama | `OLLAMA_ENABLED=1` or `OLLAMA_BASE_URL` | `OLLAMA_HOST`, `OLLAMA_MODEL` |
+| Local | `LOCAL_BASE_URL` | `LOCAL_API_KEY`, `LOCAL_MODEL` |
 
 `SYMPHONY_MODEL` overrides all of the provider-specific model variables. Model
 ids are `provider:model`, for example `anthropic:claude-sonnet-5`.
