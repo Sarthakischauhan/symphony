@@ -215,6 +215,8 @@ def _resolve_model_id(registry: ModelRegistry, model_id: Optional[str]) -> str:
         or os.getenv("GEMINI_MODEL")
         or os.getenv("GROK_MODEL")
         or os.getenv("XAI_MODEL")
+        or os.getenv("OLLAMA_MODEL")
+        or os.getenv("LOCAL_MODEL")
     )
     if selected:
         return selected if ":" in selected else _qualify_model(selected)

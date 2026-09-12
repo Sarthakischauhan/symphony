@@ -108,7 +108,7 @@ SLASH_COMMANDS = (
     SlashCommand("effort", "Set model reasoning effort", "[level]"),
     SlashCommand("plan", "Enter plan mode", ""),
     SlashCommand("plans", "Choose and open a workspace plan", "[plan]"),
-    SlashCommand("provider", "Add or update a provider API key", "[name]"),
+    SlashCommand("provider", "Add or update a model provider", "[name]"),
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),

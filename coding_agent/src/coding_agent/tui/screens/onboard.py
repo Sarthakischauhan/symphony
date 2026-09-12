@@ -13,7 +13,7 @@ from textual.message import Message
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from coding_agent.credentials import save_provider_key
+from coding_agent.credentials import save_provider_settings
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton
 from coding_agent.tui.theme import ONBOARD_CSS, PROVIDER_MODAL_CSS, SYMPHONY_RICH_THEME
 from core_ai.providers.catalog import (
@@ -30,7 +30,8 @@ def _provider_row(spec: ProviderSpec, configured: bool) -> Option:
     content.append("\n  ")
     if configured:
         content.append("ready", style="#799e7c")
-        content.append(f"   {spec.env_key}", style="#555555")
+        badge = spec.base_url_env if not spec.requires_key and spec.base_url_env else spec.env_key
+        content.append(f"   {badge}", style="#555555")
     else:
         content.append(spec.description, style="#737373")
     return Option(content, id=f"provider:{spec.id}")
@@ -105,14 +106,21 @@ class ProviderWizard(Vertical):
         spec = get_provider(provider_id)
         self.step = "key"
         self._pending = provider_id
-        self.query_one("#onboard-title", Static).update(f"{spec.label} API key")
-        self.query_one("#onboard-subtitle", Static).update(
-            f"Paste a key from {spec.docs_url}"
-        )
+        key_input = self.query_one("#provider-key", Input)
+        if spec.requires_key:
+            self.query_one("#onboard-title", Static).update(f"{spec.label} API key")
+            self.query_one("#onboard-subtitle", Static).update(
+                f"Paste a key from {spec.docs_url}"
+            )
+            key_input.password = True
+            key_input.placeholder = spec.key_placeholder
+        else:
+            self.query_one("#onboard-title", Static).update(f"{spec.label} endpoint")
+            self.query_one("#onboard-subtitle", Static).update(spec.description)
+            key_input.password = False
+            key_input.placeholder = spec.default_base_url or spec.key_placeholder
         self.query_one("#onboard-error", Static).update("")
         self.query_one("#provider-list", OptionList).display = False
-        key_input = self.query_one("#provider-key", Input)
-        key_input.placeholder = spec.key_placeholder
         key_input.value = ""
         key_input.display = True
         key_input.focus()
@@ -142,8 +150,12 @@ class ProviderWizard(Vertical):
         event.stop()
         if self._pending is None:
             return
+        spec = get_provider(self._pending)
         try:
-            save_provider_key(self._pending, event.value)
+            if spec.requires_key:
+                save_provider_settings(self._pending, api_key=event.value)
+            else:
+                save_provider_settings(self._pending, base_url=event.value)
         except ValueError as exc:
             self.query_one("#onboard-error", Static).update(str(exc))
             return
@@ -165,6 +177,11 @@ class ProviderWizard(Vertical):
 
     def _hint_text(self) -> str:
         if self.step == "key":
+            if self._pending and not get_provider(self._pending).requires_key:
+                spec = get_provider(self._pending)
+                if spec.default_base_url:
+                    return "Enter save (blank uses default)   Esc back"
+                return "Enter save   Esc back"
             return "Enter save   Esc back"
         close = "skip" if self.first_run else "close"
         if configured_provider_ids():

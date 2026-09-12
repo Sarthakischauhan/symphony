@@ -24,10 +24,13 @@ from core_ai.providers.catalog import (
     find_provider,
     get_provider,
     has_configured_provider,
+    provider_is_configured,
 )
 from core_ai.providers.defaults import build_default_registry, default_model_id
 from core_ai.providers.gemini import GeminiProvider
 from core_ai.providers.grok import GrokProvider
+from core_ai.providers.local import LocalProvider
+from core_ai.providers.ollama import OllamaProvider
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message, StreamEvent
@@ -39,12 +42,14 @@ __all__ = [
     "GeminiProvider",
     "GrokProvider",
     "IMAGE_MIME_BY_SUFFIX",
+    "LocalProvider",
     "Message",
     "MissingProviderCredentials",
     "ModelAPI",
     "ModelCatalog",
     "ModelInfo",
     "ModelRegistry",
+    "OllamaProvider",
     "OpenAIProvider",
     "PROVIDERS",
     "ProviderSpec",
@@ -61,6 +66,7 @@ __all__ = [
     "image_part_from_bytes",
     "list_models",
     "normalize_content",
+    "provider_is_configured",
     "sniff_image_media_type",
     "split_text_and_images",
     "text_from_content",

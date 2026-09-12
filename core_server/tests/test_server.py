@@ -263,6 +263,8 @@ def test_default_model_is_luna(monkeypatch) -> None:
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.delenv("GROK_MODEL", raising=False)
     monkeypatch.delenv("XAI_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("LOCAL_MODEL", raising=False)
     config = build_config(registry=FakeRegistry())
     assert config.model_id == "openai:gpt-5.6-luna"
     assert config.tools == []
@@ -276,6 +278,8 @@ def test_qualifies_anthropic_and_gemini_model_ids(monkeypatch) -> None:
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.delenv("GROK_MODEL", raising=False)
     monkeypatch.delenv("XAI_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("LOCAL_MODEL", raising=False)
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     config = build_config(registry=FakeRegistry())
     assert config.model_id == "anthropic:claude-sonnet-5"
@@ -298,6 +302,8 @@ def test_build_config_defaults_to_first_registered_provider(monkeypatch) -> None
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.delenv("GROK_MODEL", raising=False)
     monkeypatch.delenv("XAI_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("LOCAL_MODEL", raising=False)
     config = build_config(registry=FakeRegistry(namespaces=("anthropic",)))
     assert config.model_id == "anthropic:claude-sonnet-5"
 

@@ -58,6 +58,7 @@ def test_legacy_reasoning_model_uses_completion_stream() -> None:
         payload = json.loads(request.content)
         assert payload["reasoning_effort"] == "medium"
         assert payload["max_completion_tokens"] == 900
+        assert payload["stream_options"] == {"include_usage": True}
         body = "\n\n".join(
             f"data: {event}"
             for event in (
@@ -83,6 +84,52 @@ def test_legacy_reasoning_model_uses_completion_stream() -> None:
 
     events = asyncio.run(collect())
     assert events[0].delta == "Done"
+    assert events[-1].type == "done"
+
+
+def test_chat_compat_knobs_omit_stream_options_and_use_max_tokens() -> None:
+    class CompatProvider(OpenAIProvider):
+        include_stream_options = False
+        max_tokens_field = "max_tokens"
+
+        @staticmethod
+        def _uses_chat_completions(model_name: str) -> bool:
+            return True
+
+        @staticmethod
+        def _is_reasoning_model(model_name: str) -> bool:
+            return False
+
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        body = "\n\n".join(
+            (
+                'data: {"choices":[{"index":0,"delta":{"content":"Hi"}}]}',
+                "data: [DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> list[StreamEvent]:
+        provider = CompatProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "local-model",
+                [Message(role="user", content="Hi")],
+                max_output_tokens=128,
+            )
+        ]
+
+    events = asyncio.run(collect())
+    payload = captured["payload"]
+    assert "stream_options" not in payload
+    assert payload["max_tokens"] == 128
+    assert "max_completion_tokens" not in payload
+    assert "reasoning_effort" not in payload
+    assert events[0].delta == "Hi"
     assert events[-1].type == "done"
 
 

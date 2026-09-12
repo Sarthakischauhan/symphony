@@ -87,8 +87,8 @@ Run it with:
 ANTHROPIC_API_KEY=your-key-here uv run python example.py
 ```
 
-`build_default_registry()` recognizes OpenAI, Anthropic, Gemini, and Grok
-credentials. `model_id` must use the form `provider:model-name`, and that
+`build_default_registry()` recognizes OpenAI, Anthropic, Gemini, Grok, Ollama
+(opt-in), and local OpenAI-compatible servers (`LOCAL_BASE_URL`). `model_id` must use the form `provider:model-name`, and that
 provider must be registered before calling `run`. You can also construct
 `ModelRegistry` manually and register any `BaseProvider` implementation under
 a matching namespace.

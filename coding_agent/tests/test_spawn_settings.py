@@ -80,6 +80,12 @@ def test_build_agent_writes_spawn_settings(
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("OLLAMA_ENABLED", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.delenv("LOCAL_BASE_URL", raising=False)
+    monkeypatch.delenv("LOCAL_API_KEY", raising=False)
     agent = build_agent(
         workspace=tmp_path,
         sink=TextualEventSink(workspace=tmp_path),
