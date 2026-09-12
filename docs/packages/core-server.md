@@ -14,7 +14,8 @@ See also the [package README](../../core_server/README.md).
 - `create_app(config)` — FastAPI app.
 - `ServerConfig` / `build_config()` — prompt, tools, model, harness settings.
 - `POST /runs` — start a run and stream control-plane events as SSE.
-- `GET /models` — Chat SDK registry for the models `/runs` accepts.
+- `GET /models` — Chat SDK registry built from the live `ModelRegistry`
+  (provider ids/namespaces plus the core_ai catalog).
 - `GET /health` — model and registered tool names.
 
 ## Start the server
@@ -47,10 +48,29 @@ Harness-stamped payloads include `run_id`, `session_id`, `seq`, `ts`,
 
 ```python
 from core_harness import Tool
-from core_server import SupportedModel, build_config, create_app
+from core_server import build_config, create_app
 
 def echo(text: str) -> str:
     return text
+
+app = create_app(
+    build_config(
+        model_id="anthropic:claude-sonnet-5",
+        system_prompt="You are a concise assistant.",
+        tools=[Tool(echo)],
+    )
+)
+```
+
+`GET /models` lists every provider registered on the config's `ModelRegistry`,
+with models from the core_ai catalog for those providers. The response uses
+qualified core_ai `provider:model` IDs and absolute models.dev logo URLs. Each
+model's typed `thinkingLevels` array is derived from the generated core_ai
+thinking-level map. Pass
+`supported_models=` only when you want a further allowlist:
+
+```python
+from core_server import SupportedModel
 
 app = create_app(
     build_config(
@@ -59,7 +79,6 @@ app = create_app(
             SupportedModel("anthropic:claude-sonnet-5", "Claude Sonnet 5"),
             SupportedModel("anthropic:claude-opus-5", "Claude Opus 5"),
         ],
-        system_prompt="You are a concise assistant.",
         tools=[Tool(echo)],
     )
 )
@@ -69,10 +88,16 @@ app = create_app(
 
 - `conversation` can include earlier provider messages; `session_id` selects
   the session.
-- `model_id` and `reasoning_effort` can be set per run. Unadvertised model
-  slugs are rejected.
-- When `supported_models` is omitted, only the default model is exposed. The
-  catalog does not auto-advertise every known model.
+- The request schema is strict and uses snake_case field names. Unknown fields
+  are rejected.
+- `model_id` and `reasoning_effort` can be set per run. `model_id` must be a
+  qualified `provider:model` the registry can route (the provider is
+  registered). Unregistered providers and unqualified ids are rejected.
+- When `supported_models` is omitted, `GET /models` and `POST /runs` use the
+  live registry and core_ai catalog. Set `supported_models` to further
+  restrict both surfaces to that allowlist (the default `model_id` must be
+  included). The allowlist cannot add providers the registry has not
+  registered.
 - No tools are enabled by default. `ask_user` is opt-in until you provide a
   resume/input flow.
 - Client disconnect cancels the `asyncio.Task` awaiting `CoreHarness.run`,

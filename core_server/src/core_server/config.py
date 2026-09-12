@@ -24,7 +24,12 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful agent."
 
 @dataclass
 class ServerConfig:
-    """Values used to construct a CoreHarness for each run."""
+    """Values used to construct a CoreHarness for each run.
+
+    ``supported_models`` is an optional extra allowlist on top of the live
+    registry. Empty means ``GET /models`` and ``POST /runs`` use the registry
+    and core_ai catalog unrestricted.
+    """
 
     registry: ModelRegistry
     model_id: str
@@ -60,12 +65,10 @@ class ServerConfig:
 
     def __post_init__(self) -> None:
         self.supported_models = list(self.supported_models)
-        if not self.supported_models:
-            self.supported_models = [SupportedModel(self.model_id)]
         slugs = [model.slug for model in self.supported_models]
         if len(slugs) != len(set(slugs)):
             raise ValueError("supported model slugs must be unique")
-        if self.model_id not in slugs:
+        if slugs and self.model_id not in slugs:
             raise ValueError("model_id must be present in supported_models")
 
         positive = {
@@ -167,21 +170,10 @@ def build_config(
     max_parallel_tool_calls: int = 3,
 ) -> ServerConfig:
     """Build a server config from explicit values or the process environment."""
-    resolved_model = (
-        model_id
-        or os.getenv("SYMPHONY_MODEL")
-        or os.getenv("OPENAI_MODEL")
-        or os.getenv("ANTHROPIC_MODEL")
-        or os.getenv("GEMINI_MODEL")
-        or os.getenv("GROK_MODEL")
-        or os.getenv("XAI_MODEL")
-        or "gpt-5.6-luna"
-    )
-    if ":" not in resolved_model:
-        resolved_model = _qualify_model(resolved_model)
+    resolved_registry = registry if registry is not None else _default_registry()
     return ServerConfig(
-        registry=registry if registry is not None else _default_registry(),
-        model_id=resolved_model,
+        registry=resolved_registry,
+        model_id=_resolve_model_id(resolved_registry, model_id),
         supported_models=list(supported_models or []),
         system_prompt=system_prompt,
         tools=list(tools or []),
@@ -212,6 +204,26 @@ def build_config(
         spawn_max_turns=spawn_max_turns,
         max_parallel_tool_calls=max_parallel_tool_calls,
     )
+
+
+def _resolve_model_id(registry: ModelRegistry, model_id: Optional[str]) -> str:
+    selected = (
+        model_id
+        or os.getenv("SYMPHONY_MODEL")
+        or os.getenv("OPENAI_MODEL")
+        or os.getenv("ANTHROPIC_MODEL")
+        or os.getenv("GEMINI_MODEL")
+        or os.getenv("GROK_MODEL")
+        or os.getenv("XAI_MODEL")
+    )
+    if selected:
+        return selected if ":" in selected else _qualify_model(selected)
+    from core_ai.providers.defaults import default_model_id
+
+    try:
+        return default_model_id(registry)
+    except RuntimeError:
+        return "openai:gpt-5.6-luna"
 
 
 def _qualify_model(model_name: str) -> str:

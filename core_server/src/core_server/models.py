@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from core_harness.models import (
     ControlPlaneEvent,
@@ -18,10 +18,25 @@ from core_harness.models import (
 
 from pydantic import BaseModel, ConfigDict, Field
 
+ThinkingLevel = Literal[
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+]
+
 
 @dataclass(frozen=True)
 class SupportedModel:
-    """A model slug accepted by ``POST /runs`` and shown in the client."""
+    """Optional allowlist entry that further restricts ``GET /models`` and ``POST /runs``.
+
+    When omitted, the live ``ModelRegistry`` and core_ai catalog are the source
+    of truth. When provided, only these slugs are advertised and accepted, and
+    each must still be routable by the registry (``provider:model``).
+    """
 
     slug: str
     label: str = ""
@@ -35,8 +50,11 @@ class SupportedModel:
 
 
 class RegistryModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     label: str
+    thinking_levels: List[ThinkingLevel] = Field(alias="thinkingLevels")
 
 
 class RegistryProvider(BaseModel):
@@ -44,6 +62,7 @@ class RegistryProvider(BaseModel):
 
     id: str
     label: str
+    logo: str
     default_model: str = Field(alias="defaultModel")
     models: List[RegistryModel]
 
@@ -85,6 +104,7 @@ __all__ = [
     "RunLimits",
     "StreamedTurn",
     "SupportedModel",
+    "ThinkingLevel",
     "ToolCall",
     "ToolResult",
     "TurnResult",
