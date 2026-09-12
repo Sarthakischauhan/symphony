@@ -24,6 +24,7 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.registry import ModelRegistry
 
 DEFAULT_MODELS = {spec.id: spec.default_model for spec in PROVIDERS}
+_KNOWN_PROVIDERS = {spec.id for spec in PROVIDERS}
 
 _PROVIDER_TYPES = {
     "openai": OpenAIProvider,
@@ -122,14 +123,7 @@ def default_model_id(registry: ModelRegistry, model_id: Optional[str] = None) ->
                 break
     namespaces = registry.namespaces()
     if selected:
-        if ":" not in selected:
-            provider = (
-                "openai" if "openai" in namespaces
-                else namespaces[0] if namespaces
-                else "openai"
-            )
-            selected = f"{provider}:{selected}"
-        return selected
+        return _qualified_model_id(selected, namespaces)
     for provider, full_id in DEFAULT_MODELS.items():
         if provider not in namespaces:
             continue
@@ -187,10 +181,34 @@ def _merge_model_ids(preferred: str, discovered: list[str]) -> list[str]:
     return ids
 
 
+def _split_known_provider(value: str) -> tuple[str | None, str]:
+    """Split `provider:model` only when the left side is a catalog namespace.
+
+    Ollama tags like `qwen2.5-coder:7b` contain a colon but are not
+    `provider:model` ids, so they stay intact.
+    """
+    raw = value.strip()
+    provider, separator, model = raw.partition(":")
+    if separator and provider in _KNOWN_PROVIDERS and model:
+        return provider, model
+    return None, raw
+
+
 def _unqualified_model(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
         return ""
-    if ":" in raw:
-        return raw.split(":", 1)[1]
-    return raw
+    _provider, model = _split_known_provider(raw)
+    return model
+
+
+def _qualified_model_id(value: str, namespaces: tuple[str, ...]) -> str:
+    provider, model = _split_known_provider(value)
+    if provider is not None:
+        return f"{provider}:{model}"
+    fallback = (
+        "openai" if "openai" in namespaces
+        else namespaces[0] if namespaces
+        else "openai"
+    )
+    return f"{fallback}:{model}"

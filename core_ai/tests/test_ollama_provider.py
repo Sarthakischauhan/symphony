@@ -182,6 +182,42 @@ def test_ollama_host_env_opts_in_and_prefers_ollama_model(
         unregister_model("ollama", "qwen2.5-coder:7b")
 
 
+def test_ollama_model_colon_tag_is_not_treated_as_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OLLAMA_ENABLED", "1")
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
+    monkeypatch.setattr(
+        "core_ai.providers.defaults.discover_ollama_models",
+        lambda *args, **kwargs: ["mistral"],
+    )
+    try:
+        registry = build_default_registry()
+        assert get_model("ollama", "qwen2.5-coder:7b") is not None
+        assert get_model("ollama", "7b") is None
+        assert default_model_id(registry) == "ollama:qwen2.5-coder:7b"
+    finally:
+        unregister_model("ollama", "qwen2.5-coder:7b")
+        unregister_model("ollama", "mistral")
+
+
+def test_ollama_model_keeps_provider_prefix_and_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OLLAMA_ENABLED", "1")
+    monkeypatch.setenv("OLLAMA_MODEL", "ollama:qwen2.5-coder:7b")
+    monkeypatch.setattr(
+        "core_ai.providers.defaults.discover_ollama_models",
+        lambda *args, **kwargs: [],
+    )
+    try:
+        registry = build_default_registry()
+        assert get_model("ollama", "qwen2.5-coder:7b") is not None
+        assert default_model_id(registry) == "ollama:qwen2.5-coder:7b"
+    finally:
+        unregister_model("ollama", "qwen2.5-coder:7b")
+
+
 def test_find_provider_matches_ollama() -> None:
     assert find_provider("ollama").id == "ollama"  # type: ignore[union-attr]
     assert find_provider("Ollama").id == "ollama"  # type: ignore[union-attr]

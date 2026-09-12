@@ -4,7 +4,12 @@ import pytest
 
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.catalog import MissingProviderCredentials, configured_provider_ids, find_provider
-from core_ai.providers.defaults import build_default_registry, default_model_id
+from core_ai.providers.defaults import (
+    _qualified_model_id,
+    _unqualified_model,
+    build_default_registry,
+    default_model_id,
+)
 from core_ai.providers.gemini import GeminiProvider
 from core_ai.providers.grok import GrokProvider
 from core_ai.providers.openai import OpenAIProvider
@@ -95,3 +100,24 @@ def test_grok_registers_from_xai_api_key(monkeypatch: pytest.MonkeyPatch) -> Non
     assert registry.namespaces() == ("grok",)
     assert isinstance(registry._providers["grok"], GrokProvider)
     assert default_model_id(registry) == "grok:grok-4.6"
+
+
+def test_unqualified_model_strips_known_provider_prefix_only() -> None:
+    assert _unqualified_model("qwen2.5-coder:7b") == "qwen2.5-coder:7b"
+    assert _unqualified_model("ollama:qwen2.5-coder:7b") == "qwen2.5-coder:7b"
+    assert _unqualified_model("local:llama-3.1-8b") == "llama-3.1-8b"
+    assert _unqualified_model("mistral") == "mistral"
+    assert _unqualified_model("openai:gpt-5.6-luna") == "gpt-5.6-luna"
+    assert _unqualified_model(None) == ""
+    assert _unqualified_model("  ") == ""
+
+
+def test_qualified_model_id_prefixes_unknown_colon_tags() -> None:
+    assert _qualified_model_id("qwen2.5-coder:7b", ("ollama",)) == "ollama:qwen2.5-coder:7b"
+    assert _qualified_model_id("ollama:qwen2.5-coder:7b", ("ollama",)) == "ollama:qwen2.5-coder:7b"
+    assert _qualified_model_id("mistral", ("ollama",)) == "ollama:mistral"
+    assert _qualified_model_id("openai:gpt-5.6-luna", ("anthropic",)) == "openai:gpt-5.6-luna"
+    assert _qualified_model_id("claude-opus-5", ("anthropic",)) == "anthropic:claude-opus-5"
+    assert _qualified_model_id("qwen2.5-coder:7b", ("openai", "ollama")) == (
+        "openai:qwen2.5-coder:7b"
+    )

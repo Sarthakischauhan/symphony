@@ -137,6 +137,24 @@ def test_local_base_url_opts_in_and_registers_discovered_models(
         unregister_model("local", "llama-3.1-8b")
 
 
+def test_local_model_colon_tag_is_not_treated_as_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_BASE_URL", "http://127.0.0.1:1234/v1")
+    monkeypatch.setenv("LOCAL_MODEL", "qwen2.5-coder:7b")
+    monkeypatch.setattr(
+        "core_ai.providers.defaults.discover_local_models",
+        lambda *args, **kwargs: [],
+    )
+    try:
+        registry = build_default_registry()
+        assert get_model("local", "qwen2.5-coder:7b") is not None
+        assert get_model("local", "7b") is None
+        assert default_model_id(registry) == "local:qwen2.5-coder:7b"
+    finally:
+        unregister_model("local", "qwen2.5-coder:7b")
+
+
 def test_find_provider_matches_local() -> None:
     assert find_provider("local").id == "local"  # type: ignore[union-attr]
     assert find_provider("Local").id == "local"  # type: ignore[union-attr]
