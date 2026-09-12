@@ -13,14 +13,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from core_server.catalog import is_accepted_model, model_registry_response
 from core_server.config import ServerConfig
-from core_server.models import ModelRegistryResponse, RegistryModel, RegistryProvider
+from core_server.models import ModelRegistryResponse
 from core_server.request_limits import RequestSizeLimitMiddleware
 from core_server.sse import SSEEventSink, encode_sse
 
 logger = logging.getLogger(__name__)
 
-PACKAGE_VERSION = "0.2.0"
+PACKAGE_VERSION = "0.3.0"
 
 
 class RunRequest(BaseModel):
@@ -42,9 +43,7 @@ def _validate_request(request: RunRequest, config: ServerConfig) -> None:
     history_chars = sum(len(message.model_dump_json()) for message in history)
     if history_chars > config.max_history_chars:
         raise HTTPException(status_code=413, detail="Conversation history is too large")
-    if request.model_id and request.model_id not in {
-        model.slug for model in config.supported_models
-    }:
+    if request.model_id and not is_accepted_model(config, request.model_id):
         raise HTTPException(status_code=422, detail="Unsupported model_id")
 
 
@@ -142,20 +141,7 @@ def create_app(config: ServerConfig) -> FastAPI:
 
     @app.get("/models", response_model=ModelRegistryResponse)
     def models() -> ModelRegistryResponse:
-        return ModelRegistryResponse(
-            default_provider_id="symphony",
-            providers=[
-                RegistryProvider(
-                    id="symphony",
-                    label="Symphony",
-                    default_model=config.model_id,
-                    models=[
-                        RegistryModel(id=model.slug, label=model.label)
-                        for model in config.supported_models
-                    ],
-                )
-            ],
-        )
+        return model_registry_response(config)
 
     @app.post("/runs")
     async def start_run(request: RunRequest) -> StreamingResponse:

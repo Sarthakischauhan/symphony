@@ -31,20 +31,37 @@ settings. Applications subscribe to the same events the harness already emits
 - `ServerConfig` / `build_config()` for prompt, tools, model, and harness
   settings
 - `POST /runs` — start a run and stream control-plane events as SSE
-- `GET /models` — Chat SDK registry for the models accepted by `/runs`
+- `GET /models` — Chat SDK registry from the live `ModelRegistry` and core_ai
+  catalog
 - `GET /health` — model and registered tool names
 
 ## Embed in your app
 
 The CLI and `build_config()` register every provider whose credential is
-present. This example uses Anthropic and advertises two models to clients:
+present. `GET /models` lists those providers and the core_ai catalog models
+they expose. This example uses Anthropic; clients see Anthropic (and any other
+registered provider) without an extra allowlist:
 
 ```python
 from core_harness import Tool
-from core_server import SupportedModel, build_config, create_app
+from core_server import build_config, create_app
 
 def echo(text: str) -> str:
     return text
+
+app = create_app(
+    build_config(
+        model_id="anthropic:claude-sonnet-5",
+        system_prompt="You are a concise assistant.",
+        tools=[Tool(echo)],
+    )
+)
+```
+
+Pass `supported_models=` only to further restrict `/models` and `/runs`:
+
+```python
+from core_server import SupportedModel
 
 app = create_app(
     build_config(
@@ -53,7 +70,6 @@ app = create_app(
             SupportedModel("anthropic:claude-sonnet-5", "Claude Sonnet 5"),
             SupportedModel("anthropic:claude-opus-5", "Claude Opus 5"),
         ],
-        system_prompt="You are a concise assistant.",
         tools=[Tool(echo)],
     )
 )
@@ -72,12 +88,16 @@ the session. `model_id` and `reasoning_effort` can be set per run; otherwise
 they fall back to the server default. The system prompt and tools remain
 server-owned and cannot be overridden by a run request.
 
-`GET /models` returns the Chat SDK `RegistryConfig` shape. Each model `id` is
-the exact slug accepted as `model_id` by `POST /runs`; unadvertised slugs are
-rejected. When `supported_models` is omitted, only the configured default
-model is exposed. The generated `core_ai` catalog and registered credentials
-do not automatically advertise every known model; `supported_models` remains
-the server allowlist.
+The request schema is strict. Clients must use those snake_case field names;
+unknown fields are rejected.
+
+`GET /models` returns the model-picker registry shape. Provider `id`s are the
+registry namespaces and each provider includes an absolute models.dev logo
+URL. Model IDs are the qualified core_ai routing slugs accepted by
+`POST /runs` (for example, `openai:gpt-4.1`).
+Each model's `thinkingLevels` contains the supported public reasoning-effort
+values (`none` through `max`) from the generated core_ai catalog.
+`supported_models` remains an optional extra allowlist over those slugs.
 
 ## Harness add-ons
 
@@ -104,7 +124,9 @@ servers opt in with `LOCAL_BASE_URL`. Every configured provider is registered.
 
 The server selects its model in this order: an explicit `model_id` / `--model`,
 `SYMPHONY_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`, `GROK_MODEL`,
-`XAI_MODEL`, `OLLAMA_MODEL`, `LOCAL_MODEL`, then `openai:gpt-5.6-luna`. Unqualified names beginning with
+`XAI_MODEL`, `OLLAMA_MODEL`, `LOCAL_MODEL`, then `default_model_id()` for the
+first registered provider (OpenAI → Anthropic → Gemini → Grok → Ollama → local).
+Unqualified names beginning with
 `claude-`, `gemini-`, or `grok-` are assigned to the corresponding provider;
 other unqualified names are assigned to OpenAI. Ensure the selected model's
 provider has a credential. For custom deployments, pass an explicit

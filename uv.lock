@@ -74,7 +74,7 @@ wheels = [
 
 [[package]]
 name = "core-server"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "core_server" }
 dependencies = [
     { name = "dotenv" },

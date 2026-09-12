@@ -6,6 +6,7 @@ from core_server.models import (
     RegistryModel,
     RegistryProvider,
     SupportedModel,
+    ThinkingLevel,
 )
 from core_server.sse import SSEEventSink, encode_sse
 
@@ -20,6 +21,7 @@ __all__ = [
     "SSEEventSink",
     "ServerConfig",
     "SupportedModel",
+    "ThinkingLevel",
     "build_config",
     "build_ask_user_tool",
     "create_app",
