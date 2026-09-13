@@ -1,126 +1,136 @@
 # core-server
 
-`core-server` wraps `symphony-harness`. Applications subscribe to the same
-events the harness already emits — they are not remapped. The system prompt
-and tools stay server-owned.
+`core-server` is the FastAPI framework for building chat and research
+servers on `symphony-harness`. It owns HTTP run lifecycle and forwards
+harness control-plane events without remapping their bodies.
 
-> **Not on PyPI yet.** Run it from the workspace. The Python module is
-> `core_server`. The console script is `core-server`.
+> **Not on PyPI yet.** The Python module is `core_server`; the workspace
+> console script is `core-server`.
 
-See also the [package README](../../core_server/README.md).
+## Run lifecycle
 
-## What it provides
+Execution is independent of an SSE connection:
 
-- `create_app(config)` — FastAPI app.
-- `ServerConfig` / `build_config()` — prompt, tools, model, harness settings.
-- `POST /runs` — start a run and stream control-plane events as SSE.
-- `GET /models` — Chat SDK registry built from the live `ModelRegistry`
-  (provider ids/namespaces plus the core_ai catalog).
-- `GET /health` — model and registered tool names.
-
-## Start the server
-
-```sh
-ANTHROPIC_API_KEY=your-key-here \
-  uv run --package core-server core-server \
-  --model anthropic:claude-sonnet-5 --port 8000
-```
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /runs` | Create a background run; returns `202`, `run_id`, and `events_url` |
+| `GET /runs/{run_id}` | Read queued, running, completed, failed, or cancelled status |
+| `GET /runs/{run_id}/events` | Replay existing events, then stream new events |
+| `POST /runs/{run_id}/cancel` | Explicitly cancel the run and its child agents |
+| `GET /models` | Read the model-picker registry |
+| `GET /health` | Read health and package version |
 
 ```sh
-curl -N -X POST http://127.0.0.1:8000/runs \
+curl -X POST http://127.0.0.1:8000/runs \
   -H 'content-type: application/json' \
-  -d '{"message":"Say hello"}'
+  -d '{"message":"Research this topic","session_id":"chat-1"}'
+
+curl -N http://127.0.0.1:8000/runs/<run_id>/events
 ```
 
-Each SSE frame uses the harness event name and the `ControlPlaneEvent` JSON
-body:
+Closing the event stream does not cancel the run. Resume after an observed
+event with `Last-Event-ID: <run_id>:<ordinal>` or `?after=<ordinal>`.
+Transport ordinals cover the whole combined stream, including child-agent
+events. Event bodies retain the original harness `run_id`, `seq`,
+`session_id`, `agent_id`, and `parent_id`.
 
-```text
-event: text_delta
-data: {"event_type":"text_delta","payload":{"turn":0,"delta":"Hello"}}
-```
+The default `RunManager` is process-local: it supports reconnects but does
+not coordinate multiple workers or survive a server restart. Distributed or
+restart-durable deployments should pass a shared-storage implementation as
+`run_manager=` and persist the harness event journal externally.
 
-Harness-stamped payloads include `run_id`, `session_id`, `seq`, `ts`,
-`schema_version`, `agent_id`, and `parent_id`. SSE `id` is
-`<run_id>:<seq>`.
-
-## Embed in your app
+## Embed the framework
 
 ```python
-from core_harness import Tool
 from core_server import build_config, create_app
 
-def echo(text: str) -> str:
-    return text
-
 app = create_app(
     build_config(
         model_id="anthropic:claude-sonnet-5",
-        system_prompt="You are a concise assistant.",
-        tools=[Tool(echo)],
+        system_prompt="You are a careful research assistant.",
+        enable_subagents=True,
     )
 )
 ```
 
-`GET /models` lists every provider registered on the config's `ModelRegistry`,
-with models from the core_ai catalog for those providers. The response uses
-qualified core_ai `provider:model` IDs and absolute models.dev logo URLs. Each
-model's typed `thinkingLevels` array is derived from the generated core_ai
-thinking-level map. Pass
-`supported_models=` only when you want a further allowlist:
+No application tools are shipped or enabled by `core_server`. Applications
+may pass `core_harness.Tool` instances through `tools=`. Subagent spawning
+is an opt-in harness capability created by `enable_subagents=True`.
+
+## Sessions and access control
+
+Runs with the same resolved session ID execute serially. This prevents two
+requests from loading the same conversation revision and overwriting each
+other.
+
+The default resolver and authorizer are for single-tenant local use. A
+networked application should provide both hooks:
 
 ```python
-from core_server import SupportedModel
+from fastapi import Request
+
+from core_server import RunContext, build_config, create_app
+
+
+async def resolve_context(
+    request: Request,
+    requested_session_id: str | None,
+) -> RunContext:
+    user_id = request.state.user.id
+    chat_id = requested_session_id or create_chat_id()
+    return RunContext(
+        principal_id=user_id,
+        session_id=f"{user_id}:{chat_id}",
+    )
+
+
+async def authorize(request: Request, context: RunContext) -> bool:
+    return request.state.user.id == context.principal_id
+
 
 app = create_app(
     build_config(
-        model_id="anthropic:claude-sonnet-5",
-        supported_models=[
-            SupportedModel("anthropic:claude-sonnet-5", "Claude Sonnet 5"),
-            SupportedModel("anthropic:claude-opus-5", "Claude Opus 5"),
-        ],
-        tools=[Tool(echo)],
+        resolve_run_context=resolve_context,
+        authorize_run=authorize,
     )
 )
 ```
 
-## Request rules
+Authorization runs before status, event, and cancellation access.
+Unauthorized IDs return `404`.
 
-- `conversation` can include earlier provider messages; `session_id` selects
-  the session.
-- The request schema is strict and uses snake_case field names. Unknown fields
-  are rejected.
-- `model_id` and `reasoning_effort` can be set per run. `model_id` must be a
-  qualified `provider:model` the registry can route (the provider is
-  registered). Unregistered providers and unqualified ids are rejected.
-- When `supported_models` is omitted, `GET /models` and `POST /runs` use the
-  live registry and core_ai catalog. Set `supported_models` to further
-  restrict both surfaces to that allowlist (the default `model_id` must be
-  included). The allowlist cannot add providers the registry has not
-  registered.
-- No tools are enabled by default. `ask_user` is opt-in until you provide a
-  resume/input flow.
-- Client disconnect cancels the `asyncio.Task` awaiting `CoreHarness.run`,
-  which emits `run_cancelled`.
-- Browser origins are denied by default. Set `cors_origins` explicitly.
+## Add-ons and subagents
 
-## Harness add-ons
+`addon_factories` receives the resolved `RunContext` and must return a new
+add-on for that run:
 
-`CoreHarness` does not auto-build persistence, compaction, or spawn. The
-server mounts them from `ServerConfig`:
+```python
+app = create_app(
+    build_config(
+        addon_factories=[
+            lambda context: MyPolicyAddon(principal_id=context.principal_id),
+        ],
+    )
+)
+```
 
-- `persistence=` → `PersistenceAddon`
-- compact thresholds → `compaction_from_config`
-- `enable_subagents=True` → `SubagentAddon` (`spawn_agent` on `/health` and
-  the run)
-- `addons=` for extra `Addon` hooks. Tool authorization is
-  `Addon.before_tool`; there is no control-plane `approve` method.
+`persistence=` mounts `PersistenceAddon`; configured compaction thresholds
+mount the standard compaction add-on; and `enable_subagents=True` mounts a
+fresh `SubagentAddon`. Supply `subagent_factory=` to customize background
+behavior, child models, tool inheritance, or child add-ons.
 
-## Limits
+Child lifecycle and output events appear in the same server stream as the
+parent. See [control-plane events](../developer-guide/events.md).
 
-Defaults: 1 MiB request body, 32,000-character user message, 100 history
-messages, 500,000 serialized history characters, 256-event SSE queue. Override
-on `ServerConfig`.
+## Request and model policy
 
-CLI flags: [CLI](../reference/cli.md). Event names:
-[Control-plane events](../developer-guide/events.md).
+The strict run request accepts `message`, optional `conversation`,
+`session_id`, `model_id`, and `reasoning_effort`. Reasoning effort must
+be one of the advertised public levels. The system prompt, tools, and add-ons
+cannot be overridden by a run request.
+
+`supported_models=` optionally restricts `GET /models` and per-run model
+selection. Request bodies and histories are size-limited. Browser origins are
+denied by default; configure `cors_origins` explicitly.
+
+See also the [package README](../../core_server/README.md).

@@ -20,14 +20,14 @@ from core_harness.models import ControlPlaneEvent
 from fastapi.testclient import TestClient
 
 from core_server import (
+    RunContext,
+    RunManager,
     ServerConfig,
     SupportedModel,
-    ask_user,
     build_config,
     create_app,
     encode_sse,
 )
-from core_server.sse import SSEEventSink
 
 
 class FakeRegistry(ModelRegistry):
@@ -138,14 +138,23 @@ def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
     return events
 
 
-def test_health_reports_model_and_tools() -> None:
+def run_and_read(app: Any, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    with TestClient(app) as client:
+        accepted = client.post("/runs", json=payload)
+        assert accepted.status_code == 202
+        run = accepted.json()
+        with client.stream("GET", run["events_url"]) as response:
+            assert response.status_code == 200
+            return run, response.read().decode()
+
+
+def test_health_reports_version() -> None:
     app, _ = make_app(tools=[Tool(echo)])
     response = TestClient(app).get("/health")
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is True
-    assert body["model_id"] == "openai:test"
-    assert body["tools"] == ["echo"]
+    assert body["version"] == "0.4.0"
 
 
 def test_models_lists_registry_providers_and_catalog() -> None:
@@ -269,7 +278,7 @@ def test_default_model_is_luna(monkeypatch) -> None:
     assert config.model_id == "openai:gpt-5.6-luna"
     assert config.tools == []
     assert config.enable_subagents is False
-    assert config.addons_for_run() == []
+    assert config.addons_for_run(RunContext(session_id="test")) == []
 
 
 def test_qualifies_anthropic_and_gemini_model_ids(monkeypatch) -> None:
@@ -310,11 +319,8 @@ def test_build_config_defaults_to_first_registered_provider(monkeypatch) -> None
 
 def test_runs_stream_harness_events() -> None:
     app, registry = make_app()
-    with TestClient(app).stream("POST", "/runs", json={"message": "hi"}) as response:
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/event-stream")
-        body = response.read().decode()
-        events = parse_sse(body)
+    run, body = run_and_read(app, {"message": "hi"})
+    events = parse_sse(body)
 
     names = [name for name, _ in events]
     assert names[0] == "run_started"
@@ -332,17 +338,13 @@ def test_runs_stream_harness_events() -> None:
         range(1, len(payloads) + 1)
     )
     assert all(payload["schema_version"] == 1 for payload in payloads)
-    assert body.startswith(f"id: {payloads[0]['run_id']}:1\n")
+    assert body.startswith(f"id: {run['run_id']}:1\n")
 
 
 def test_server_owned_prompt_and_tools_are_used() -> None:
     app, registry = make_app(tools=[Tool(echo)], system_prompt="Use the echo tool.")
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "ping"},
-    ) as response:
-        events = parse_sse(response.read().decode())
+    _, body = run_and_read(app, {"message": "ping"})
+    events = parse_sse(body)
 
     names = [name for name, _ in events]
     assert "tool_execution_completed" in names
@@ -356,23 +358,11 @@ def test_server_owned_prompt_and_tools_are_used() -> None:
 
 def test_run_accepts_registry_model_override_but_rejects_prompt_override() -> None:
     app, registry = make_app()
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "hi", "model_id": "openai:gpt-5.6-luna"},
-    ) as response:
-        assert response.status_code == 200
-        response.read()
+    run_and_read(app, {"message": "hi", "model_id": "openai:gpt-5.6-luna"})
 
     assert registry.calls[0]["model_id"] == "openai:gpt-5.6-luna"
 
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "hi", "model_id": "openai:custom-finetune"},
-    ) as response:
-        assert response.status_code == 200
-        response.read()
+    run_and_read(app, {"message": "hi", "model_id": "openai:custom-finetune"})
     assert registry.calls[1]["model_id"] == "openai:custom-finetune"
 
     response = TestClient(app).post(
@@ -411,13 +401,7 @@ def test_run_allowlist_further_restricts_registry_models() -> None:
             SupportedModel("openai:other"),
         ]
     )
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "hi", "model_id": "openai:other"},
-    ) as response:
-        assert response.status_code == 200
-        response.read()
+    run_and_read(app, {"message": "hi", "model_id": "openai:other"})
     assert registry.calls[0]["model_id"] == "openai:other"
 
     response = TestClient(app).post(
@@ -430,18 +414,16 @@ def test_run_allowlist_further_restricts_registry_models() -> None:
 
 def test_runs_accept_conversation_history() -> None:
     app, registry = make_app()
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={
+    run_and_read(
+        app,
+        {
             "message": "continue",
             "conversation": [
                 {"role": "user", "content": "remember this"},
                 {"role": "assistant", "content": "I will"},
             ],
         },
-    ) as response:
-        response.read()
+    )
 
     contents = [message.content for message in registry.calls[0]["messages"]]
     assert "remember this" in contents
@@ -461,39 +443,6 @@ def test_encode_sse_uses_harness_event_shape() -> None:
         "event_type": "text_delta",
         "payload": {"delta": "hi", "run_id": "run-1", "seq": 2},
     }
-
-
-def test_sse_control_plane_queues_events() -> None:
-    async def scenario() -> None:
-        plane = SSEEventSink()
-        await plane.emit("run_started", {"model_id": "openai:test"})
-        event = await plane.queue.get()
-        assert event is not None
-        assert event.event_type == "run_started"
-        await plane.close()
-        assert await plane.queue.get() is None
-
-    asyncio.run(scenario())
-
-
-def test_sse_control_plane_is_bounded_and_disconnects() -> None:
-    async def scenario() -> None:
-        plane = SSEEventSink(max_queue_size=1)
-        await plane.emit("run_started", {})
-        blocked_emit = asyncio.create_task(plane.emit("text_delta", {"delta": "hi"}))
-        await asyncio.sleep(0)
-        assert not blocked_emit.done()
-
-        assert await plane.queue.get() is not None
-        await blocked_emit
-        await plane.disconnect("browser closed")
-
-        assert plane._consumer_closed is True
-        blocked_after = asyncio.create_task(plane.emit("run_completed", {}))
-        await asyncio.sleep(0)
-        assert blocked_after.done()
-
-    asyncio.run(scenario())
 
 
 def test_run_request_limits() -> None:
@@ -528,37 +477,6 @@ def test_run_request_limits() -> None:
     assert client.post("/runs", json={"message": "x" * 200}).status_code == 413
 
 
-def test_ask_user_emits_question() -> None:
-    async def scenario() -> None:
-        plane = SSEEventSink()
-        task = asyncio.create_task(ask_user("Which option?", ["one", "two"], sink=plane))
-        event = await plane.queue.get()
-        assert event is not None
-        assert event.event_type == "question_asked"
-        request_id = event.payload["request_id"]
-        assert event.payload["choices"] == ["one", "two"]
-        assert request_id
-        assert await task == "Question sent to the user. Wait for their next message before continuing."
-
-    asyncio.run(scenario())
-
-
-def test_sse_request_user_input_returns_default() -> None:
-    async def scenario() -> None:
-        plane = SSEEventSink()
-        answer = await plane.request_user_input(
-            question="Continue?",
-            default="yes",
-        )
-        event = await plane.queue.get()
-        assert event is not None
-        assert event.event_type == "question_asked"
-        assert event.payload["default"] == "yes"
-        assert answer == "yes"
-
-    asyncio.run(scenario())
-
-
 def test_running_uvicorn_server_streams_events() -> None:
     app, _ = make_app()
     sock = socket.socket()
@@ -574,13 +492,17 @@ def test_running_uvicorn_server_streams_events() -> None:
                 break
             time.sleep(0.05)
         assert server.started
-        with httpx.stream(
-            "POST",
+        accepted = httpx.post(
             f"http://127.0.0.1:{port}/runs",
             json={"message": "hi"},
             timeout=10.0,
+        )
+        assert accepted.status_code == 202
+        with httpx.stream(
+            "GET",
+            f"http://127.0.0.1:{port}{accepted.json()['events_url']}",
+            timeout=10.0,
         ) as response:
-            assert response.status_code == 200
             events = parse_sse(response.read().decode())
         names = [name for name, _ in events]
         assert "run_started" in names
@@ -592,14 +514,13 @@ def test_running_uvicorn_server_streams_events() -> None:
         thread.join(timeout=5)
 
 
-def test_client_disconnect_cancels_active_model_stream() -> None:
+def test_client_disconnect_does_not_cancel_active_run() -> None:
     registry = BlockingRegistry()
     app = create_app(
         ServerConfig(
             registry=registry,
             model_id="openai:test",
             tools=[],
-            disconnect_cancel_timeout=2.0,
         )
     )
     sock = socket.socket()
@@ -617,10 +538,16 @@ def test_client_disconnect_cancels_active_model_stream() -> None:
                 break
             time.sleep(0.05)
         assert server.started
-        with httpx.stream(
-            "POST",
+        accepted = httpx.post(
             f"http://127.0.0.1:{port}/runs",
             json={"message": "wait"},
+            timeout=5.0,
+        )
+        assert accepted.status_code == 202
+        run_id = accepted.json()["run_id"]
+        with httpx.stream(
+            "GET",
+            f"http://127.0.0.1:{port}/runs/{run_id}/events",
             timeout=5.0,
         ) as response:
             assert response.status_code == 200
@@ -628,6 +555,13 @@ def test_client_disconnect_cancels_active_model_stream() -> None:
                 if line == "event: run_started":
                     assert registry.started.wait(timeout=2)
                     break
+        assert not registry.closed.wait(timeout=0.1)
+        cancelled = httpx.post(
+            f"http://127.0.0.1:{port}/runs/{run_id}/cancel",
+            timeout=5.0,
+        )
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
         assert registry.closed.wait(timeout=3)
     finally:
         server.should_exit = True
@@ -705,24 +639,19 @@ class DenyAddon(Addon):
         return "tool call denied by policy"
 
 
+class SummaryAddon(Addon):
+    name = "summary"
+
+    async def after_run(self, **payload: Any) -> None:
+        await payload["emit"]("run_summary", {"summary": "done"})
+
+
 def ping() -> str:
     return "pong"
 
 
 def inspect_repo(path: str) -> str:
     return f"contents of {path}"
-
-
-def test_health_lists_spawn_agent_when_enabled() -> None:
-    app = create_app(
-        ServerConfig(
-            registry=FakeRegistry(),
-            model_id="openai:test",
-            enable_subagents=True,
-        )
-    )
-    body = TestClient(app).get("/health").json()
-    assert body["tools"] == ["spawn_agent"]
 
 
 def test_persistence_resumes_session() -> None:
@@ -735,24 +664,22 @@ def test_persistence_resumes_session() -> None:
             persistence=store,
         )
     )
-    client = TestClient(app)
-    with client.stream(
-        "POST",
-        "/runs",
-        json={"message": "remember this", "session_id": "sess-1"},
-    ) as response:
-        parse_sse(response.read().decode())
-    assert any(
-        message.content == "remember this"
-        for message in store.conversations["sess-1"]
-    )
+    with TestClient(app) as client:
+        first = client.post(
+            "/runs",
+            json={"message": "remember this", "session_id": "sess-1"},
+        ).json()
+        client.get(first["events_url"])
+        assert any(
+            message.content == "remember this"
+            for message in store.conversations["sess-1"]
+        )
 
-    with client.stream(
-        "POST",
-        "/runs",
-        json={"message": "what did I say?", "session_id": "sess-1"},
-    ) as response:
-        parse_sse(response.read().decode())
+        second = client.post(
+            "/runs",
+            json={"message": "what did I say?", "session_id": "sess-1"},
+        ).json()
+        client.get(second["events_url"])
     contents = [message.content for message in registry.calls[-1]["messages"]]
     assert "remember this" in contents
     assert "what did I say?" in contents
@@ -776,12 +703,8 @@ def test_compaction_streams_when_threshold_is_set() -> None:
         )
     )
     prior = [{"role": "user", "content": f"earlier task {index}"} for index in range(6)]
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "go", "conversation": prior},
-    ) as response:
-        events = parse_sse(response.read().decode())
+    _, body = run_and_read(app, {"message": "go", "conversation": prior})
+    events = parse_sse(body)
     names = [name for name, _ in events]
     assert "compaction_started" in names
     assert "compaction_completed" in names
@@ -809,24 +732,23 @@ def test_subagents_stream_child_identity_events() -> None:
             max_turns=4,
         )
     )
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "Inspect the repo via a subagent.", "session_id": "parent-session"},
-    ) as response:
-        events = parse_sse(response.read().decode())
+    run, body = run_and_read(
+        app,
+        {"message": "Inspect the repo via a subagent.", "session_id": "parent-session"},
+    )
+    events = parse_sse(body)
     names = [name for name, _ in events]
     assert "agent_spawned" in names
     assert "agent_completed" in names
     spawned = next(payload for name, payload in events if name == "agent_spawned")
     assert spawned["payload"]["label"] == "inspect readme"
-    assert spawned["payload"]["agent_id"] == "parent-session"
+    assert spawned["payload"]["agent_id"] == run["run_id"]
     child_id = spawned["payload"]["child_id"]
     child_events = [
         payload for _, payload in events if payload["payload"].get("agent_id") == child_id
     ]
     assert child_events
-    assert all(payload["payload"]["parent_id"] == "parent-session" for payload in child_events)
+    assert all(payload["payload"]["parent_id"] == run["run_id"] for payload in child_events)
 
 
 def test_before_tool_addon_denies_execution() -> None:
@@ -841,15 +763,11 @@ def test_before_tool_addon_denies_execution() -> None:
             registry=registry,
             model_id="openai:test",
             tools=[Tool(echo)],
-            addons=[DenyAddon()],
+            addon_factories=[lambda _: DenyAddon()],
         )
     )
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "echo secret"},
-    ) as response:
-        events = parse_sse(response.read().decode())
+    _, body = run_and_read(app, {"message": "echo secret"})
+    events = parse_sse(body)
     completed = next(payload for name, payload in events if name == "tool_execution_completed")
     assert completed["payload"]["status"] == "error"
     assert "denied by policy" in completed["payload"]["result"]
@@ -863,13 +781,7 @@ def test_run_accepts_reasoning_effort_override() -> None:
             model_id="openai:test",
         )
     )
-    with TestClient(app).stream(
-        "POST",
-        "/runs",
-        json={"message": "hi", "reasoning_effort": "high"},
-    ) as response:
-        assert response.status_code == 200
-        parse_sse(response.read().decode())
+    run_and_read(app, {"message": "hi", "reasoning_effort": "high"})
     assert registry.calls[0]["options"]["reasoning_effort"] == "high"
 
 
@@ -887,3 +799,130 @@ def test_run_rejects_noncanonical_thinking_level_fields() -> None:
     assert response.status_code == 422
     rejected = {error["loc"][-1] for error in response.json()["detail"]}
     assert rejected == {"thinking_level", "thinkingLevel"}
+
+
+def test_run_rejects_unknown_reasoning_effort() -> None:
+    app, _ = make_app()
+    response = TestClient(app).post(
+        "/runs",
+        json={"message": "hi", "reasoning_effort": "extreme"},
+    )
+    assert response.status_code == 422
+
+
+def test_run_status_and_event_replay() -> None:
+    app, _ = make_app()
+    with TestClient(app) as client:
+        accepted = client.post("/runs", json={"message": "hi"})
+        assert accepted.status_code == 202
+        run = accepted.json()
+
+        complete = client.get(run["events_url"])
+        events = parse_sse(complete.text)
+        assert events[0][0] == "run_started"
+        assert events[-1][0] == "run_completed"
+
+        replay = client.get(
+            run["events_url"],
+            headers={"Last-Event-ID": f"{run['run_id']}:1"},
+        )
+        assert replay.text.startswith(f"id: {run['run_id']}:2\n")
+        assert len(parse_sse(replay.text)) == len(events) - 1
+
+        status_response = client.get(f"/runs/{run['run_id']}")
+        assert status_response.json()["status"] == "completed"
+
+
+def test_run_context_resolver_and_authorizer_isolate_runs() -> None:
+    async def resolve(request: Any, requested: str | None) -> RunContext:
+        principal = request.headers["x-user"]
+        return RunContext(
+            principal_id=principal,
+            session_id=f"{principal}:{requested or 'new'}",
+        )
+
+    async def authorize(request: Any, context: RunContext) -> bool:
+        return request.headers.get("x-user") == context.principal_id
+
+    app = create_app(
+        ServerConfig(
+            registry=FakeRegistry(),
+            model_id="openai:test",
+            resolve_run_context=resolve,
+            authorize_run=authorize,
+        )
+    )
+    with TestClient(app) as client:
+        accepted = client.post(
+            "/runs",
+            json={"message": "private", "session_id": "chat"},
+            headers={"x-user": "alice"},
+        )
+        assert accepted.json()["session_id"] == "alice:chat"
+        run_id = accepted.json()["run_id"]
+        assert client.get(
+            f"/runs/{run_id}", headers={"x-user": "alice"}
+        ).status_code == 200
+        assert client.get(
+            f"/runs/{run_id}", headers={"x-user": "bob"}
+        ).status_code == 404
+
+
+def test_addon_factories_create_fresh_instances() -> None:
+    created: list[Addon] = []
+
+    def factory(_: RunContext) -> Addon:
+        addon = DenyAddon()
+        created.append(addon)
+        return addon
+
+    config = ServerConfig(
+        registry=FakeRegistry(),
+        model_id="openai:test",
+        addon_factories=[factory],
+    )
+    first = config.addons_for_run(RunContext(session_id="one"))
+    second = config.addons_for_run(RunContext(session_id="two"))
+    assert first[0] is not second[0]
+    assert created == [first[0], second[0]]
+
+
+def test_events_emitted_after_harness_terminal_event_are_streamed() -> None:
+    app = create_app(
+        ServerConfig(
+            registry=FakeRegistry(),
+            model_id="openai:test",
+            addon_factories=[lambda _: SummaryAddon()],
+        )
+    )
+    _, body = run_and_read(app, {"message": "hi"})
+    assert [name for name, _ in parse_sse(body)][-2:] == [
+        "run_completed",
+        "run_summary",
+    ]
+
+
+def test_run_manager_serializes_work_for_one_session() -> None:
+    async def scenario() -> None:
+        manager = RunManager()
+        release = asyncio.Event()
+        started: list[str] = []
+
+        async def execute(run_id: str, _: Any) -> None:
+            started.append(run_id)
+            if len(started) == 1:
+                await release.wait()
+
+        context = RunContext(session_id="shared")
+        first = await manager.start(context, execute)
+        second = await manager.start(context, execute)
+        await asyncio.sleep(0)
+        assert started == [first.run_id]
+        assert second.status == "queued"
+        release.set()
+        assert first.task is not None
+        assert second.task is not None
+        await asyncio.gather(first.task, second.task)
+        assert started == [first.run_id, second.run_id]
+
+    asyncio.run(scenario())

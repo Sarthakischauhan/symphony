@@ -1,7 +1,7 @@
 [project]
 name = "core-server"
-version = "0.3.0"
-description = "FastAPI server that streams Symphony harness control-plane events over SSE (import as core_server; workspace-only, not published)"
+version = "0.4.0"
+description = "FastAPI framework for managed Symphony chat runs and replayable harness events (import as core_server; workspace-only, not published)"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

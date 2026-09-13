@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Literal, Mapping, Optional
 
+from core_ai.types import Message
 from core_harness.models import (
     ControlPlaneEvent,
     ControlPlaneEventType,
@@ -27,6 +28,37 @@ ThinkingLevel = Literal[
     "xhigh",
     "max",
 ]
+
+RunStatus = Literal[
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+]
+
+
+@dataclass(frozen=True)
+class RunContext:
+    """Application-resolved identity and storage session for a run.
+
+    Applications should use ``principal_id`` and/or an opaque, namespaced
+    ``session_id`` to keep tenant conversations isolated.
+    """
+
+    session_id: str
+    principal_id: Optional[str] = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+class RunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(..., min_length=1)
+    conversation: Optional[List[Message]] = None
+    session_id: Optional[str] = Field(default=None, min_length=1)
+    model_id: Optional[str] = Field(default=None, min_length=1)
+    reasoning_effort: Optional[ThinkingLevel] = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +125,23 @@ class ModelRegistryResponse(BaseModel):
     providers: List[RegistryProvider]
 
 
+class RunAccepted(BaseModel):
+    run_id: str
+    session_id: str
+    status: RunStatus
+    events_url: str
+
+
+class RunStatusResponse(BaseModel):
+    run_id: str
+    session_id: str
+    status: RunStatus
+    created_at: float
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    error: Optional[str] = None
+
+
 __all__ = [
     "ControlPlaneEvent",
     "ControlPlaneEventType",
@@ -101,6 +150,11 @@ __all__ = [
     "PendingToolCall",
     "RegistryModel",
     "RegistryProvider",
+    "RunAccepted",
+    "RunContext",
+    "RunRequest",
+    "RunStatus",
+    "RunStatusResponse",
     "RunLimits",
     "StreamedTurn",
     "SupportedModel",
