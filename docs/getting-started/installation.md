@@ -59,21 +59,24 @@ PyPI names and import names differ on purpose:
 
 ## Provider credentials
 
-Every cloud provider with a key is registered. Ollama and local
-OpenAI-compatible servers are opt-in (set `OLLAMA_ENABLED=1` /
+Every cloud provider with a key or a stored subscription token is registered.
+Ollama and local OpenAI-compatible servers are opt-in (set `OLLAMA_ENABLED=1` /
 `OLLAMA_BASE_URL` / `OLLAMA_HOST`, or `LOCAL_BASE_URL`). Set keys in the
 environment, `~/.symphony/.env`, a workspace `.env` (local override), or from
-the TUI: first-run onboarding and `/provider`.
+the TUI: first-run onboarding and `/provider`. ChatGPT, Claude, and xAI can
+also sign in with a subscription; those tokens are stored in
+`~/.symphony/oauth/`.
 
 
 | Provider | Credential | Optional |
 | --- | --- | --- |
-| OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL`, `OPENAI_BASE_URL` |
-| Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
+| OpenAI | `OPENAI_API_KEY` or ChatGPT login | `OPENAI_MODEL`, `OPENAI_BASE_URL` |
+| Anthropic | `ANTHROPIC_API_KEY` or `claude setup-token` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
-| Grok | `XAI_API_KEY` | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL` |
+| Grok | `XAI_API_KEY` or xAI device login | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL` |
 | Ollama | `OLLAMA_ENABLED=1` or `OLLAMA_BASE_URL` | `OLLAMA_HOST`, `OLLAMA_MODEL` |
 | Local | `LOCAL_BASE_URL` | `LOCAL_API_KEY`, `LOCAL_MODEL` |
+
 
 `SYMPHONY_MODEL` overrides all of the provider-specific model variables. Model
 ids are `provider:model`, for example `anthropic:claude-sonnet-5`.

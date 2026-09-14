@@ -19,7 +19,8 @@ See also the [PyPI-facing README](../../core_ai/README.md).
 - `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, `GrokProvider`,
   `OllamaProvider`, `LocalProvider` stream model output.
 - `build_default_registry()` registers every cloud provider that has
-  credentials, plus Ollama/local when opted in.
+  credentials (API key or a stored ChatGPT / Claude / xAI token), plus
+  Ollama/local when opted in.
 - Generated catalog: `ModelCatalog`, `ModelInfo`, `list_models()`, `get_model()`.
 - `Message` and `StreamEvent` are the provider-neutral contracts.
 - Canonical text/image `Message.content` parts, translated per provider

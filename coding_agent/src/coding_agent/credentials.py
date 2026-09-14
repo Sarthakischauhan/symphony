@@ -11,7 +11,7 @@ from dotenv import dotenv_values
 
 from core_ai.providers.catalog import ProviderSpec, get_provider
 
-OFFLINE_HINT = "Agent is offline. Run /provider to add an API key."
+OFFLINE_HINT = "Agent is offline. Run /provider to sign in or add an API key."
 
 _ENV_ASSIGN = re.compile(
     r"^(?P<prefix>\s*(?:export\s+)?)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<eq>\s*=\s*)(?P<value>.*)$"

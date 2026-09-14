@@ -1,19 +1,37 @@
 # Environment
 
 Keys can live in `.env`. First-run onboarding and `/provider` write
-`~/.symphony/.env`. Load order is process environment, then workspace
-`.env` if present, then `~/.symphony/.env`. `/reload` in the TUI reloads
-those files and rebuilds the registry.
+`~/.symphony/.env`. ChatGPT, Claude, and xAI subscription logins write
+`~/.symphony/oauth/<provider>.json` (mode `0600`). Load order for keys is
+process environment, then workspace `.env` if present, then
+`~/.symphony/.env`. `/reload` in the TUI reloads those files, re-reads
+OAuth tokens, and rebuilds the registry.
+
+An API key in the environment wins over a stored subscription token for
+the same provider.
 
 
 ## Provider credentials
 
 | Variable | Provider |
 | --- | --- |
-| `OPENAI_API_KEY` | OpenAI |
-| `ANTHROPIC_API_KEY` | Anthropic |
+| `OPENAI_API_KEY` | OpenAI (platform key). Alternatively sign in with ChatGPT via `/provider`. |
+| `ANTHROPIC_API_KEY` | Anthropic. Alternatively paste a `claude setup-token` via `/provider`. |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini |
-| `XAI_API_KEY` | Grok |
+| `XAI_API_KEY` | Grok (API key). Alternatively sign in with xAI via `/provider`. |
+
+## Subscription login
+
+`/provider` (and first-run onboarding) offers **Sign in with …** for
+OpenAI, Anthropic, and Grok:
+
+| Provider | What to do |
+| --- | --- |
+| OpenAI | Browser PKCE against ChatGPT. Symphony listens on `http://localhost:1455/auth/callback`. If the tab does not bounce back, paste that localhost URL. Tokens call `https://chatgpt.com/backend-api/codex`. |
+| Anthropic | Preferred: run `claude setup-token` (Claude Code) and paste the token. Alternative: open the shown Claude authorize URL and paste the `code#state` from the redirect. |
+| Grok | RFC 8628 device login. Open the shown URL, enter the user code, wait. |
+
+Gemini, Ollama, and local servers stay API-key / endpoint based.
 
 ## Local providers
 

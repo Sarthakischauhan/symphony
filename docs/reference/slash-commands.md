@@ -10,7 +10,7 @@ menu.
 | `/effort [level]` | Set reasoning effort (`none` … `max`) |
 | `/plan [text]` | Enter plan mode; with text, submit it as the next planning turn |
 | `/plans [name]` | Pick or open a saved workspace plan |
-| `/provider [name]` | Add or update a provider API key (OpenAI, Anthropic, Gemini, Grok) |
+| `/provider [name]` | Sign in with a ChatGPT / Claude / xAI subscription, or paste an API key |
 | `/new` | Start a fresh persisted session |
 | `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |
 | `/compact` | Summarize older turns with the model; keep system prompt, original task, and recent turns |

@@ -17,7 +17,7 @@ swappable, and drive every UI from a single control-plane event stream.
 git clone https://github.com/Sarthakischauhan/symphony.git
 cd symphony
 uv sync
-uv run --package symphony-code symphony   # asks for a provider + API key if none is set
+uv run --package symphony-code symphony   # asks for a provider if none is set
 # or: export OPENAI_API_KEY=sk-... then launch
 ```
 
@@ -104,7 +104,8 @@ flowchart TD
 ## Install
 
 **Requirements:** Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/). At least
-one provider key. If none is set, the TUI asks which provider to use.
+one provider (API key or a ChatGPT / Claude / xAI subscription). If none is
+set, the TUI asks which provider to use.
 
 
 ### From source (TUI + all packages)
@@ -116,8 +117,10 @@ uv sync
 uv run --package symphony-code symphony
 ```
 
-If no key is set, the TUI asks which provider to use. You can still export one
-yourself (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `XAI_API_KEY`).
+If no key is set, the TUI asks which provider to use. OpenAI, Anthropic, and
+Grok can sign in with a subscription (ChatGPT, `claude setup-token`, or xAI
+device login). You can still export a key yourself (`OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `XAI_API_KEY`).
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are the same entry point.
 

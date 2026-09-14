@@ -24,11 +24,15 @@ class AnthropicProvider(BaseProvider):
         base_url: str = "https://api.anthropic.com",
         transport: Optional[httpx.AsyncBaseTransport] = None,
         api_version: str = "2023-06-01",
+        extra_headers: Optional[Dict[str, str]] = None,
+        use_bearer: bool = False,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.transport = transport
         self.api_version = api_version
+        self.extra_headers = dict(extra_headers or {})
+        self.use_bearer = use_bearer
 
     async def stream(
         self,
@@ -146,12 +150,17 @@ class AnthropicProvider(BaseProvider):
 
     @property
     def _headers(self) -> Dict[str, str]:
-        return {
-            "x-api-key": self.api_key,
+        headers = {
             "anthropic-version": self.api_version,
             "Accept": "text/event-stream",
             "Content-Type": "application/json",
         }
+        if self.use_bearer:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        else:
+            headers["x-api-key"] = self.api_key
+        headers.update(self.extra_headers)
+        return headers
 
     @classmethod
     def _messages_payload(cls, messages: List[Message]) -> tuple[str, List[Dict[str, Any]]]:

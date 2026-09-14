@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),
+  Claude (`claude setup-token` or browser code), or xAI (device code)
+  subscription. Tokens live in `~/.symphony/oauth/` and are used when no
+  API key is set. API keys still work.
+
 ## 0.1.0 — first public release
 
 Three packages on PyPI: `symphony-core`, `symphony-harness`, `symphony-code`.

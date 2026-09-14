@@ -8,8 +8,9 @@ uv add symphony-code
 uv run --package symphony-code symphony --workspace .
 ```
 
-If no API key is set, the TUI asks which provider to use and saves the key to
-`~/.symphony/.env`. `/provider` adds another later.
+If no API key or subscription is set, the TUI asks which provider to use.
+OpenAI, Anthropic, and Grok can sign in with a subscription; keys go to
+`~/.symphony/.env` and tokens to `~/.symphony/oauth/`. `/provider` adds another later.
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are the same command.
 

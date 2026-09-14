@@ -39,10 +39,12 @@ class OpenAIProvider(BaseProvider):
         api_key: str,
         base_url: str = "https://api.openai.com/v1",
         transport: Optional[httpx.AsyncBaseTransport] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.transport = transport
+        self.extra_headers = dict(extra_headers or {})
 
     async def stream(
         self,
@@ -230,6 +232,7 @@ class OpenAIProvider(BaseProvider):
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
+                    **self.extra_headers,
                 },
                 json=body,
             )
@@ -255,11 +258,13 @@ class OpenAIProvider(BaseProvider):
 
     @property
     def _headers(self) -> Dict[str, str]:
-        return {
+        headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Accept": "text/event-stream",
             "Content-Type": "application/json",
         }
+        headers.update(self.extra_headers)
+        return headers
 
     @staticmethod
     def _uses_chat_completions(model_name: str) -> bool:

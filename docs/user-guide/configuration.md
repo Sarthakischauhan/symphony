@@ -90,9 +90,10 @@ the estimated prompt reaches `tool_result_prune_tokens` (48,000 by default).
 A bare `CoreHarness` does not compact until a product attaches the add-on.
 Pass `context_compact_threshold=None` (and `context_target_tokens=None` to
 also drop the token-target trigger) to disable auto-compact. `/reload`
-rebuilds the provider registry and model choices from `.env`. `/provider`
-writes a key into `~/.symphony/.env`, then reloads so `/model` lists the new
-catalog.
+rebuilds the provider registry and model choices from `.env` and stored
+OAuth tokens. `/provider` writes a key into `~/.symphony/.env` or a
+subscription token into `~/.symphony/oauth/`, then reloads so `/model`
+lists the new catalog.
 
 The TUI reads colors and CSS from `~/.symphony/theme.toml` when that file
 exists. If it is missing, the packaged default dark theme is used. Copy

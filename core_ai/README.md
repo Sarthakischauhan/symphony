@@ -20,7 +20,7 @@ Docs: **[symphony-core](../docs/packages/symphony-core.md)** ·
 - `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, `GrokProvider`,
   `OllamaProvider`, and `LocalProvider` for streaming model output
 - `build_default_registry()` to register every provider that has credentials
-  in the environment
+  in the environment or a stored subscription token (`~/.symphony/oauth/`)
 - A generated model catalog (`ModelCatalog`, `ModelInfo`, `list_models()`,
   and `get_model()`)
 - `Message` and `StreamEvent` as the provider-neutral message and stream
