@@ -10,6 +10,8 @@ from rich.text import Text
 from textual import events
 from textual.widgets import Static
 
+from core_ai.providers.catalog import find_provider, provider_api_key, provider_has_oauth
+
 CLUSTER_GAP = " " * 4
 BRANCH_ICON = "⎇"
 
@@ -75,6 +77,7 @@ class TopBar(Static):
         self._branch = ""
         self._model = ""
         self._label = ""
+        self._auth = ""
         super().__init__(*args, **kwargs)
 
     def set_context(
@@ -83,14 +86,26 @@ class TopBar(Static):
         model: str = "",
         *,
         label: str = "",
+        auth: str = "",
     ) -> None:
         branch = read_git_branch(workspace)
         model = model or ""
-        if branch == self._branch and model == self._model and label == self._label:
+        if not auth and model:
+            provider = find_provider(model.split(":", 1)[0])
+            if provider is not None:
+                # Provider construction prefers an explicit API key over a
+                # stored subscription token, so report the credential actually
+                # selected by the runtime.
+                if provider_api_key(provider):
+                    auth = "🔑 API key"
+                elif provider_has_oauth(provider):
+                    auth = "👤 signed in"
+        if branch == self._branch and model == self._model and label == self._label and auth == self._auth:
             return
         self._branch = branch
         self._model = model
         self._label = label
+        self._auth = auth
         self.update(self._render_row(max(self.content_size.width, 1)))
 
     def on_resize(self, event: events.Resize) -> None:
@@ -112,7 +127,10 @@ class TopBar(Static):
                 if left
                 else f"subagent  ›  {self._label}"
             )
-        model_width = min(len(self._model), max(width // 2, 1))
+        model_width = min(
+            len(self._model) + len(self._auth) + 2,
+            max(width // 2, 1),
+        )
         row = Table.grid(expand=True, padding=0)
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         row.add_column(
@@ -128,6 +146,10 @@ class TopBar(Static):
         )
         row.add_row(
             branch,
-            Text(self._model, overflow="ellipsis", no_wrap=True),
+            Text(
+                f"{self._auth}  {self._model}" if self._auth else self._model,
+                overflow="ellipsis",
+                no_wrap=True,
+            ),
         )
         return row
