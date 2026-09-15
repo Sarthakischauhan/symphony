@@ -1101,16 +1101,110 @@ def test_history_resume_folds_tools_into_explored() -> None:
     kinds = [type(widget).__name__ for widget in view.mounted]
     assert kinds[0] == "UserMessage"
     assert kinds[1] == "AssistantMessage"
-    assert kinds[2:] == ["ToolCallSummary", "ToolCallSummary"]
+    assert kinds[2:] == ["ToolCallSummary"]
     assert "ToolCallWidget" not in kinds
     summaries = [widget for widget in view.mounted if isinstance(widget, ToolCallSummary)]
+    assert summaries[0].count == 12
     assert sum(summary.count for summary in summaries) == 12
 
 
-def test_text_then_tool_keeps_assistant_above_tools(
+def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
+    def _calls(prefix: str, count: int) -> list[dict[str, object]]:
+        return [
+            {
+                "id": f"{prefix}-{index}",
+                "function": {
+                    "name": "read_file",
+                    "arguments": json.dumps({"path": f"{prefix}{index}.py"}),
+                },
+            }
+            for index in range(count)
+        ]
+
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            messages = [
+                Message(role="user", content="fix spacing"),
+                Message(
+                    role="assistant",
+                    content="Inspecting the CSS for spacing issues.",
+                    tool_calls=_calls("a", 3),
+                ),
+            ]
+            messages.extend(
+                Message(role="tool", content="ok", tool_call_id=f"a-{index}")
+                for index in range(3)
+            )
+            messages.append(
+                Message(
+                    role="assistant",
+                    content="The emoji width is the culprit.",
+                    tool_calls=_calls("b", 5),
+                )
+            )
+            messages.extend(
+                Message(role="tool", content="ok", tool_call_id=f"b-{index}")
+                for index in range(5)
+            )
+            messages.append(
+                Message(role="assistant", content="Spacing is now correct.")
+            )
+            return messages
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+
+    kinds = [type(widget).__name__ for widget in view.mounted]
+    assert kinds == [
+        "UserMessage",
+        "AssistantMessage",
+        "ToolCallSummary",
+        "AssistantMessage",
+        "ToolCallSummary",
+        "AssistantMessage",
+    ]
+    summaries = [widget for widget in view.mounted if isinstance(widget, ToolCallSummary)]
+    assert [summary.count for summary in summaries] == [3, 5]
+    texts = [
+        widget.message_text
+        for widget in view.mounted
+        if isinstance(widget, AssistantMessage)
+    ]
+    assert texts == [
+        "Inspecting the CSS for spacing issues.",
+        "The emoji width is the culprit.",
+        "Spacing is now correct.",
+    ]
+
+
+def test_text_then_tools_then_text_keeps_stream_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Text-first models must not render tools above earlier assistant tokens."""
+    """Assistant text stays in the run timeline so later tools cannot leapfrog it."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
 
@@ -1125,6 +1219,9 @@ def test_text_then_tool_keeps_assistant_above_tools(
             assert app._process is not None
             assert app._assistant is not None
             assert app._assistant.parent is app._process
+            rendered = str(app._assistant.render())
+            assert "SYMPHONY" not in rendered
+            assert "◆" not in rendered
 
             app.finish_assistant()
             app.add_tool("call-1", "read_file")
@@ -1139,35 +1236,36 @@ def test_text_then_tool_keeps_assistant_above_tools(
             app.finish_process("Completed")
             await pilot.pause()
 
-            transcript = app.query_one("#transcript", VerticalScroll)
-            children = [
-                child
-                for child in transcript.children
-                if isinstance(child, (UserMessage, AssistantMessage, RunProcess))
-            ]
-            assert [type(child).__name__ for child in children] == [
-                "UserMessage",
-                "AssistantMessage",
-                "RunProcess",
-                "AssistantMessage",
-            ]
-            assert children[1].message_text == "I'll inspect the transcript next."
-            assert children[3].message_text == "The header was mounting twice."
-            assert children[1].archive_text().startswith("SYMPHONY\n")
-            assert children[3].archive_text().startswith("SYMPHONY\n")
             assert app._process is not None
-            assert not any(
-                isinstance(item, AssistantMessage)
+            kinds = [
+                type(item).__name__
                 for item in app._process.timeline_items()
-            )
+                if not isinstance(item, ThinkingStatus)
+            ]
+            assert kinds == [
+                "AssistantMessage",
+                "ToolCallSummary",
+                "AssistantMessage",
+            ]
+            messages = [
+                item
+                for item in app._process.timeline_items()
+                if isinstance(item, AssistantMessage)
+            ]
+            assert [message.message_text for message in messages] == [
+                "I'll inspect the transcript next.",
+                "The header was mounting twice.",
+            ]
+            assert all("SYMPHONY" not in message.archive_text() for message in messages)
+            assert all("◆" not in str(message.render()) for message in messages)
             archive = app._process.archive_text()
-            assert "I'll inspect the transcript next." not in archive
-            assert "The header was mounting twice." not in archive
+            assert "I'll inspect the transcript next." in archive
+            assert "The header was mounting twice." in archive
 
     asyncio.run(_run())
 
 
-def test_streaming_assistant_updates_one_symphony_header(
+def test_streaming_assistant_updates_one_plain_text_widget(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Streaming deltas update one bubble rather than adding one per delta."""
@@ -1185,7 +1283,10 @@ def test_streaming_assistant_updates_one_symphony_header(
             assistants = list(app.query(AssistantMessage))
             assert len(assistants) == 1
             assert assistants[0].message_text == "First update, then more"
-            assert assistants[0].archive_text().count("SYMPHONY") == 1
+            rendered = str(assistants[0].render())
+            assert "SYMPHONY" not in rendered
+            assert "◆" not in rendered
+            assert assistants[0].archive_text() == "First update, then more"
 
     asyncio.run(_run())
 
@@ -2920,12 +3021,11 @@ def test_parallel_subagent_rows_bind_by_label(
     asyncio.run(_run())
 
 
-def test_old_tool_widgets_collapse_to_one_explored_summary(
+def test_live_tools_stay_visible_until_text_interrupts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
-    app.live_tool_widget_limit = 8
 
     async def _run() -> None:
         async with app.run_test() as pilot:
@@ -2941,56 +3041,58 @@ def test_old_tool_widgets_collapse_to_one_explored_summary(
                 app.update_tool(call_id, status="done", result="ok")
             await pilot.pause()
 
+            assert len(list(app.query(ToolCallWidget))) == 12
+            assert not list(app.query(ToolCallSummary))
+
+            app.set_assistant("Inspecting the CSS for spacing issues.", new=True)
+            await pilot.pause()
+
             live = [
                 node
                 for node in app._tools.values()
                 if isinstance(node, ToolCallWidget)
             ]
-            summaries = list(
-                dict.fromkeys(
-                    node
-                    for node in app._tools.values()
-                    if isinstance(node, ToolCallSummary)
-                )
-            )
+            summaries = list(app.query(ToolCallSummary))
             assert live == []
-            assert len(summaries) == 2
-            assert summaries[0].count == 8
+            assert len(summaries) == 1
+            assert summaries[0].count == 12
             assert summaries[0].call_ids == [
-                f"read-{index}" for index in range(8)
+                f"read-{index}" for index in range(12)
             ]
-            assert summaries[1].count == 4
-            assert summaries[1].call_ids == [
-                f"read-{index}" for index in range(8, 12)
-            ]
-            assert not list(app.query(ToolCallWidget))
-            assert len(list(app.query(ToolCallSummary))) == 2
             rendered = summaries[0].render().plain
-            assert "Explored · 8 tools" in rendered
+            assert "Explored · 12 tools" in rendered
             assert "src/f7.py" not in rendered
 
     asyncio.run(_run())
 
 
-def test_explored_is_per_run_across_reasoning_and_sits_above_live_cards(
+def test_explored_splits_on_interleaved_text(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Reasoning does not split full batches of completed tools."""
+    """3 tools → text → 5 tools becomes fold(3), text, fold(5) after the next interrupt."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
-    app.live_tool_widget_limit = 3
 
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            for index in range(5):
+            for index in range(3):
                 call_id = f"a-{index}"
                 app.add_tool(call_id, "read_file")
                 app.update_tool(
                     call_id, arguments={"path": f"a{index}.py"}, status="done", result="ok"
                 )
-            app.set_reasoning("Considering the next batch.", new=True)
-            app.finish_reasoning()
+            assert len(list(app.query(ToolCallWidget))) == 3
+            assert not list(app.query(ToolCallSummary))
+
+            app.set_assistant("The emoji width is the culprit.", new=True)
+            await pilot.pause()
+            assert [summary.call_ids for summary in app.query(ToolCallSummary)] == [
+                ["a-0", "a-1", "a-2"]
+            ]
+            assert not list(app.query(ToolCallWidget))
+
+            app.finish_assistant()
             for index in range(5):
                 call_id = f"b-{index}"
                 app.add_tool(call_id, "read_file")
@@ -2998,32 +3100,36 @@ def test_explored_is_per_run_across_reasoning_and_sits_above_live_cards(
                     call_id, arguments={"path": f"b{index}.py"}, status="done", result="ok"
                 )
             await pilot.pause()
+            assert [node.call_id for node in app.query(ToolCallWidget)] == [
+                f"b-{index}" for index in range(5)
+            ]
 
+            app.set_assistant("Spacing is now correct.", new=True)
+            await pilot.pause()
             summaries = list(app.query(ToolCallSummary))
             assert [summary.call_ids for summary in summaries] == [
                 ["a-0", "a-1", "a-2"],
-                ["a-3", "a-4", "b-0"],
-                ["b-1", "b-2", "b-3"],
-                ["b-4"],
+                ["b-0", "b-1", "b-2", "b-3", "b-4"],
             ]
             assert not list(app.query(ToolCallWidget))
-            assert not list(app.query(ReasoningWidget))
-            assert "1 thought" in summaries[1].title
+            messages = [item.message_text for item in app.query(AssistantMessage)]
+            assert "The emoji width is the culprit." in messages
+            assert "Spacing is now correct." in messages
+            assert all("SYMPHONY" not in str(item.render()) for item in app.query(AssistantMessage))
 
     asyncio.run(_run())
 
 
-def test_explored_collapses_when_batch_reaches_limit_across_reasoning(
+def test_explored_splits_on_reasoning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
-    app.live_tool_widget_limit = 8
 
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            for index in range(5):
+            for index in range(3):
                 call_id = f"a-{index}"
                 app.add_tool(call_id, "read_file")
                 app.update_tool(
@@ -3031,7 +3137,7 @@ def test_explored_collapses_when_batch_reaches_limit_across_reasoning(
                 )
             app.set_reasoning("Considering the next batch.", new=True)
             app.finish_reasoning()
-            for index in range(3):
+            for index in range(5):
                 call_id = f"b-{index}"
                 app.add_tool(call_id, "read_file")
                 app.update_tool(
@@ -3040,18 +3146,11 @@ def test_explored_collapses_when_batch_reaches_limit_across_reasoning(
             await pilot.pause()
 
             summaries = list(app.query(ToolCallSummary))
-            assert [summary.call_ids for summary in summaries] == [
-                ["a-0", "a-1", "a-2", "a-3", "a-4", "b-0", "b-1", "b-2"],
+            tool_summaries = [summary for summary in summaries if summary.count]
+            assert [summary.call_ids for summary in tool_summaries] == [["a-0", "a-1", "a-2"]]
+            assert [node.call_id for node in app.query(ToolCallWidget)] == [
+                f"b-{index}" for index in range(5)
             ]
-            live = [
-                node
-                for node in app._tools.values()
-                if isinstance(node, ToolCallWidget)
-            ]
-            assert live == []
-            assert not list(app.query(ToolCallWidget))
-            assert not list(app.query(ReasoningWidget))
-            assert "1 thought" in summaries[0].title
 
     asyncio.run(_run())
 
@@ -3059,10 +3158,9 @@ def test_explored_collapses_when_batch_reaches_limit_across_reasoning(
 def test_explored_keeps_in_progress_tools_live_and_uncounted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Parallel calls: running cards never fold and never evict completed ones."""
+    """Running cards never fold; completed cards stay live until interrupted."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
-    app.live_tool_widget_limit = 2
 
     async def _run() -> None:
         async with app.run_test() as pilot:
@@ -3079,6 +3177,17 @@ def test_explored_keeps_in_progress_tools_live_and_uncounted(
             app.update_tool("call-3", status="done", result="ok")
             app.update_tool("call-4", status="done", result="ok")
             await pilot.pause()
+            assert not list(app.query(ToolCallSummary))
+            assert [node.call_id for node in app.query(ToolCallWidget)] == [
+                "call-0",
+                "call-1",
+                "call-2",
+                "call-3",
+                "call-4",
+            ]
+
+            app.set_assistant("Checking the topbar layout.", new=True)
+            await pilot.pause()
             summaries = list(app.query(ToolCallSummary))
             assert len(summaries) == 1
             assert summaries[0].call_ids == ["call-3", "call-4"]
@@ -3091,29 +3200,21 @@ def test_explored_keeps_in_progress_tools_live_and_uncounted(
             app.update_tool("call-1", status="done", result="ok")
             await pilot.pause()
             summaries = list(app.query(ToolCallSummary))
-            assert {tuple(summary.call_ids) for summary in summaries} == {
-                ("call-3", "call-4"),
-                ("call-1",),
-            }
+            assert [tuple(summary.call_ids) for summary in summaries] == [
+                ("call-3", "call-4", "call-1")
+            ]
             live = list(app.query(ToolCallWidget))
-            assert [node.call_id for node in live] == [
-                "call-0", "call-2",
-            ]
-            assert [node.status for node in live] == [
-                "running", "running",
-            ]
+            assert [node.call_id for node in live] == ["call-0", "call-2"]
+            assert [node.status for node in live] == ["running", "running"]
 
             app.update_tool("call-0", status="done", result="ok")
             await pilot.pause()
             summaries = list(app.query(ToolCallSummary))
-            assert {tuple(summary.call_ids) for summary in summaries} == {
-                ("call-3", "call-4"),
-                ("call-1", "call-0"),
-            }
-            assert isinstance(app._tools["call-0"], ToolCallSummary)
-            assert [node.call_id for node in app.query(ToolCallWidget)] == [
-                "call-2",
+            assert [tuple(summary.call_ids) for summary in summaries] == [
+                ("call-3", "call-4", "call-1", "call-0")
             ]
+            assert isinstance(app._tools["call-0"], ToolCallSummary)
+            assert [node.call_id for node in app.query(ToolCallWidget)] == ["call-2"]
 
     asyncio.run(_run())
 
@@ -3141,14 +3242,17 @@ def test_final_output_folds_remaining_tools(
             assert sum(summary.count for summary in summaries) == 12
             assert all(not summary.is_expanded for summary in summaries)
             assert not list(app.query(ReasoningWidget))
-            assert any("1 thought" in summary.title for summary in summaries)
-            summaries[0].focus()
+            thought = next(summary for summary in summaries if "thought" in summary.title)
+            tools = next(summary for summary in summaries if summary.count == 12)
+            thought.focus()
             await pilot.press("enter")
             await pilot.pause()
-            assert summaries[0].is_expanded
-            assert "Thought - Inspecting files" in summaries[0].render().plain
-            assert "Reasoning body stays hidden" not in summaries[0].render().plain
+            assert thought.is_expanded
+            assert "Thought - Inspecting files" in thought.render().plain
+            assert "Reasoning body stays hidden" not in thought.render().plain
+            assert tools.call_ids == [str(index) for index in range(12)]
             assert app._assistant is not None
+            assert "SYMPHONY" not in str(app._assistant.render())
             assert all(isinstance(tool, ToolCallSummary) for tool in app._tools.values())
 
     asyncio.run(_run())
@@ -3159,7 +3263,6 @@ def test_explored_renders_folded_tool_snapshots_inline(
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
-    app.live_tool_widget_limit = 3
 
     async def _run() -> None:
         async with app.run_test() as pilot:
@@ -3171,6 +3274,7 @@ def test_explored_renders_folded_tool_snapshots_inline(
                     call_id, arguments={"path": f"src/f{index}.py"}, status="running"
                 )
                 app.update_tool(call_id, status="done", result="alpha\nbeta")
+            app.set_assistant("Checking the topbar layout.", new=True)
             await pilot.pause()
 
             summaries = list(app.query(ToolCallSummary))

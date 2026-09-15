@@ -1,4 +1,4 @@
-"""Active vs collected tool cards: keep the hot cell, fold the rest into Explored."""
+"""Live tool stretches: show cards until a non-tool widget interrupts them."""
 
 from __future__ import annotations
 
@@ -39,6 +39,29 @@ def is_collectable_thought(widget: Any) -> bool:
     return isinstance(widget, ReasoningWidget) and widget.has_class("is-complete")
 
 
+def is_timeline_chrome(widget: Any) -> bool:
+    """Status chrome that neither joins nor splits a tool stretch."""
+    from coding_agent.tui.transcript.process import ThinkingStatus
+
+    return isinstance(widget, ThinkingStatus)
+
+
+def is_tool_stretch_item(widget: Any) -> bool:
+    """Live tool cards and tool-bearing Explored folds in one consecutive stretch."""
+    from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+
+    if isinstance(widget, ToolCallWidget):
+        return True
+    return isinstance(widget, ToolCallSummary) and widget.count > 0
+
+
+def is_thought_stretch_item(widget: Any) -> bool:
+    """Reasoning widgets that form their own stretch, splitting tool groups."""
+    from coding_agent.tui.transcript.process import ReasoningWidget
+
+    return isinstance(widget, ReasoningWidget)
+
+
 def release_live_binding(
     tools: MutableMapping[str, Any] | None,
     widget: Any,
@@ -64,23 +87,40 @@ def collectable_tools(
     ]
 
 
+def segment_tool_stretches(items: Sequence[Any]) -> list[tuple[list[Any], bool]]:
+    """Split a timeline into consecutive tool stretches.
+
+    Each result is ``(stretch_items, interrupted)``. A stretch is a run of
+    tool cards and tool-bearing Explored folds. Assistant text, thinking,
+    notices, or any other non-tool widget closes the stretch so later tools
+    start a new one. ThinkingStatus is chrome and is skipped without closing
+    a stretch. ``interrupted`` is True when a non-tool widget follows.
+    """
+    return _segment_stretches(items, is_tool_stretch_item)
+
+
+def segment_thought_stretches(items: Sequence[Any]) -> list[tuple[list[Any], bool]]:
+    """Split a timeline into consecutive reasoning stretches."""
+    return _segment_stretches(items, is_thought_stretch_item)
+
+
 def reconcile_live_tools(
     timeline: Any,
     tools: MutableMapping[str, Any] | None = None,
     *,
-    limit: int = LIVE_TOOL_WIDGET_LIMIT,
+    limit: int | None = None,
     final: bool = False,
 ) -> None:
-    """Collect completed tool cards into Explored as they leave the hot set.
+    """Keep live tool cards until a non-tool widget interrupts the stretch.
 
-    In-progress tools stay live. Interactive cards (subagents, generated
-    images) stay mounted until finalization. Every other completed tool is
-    folded immediately: it appends to the open Explored batch when that
-    batch is under ``limit``, otherwise it starts a new one. Finalization
-    also folds remaining interactive cards, completed thoughts, and closes
-    expanded batches.
+    Completed tools stay visible while their stretch is active. When text,
+    thinking, or another non-tool widget arrives, that consecutive stretch
+    folds into one Explored row. Tools after the interruption start a new
+    stretch. ``limit < 1`` disables compaction; stretch size is not capped.
+    Finalization folds remaining stretches, interactive cards, and completed
+    thoughts, and closes expanded batches.
     """
-    if timeline is None or limit < 1:
+    if timeline is None or (limit is not None and limit < 1):
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
@@ -90,43 +130,88 @@ def reconcile_live_tools(
     previous: tuple[int, ...] | None = None
     while True:
         items = snapshot()
-        completed = collectable_tools(items, include_interactive=final)
-        thoughts = [item for item in items if is_collectable_thought(item)]
-        progress = tuple(id(item) for item in completed + thoughts)
+        folded = _fold_ready_stretch(
+            snapshot,
+            replace,
+            remove,
+            tools,
+            members=segment_tool_stretches(items),
+            collectable=lambda item: is_collectable_tool(
+                item, include_interactive=final
+            ),
+            final=final,
+        )
+        if not folded:
+            items = snapshot()
+            folded = _fold_ready_stretch(
+                snapshot,
+                replace,
+                remove,
+                tools,
+                members=segment_thought_stretches(items),
+                collectable=is_collectable_thought,
+                final=final,
+            )
+        if not folded:
+            return
+        progress = tuple(id(item) for item in snapshot())
         if progress == previous:
             return
         previous = progress
-        if not completed and not (final and thoughts):
-            return
 
-        open_batch = (
-            None
-            if final
-            else _open_collect_batch(
-                items, completed[0] if completed else None, limit=limit
-            )
+
+def _segment_stretches(
+    items: Sequence[Any],
+    is_member: Callable[[Any], bool],
+) -> list[tuple[list[Any], bool]]:
+    stretches: list[tuple[list[Any], bool]] = []
+    current: list[Any] = []
+    for item in items:
+        if is_timeline_chrome(item):
+            continue
+        if is_member(item):
+            current.append(item)
+            continue
+        if current:
+            stretches.append((current, True))
+            current = []
+    if current:
+        stretches.append((current, False))
+    return stretches
+
+
+def _fold_ready_stretch(
+    snapshot: Callable[[], list[Any]],
+    replace: Callable[[Any, Any], None],
+    remove: Callable[[Any], None],
+    tools: MutableMapping[str, Any] | None,
+    *,
+    members: Sequence[tuple[list[Any], bool]],
+    collectable: Callable[[Any], bool],
+    final: bool,
+) -> bool:
+    from coding_agent.tui.tools.calls import ToolCallSummary
+
+    for stretch, interrupted in members:
+        if not (interrupted or final):
+            continue
+        selected = [item for item in stretch if collectable(item)]
+        if not selected:
+            continue
+        existing = next(
+            (item for item in stretch if isinstance(item, ToolCallSummary)),
+            None,
         )
-        if open_batch is not None and completed:
-            room = max(0, limit - open_batch.count)
-            selected = completed[:room]
-            if selected:
-                _fold_batch(
-                    _batch_with_thoughts(items, selected),
-                    snapshot,
-                    replace,
-                    remove,
-                    tools,
-                    batch_summary=open_batch,
-                )
-                continue
-
-        selected = completed if final else completed[:limit]
-        batch = _batch_with_thoughts(items, selected) if selected else thoughts
-        if not batch:
-            return
-        _fold_batch(batch, snapshot, replace, remove, tools)
-        if final:
-            return
+        _fold_batch(
+            selected,
+            snapshot,
+            replace,
+            remove,
+            tools,
+            batch_summary=existing,
+        )
+        return True
+    return False
 
 
 def _timeline_ops(
@@ -158,45 +243,6 @@ def _collapse_expanded_summaries(items: Sequence[Any]) -> None:
     for item in items:
         if isinstance(item, ToolCallSummary) and item.is_expanded:
             item.toggle()
-
-
-def _open_collect_batch(
-    items: Sequence[Any],
-    widget: Any,
-    *,
-    limit: int,
-) -> Any | None:
-    from coding_agent.tui.tools.calls import ToolCallSummary
-
-    if widget in items:
-        index = items.index(widget)
-        neighbors = []
-        if index:
-            neighbors.append(items[index - 1])
-        if index + 1 < len(items):
-            neighbors.append(items[index + 1])
-        for neighbor in neighbors:
-            if isinstance(neighbor, ToolCallSummary) and neighbor.count < limit:
-                return neighbor
-    last = None
-    for item in items:
-        if isinstance(item, ToolCallSummary):
-            last = item
-    if last is not None and last.count < limit:
-        return last
-    return None
-
-
-def _batch_with_thoughts(items: Sequence[Any], selected: Sequence[Any]) -> list[Any]:
-    if not selected:
-        return [item for item in items if is_collectable_thought(item)]
-    boundary = items.index(selected[-1]) + 1
-    chosen = {id(item) for item in selected}
-    return [
-        item
-        for item in items[:boundary]
-        if id(item) in chosen or is_collectable_thought(item)
-    ]
 
 
 def _fold_batch(
@@ -244,7 +290,7 @@ def _fold_into_explored(
         return batch_summary
     summary = batch_summary
     if summary is None:
-        # The first fold is the batch's oldest card, so Explored sits where
+        # The first fold is the stretch's oldest card, so Explored sits where
         # that stretch of completed work began.
         summary = ToolCallSummary()
         replace(widget, summary)

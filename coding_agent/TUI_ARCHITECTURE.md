@@ -132,10 +132,12 @@ boundary. Assistant and reasoning bodies remain plain text while streaming, then
 their full Markdown rendering once complete. Tool cards update fixed one-line fields
 without requesting layout and build expandable bodies only when opened.
 
-Only in-progress tool and reasoning widgets stay in the live set. Completed
-tools collect into an `Explored` snapshot row as they finish (ten entries per
-row). Interactive cards (generated images, subagents) stay mounted until the
-run finalizes. Reasoning does not reset that batch size. Completed turns
+Live tool cards stay in the transcript while their stretch is active.
+When assistant text, thinking, or another non-tool widget arrives, that
+consecutive stretch folds into one `Explored` snapshot row. Tools after
+the interruption start a new stretch. Interactive cards (generated images,
+subagents) stay mounted until the run finalizes. Completed thoughts fold
+into their own Explored row, retaining only titles. Completed turns
 beyond the budget are removed from the widget tree and accumulated into one
 `Archived` row. Opening the archive creates its detail modal on demand; restored
 session history goes through the same compaction path.
