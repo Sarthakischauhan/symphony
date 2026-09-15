@@ -129,7 +129,7 @@ Screen {
     width: 100%;
     height: auto;
     margin: 0 0 1 0;
-    padding: 0 0 0 3;
+    padding: 0;
     background: $background;
 }
 

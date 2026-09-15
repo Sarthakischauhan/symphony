@@ -14,6 +14,22 @@ class TranscriptTurn:
     def add_item(self, widget: Widget) -> None:
         self._items.append(widget)
 
+    def insert_item(
+        self,
+        widget: Widget,
+        *,
+        before: Widget | None = None,
+        after: Widget | None = None,
+    ) -> None:
+        """Insert a root widget while preserving surrounding turn order."""
+        if before is not None and before in self._items:
+            self._items.insert(self._items.index(before), widget)
+            return
+        if after is not None and after in self._items:
+            self._items.insert(self._items.index(after) + 1, widget)
+            return
+        self._items.append(widget)
+
     def timeline_items(self) -> list[Widget]:
         return list(self._items)
 

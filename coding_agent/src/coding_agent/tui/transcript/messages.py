@@ -44,6 +44,9 @@ class _SelectableStatic(Static):
     def freeze_render(self) -> None:
         if getattr(self, "_streaming", False) or self._render_cache_content is not None:
             return
+        # Fresh/unattached widgets can finish before Textual attaches a screen.
+        if not self.is_attached:
+            return
         self._render_cache_content = super()._render_content()
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
@@ -233,10 +236,16 @@ class UserMessage(_SelectableStatic):
 
 class AssistantMessage(_SelectableStatic):
     def __init__(
-        self, content: str = "", *, streaming: bool = False, enter: bool = True
+        self,
+        content: str = "",
+        *,
+        streaming: bool = False,
+        enter: bool = True,
+        header: bool = True,
     ) -> None:
         self._streaming = False
         self._enter = enter
+        self._header = header
         self._markdown = None
         super().__init__(classes="message assistant-message")
         self.set_content(content, streaming=streaming)
@@ -264,7 +273,7 @@ class AssistantMessage(_SelectableStatic):
         self._invalidate_render_cache(layout=True)
         self.update(
             Group(
-                Text("◆  SYMPHONY", style="bold #d0d0d0"),
+                *((Text("◆  SYMPHONY", style="bold #d0d0d0"),) if self._header else ()),
                 body,
             )
         )
