@@ -11,7 +11,7 @@ from dotenv import dotenv_values
 
 from core_ai.providers.catalog import ProviderSpec, get_provider
 
-OFFLINE_HINT = "Agent is offline. Run /provider to add an API key."
+OFFLINE_HINT = "Agent is offline. Run /provider to sign in or add an API key."
 
 _ENV_ASSIGN = re.compile(
     r"^(?P<prefix>\s*(?:export\s+)?)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<eq>\s*=\s*)(?P<value>.*)$"
@@ -48,6 +48,15 @@ def load_provider_env(workspace: str | Path) -> None:
 
 def save_provider_key(provider_id: str, api_key: str) -> ProviderSpec:
     return save_provider_settings(provider_id, api_key=api_key)
+
+
+def save_provider_auth(provider_id: str, auth: str) -> None:
+    """Persist whether a dual-mode provider should use its key or OAuth token."""
+    if auth not in {"key", "oauth"}:
+        raise ValueError(f"Unknown authentication method: {auth}")
+    name = f"SYMPHONY_{provider_id.upper()}_AUTH"
+    upsert_dotenv(global_env_path(), {name: auth})
+    os.environ[name] = auth
 
 
 def save_provider_settings(

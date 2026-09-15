@@ -9,10 +9,12 @@ or wire the HTTP server.
 uv run --package symphony-code symphony
 ```
 
-If no API key is set, Symphony asks which provider to use (OpenAI, Anthropic,
-Gemini, Grok, Ollama, or a local server), then for that provider's key or
-endpoint. Keys and local URLs are saved to `~/.symphony/.env`. Add another
-provider from the same screen, or later with `/provider`.
+If no API key or subscription is set, Symphony asks which provider to use (OpenAI, Anthropic,
+Gemini, Grok, Ollama, or a local server). OpenAI, Anthropic, and Grok can
+sign in with a ChatGPT / Claude / xAI subscription, or you can paste an API
+key. Keys go to `~/.symphony/.env`; subscription tokens go to
+`~/.symphony/oauth/`. Add another provider from the same screen, or later
+with `/provider`.
 
 You can still export a key yourself before launch:
 
@@ -47,7 +49,7 @@ approval prompt may ask before overwrite or bash.
 ## 3. Try the interface
 
 - Type `/` to open the slash-command menu.
-- `/provider` adds another OpenAI, Anthropic, Gemini, or Grok key without restarting.
+- `/provider` adds another provider (subscription login or API key) without restarting.
 - `/model` lists the generated catalog for providers that have credentials.
 - `Tab` toggles **build** vs **plan**. Plan mode writes `.symphony/plans/…_plan.md`.
 - Type `@` after whitespace to insert a workspace path.

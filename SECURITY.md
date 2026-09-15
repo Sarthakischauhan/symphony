@@ -52,7 +52,9 @@ following before deploying it:
   Cancelling the parent run, hitting its limits, or exiting the TUI stops its
   managed children. Background execution does not add filesystem isolation.
 - Provider API keys are read from the environment, a working-directory `.env`,
-  or `~/.symphony/.env`. Keep those files out of version control.
+  or `~/.symphony/.env`. Subscription tokens from `/provider` live in
+  `~/.symphony/oauth/` with mode `0600`. Keep those files out of version
+  control.
 - `core-server` denies browser origins by default and enforces request-size
   limits, but it has no authentication of its own. Put it behind your own
   auth layer before exposing it.

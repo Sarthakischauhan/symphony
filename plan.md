@@ -105,8 +105,9 @@ and `~` paths are allowed:
   rules. Children still run without per-tool prompts (`SECURITY.md`).
 - Config: `.symphony/config.json` → `CodingAgentConfig` (harness, approvals,
   tools, learning, compaction). Defaults: 24 turns, 40 tool calls, 10 minutes.
-- Credentials: environment, workspace `.env`, `~/.symphony/.env`; first-run
-  onboarding and `/provider` write the global file.
+- Credentials: environment, workspace `.env`, `~/.symphony/.env`, and
+  `~/.symphony/oauth/` for ChatGPT / Claude / xAI subscription tokens;
+  first-run onboarding and `/provider` write those files.
 - Learning: after a run, `LearningLoop` asks the active model to review the
   transcript (capped at 900 output tokens), emits a two-line `run_summary`,
   and stores sanitized lessons in `.symphony/learning/lessons.jsonl` (bounded,

@@ -4,12 +4,14 @@ import os
 from typing import Optional
 
 from core_ai.models import ModelInfo, list_models, register_model, unregister_model
+from core_ai.oauth import oauth_runtime_for
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.catalog import (
     PROVIDERS,
     MissingProviderCredentials,
     ProviderSpec,
     provider_api_key,
+    provider_auth_preference,
     provider_is_configured,
 )
 from core_ai.providers.gemini import GeminiProvider
@@ -81,12 +83,18 @@ def build_default_registry(
     }
     registry = ModelRegistry()
     for spec in PROVIDERS:
-        api_key = (
-            explicit_keys[spec.id]
-            if explicit_keys[spec.id] is not None
-            else provider_api_key(spec)
-        )
+        env_api_key = provider_api_key(spec)
+        explicit_key = explicit_keys[spec.id]
+        api_key = explicit_key if explicit_key is not None else env_api_key
         explicit_url = explicit_base_urls[spec.id]
+        oauth = None
+        if spec.supports_oauth and (
+            provider_auth_preference(spec) == "oauth"
+            or (not api_key and provider_auth_preference(spec) != "key")
+        ):
+            oauth = oauth_runtime_for(spec.id)
+            if oauth is not None:
+                api_key = oauth.api_key
         opted_in = (
             explicit_keys[spec.id] is not None
             or explicit_url is not None
@@ -100,11 +108,23 @@ def build_default_registry(
         if not api_key:
             api_key = spec.default_api_key
         base_url = _resolve_base_url(spec, explicit_url)
+        if (
+            oauth is not None
+            and oauth.base_url
+            and explicit_url is None
+            and not _env_base_url(spec)
+        ):
+            base_url = oauth.base_url
         if not spec.requires_key and not base_url:
             continue
+        kwargs: dict = {"api_key": api_key, "base_url": base_url}
+        if oauth is not None:
+            kwargs["extra_headers"] = oauth.extra_headers
+            if spec.id == "anthropic":
+                kwargs["use_bearer"] = True
         registry.register(
             spec.id,
-            _PROVIDER_TYPES[spec.id](api_key=api_key, base_url=base_url),
+            _PROVIDER_TYPES[spec.id](**kwargs),
         )
         _refresh_runtime_models(spec, base_url, api_key)
     if not registry.namespaces():
@@ -132,6 +152,12 @@ def default_model_id(registry: ModelRegistry, model_id: Optional[str] = None) ->
             return runtime[0].full_id
         return full_id
     raise RuntimeError("No model providers are registered")
+
+
+def _env_base_url(spec: ProviderSpec) -> str:
+    if not spec.base_url_env:
+        return ""
+    return (os.getenv(spec.base_url_env) or "").strip()
 
 
 def _resolve_base_url(spec: ProviderSpec, explicit: Optional[str]) -> str:

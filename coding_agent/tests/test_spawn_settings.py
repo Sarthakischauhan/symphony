@@ -30,11 +30,11 @@ def test_ensure_spawn_settings_writes_complete_file(tmp_path: Path) -> None:
     path = spawn_settings_path(tmp_path)
     assert path.exists()
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["harness"]["max_turns"] == 24
+    assert payload["harness"]["max_turns"] is None
     assert payload["harness"]["tool_result_prune_tokens"] == 48_000
     assert payload["harness"]["compaction_keep_recent"] == 10
     assert payload["learning"]["enabled"] is True
-    assert config.harness.max_turns == 24
+    assert config.harness.max_turns is None
 
 
 def test_ensure_spawn_settings_keeps_user_overrides(tmp_path: Path) -> None:
@@ -45,7 +45,7 @@ def test_ensure_spawn_settings_keeps_user_overrides(tmp_path: Path) -> None:
     assert config.harness.max_turns == 5
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["harness"]["max_turns"] == 5
-    assert saved["harness"]["max_tool_calls"] == 40
+    assert saved["harness"]["max_tool_calls"] is None
 
 
 def test_load_coding_agent_config_requires_existing_file(tmp_path: Path) -> None:

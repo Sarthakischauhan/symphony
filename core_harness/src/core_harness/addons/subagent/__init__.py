@@ -133,7 +133,8 @@ class SubagentAddon(Addon):
         from core_harness.harness import CoreHarness
 
         child_turns = max_turns if max_turns is not None else min(
-            parent.max_turns, parent.config.spawn_max_turns
+            parent.max_turns if parent.max_turns is not None else parent.config.spawn_max_turns,
+            parent.config.spawn_max_turns,
         )
         child_turns = max(1, min(child_turns, parent.config.spawn_max_turns))
         return CoreHarness(

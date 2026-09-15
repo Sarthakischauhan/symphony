@@ -23,6 +23,7 @@ class ProviderSpec:
     default_api_key: str = ""
     host_env: str = ""
     enabled_env: str = ""
+    supports_oauth: bool = False
 
 
 class MissingProviderCredentials(RuntimeError):
@@ -31,7 +32,8 @@ class MissingProviderCredentials(RuntimeError):
     def __init__(self) -> None:
         super().__init__(
             "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY / GOOGLE_API_KEY, "
-            "or XAI_API_KEY, or opt in to Ollama / a local OpenAI-compatible server"
+            "or XAI_API_KEY, sign in with /provider (ChatGPT, Claude, or xAI), "
+            "or opt in to Ollama / a local OpenAI-compatible server"
         )
 
 
@@ -39,13 +41,14 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         id="openai",
         label="OpenAI",
-        description="GPT-5.6 and the Responses API",
+        description="GPT-5.6, Responses API, or a ChatGPT subscription",
         env_key="OPENAI_API_KEY",
         default_model="openai:gpt-5.6-luna",
         docs_url="https://platform.openai.com/api-keys",
         key_placeholder="sk-...",
         default_base_url="https://api.openai.com/v1",
         base_url_env="OPENAI_BASE_URL",
+        supports_oauth=True,
     ),
     ProviderSpec(
         id="anthropic",
@@ -57,6 +60,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         key_placeholder="sk-ant-...",
         default_base_url="https://api.anthropic.com",
         base_url_env="ANTHROPIC_BASE_URL",
+        supports_oauth=True,
     ),
     ProviderSpec(
         id="gemini",
@@ -73,13 +77,14 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         id="grok",
         label="Grok",
-        description="Grok 4 and the xAI API",
+        description="Grok 4, the xAI API, or a SuperGrok login",
         env_key="XAI_API_KEY",
         default_model="grok:grok-4.6",
         docs_url="https://console.x.ai/",
         key_placeholder="xai-...",
         default_base_url="https://api.x.ai/v1",
         base_url_env="XAI_BASE_URL",
+        supports_oauth=True,
     ),
     ProviderSpec(
         id="ollama",
@@ -148,13 +153,38 @@ def provider_api_key(
     return None
 
 
+def provider_has_oauth(spec: ProviderSpec) -> bool:
+    if not spec.supports_oauth:
+        return False
+    from core_ai.oauth.store import load_token
+
+    token = load_token(spec.id)
+    return bool(token and token.access_token)
+
+
+def provider_auth_preference(spec: ProviderSpec) -> str:
+    """Return the requested credential source for providers with OAuth."""
+    if not spec.supports_oauth:
+        return "key"
+    value = (os.getenv(f"SYMPHONY_{spec.id.upper()}_AUTH") or "").strip().lower()
+    if value in {"key", "oauth"}:
+        return value
+    from core_ai.oauth.store import load_token
+
+    token = load_token(spec.id)
+    token_preference = (token.raw.get("auth") if token is not None else "")
+    return token_preference if token_preference in {"key", "oauth"} else "auto"
+
+
 def provider_is_configured(
     spec: ProviderSpec,
     environ: Mapping[str, str] | None = None,
 ) -> bool:
     env = os.environ if environ is None else environ
     if spec.requires_key:
-        return bool(provider_api_key(spec, env))
+        if provider_api_key(spec, env) or provider_has_oauth(spec):
+            return True
+        return False
     if spec.base_url_env and (env.get(spec.base_url_env) or "").strip():
         return True
     if spec.host_env and (env.get(spec.host_env) or "").strip():

@@ -15,8 +15,8 @@ uv add symphony-code
 uv run --package symphony-code symphony --workspace .
 ```
 
-If no API key is set, the TUI asks which provider to use. `/provider` adds
-another later.
+If no API key or subscription is set, the TUI asks which provider to use. `/provider` adds
+another later (ChatGPT / Claude / xAI login, or an API key).
 
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are the same command.

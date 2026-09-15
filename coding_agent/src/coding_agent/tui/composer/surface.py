@@ -72,6 +72,7 @@ class ComposerSurface:
         self._run_generation += 1
         self.sink.reset_cancel()
         self._assistant = None
+        self._symphony_header_emitted = False
         self._thinking = None
         self._reasoning = None
         self._process = None

@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import uuid
+from itertools import count
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
 from core_ai.content import text_from_content
@@ -573,7 +574,7 @@ async def run_session(
     )
 
     try:
-        for turn in range(harness.max_turns):
+        for turn in count() if harness.max_turns is None else range(harness.max_turns):
             _raise_if_limit(harness, "max_runtime_seconds", time.monotonic() - started_at)
             _raise_if_limit(harness, "max_tokens", usage.total_tokens)
             remaining = None

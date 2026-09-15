@@ -14,8 +14,14 @@ class GrokProvider(OpenAIProvider):
         api_key: str,
         base_url: str = "https://api.x.ai/v1",
         transport: Optional[httpx.AsyncBaseTransport] = None,
+        extra_headers: Optional[dict[str, str]] = None,
     ):
-        super().__init__(api_key=api_key, base_url=base_url, transport=transport)
+        super().__init__(
+            api_key=api_key,
+            base_url=base_url,
+            transport=transport,
+            extra_headers=extra_headers,
+        )
 
     @staticmethod
     def _uses_chat_completions(model_name: str) -> bool:

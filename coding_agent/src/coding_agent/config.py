@@ -98,9 +98,7 @@ class CompactionConfig(BaseModel):
 def default_coding_agent_harness() -> HarnessConfig:
     """Product harness settings. Engine field defaults fill the rest."""
     return HarnessConfig(
-        max_turns=24,
-        max_tool_calls=40,
-        max_runtime_seconds=600.0,
+        max_turns=None,
         tool_result_prune_tokens=48_000,
         context_warn_threshold=32_000,
         context_compact_threshold=16_000,

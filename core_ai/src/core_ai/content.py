@@ -93,11 +93,22 @@ def to_openai_chat_content(content: Optional[Content]) -> Content:
     return parts
 
 
-def to_openai_responses_content(content: Optional[Content], *, role: str = "user") -> Content:
-    """Responses API content: string, or input_text / input_image parts."""
-    if isinstance(content, str) or content is None:
-        return content or ""
+def to_openai_responses_content(
+    content: Optional[Content],
+    *,
+    role: str = "user",
+    typed_parts: bool = False,
+) -> Content:
+    """Responses API content: string, or input_text / input_image parts.
+
+    Codex rejects bare strings, so callers on that path pass `typed_parts=True`.
+    """
     text_type = "output_text" if role == "assistant" else "input_text"
+    if isinstance(content, str) or content is None:
+        text = content or ""
+        if typed_parts:
+            return [{"type": text_type, "text": text}] if text else []
+        return text
     parts: List[ContentPart] = []
     for part in normalize_content(content):
         if part["type"] == "text":

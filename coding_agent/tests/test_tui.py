@@ -483,6 +483,29 @@ def test_topbar_rebudgets_columns_after_terminal_resize(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_topbar_spaces_auth_badge_from_model_using_cell_width(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path, model_id="grok:grok-4-fast")
+        async with app.run_test(size=(90, 30)) as pilot:
+            await pilot.pause()
+            topbar = app.query_one(TopBar)
+            topbar.set_context(
+                tmp_path,
+                "grok:grok-4-fast",
+                auth="👤 signed in",
+            )
+            rendered = _render_plain(topbar.content, width=80).rstrip("\n")
+            assert "👤 signed in   grok:grok-4-fast" in rendered
+            assert rendered.endswith("👤 signed in   grok:grok-4-fast")
+
+    asyncio.run(_run())
+
+
 def test_footer_hint_switches_for_pending_question() -> None:
     assert footer_hint(question_pending=False) == "esc cancel"
     assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"
@@ -1082,6 +1105,89 @@ def test_history_resume_folds_tools_into_explored() -> None:
     assert "ToolCallWidget" not in kinds
     summaries = [widget for widget in view.mounted if isinstance(widget, ToolCallSummary)]
     assert sum(summary.count for summary in summaries) == 12
+
+
+def test_text_then_tool_keeps_assistant_above_tools(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Text-first models must not render tools above earlier assistant tokens."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.mount_transcript(UserMessage("inspect the bug"))
+            app.set_thinking("Thinking…")
+            app.set_assistant("I'll inspect the transcript next.", new=True)
+            await pilot.pause()
+
+            assert app._process is not None
+            assert app._assistant is not None
+            assert app._assistant.parent is app._process
+
+            app.finish_assistant()
+            app.add_tool("call-1", "read_file")
+            app.update_tool(
+                "call-1",
+                arguments={"path": "coding_agent/src/coding_agent/tui/transcript/surface.py"},
+                status="done",
+                result="ok",
+            )
+            app.set_assistant("The header was mounting twice.", new=True)
+            app.finish_assistant()
+            app.finish_process("Completed")
+            await pilot.pause()
+
+            transcript = app.query_one("#transcript", VerticalScroll)
+            children = [
+                child
+                for child in transcript.children
+                if isinstance(child, (UserMessage, AssistantMessage, RunProcess))
+            ]
+            assert [type(child).__name__ for child in children] == [
+                "UserMessage",
+                "AssistantMessage",
+                "RunProcess",
+                "AssistantMessage",
+            ]
+            assert children[1].message_text == "I'll inspect the transcript next."
+            assert children[3].message_text == "The header was mounting twice."
+            assert children[1].archive_text().startswith("SYMPHONY\n")
+            assert children[3].archive_text().startswith("SYMPHONY\n")
+            assert app._process is not None
+            assert not any(
+                isinstance(item, AssistantMessage)
+                for item in app._process.timeline_items()
+            )
+            archive = app._process.archive_text()
+            assert "I'll inspect the transcript next." not in archive
+            assert "The header was mounting twice." not in archive
+
+    asyncio.run(_run())
+
+
+def test_streaming_assistant_updates_one_symphony_header(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Streaming deltas update one bubble rather than adding one per delta."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_assistant("First", new=True)
+            app.set_assistant("First update")
+            app.set_assistant("First update, then more")
+            await pilot.pause()
+
+            assistants = list(app.query(AssistantMessage))
+            assert len(assistants) == 1
+            assert assistants[0].message_text == "First update, then more"
+            assert assistants[0].archive_text().count("SYMPHONY") == 1
+
+    asyncio.run(_run())
 
 
 def test_finished_assistant_does_not_reparse_markdown(

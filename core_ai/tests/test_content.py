@@ -99,6 +99,12 @@ def test_http_image_urls_keep_provider_native_references() -> None:
 def test_string_content_stays_a_string_for_openai() -> None:
     assert to_openai_chat_content("hello") == "hello"
     assert to_openai_responses_content("hello") == "hello"
+    assert to_openai_responses_content("hello", typed_parts=True) == [
+        {"type": "input_text", "text": "hello"}
+    ]
+    assert to_openai_responses_content("hello", role="assistant", typed_parts=True) == [
+        {"type": "output_text", "text": "hello"}
+    ]
 
 
 def test_text_and_token_helpers_do_not_dump_image_bytes() -> None:

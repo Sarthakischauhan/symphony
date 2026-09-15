@@ -4,9 +4,11 @@ The TUI is a conversation surface over the harness event stream. It does not
 scrape stdout. Every tool row, token, usage line, and compaction notice is a
 control-plane event.
 
-On first launch with no credentials, a provider screen asks which API to use
-and for a key. That key is saved to `~/.symphony/.env`. Add more providers
-later with `/provider`; `/model` then lists every credentialed catalog.
+On first launch with no credentials, a provider screen asks which API to use.
+OpenAI, Anthropic, and Grok can sign in with a subscription, or you can paste
+a key. Keys are saved to `~/.symphony/.env`; subscription tokens to
+`~/.symphony/oauth/`. Add more providers later with `/provider`; `/model`
+then lists every credentialed catalog.
 Colors and CSS come from `~/.symphony/theme.toml` when present; otherwise
 the packaged default dark theme is used.
 
