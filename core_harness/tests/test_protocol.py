@@ -92,7 +92,7 @@ def _harness(
     registry: Any,
     *,
     tools: Optional[list[Tool]] = None,
-    max_turns: int = 8,
+    max_turns: Optional[int] = 8,
     max_tool_calls: Optional[int] = None,
     max_runtime_seconds: Optional[float] = None,
     max_tokens: Optional[int] = None,
@@ -285,6 +285,20 @@ def test_cancel_stops_active_model_stream_and_persists() -> None:
     assert persistence.checkpoints[-1].status == "cancelled"
     assert persistence.checkpoints[-1].metadata["reason"] == "cancelled"
     _assert_identity(plane.events)
+
+
+def test_unlimited_turns_and_tool_calls() -> None:
+    registry = ScriptedRegistry([_tool_turn("echo") for _ in range(41)] + [
+        [StreamEvent(type="text_delta", delta="done"), StreamEvent(type="done")],
+    ])
+
+    def echo() -> str:
+        return "ok"
+
+    _, plane, harness = _harness(registry, tools=[Tool(echo)], max_turns=None)
+    result = asyncio.run(harness.run("go"))
+    assert result.output_text == "done"
+    assert not any(event.event_type == "run_limit_exceeded" for event in plane.events)
 
 
 def test_max_turns_emits_run_limit_exceeded() -> None:

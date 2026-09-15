@@ -24,7 +24,7 @@ class HarnessConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    max_turns: int = Field(default=8, ge=1)
+    max_turns: Optional[int] = Field(default=8, ge=1)
     max_tool_calls: Optional[int] = Field(default=None, ge=1)
     max_runtime_seconds: Optional[float] = Field(default=None, gt=0)
     max_tokens: Optional[int] = Field(default=None, ge=1)

@@ -103,7 +103,7 @@ class UsageTotals(BaseModel):
 class RunLimits(BaseModel):
     """Optional caps for a single harness run."""
 
-    max_turns: int = Field(default_factory=lambda: HarnessConfig().max_turns)
+    max_turns: Optional[int] = Field(default_factory=lambda: HarnessConfig().max_turns)
     max_tool_calls: Optional[int] = None
     max_runtime_seconds: Optional[float] = None
     max_tokens: Optional[int] = None

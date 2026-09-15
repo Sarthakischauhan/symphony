@@ -20,14 +20,14 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert agent.learning_loop is not None
     assert any(addon.name == "learning" for addon in agent.harness.addons)
     defaults = CodingAgentConfig().harness
-    assert agent.harness.max_turns == defaults.max_turns == 24
-    assert agent.harness.limits.max_tool_calls == defaults.max_tool_calls
-    assert agent.harness.limits.max_tokens == defaults.max_tokens
-    assert agent.harness.limits.max_runtime_seconds == 600.0
+    assert agent.harness.max_turns is defaults.max_turns is None
+    assert agent.harness.limits.max_tool_calls is defaults.max_tool_calls is None
+    assert agent.harness.limits.max_tokens is defaults.max_tokens is None
+    assert agent.harness.limits.max_runtime_seconds is defaults.max_runtime_seconds is None
     settings_path = spawn_settings_path(tmp_path)
     assert settings_path.exists()
     saved = CodingAgentConfig.model_validate_json(settings_path.read_text(encoding="utf-8"))
-    assert saved.harness.max_turns == 24
+    assert saved.harness.max_turns is None
     assert saved.harness.tool_result_prune_tokens == 48_000
     assert saved.harness.context_compact_threshold == 16_000
     assert saved.harness.compaction_keep_recent == 10

@@ -1,8 +1,5 @@
 {
   "harness": {
-    "max_turns": 32,
-    "max_tool_calls": 60,
-    "max_runtime_seconds": 900,
     "max_parallel_tool_calls": 3,
     "max_spawn_depth": 1,
     "context_warn_threshold": 32000,

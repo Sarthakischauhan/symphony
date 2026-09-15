@@ -11,14 +11,15 @@ Pass the settings path or a loaded `CodingAgentConfig` into `CodingAgent` /
 See [`coding_agent/config.example.json`](../../coding_agent/config.example.json)
 for the user-facing shape.
 
+Coding agents have no turn, tool-call, runtime, or token limit by default.
+Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`,
+`harness.max_runtime_seconds`, and `harness.max_tokens` to `null` to disable them.
+
 ## Example file
 
 ```json
 {
   "harness": {
-    "max_turns": 32,
-    "max_tool_calls": 60,
-    "max_runtime_seconds": 900,
     "max_parallel_tool_calls": 3,
     "max_spawn_depth": 1,
     "context_warn_threshold": 32000,
