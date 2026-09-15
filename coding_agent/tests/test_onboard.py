@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -113,6 +114,35 @@ def test_onboard_saves_key_and_continues(tmp_path: Path) -> None:
     assert "OPENAI_API_KEY=sk-test-openai" in env_path.read_text(encoding="utf-8")
     assert not workspace_env_path(tmp_path).exists()
     assert configured_provider_ids() == ("openai",)
+
+
+def test_onboard_reuses_existing_api_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-existing")
+    monkeypatch.setenv("SYMPHONY_OPENAI_AUTH", "oauth")
+    app = OnboardApp(tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            methods = app.query_one("#provider-list", OptionList)
+            assert "Use existing API key" in str(methods.get_option_at_index(1).prompt)
+            await _choose_api_key(pilot, app)
+            assert not app.query_one("#provider-key", Input).display
+            await pilot.press("enter")
+            await pilot.pause()
+
+    asyncio.run(_run())
+
+    assert app.return_value == ("openai",)
+    assert os.environ["OPENAI_API_KEY"] == "sk-existing"
+    assert os.environ["SYMPHONY_OPENAI_AUTH"] == "key"
+    assert "SYMPHONY_OPENAI_AUTH=key" in global_env_path().read_text(
+        encoding="utf-8"
+    )
 
 
 def test_onboard_adds_two_providers(tmp_path: Path) -> None:

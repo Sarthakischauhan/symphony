@@ -23,6 +23,7 @@ from core_ai.providers.catalog import (
     ProviderSpec,
     configured_provider_ids,
     get_provider,
+    provider_api_key,
 )
 
 
@@ -64,7 +65,12 @@ def _oauth_methods(spec: ProviderSpec) -> list[Option]:
         oauth = _method_row("oauth", "Sign in with Claude", "Paste a setup-token or browser code")
     else:
         oauth = _method_row("oauth", "Sign in with xAI", "Device login for SuperGrok / Premium+")
-    key_label = "Paste endpoint" if not spec.requires_key else "Paste API key"
+    if not spec.requires_key:
+        key_label = "Paste endpoint"
+    elif provider_api_key(spec):
+        key_label = "Use existing API key"
+    else:
+        key_label = "Paste API key"
     return [oauth, _method_row("key", key_label, spec.env_key if spec.requires_key else spec.description)]
 
 
@@ -146,7 +152,7 @@ class ProviderWizard(Vertical):
         self._pending = provider_id
         self.query_one("#onboard-title", Static).update(spec.label)
         self.query_one("#onboard-subtitle", Static).update(
-            "Sign in with a subscription, or paste an API key."
+            "Sign in with a subscription, or use an API key."
         )
         self.query_one("#onboard-error", Static).update("")
         self.query_one("#onboard-detail", Static).display = False
@@ -268,6 +274,12 @@ class ProviderWizard(Vertical):
             self.show_oauth(self._pending)
             return
         if option_id == "method:key" and self._pending:
+            spec = get_provider(self._pending)
+            if spec.requires_key and provider_api_key(spec):
+                save_provider_auth(self._pending, "key")
+                self._highlight_continue = True
+                self.show_pick()
+                return
             self.show_key(self._pending)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
