@@ -62,6 +62,14 @@ class RunRequest(BaseModel):
 
 
 @dataclass(frozen=True)
+class RunSubmission:
+    """Accepted request plus resolved identity, suitable for queue serialization."""
+
+    context: RunContext
+    request: RunRequest
+
+
+@dataclass(frozen=True)
 class SupportedModel:
     """Optional allowlist entry that further restricts ``GET /models`` and ``POST /runs``.
 

@@ -34,10 +34,18 @@ Transport ordinals cover the whole combined stream, including child-agent
 events. Event bodies retain the original harness `run_id`, `seq`,
 `session_id`, `agent_id`, and `parent_id`.
 
-The default `RunManager` is process-local: it supports reconnects but does
-not coordinate multiple workers or survive a server restart. Distributed or
-restart-durable deployments should pass a shared-storage implementation as
-`run_manager=` and persist the harness event journal externally.
+The default `InProcessRunBackend` is a convenience backend for local use. It
+limits the process to 64 concurrent and 1,024 outstanding runs, but its run
+records and event histories remain in memory and are not shared across worker
+processes. Production applications should provide a `RunBackend` that owns
+queueing, shared run/event storage, retention, cancellation, and distributed
+session ordering.
+
+Set `RunManager(max_concurrent_runs=..., max_outstanding_runs=...)` to tune
+the local limits and pass it to `create_app(run_manager=...)`. At capacity,
+`POST /runs` returns `503` with `Retry-After: 1`. The local manager retains
+completed records and event history indefinitely, so long-lived services
+should use a backend with an explicit retention policy.
 
 ## Embed the framework
 
@@ -52,6 +60,42 @@ app = create_app(
     )
 )
 ```
+
+`create_app()` is the standalone convenience wrapper. To mount the routes in
+an application that owns authentication, middleware, and lifespan, include
+the router and manage the backend with the host app:
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from core_server import RunBackend, build_config, create_router, install_middlewares
+from my_application.run_backend import ApplicationRunBackend
+
+config = build_config(model_id="anthropic:claude-sonnet-5")
+backend: RunBackend = ApplicationRunBackend(config)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await backend.shutdown()
+
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(create_router(config, run_backend=backend), prefix="/agent")
+install_middlewares(app, config, prefix="/agent")
+```
+
+The backend receives a `RunSubmission` containing the validated request and
+resolved `RunContext`. A worker can execute it with `RunExecutor(config)` and
+an event sink connected to the backend's shared event store. The backend
+implements `submit`, `get`, `events`, `cancel`, and `shutdown`; see
+[`RunBackend`](../../core_server/src/core_server/runs.py) and
+[`RunExecutor`](../../core_server/src/core_server/execution.py) for the
+contracts. This keeps job dispatch, persistence, retention, and session
+coordination owned by the consuming application.
 
 No application tools are shipped or enabled by `core_server`. Applications
 may pass `core_harness.Tool` instances through `tools=`. Subagent spawning

@@ -128,7 +128,7 @@ def create_app(
     def health() -> dict[str, object]:
         return {"ok": True, "version": PACKAGE_VERSION}
 
-    @app.get("/models", response_model=ModelRegistryResponse)
+    @router.get("/models", response_model=ModelRegistryResponse)
     def models() -> ModelRegistryResponse:
         return model_registry_response(config)
 

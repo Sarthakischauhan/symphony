@@ -6,11 +6,11 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Awaitable, Callable, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Protocol
 
 from core_harness import ControlPlaneEvent, ControlPlaneEventType, EventSink
 
-from core_server.models import RunContext, RunStatus, RunStatusResponse
+from core_server.models import RunContext, RunStatus, RunStatusResponse, RunSubmission
 
 RunCoroutine = Callable[[str, EventSink], Awaitable[None]]
 
@@ -47,6 +47,50 @@ class RunRecord:
         )
 
 
+class RunState(Protocol):
+    """Read-only run state required by HTTP responses and authorization."""
+
+    run_id: str
+    context: RunContext
+    status: RunStatus
+
+    def response(self) -> RunStatusResponse:
+        ...
+
+
+class RunBackend(Protocol):
+    """Storage and scheduling contract consumed by the FastAPI router."""
+
+    async def submit(self, submission: RunSubmission) -> RunState:
+        """Accept the serializable request or raise ``RunCapacityError``."""
+        ...
+
+    async def get(self, run_id: str) -> RunState:
+        """Return current run state."""
+        ...
+
+    def events(
+        self,
+        run_id: str,
+        *,
+        after: int = 0,
+    ) -> AsyncIterator[tuple[int, ControlPlaneEvent]]:
+        """Replay events after the given one-based transport ordinal."""
+        ...
+
+    async def cancel(self, run_id: str) -> RunState:
+        """Cancel a run and return its resulting state."""
+        ...
+
+    async def shutdown(self) -> None:
+        """Release backend resources and stop process-owned work."""
+        ...
+
+
+class RunCapacityError(Exception):
+    """Raised when a local backend has reached its configured run capacity."""
+
+
 class ManagedEventSink(EventSink):
     """Append harness events to a run record without coupling to a client."""
 
@@ -81,15 +125,38 @@ class RunNotFoundError(KeyError):
 class RunManager:
     """Own run tasks, serialize sessions, and replay their emitted events."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        max_concurrent_runs: int | None = 64,
+        max_outstanding_runs: int | None = 1024,
+    ) -> None:
+        if max_concurrent_runs is not None and max_concurrent_runs <= 0:
+            raise ValueError("max_concurrent_runs must be positive or None")
+        if max_outstanding_runs is not None and max_outstanding_runs <= 0:
+            raise ValueError("max_outstanding_runs must be positive or None")
         self._runs: dict[str, RunRecord] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._lock = asyncio.Lock()
+        self._max_outstanding_runs = max_outstanding_runs
+        self._run_slots = (
+            asyncio.Semaphore(max_concurrent_runs)
+            if max_concurrent_runs is not None
+            else None
+        )
 
     async def start(self, context: RunContext, run: RunCoroutine) -> RunRecord:
         run_id = str(uuid.uuid4())
         record = RunRecord(run_id=run_id, context=context)
         async with self._lock:
+            outstanding = sum(
+                item.status in {"queued", "running"} for item in self._runs.values()
+            )
+            if (
+                self._max_outstanding_runs is not None
+                and outstanding >= self._max_outstanding_runs
+            ):
+                raise RunCapacityError("run capacity is full")
             self._runs[run_id] = record
             session_lock = self._session_locks.setdefault(
                 context.session_id,
@@ -113,6 +180,10 @@ class RunManager:
         task = record.task
         if task is not None and not task.done():
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         return record
 
     async def events(
@@ -157,14 +228,11 @@ class RunManager:
     ) -> None:
         try:
             async with session_lock:
-                record.status = "running"
-                record.started_at = time.time()
-                sink = ManagedEventSink(record)
-                await run(record.run_id, sink)
-                if record.status == "running":
-                    record.status = sink.terminal_status or "completed"
-                    record.error = sink.terminal_error
-                    record.finished_at = time.time()
+                if self._run_slots is None:
+                    await self._execute_in_slot(record, run)
+                else:
+                    async with self._run_slots:
+                        await self._execute_in_slot(record, run)
         except asyncio.CancelledError:
             if record.status not in {"completed", "failed", "cancelled"}:
                 record.status = "cancelled"
@@ -177,6 +245,20 @@ class RunManager:
         finally:
             async with record.condition:
                 record.condition.notify_all()
+
+    async def _execute_in_slot(
+        self,
+        record: RunRecord,
+        run: RunCoroutine,
+    ) -> None:
+        record.status = "running"
+        record.started_at = time.time()
+        sink = ManagedEventSink(record)
+        await run(record.run_id, sink)
+        if record.status == "running":
+            record.status = sink.terminal_status or "completed"
+            record.error = sink.terminal_error
+            record.finished_at = time.time()
 
 
 def parse_last_event_id(value: Optional[str], run_id: str) -> int:
@@ -195,6 +277,8 @@ def parse_last_event_id(value: Optional[str], run_id: str) -> int:
 __all__ = [
     "ManagedEventSink",
     "RunManager",
+    "RunBackend",
+    "RunCapacityError",
     "RunNotFoundError",
     "RunRecord",
     "parse_last_event_id",

@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 import pytest
 import uvicorn
+from fastapi import FastAPI
 from core_ai.models import list_models
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message, StreamEvent
@@ -21,12 +22,17 @@ from fastapi.testclient import TestClient
 
 from core_server import (
     RunContext,
+    RunCapacityError,
     RunManager,
+    RunExecutor,
     ServerConfig,
     SupportedModel,
     build_config,
     create_app,
+    create_router,
+    InProcessRunBackend,
     encode_sse,
+    install_middlewares,
 )
 
 
@@ -155,6 +161,68 @@ def test_health_reports_version() -> None:
     body = response.json()
     assert body["ok"] is True
     assert body["version"] == "0.4.0"
+
+
+def test_router_embeds_under_host_prefix_and_installs_matching_body_limit() -> None:
+    config = ServerConfig(
+        registry=FakeRegistry(),
+        model_id="openai:test",
+        max_request_bytes=64,
+    )
+    manager = RunManager()
+    backend = InProcessRunBackend(RunExecutor(config), manager=manager)
+    app = FastAPI()
+    install_middlewares(app, config, prefix="/agent")
+    app.include_router(create_router(config, run_backend=backend, prefix="/agent"))
+
+    with TestClient(app) as client:
+        health = client.get("/agent/health")
+        assert health.status_code == 200
+        accepted = client.post("/agent/runs", json={"message": "hi"})
+        assert accepted.status_code == 202
+        events_url = accepted.json()["events_url"]
+        assert events_url.startswith("/agent/runs/")
+        assert client.get(events_url).status_code == 200
+        assert client.post(
+            "/agent/runs",
+            content=json.dumps({"message": "x" * 100}),
+            headers={"content-type": "application/json"},
+        ).status_code == 413
+
+
+def test_run_manager_rejects_work_when_outstanding_capacity_is_full() -> None:
+    async def scenario() -> None:
+        manager = RunManager(max_concurrent_runs=1, max_outstanding_runs=1)
+        release = asyncio.Event()
+
+        async def execute(_: str, __: Any) -> None:
+            await release.wait()
+
+        first = await manager.start(RunContext(session_id="one"), execute)
+        await asyncio.sleep(0)
+        with pytest.raises(RunCapacityError):
+            await manager.start(RunContext(session_id="two"), execute)
+        release.set()
+        assert first.task is not None
+        await first.task
+        await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_router_maps_backend_capacity_to_retryable_service_unavailable() -> None:
+    registry = BlockingRegistry()
+    config = ServerConfig(registry=registry, model_id="openai:test")
+    backend = InProcessRunBackend(
+        RunExecutor(config),
+        manager=RunManager(max_concurrent_runs=1, max_outstanding_runs=1),
+    )
+    app = create_app(config, run_backend=backend)
+    with TestClient(app) as client:
+        assert client.post("/runs", json={"message": "occupy slot"}).status_code == 202
+        rejected = client.post("/runs", json={"message": "over capacity"})
+        assert rejected.status_code == 503
+        assert rejected.headers["retry-after"] == "1"
 
 
 def test_models_lists_registry_providers_and_catalog() -> None:
