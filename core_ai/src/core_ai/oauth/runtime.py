@@ -8,6 +8,7 @@ from core_ai.oauth.anthropic import OAUTH_BETA
 from core_ai.oauth.openai_codex import CODEX_BASE_URL, codex_request_headers
 from core_ai.oauth.store import load_valid_token
 from core_ai.oauth.types import OAuthToken
+from core_ai.oauth.xai import CLI_CHAT_PROXY_BASE_URL, grok_cli_request_headers
 
 
 @dataclass
@@ -48,7 +49,8 @@ def oauth_runtime_for(
         return OAuthRuntime(
             token=token,
             api_key=token.access_token,
-            extra_headers={},
+            base_url=CLI_CHAT_PROXY_BASE_URL,
+            extra_headers=grok_cli_request_headers(),
             use_bearer=True,
         )
     return None

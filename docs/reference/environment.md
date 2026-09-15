@@ -23,7 +23,7 @@ and similarly for Anthropic or Grok.
 | `OPENAI_API_KEY` | OpenAI (platform key). Alternatively sign in with ChatGPT via `/provider`. |
 | `ANTHROPIC_API_KEY` | Anthropic. Alternatively paste a `claude setup-token` via `/provider`. |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini |
-| `XAI_API_KEY` | Grok (API key). Alternatively sign in with xAI via `/provider`. |
+| `XAI_API_KEY` | Grok (console API key at `api.x.ai`). Alternatively sign in with xAI via `/provider` (CLI chat proxy). |
 
 ## Subscription login
 
@@ -34,7 +34,7 @@ OpenAI, Anthropic, and Grok:
 | --- | --- |
 | OpenAI | Browser PKCE against ChatGPT. Symphony listens on `http://localhost:1455/auth/callback`. If the tab does not bounce back, paste that localhost URL. Tokens call `https://chatgpt.com/backend-api/codex`. |
 | Anthropic | Preferred: run `claude setup-token` (Claude Code) and paste the token. Alternative: open the shown Claude authorize URL and paste the `code#state` from the redirect. |
-| Grok | RFC 8628 device login. Open the shown URL, enter the user code, wait. |
+| Grok | RFC 8628 device login. Open the shown URL, enter the user code, wait. Subscription traffic goes to `https://cli-chat-proxy.grok.com/v1`. An `XAI_API_KEY` still uses the console API at `https://api.x.ai/v1`. |
 
 Gemini, Ollama, and local servers stay API-key / endpoint based.
 

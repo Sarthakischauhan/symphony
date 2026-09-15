@@ -118,11 +118,10 @@ def build_default_registry(
         if not spec.requires_key and not base_url:
             continue
         kwargs: dict = {"api_key": api_key, "base_url": base_url}
-        if oauth is not None and spec.id == "openai":
+        if oauth is not None:
             kwargs["extra_headers"] = oauth.extra_headers
-        elif oauth is not None and spec.id == "anthropic":
-            kwargs["use_bearer"] = True
-            kwargs["extra_headers"] = oauth.extra_headers
+            if spec.id == "anthropic":
+                kwargs["use_bearer"] = True
         registry.register(
             spec.id,
             _PROVIDER_TYPES[spec.id](**kwargs),

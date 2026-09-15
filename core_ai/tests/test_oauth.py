@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import stat
@@ -24,11 +25,20 @@ from core_ai.oauth.pkce import extract_callback, generate_pkce
 from core_ai.oauth.runtime import oauth_runtime_for
 from core_ai.oauth.store import load_token, load_valid_token, save_token, token_path
 from core_ai.oauth.types import OAuthToken
-from core_ai.oauth.xai import AuthorizationPending, poll_device_token, request_device_code
+from core_ai.oauth.xai import (
+    CLI_CHAT_PROXY_BASE_URL,
+    TOKEN_AUTH_VALUE,
+    AuthorizationPending,
+    grok_cli_request_headers,
+    poll_device_token,
+    request_device_code,
+)
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.catalog import configured_provider_ids, provider_is_configured, get_provider
 from core_ai.providers.defaults import build_default_registry
+from core_ai.providers.grok import GrokProvider
 from core_ai.providers.openai import OpenAIProvider
+from core_ai.types import Message
 
 
 PROVIDER_ENV = (
@@ -72,6 +82,13 @@ def _b64url(payload: dict) -> str:
     import base64
 
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _chatgpt_access_token(account_id: str = "acct_live") -> str:
+    payload = {
+        "https://api.openai.com/auth": {"chatgpt_account_id": account_id},
+    }
+    return f"hdr.{_b64url(payload)}.sig"
 
 
 def test_extract_callback_url_and_code_state() -> None:
@@ -152,7 +169,11 @@ def test_exchange_codex_code_posts_pkce() -> None:
         assert "code_verifier=ver" in body
         return httpx.Response(
             200,
-            json={"access_token": "atok", "refresh_token": "rtok", "expires_in": 60},
+            json={
+                "access_token": _chatgpt_access_token("acct"),
+                "refresh_token": "rtok",
+                "expires_in": 60,
+            },
         )
 
     token = exchange_codex_code(
@@ -162,7 +183,36 @@ def test_exchange_codex_code_posts_pkce() -> None:
         expected_state="st",
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
-    assert token.access_token == "atok"
+    assert token.access_token
+    assert token.account_id == "acct"
+
+
+def test_exchange_codex_rejects_empty_state() -> None:
+    with pytest.raises(ValueError, match="state mismatch"):
+        exchange_codex_code(
+            "abc",
+            verifier="ver",
+            state="",
+            expected_state="st",
+        )
+
+
+def test_exchange_codex_requires_account_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            json={"access_token": "atok", "refresh_token": "rtok", "expires_in": 60},
+        )
+
+    with pytest.raises(RuntimeError, match="account id"):
+        exchange_codex_code(
+            "abc",
+            verifier="ver",
+            state="st",
+            expected_state="st",
+            client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
 
 
 def test_exchange_anthropic_code_posts_json() -> None:
@@ -183,6 +233,11 @@ def test_exchange_anthropic_code_posts_json() -> None:
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
     assert token.access_token == "claude-tok"
+
+
+def test_exchange_anthropic_rejects_empty_state() -> None:
+    with pytest.raises(ValueError, match="state mismatch"):
+        exchange_anthropic_code("abc", verifier="ver", expected_state="st")
 
 
 def test_xai_device_code_and_pending_poll() -> None:
@@ -271,7 +326,11 @@ def test_start_login_openai_paste_exchanges_code() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            json={"access_token": "live", "refresh_token": "r", "expires_in": 60},
+            json={
+                "access_token": _chatgpt_access_token("acct_live"),
+                "refresh_token": "r",
+                "expires_in": 60,
+            },
         )
 
     flow = start_login(
@@ -280,8 +339,9 @@ def test_start_login_openai_paste_exchanges_code() -> None:
         bind_loopback=False,
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
+    assert flow.prompt.paste_hint.startswith("http://localhost:1455/")
     token = flow.complete_from_paste("http://localhost:1455/auth/callback?code=abc&state=" + flow._state)
-    assert token.access_token == "live"
+    assert token.account_id == "acct_live"
     flow.close()
 
 
@@ -301,3 +361,134 @@ def test_token_from_response_sets_expiry() -> None:
 def test_oauth_runtime_none_without_token() -> None:
     assert oauth_runtime_for("openai") is None
     assert oauth_runtime_for("gemini") is None
+
+
+def test_oauth_runtime_openai_requires_account_id() -> None:
+    save_token("openai", OAuthToken(access_token="tok"))
+    with pytest.raises(RuntimeError, match="account id"):
+        oauth_runtime_for("openai")
+
+
+def test_load_valid_token_drops_expired_without_refresh() -> None:
+    save_token(
+        "anthropic",
+        OAuthToken(access_token="stale", expires_at=time.time() - 10),
+    )
+    assert load_valid_token("anthropic") is None
+
+
+def test_build_default_registry_uses_grok_cli_proxy() -> None:
+    save_token("grok", OAuthToken(access_token="tok"))
+    registry = build_default_registry()
+    provider = registry._providers["grok"]
+    assert isinstance(provider, GrokProvider)
+    assert provider.api_key == "tok"
+    assert provider.base_url == CLI_CHAT_PROXY_BASE_URL
+    headers = provider.extra_headers
+    assert headers["X-XAI-Token-Auth"] == TOKEN_AUTH_VALUE
+    assert headers["x-grok-client-identifier"] == "symphony"
+    assert headers["x-grok-client-version"] == grok_cli_request_headers()["x-grok-client-version"]
+    assert "User-Agent" in headers
+    assert "grok-shell" not in headers.values()
+
+
+def test_build_default_registry_grok_api_key_stays_on_api_xai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("XAI_API_KEY", "xai-env")
+    registry = build_default_registry()
+    provider = registry._providers["grok"]
+    assert isinstance(provider, GrokProvider)
+    assert provider.api_key == "xai-env"
+    assert provider.base_url == "https://api.x.ai/v1"
+    assert provider.extra_headers == {}
+    assert "X-XAI-Token-Auth" not in provider._headers
+
+
+def test_codex_responses_payload_shape() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["headers"] = {key.lower(): value for key, value in request.headers.items()}
+        captured["payload"] = json.loads(request.content)
+        body = "\n\n".join(
+            (
+                'data: {"type":"response.output_text.delta","content_index":0,"delta":"Hi"}',
+                "data: [DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> None:
+        provider = OpenAIProvider(
+            api_key="tok",
+            base_url=CODEX_BASE_URL,
+            extra_headers={"ChatGPT-Account-Id": "acct", "originator": "symphony"},
+            transport=httpx.MockTransport(handler),
+        )
+        async for _event in provider.stream(
+            "gpt-5.6-luna",
+            [
+                Message(role="system", content="Be concise."),
+                Message(role="user", content="Hello"),
+            ],
+            max_output_tokens=900,
+        ):
+            pass
+
+    asyncio.run(collect())
+    payload = captured["payload"]
+    assert captured["url"] == f"{CODEX_BASE_URL}/responses"
+    assert captured["headers"]["chatgpt-account-id"] == "acct"  # type: ignore[index]
+    assert payload["store"] is False
+    assert payload["stream"] is True
+    assert "max_output_tokens" not in payload
+    assert "temperature" not in payload
+    assert "max_tokens" not in payload
+    assert payload["instructions"] == "Be concise."
+    assert payload["include"] == ["reasoning.encrypted_content"]
+    assert payload["input"] == [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Hello"}],
+        }
+    ]
+
+
+def test_codex_stream_4xx_includes_body_detail() -> None:
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(400, json={"detail": "Store must be set to false"})
+
+    async def collect() -> None:
+        provider = OpenAIProvider(
+            api_key="tok",
+            base_url=CODEX_BASE_URL,
+            extra_headers={"ChatGPT-Account-Id": "acct"},
+            transport=httpx.MockTransport(handler),
+        )
+        async for _event in provider.stream(
+            "gpt-5.6-luna",
+            [Message(role="user", content="Hello")],
+        ):
+            pass
+
+    with pytest.raises(RuntimeError, match="Store must be set to false"):
+        asyncio.run(collect())
+
+
+def test_codex_refuses_without_account_header() -> None:
+
+    async def collect() -> None:
+        provider = OpenAIProvider(api_key="tok", base_url=CODEX_BASE_URL)
+        async for _event in provider.stream(
+            "gpt-5.6-luna",
+            [Message(role="user", content="Hello")],
+        ):
+            pass
+
+    with pytest.raises(RuntimeError, match="ChatGPT-Account-Id"):
+        asyncio.run(collect())

@@ -5,7 +5,9 @@
 - `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),
   Claude (`claude setup-token` or browser code), or xAI (device code)
   subscription. Tokens live in `~/.symphony/oauth/` and are used when no
-  API key is set. API keys still work.
+  API key is set. API keys still work. ChatGPT OAuth calls the Codex
+  backend (`store: false`, typed Responses input). xAI OAuth calls
+  `https://cli-chat-proxy.grok.com/v1`; `XAI_API_KEY` still uses `api.x.ai`.
 
 ## 0.1.0 — first public release
 

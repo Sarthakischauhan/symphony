@@ -22,6 +22,12 @@ def generate_state() -> str:
     return secrets.token_urlsafe(24)
 
 
+def reject_state_mismatch(*, state: str, expected_state: str) -> None:
+    """Reject a missing or mismatched CSRF `state` when one was issued."""
+    if expected_state and state != expected_state:
+        raise ValueError("OAuth state mismatch")
+
+
 def decode_jwt_payload(token: str) -> dict[str, Any]:
     parts = token.split(".")
     if len(parts) < 2 or not parts[1]:

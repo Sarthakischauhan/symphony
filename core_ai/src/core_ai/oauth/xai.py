@@ -13,10 +13,24 @@ DEVICE_CODE_URL = "https://auth.x.ai/oauth2/device/code"
 TOKEN_URL = "https://auth.x.ai/oauth2/token"
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 SCOPE = "openid profile email offline_access grok-cli:access api:access"
+CLI_CHAT_PROXY_BASE_URL = "https://cli-chat-proxy.grok.com/v1"
+TOKEN_AUTH_VALUE = "xai-grok-cli"
+CLIENT_IDENTIFIER = "symphony"
+CLIENT_VERSION = "0.1.0"
 FORM_HEADERS = {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json",
 }
+
+
+def grok_cli_request_headers() -> dict[str, str]:
+    """Headers the Grok CLI chat proxy expects for SuperGrok session tokens."""
+    return {
+        "X-XAI-Token-Auth": TOKEN_AUTH_VALUE,
+        "x-grok-client-identifier": CLIENT_IDENTIFIER,
+        "x-grok-client-version": CLIENT_VERSION,
+        "User-Agent": f"{CLIENT_IDENTIFIER}/{CLIENT_VERSION}",
+    }
 
 
 class AuthorizationPending(RuntimeError):

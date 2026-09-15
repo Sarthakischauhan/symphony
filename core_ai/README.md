@@ -47,7 +47,7 @@ key. Ollama and local servers are opt-in (no localhost probe):
 | OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | `OPENAI_MODEL` |
 | Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_BASE_URL` | `GEMINI_MODEL` |
-| Grok | `XAI_API_KEY` | `XAI_BASE_URL` | `GROK_MODEL` or `XAI_MODEL` |
+| Grok | `XAI_API_KEY` or xAI login | `XAI_BASE_URL` (API key: `api.x.ai`; login: CLI proxy) | `GROK_MODEL` or `XAI_MODEL` |
 | Ollama | `OLLAMA_ENABLED=1`, `OLLAMA_BASE_URL`, or `OLLAMA_HOST` | `OLLAMA_BASE_URL` | `OLLAMA_MODEL` |
 | Local | `LOCAL_BASE_URL` | — | `LOCAL_MODEL` |
 

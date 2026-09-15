@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -52,11 +53,20 @@ def save_token(provider_id: str, token: OAuthToken) -> Path:
         path.parent.chmod(_DIR_MODE)
     except OSError:
         pass
-    path.write_text(json.dumps(token.to_json(), indent=2) + "\n", encoding="utf-8")
+    payload = json.dumps(token.to_json(), indent=2) + "\n"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(path, flags, _FILE_MODE)
     try:
-        path.chmod(_FILE_MODE)
-    except OSError:
-        pass
+        try:
+            os.fchmod(fd, _FILE_MODE)
+        except (OSError, AttributeError, NotImplementedError):
+            pass
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = -1
+            handle.write(payload)
+    finally:
+        if fd >= 0:
+            os.close(fd)
     return path
 
 
@@ -78,7 +88,7 @@ def load_valid_token(
     if not token.is_expired():
         return token
     if not token.refresh_token:
-        return token if token.access_token else None
+        return None
     try:
         refreshed = refresh_stored_token(provider_id, token, client=client)
     except Exception:

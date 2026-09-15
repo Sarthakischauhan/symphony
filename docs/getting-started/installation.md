@@ -73,7 +73,7 @@ also sign in with a subscription; those tokens are stored in
 | OpenAI | `OPENAI_API_KEY` or ChatGPT login | `OPENAI_MODEL`, `OPENAI_BASE_URL` |
 | Anthropic | `ANTHROPIC_API_KEY` or `claude setup-token` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
-| Grok | `XAI_API_KEY` or xAI device login | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL` |
+| Grok | `XAI_API_KEY` or xAI device login | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL`. Subscription login uses `cli-chat-proxy.grok.com`; an API key uses `api.x.ai`. |
 | Ollama | `OLLAMA_ENABLED=1` or `OLLAMA_BASE_URL` | `OLLAMA_HOST`, `OLLAMA_MODEL` |
 | Local | `LOCAL_BASE_URL` | `LOCAL_API_KEY`, `LOCAL_MODEL` |
 

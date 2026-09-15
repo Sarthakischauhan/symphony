@@ -199,7 +199,7 @@ def start_login(
             title="Sign in with ChatGPT",
             instructions="A browser window should open. After you approve, Symphony captures the redirect. If it does not bounce back, paste the localhost URL here.",
             url=url,
-            paste_hint="https://localhost:1455/auth/callback?code=...",
+            paste_hint="http://localhost:1455/auth/callback?code=...",
         )
         flow = LoginFlow(prompt, verifier=verifier, state=state, client=client)
         if bind_loopback:

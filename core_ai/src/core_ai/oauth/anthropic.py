@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from core_ai.oauth.pkce import extract_callback, generate_pkce, generate_state
+from core_ai.oauth.pkce import extract_callback, generate_pkce, generate_state, reject_state_mismatch
 from core_ai.oauth.types import OAuthToken
 
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -67,8 +67,7 @@ def exchange_anthropic_code(
     client: httpx.Client | None = None,
 ) -> OAuthToken:
     code, state = extract_callback(pasted)
-    if expected_state and state and state != expected_state:
-        raise ValueError("OAuth state mismatch")
+    reject_state_mismatch(state=state, expected_state=expected_state)
     payload = _post_token(
         {
             "grant_type": "authorization_code",

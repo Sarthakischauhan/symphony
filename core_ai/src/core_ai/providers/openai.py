@@ -4,10 +4,11 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 from dotenv import load_dotenv
 
-from core_ai.content import split_text_and_images, to_openai_chat_content, to_openai_responses_content
+from core_ai.content import split_text_and_images, text_from_content, to_openai_chat_content, to_openai_responses_content
 from core_ai.models import get_model
+from core_ai.oauth.openai_codex import is_codex_base_url
 from core_ai.providers.base import BaseProvider
-from core_ai.providers.http import iter_sse_json, stream_with_retries
+from core_ai.providers.http import is_retryable_http_status, iter_sse_json, stream_with_retries
 from core_ai.types import Message, StreamEvent
 
 load_dotenv(override=True)
@@ -55,9 +56,9 @@ class OpenAIProvider(BaseProvider):
         reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         once = (
-            self._stream_chat
-            if self._uses_chat_completions(model_name)
-            else self._stream_responses
+            self._stream_responses
+            if self._uses_codex_responses() or not self._uses_chat_completions(model_name)
+            else self._stream_chat
         )
         async for event in stream_with_retries(
             lambda: once(model_name, messages, tools, max_output_tokens, reasoning_effort)
@@ -94,7 +95,7 @@ class OpenAIProvider(BaseProvider):
                 headers=self._headers,
                 timeout=60.0,
             ) as response:
-                response.raise_for_status()
+                await _raise_if_http_error(response)
                 async for data in iter_sse_json(response):
                     usage = data.get("usage")
                     if usage:
@@ -138,14 +139,23 @@ class OpenAIProvider(BaseProvider):
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
+        codex = self._uses_codex_responses()
+        if codex:
+            self._require_chatgpt_account_id()
+        input_items, instructions = self._responses_input(messages, codex=codex)
         payload: Dict[str, Any] = {
             "model": model_name,
             "stream": True,
-            "input": self._responses_input(messages),
+            "input": input_items,
         }
+        if codex:
+            payload["store"] = False
+            payload["include"] = ["reasoning.encrypted_content"]
+            if instructions:
+                payload["instructions"] = instructions
         if model_name.startswith("gpt-5"):
             payload["reasoning"] = {"effort": reasoning_effort or "medium", "summary": "auto"}
-        if max_output_tokens is not None:
+        if max_output_tokens is not None and not codex:
             payload["max_output_tokens"] = max_output_tokens
         if tools:
             payload["tools"] = [{"type": "function", **tool} for tool in tools]
@@ -157,7 +167,7 @@ class OpenAIProvider(BaseProvider):
                 "POST", f"{self.base_url}/responses", json=payload,
                 headers=self._headers, timeout=60.0,
             ) as response:
-                response.raise_for_status()
+                await _raise_if_http_error(response)
                 async for data in iter_sse_json(response):
                     event_type = data.get("type")
                     if event_type == "response.reasoning_summary_text.delta":
@@ -266,6 +276,15 @@ class OpenAIProvider(BaseProvider):
         headers.update(self.extra_headers)
         return headers
 
+    def _uses_codex_responses(self) -> bool:
+        return is_codex_base_url(self.base_url) or bool(
+            self.extra_headers.get("ChatGPT-Account-Id")
+        )
+
+    def _require_chatgpt_account_id(self) -> None:
+        if not (self.extra_headers.get("ChatGPT-Account-Id") or "").strip():
+            raise RuntimeError("Codex requests require the ChatGPT-Account-Id header")
+
     @staticmethod
     def _uses_chat_completions(model_name: str) -> bool:
         model = get_model("openai", model_name)
@@ -316,22 +335,36 @@ class OpenAIProvider(BaseProvider):
         return items
 
     @staticmethod
-    def _responses_input(messages: List[Message]) -> List[Dict[str, Any]]:
+    def _responses_input(
+        messages: List[Message],
+        *,
+        codex: bool = False,
+    ) -> tuple[List[Dict[str, Any]], str]:
         items: List[Dict[str, Any]] = []
         pending_images: List[Dict[str, Any]] = []
+        instructions_parts: List[str] = []
+
+        def content_for(body: Any, role: str) -> Any:
+            return to_openai_responses_content(body, role=role, typed_parts=codex)
+
+        def as_message(role: str, content: Any) -> Dict[str, Any]:
+            item: Dict[str, Any] = {"role": role, "content": content}
+            if codex:
+                item["type"] = "message"
+            return item
 
         def flush_images() -> None:
             if not pending_images:
                 return
-            items.append(
-                {
-                    "role": "user",
-                    "content": to_openai_responses_content(list(pending_images)),
-                }
-            )
+            items.append(as_message("user", content_for(list(pending_images), "user")))
             pending_images.clear()
 
         for message in messages:
+            if codex and message.role == "system":
+                text = text_from_content(message.content)
+                if text:
+                    instructions_parts.append(text)
+                continue
             if message.role == "tool":
                 text, images = split_text_and_images(message.content)
                 items.append(
@@ -345,15 +378,9 @@ class OpenAIProvider(BaseProvider):
                 continue
             flush_images()
             if message.content:
-                items.append(
-                    {
-                        "role": message.role,
-                        "content": to_openai_responses_content(
-                            message.content,
-                            role=message.role,
-                        ),
-                    }
-                )
+                content = content_for(message.content, message.role)
+                if content:
+                    items.append(as_message(message.role, content))
             for tool_call in message.tool_calls or []:
                 function = tool_call.get("function") or {}
                 items.append(
@@ -365,7 +392,7 @@ class OpenAIProvider(BaseProvider):
                     }
                 )
         flush_images()
-        return items
+        return items, "\n\n".join(instructions_parts)
 
 
 def _http_error(response: httpx.Response) -> str:
@@ -379,4 +406,21 @@ def _http_error(response: httpx.Response) -> str:
             return str(error["message"])
         if isinstance(error, str) and error:
             return error
+        detail = payload.get("detail")
+        if isinstance(detail, str) and detail:
+            return detail
     return (response.text or "").strip() or f"HTTP {response.status_code}"
+
+
+async def _raise_if_http_error(response: httpx.Response) -> None:
+    if response.status_code < 400:
+        return
+    await response.aread()
+    detail = _http_error(response)
+    if is_retryable_http_status(response.status_code):
+        raise httpx.HTTPStatusError(
+            detail,
+            request=response.request,
+            response=response,
+        )
+    raise RuntimeError(detail)

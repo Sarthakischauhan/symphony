@@ -6,7 +6,13 @@ from urllib.parse import urlencode
 
 import httpx
 
-from core_ai.oauth.pkce import decode_jwt_payload, extract_callback, generate_pkce, generate_state
+from core_ai.oauth.pkce import (
+    decode_jwt_payload,
+    extract_callback,
+    generate_pkce,
+    generate_state,
+    reject_state_mismatch,
+)
 from core_ai.oauth.types import OAuthToken
 
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -19,6 +25,25 @@ SCOPE = "openid profile email offline_access"
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 ORIGINATOR = "symphony"
 JWT_AUTH_CLAIM = "https://api.openai.com/auth"
+
+
+def is_codex_base_url(value: str) -> bool:
+    """True when `value` is the ChatGPT Codex Responses host."""
+    normalized = (value or "").strip().rstrip("/").lower()
+    return "/backend-api/codex" in normalized
+
+
+def require_chatgpt_account_id(token: OAuthToken) -> str:
+    """Return the ChatGPT account id, extracting it from JWTs when needed."""
+    account_id = (token.account_id or "").strip() or chatgpt_account_id(
+        token.access_token, token.id_token
+    )
+    if not account_id:
+        raise RuntimeError(
+            "ChatGPT login did not include an account id; ChatGPT-Account-Id is required"
+        )
+    token.account_id = account_id
+    return account_id
 
 
 def chatgpt_account_id(*tokens: str) -> str:
@@ -87,8 +112,7 @@ def exchange_codex_code(
     expected_state: str = "",
     client: httpx.Client | None = None,
 ) -> OAuthToken:
-    if expected_state and state and state != expected_state:
-        raise ValueError("OAuth state mismatch")
+    reject_state_mismatch(state=state, expected_state=expected_state)
     payload = _post_token(
         {
             "grant_type": "authorization_code",
@@ -102,6 +126,7 @@ def exchange_codex_code(
     token = token_from_response(payload)
     if not token.access_token:
         raise RuntimeError("OpenAI did not return an access token")
+    require_chatgpt_account_id(token)
     return token
 
 
@@ -125,6 +150,7 @@ def refresh_codex_token(
         refreshed.refresh_token = token.refresh_token
     if not refreshed.account_id:
         refreshed.account_id = token.account_id
+    require_chatgpt_account_id(refreshed)
     return refreshed
 
 
@@ -133,13 +159,11 @@ def parse_codex_callback(value: str) -> tuple[str, str]:
 
 
 def codex_request_headers(token: OAuthToken) -> dict[str, str]:
-    headers = {
+    return {
         "OpenAI-Beta": "responses=experimental",
         "originator": ORIGINATOR,
+        "ChatGPT-Account-Id": require_chatgpt_account_id(token),
     }
-    if token.account_id:
-        headers["ChatGPT-Account-Id"] = token.account_id
-    return headers
 
 
 def _post_token(data: dict[str, str], *, client: Optional[httpx.Client]) -> dict[str, Any]:

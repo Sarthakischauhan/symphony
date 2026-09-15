@@ -42,6 +42,11 @@ _SSL_MAC_MARKERS = (
 _RETRYABLE_HTTP_STATUSES = {408, 409, 429}
 
 
+def is_retryable_http_status(status: int) -> bool:
+    """True for statuses `stream_with_retries` will retry."""
+    return status in _RETRYABLE_HTTP_STATUSES or status >= 500
+
+
 class RetryableStreamError(RuntimeError):
     """A provider-reported stream failure that is safe to request again."""
 
@@ -98,7 +103,7 @@ def is_retryable(exc: BaseException) -> bool:
     status = _http_status(exc)
     if status is None:
         return False
-    return status in _RETRYABLE_HTTP_STATUSES or status >= 500
+    return is_retryable_http_status(status)
 
 
 def retry_reason_for(exc: BaseException) -> str:
