@@ -1240,7 +1240,7 @@ def test_text_then_tools_then_text_keeps_stream_order(
             kinds = [
                 type(item).__name__
                 for item in app._process.timeline_items()
-                if not isinstance(item, ThinkingStatus)
+                if type(item).__name__ not in {"ThinkingStatus", "ProcessComplete"}
             ]
             assert kinds == [
                 "AssistantMessage",
@@ -1538,18 +1538,11 @@ def test_tui_maps_stream_usage_and_read_file_events(
             await pilot.pause()
 
             thinking = app.query_one(ThinkingStatus)
-            assert not list(app.query(ReadFileWidget))
-            assert not list(app.query(ReasoningWidget))
+            assert list(app.query(ReadFileWidget))
             assert "120 in / 30 out" in str(thinking.render())
             assert "18 reasoning" in str(thinking.render())
             assert app._assistant is not None
-            summary = app.query_one(ToolCallSummary)
-            assert summary.call_ids == ["read-1"]
-            assert "1 thought" in summary.title
-            await pilot.click(summary)
-            await pilot.pause()
-            assert summary.is_expanded
-            assert "✓  Read  src/app.py" in summary.render().plain
+            assert "inspect it" in app._assistant.message_text.lower()
 
             app._presenter.handle(
                 "run_completed",
@@ -1563,15 +1556,24 @@ def test_tui_maps_stream_usage_and_read_file_events(
                 },
             )
             await pilot.pause()
+            assert not list(app.query(ReadFileWidget))
+            assert not list(app.query(ReasoningWidget))
             process = app.query_one(RunProcess)
             assert not list(process.query(".process-complete"))
             assert app.query_one(".process-complete") is not None
-            assert not list(process.query(ReasoningWidget))
-            summary = process.query_one(ToolCallSummary)
-            assert "1 thought" in summary.title
-            await pilot.click(summary)
-            assert summary.is_expanded
-            assert "Inspecting the requested file" not in summary.render().plain
+            summaries = list(process.query(ToolCallSummary))
+            tool_summary = next(summary for summary in summaries if summary.count)
+            thought_summary = next(
+                summary for summary in summaries if "thought" in summary.title
+            )
+            assert tool_summary.call_ids == ["read-1"]
+            await pilot.click(tool_summary)
+            await pilot.pause()
+            assert tool_summary.is_expanded
+            assert "✓  Read  src/app.py" in tool_summary.render().plain
+            await pilot.click(thought_summary)
+            assert thought_summary.is_expanded
+            assert "Inspecting the requested file" not in thought_summary.render().plain
 
     asyncio.run(_run())
 
@@ -1717,6 +1719,9 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
 
             app.update_tool("bash-1", status="done", result="clean")
             await pilot.pause()
+            assert list(app.query(BashToolWidget))
+            app.set_assistant("Command finished.", new=True)
+            await pilot.pause()
             assert not list(app.query(BashToolWidget))
             summary = app.query_one(ToolCallSummary)
             assert summary.call_ids == ["bash-1"]
@@ -1839,6 +1844,9 @@ def test_tool_updates_keep_rows_stable_until_manually_expanded(
             app.update_tool("patch-1", status="done", result="patched src/app.py")
             await pilot.pause()
             assert len(set(heights)) == 1
+            assert list(app.query(PatchDiffWidget))
+            app.set_assistant("Patched the file.", new=True)
+            await pilot.pause()
             assert not list(app.query(PatchDiffWidget))
             assert isinstance(app._tools["patch-1"], ToolCallSummary)
             app.update_tool("patch-1", status="done", result="patched src/app.py")
@@ -2786,6 +2794,9 @@ def test_patch_events_render_a_specialized_diff_widget(
                 },
             )
             await pilot.pause()
+            assert list(app.query(PatchDiffWidget))
+            app.set_assistant("Patched greeting.py.", new=True)
+            await pilot.pause()
             assert not list(app.query(PatchDiffWidget))
             summary = app.query_one(ToolCallSummary)
             assert summary.call_ids == ["patch-1"]
@@ -3082,6 +3093,7 @@ def test_explored_splits_on_interleaved_text(
                 app.update_tool(
                     call_id, arguments={"path": f"a{index}.py"}, status="done", result="ok"
                 )
+            await pilot.pause()
             assert len(list(app.query(ToolCallWidget))) == 3
             assert not list(app.query(ToolCallSummary))
 

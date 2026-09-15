@@ -265,7 +265,7 @@ class AssistantMessage(_SelectableStatic):
             self._markdown = themed_markdown(content or " ")
             body = self._markdown
         self._invalidate_render_cache(layout=True)
-        self.update(body)
+        self.update(Group(body))
 
     def finish_stream(self) -> None:
         if self._streaming:

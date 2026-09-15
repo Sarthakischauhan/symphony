@@ -414,8 +414,10 @@ def test_assistant_message_is_plain_text_without_agent_chrome() -> None:
         assert "SYMPHONY" not in rendered
         assert "◆" not in rendered
         assert message.archive_text() == message.message_text
-    assert "Inspecting the CSS for spacing issues." in str(streaming.render())
-    assert "Spacing is now correct." in str(finished.render())
+        assert "SYMPHONY" not in message.archive_text()
+        assert "◆" not in message.archive_text()
+    assert streaming.message_text == "Inspecting the CSS for spacing issues."
+    assert finished.message_text == "Spacing is now correct."
 
 
 def test_motion_helpers_are_safe_without_an_app() -> None:

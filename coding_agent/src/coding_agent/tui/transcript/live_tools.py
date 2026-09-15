@@ -141,7 +141,7 @@ def reconcile_live_tools(
             ),
             final=final,
         )
-        if not folded:
+        if not folded and final:
             items = snapshot()
             folded = _fold_ready_stretch(
                 snapshot,
@@ -150,7 +150,7 @@ def reconcile_live_tools(
                 tools,
                 members=segment_thought_stretches(items),
                 collectable=is_collectable_thought,
-                final=final,
+                final=True,
             )
         if not folded:
             return

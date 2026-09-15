@@ -72,12 +72,24 @@ class TranscriptSurface:
         if limit < 0:
             return
 
+        seen_process = False
         for turn in self._transcript_turns:
             reconcile_live_tools(turn, limit=limit, final=final)
             for item in turn.timeline_items():
                 if isinstance(item, RunProcess):
                     tools = self._tools if item is self._process else None
-                    reconcile_live_tools(item, tools, limit=limit, final=final or item.completed)
+                    reconcile_live_tools(
+                        item, tools, limit=limit, final=final or item.completed
+                    )
+                    if item is self._process:
+                        seen_process = True
+        if not seen_process and self._process is not None:
+            reconcile_live_tools(
+                self._process,
+                self._tools,
+                limit=limit,
+                final=final or self._process.completed,
+            )
 
     def finalize_transcript_history(self) -> None:
         """Apply condensation and freeze completed message renders."""
