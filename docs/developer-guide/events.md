@@ -114,5 +114,8 @@ are **not** members of `ControlPlaneEventType`; consumers should treat unknown
 
 ## Transport
 
-Over SSE (`core-server`), the same body is sent with `event: <event_type>` and
-`id: <run_id>:<seq>`.
+Over SSE (`core-server`), the same body is sent with `event: <event_type>`.
+Its transport ID is `<server_run_id>:<ordinal>`, where the ordinal orders the
+combined parent and child stream. Send that value as `Last-Event-ID`, or use
+`?after=<ordinal>`, to resume without replaying already observed events. The
+harness identity and sequence remain unchanged inside the event body.

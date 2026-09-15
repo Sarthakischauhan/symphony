@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 
 from core_ai.registry import ModelRegistry
 from core_harness import (
@@ -16,10 +17,31 @@ from core_harness import (
     Tool,
     compaction_from_config,
 )
+from fastapi import Request
 
-from core_server.models import SupportedModel
+from core_server.models import RunContext, SupportedModel, ThinkingLevel
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful agent."
+
+AddonFactory = Callable[[RunContext], Addon]
+SubagentFactory = Callable[[RunContext], SubagentAddon]
+RunContextResolver = Callable[[Request, Optional[str]], Awaitable[RunContext]]
+RunAuthorizer = Callable[[Request, RunContext], Awaitable[bool]]
+
+
+async def anonymous_run_context(
+    request: Request,
+    requested_session_id: Optional[str],
+) -> RunContext:
+    """Single-tenant default; authenticated apps should replace this resolver."""
+    del request
+    return RunContext(session_id=requested_session_id or str(uuid.uuid4()))
+
+
+async def allow_run_access(request: Request, context: RunContext) -> bool:
+    """Single-tenant default authorizer."""
+    del request, context
+    return True
 
 
 @dataclass
@@ -37,9 +59,12 @@ class ServerConfig:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     tools: List[Tool] = field(default_factory=list)
     persistence: Optional[Persistence] = None
-    addons: List[Addon] = field(default_factory=list)
+    addon_factories: List[AddonFactory] = field(default_factory=list)
     enable_subagents: bool = False
-    reasoning_effort: Optional[str] = None
+    subagent_factory: Optional[SubagentFactory] = None
+    resolve_run_context: RunContextResolver = anonymous_run_context
+    authorize_run: RunAuthorizer = allow_run_access
+    reasoning_effort: Optional[ThinkingLevel] = None
     max_turns: int = 8
     max_tool_calls: Optional[int] = None
     max_runtime_seconds: Optional[float] = None
@@ -60,8 +85,6 @@ class ServerConfig:
     max_message_chars: int = 32_000
     max_history_messages: int = 100
     max_history_chars: int = 500_000
-    sse_queue_size: int = 256
-    disconnect_cancel_timeout: float = 5.0
 
     def __post_init__(self) -> None:
         self.supported_models = list(self.supported_models)
@@ -80,8 +103,6 @@ class ServerConfig:
             "max_message_chars": self.max_message_chars,
             "max_history_messages": self.max_history_messages,
             "max_history_chars": self.max_history_chars,
-            "sse_queue_size": self.sse_queue_size,
-            "disconnect_cancel_timeout": self.disconnect_cancel_timeout,
         }
         for name, value in positive.items():
             if value <= 0:
@@ -113,7 +134,7 @@ class ServerConfig:
             values["context_limits"] = self.context_limits
         return HarnessConfig(**values)
 
-    def addons_for_run(self) -> list[Addon]:
+    def addons_for_run(self, context: RunContext) -> list[Addon]:
         """Persistence, compaction, and spawn add-ons for one ``CoreHarness``."""
         addons: list[Addon] = []
         if self.persistence is not None:
@@ -123,17 +144,11 @@ class ServerConfig:
             or self.context_target_tokens is not None
         ):
             addons.append(compaction_from_config(self.to_harness_config()))
-        if self.enable_subagents:
-            addons.append(SubagentAddon())
-        addons.extend(self.addons)
+        if self.enable_subagents or self.subagent_factory is not None:
+            factory = self.subagent_factory or (lambda _: SubagentAddon())
+            addons.append(factory(context))
+        addons.extend(factory(context) for factory in self.addon_factories)
         return addons
-
-    def model_facing_tool_names(self) -> list[str]:
-        names = [tool.name for tool in self.tools]
-        if self.enable_subagents and "spawn_agent" not in names:
-            names.append("spawn_agent")
-        return names
-
 
 def build_config(
     *,
@@ -143,9 +158,12 @@ def build_config(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     tools: Optional[List[Tool]] = None,
     persistence: Optional[Persistence] = None,
-    addons: Optional[List[Addon]] = None,
+    addon_factories: Optional[List[AddonFactory]] = None,
     enable_subagents: bool = False,
-    reasoning_effort: Optional[str] = None,
+    subagent_factory: Optional[SubagentFactory] = None,
+    resolve_run_context: RunContextResolver = anonymous_run_context,
+    authorize_run: RunAuthorizer = allow_run_access,
+    reasoning_effort: Optional[ThinkingLevel] = None,
     max_turns: int = 8,
     max_tool_calls: Optional[int] = None,
     max_runtime_seconds: Optional[float] = None,
@@ -155,8 +173,6 @@ def build_config(
     max_message_chars: int = 32_000,
     max_history_messages: int = 100,
     max_history_chars: int = 500_000,
-    sse_queue_size: int = 256,
-    disconnect_cancel_timeout: float = 5.0,
     context_limits: Optional[Dict[str, int]] = None,
     context_warn_threshold: Optional[int] = None,
     context_compact_threshold: Optional[int] = None,
@@ -178,8 +194,11 @@ def build_config(
         system_prompt=system_prompt,
         tools=list(tools or []),
         persistence=persistence,
-        addons=list(addons or []),
+        addon_factories=list(addon_factories or []),
         enable_subagents=enable_subagents,
+        subagent_factory=subagent_factory,
+        resolve_run_context=resolve_run_context,
+        authorize_run=authorize_run,
         reasoning_effort=reasoning_effort,
         max_turns=max_turns,
         max_tool_calls=max_tool_calls,
@@ -190,8 +209,6 @@ def build_config(
         max_message_chars=max_message_chars,
         max_history_messages=max_history_messages,
         max_history_chars=max_history_chars,
-        sse_queue_size=sse_queue_size,
-        disconnect_cancel_timeout=disconnect_cancel_timeout,
         context_limits=context_limits,
         context_warn_threshold=context_warn_threshold,
         context_compact_threshold=context_compact_threshold,

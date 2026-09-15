@@ -1,162 +1,135 @@
-"""FastAPI application that runs core_harness and streams its events."""
+"""FastAPI application for connection-independent harness runs."""
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from typing import List, Optional
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
-from core_ai.types import Message
-from core_harness import CoreHarness, HarnessCancelled, HarnessLimitExceeded
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
 
 from core_server.catalog import is_accepted_model, model_registry_response
+from core_server.backend import InProcessRunBackend
 from core_server.config import ServerConfig
-from core_server.models import ModelRegistryResponse
+from core_server.execution import RunExecutor
+from core_server.models import (
+    ModelRegistryResponse,
+    RunAccepted,
+    RunRequest,
+    RunSubmission,
+    RunStatusResponse,
+)
 from core_server.request_limits import RequestSizeLimitMiddleware
-from core_server.sse import SSEEventSink, encode_sse
+from core_server.runs import (
+    RunBackend,
+    RunCapacityError,
+    RunManager,
+    RunNotFoundError,
+    RunState,
+    parse_last_event_id,
+)
+from core_server.sse import encode_sse
 
-logger = logging.getLogger(__name__)
-
-PACKAGE_VERSION = "0.3.0"
-
-
-class RunRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    message: str = Field(..., min_length=1)
-    conversation: Optional[List[Message]] = None
-    session_id: Optional[str] = None
-    model_id: Optional[str] = Field(default=None, min_length=1)
-    reasoning_effort: Optional[str] = Field(default=None, min_length=1)
+PACKAGE_VERSION = "0.4.0"
 
 
-def _validate_request(request: RunRequest, config: ServerConfig) -> None:
-    if len(request.message) > config.max_message_chars:
+def _validate_request(run: RunRequest, config: ServerConfig) -> None:
+    if len(run.message) > config.max_message_chars:
         raise HTTPException(status_code=413, detail="Message is too large")
-    history = request.conversation or []
+    history = run.conversation or []
     if len(history) > config.max_history_messages:
         raise HTTPException(status_code=413, detail="Conversation has too many messages")
     history_chars = sum(len(message.model_dump_json()) for message in history)
     if history_chars > config.max_history_chars:
         raise HTTPException(status_code=413, detail="Conversation history is too large")
-    if request.model_id and not is_accepted_model(config, request.model_id):
+    if run.model_id and not is_accepted_model(config, run.model_id):
         raise HTTPException(status_code=422, detail="Unsupported model_id")
 
 
-def _build_harness(
-    request: RunRequest,
+async def _authorized_record(
+    request: Request,
     config: ServerConfig,
-    sink: SSEEventSink,
-) -> CoreHarness:
-    addons = config.addons_for_run()
-    return CoreHarness(
-        registry=config.registry,
-        model_id=request.model_id or config.model_id,
-        system_prompt=config.system_prompt,
-        config=config.to_harness_config(),
-        reasoning_effort=request.reasoning_effort or config.reasoning_effort,
-        tools=list(config.tools),
-        sink=sink,
-        session_id=request.session_id,
-        agent_id=request.session_id,
-        addons=addons or None,
-    )
-
-
-async def _run_harness(
-    harness: CoreHarness,
-    request: RunRequest,
-    plane: SSEEventSink,
-) -> None:
+    manager: RunBackend,
+    run_id: str,
+) -> RunState:
     try:
-        await harness.run(
-            request.message,
-            conversation=request.conversation,
-            session_id=request.session_id,
-        )
-    except (HarnessCancelled, asyncio.CancelledError):
-        logger.info("Harness run cancelled")
-    except HarnessLimitExceeded as exc:
-        logger.warning("Harness run limit exceeded: %s", exc)
-    except Exception:
-        # The harness owns terminal failure events; the server records the
-        # exception without emitting a duplicate run_failed event.
-        logger.exception("Harness run failed")
-    finally:
-        await plane.close()
+        record = await manager.get(run_id)
+    except RunNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found") from None
+    if not await config.authorize_run(request, record.context):
+        raise HTTPException(status_code=404, detail="Run not found")
+    return record
 
 
-async def _iter_sse_frames(
-    plane: SSEEventSink,
-    task: asyncio.Task[None],
+def create_router(
+    config: ServerConfig,
     *,
-    disconnect_cancel_timeout: float,
-):
-    stream_completed = False
-    try:
-        while True:
-            event = await plane.queue.get()
-            if event is None:
-                stream_completed = True
-                break
-            yield encode_sse(event)
-    finally:
-        if stream_completed:
-            await task
-        elif not task.done():
-            await plane.disconnect()
-            task.cancel()
-            try:
-                await asyncio.wait_for(task, timeout=disconnect_cancel_timeout)
-            except asyncio.TimeoutError:
-                logger.warning("Harness cancellation timed out")
-            except asyncio.CancelledError:
-                raise
+    run_backend: RunBackend,
+    prefix: str = "",
+) -> APIRouter:
+    """Create routes for mounting in an application-owned FastAPI app.
 
+    The host application owns middleware and lifespan. In particular, it must
+    call ``run_backend.shutdown()`` when its lifespan ends.
+    """
+    router = APIRouter(prefix=prefix)
 
-def create_app(config: ServerConfig) -> FastAPI:
-    app = FastAPI(title="core-server", version=PACKAGE_VERSION)
-    app.add_middleware(
-        RequestSizeLimitMiddleware,
-        max_bytes=config.max_request_bytes,
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=config.cors_origins,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    @app.get("/health")
+    @router.get("/health")
     def health() -> dict[str, object]:
-        return {
-            "ok": True,
-            "model_id": config.model_id,
-            "tools": config.model_facing_tool_names(),
-        }
+        return {"ok": True, "version": PACKAGE_VERSION}
 
-    @app.get("/models", response_model=ModelRegistryResponse)
+    @router.get("/models", response_model=ModelRegistryResponse)
     def models() -> ModelRegistryResponse:
         return model_registry_response(config)
 
-    @app.post("/runs")
-    async def start_run(request: RunRequest) -> StreamingResponse:
-        _validate_request(request, config)
-        plane = SSEEventSink(max_queue_size=config.sse_queue_size)
-        harness = _build_harness(request, config, plane)
+    @router.post(
+        "/runs",
+        response_model=RunAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def start_run(run: RunRequest, request: Request) -> RunAccepted:
+        _validate_request(run, config)
+        context = await config.resolve_run_context(request, run.session_id)
+        if not context.session_id.strip():
+            raise HTTPException(status_code=500, detail="Run context has an empty session_id")
 
-        async def event_stream():
-            task = asyncio.create_task(_run_harness(harness, request, plane))
-            async for frame in _iter_sse_frames(
-                plane,
-                task,
-                disconnect_cancel_timeout=config.disconnect_cancel_timeout,
-            ):
-                yield frame
+        try:
+            record = await run_backend.submit(RunSubmission(context=context, request=run))
+        except RunCapacityError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Run capacity is full",
+                headers={"Retry-After": "1"},
+            ) from None
+        return RunAccepted(
+            run_id=record.run_id,
+            session_id=context.session_id,
+            status=record.status,
+            events_url=request.url_for(
+                "stream_run_events",
+                run_id=record.run_id,
+            ).path,
+        )
+
+    @router.get("/runs/{run_id}", response_model=RunStatusResponse)
+    async def get_run(run_id: str, request: Request) -> RunStatusResponse:
+        record = await _authorized_record(request, config, run_backend, run_id)
+        return record.response()
+
+    @router.get("/runs/{run_id}/events")
+    async def stream_run_events(
+        run_id: str,
+        request: Request,
+        after: int = Query(default=0, ge=0),
+        last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    ) -> StreamingResponse:
+        await _authorized_record(request, config, run_backend, run_id)
+        cursor = max(after, parse_last_event_id(last_event_id, run_id))
+
+        async def event_stream() -> AsyncIterator[str]:
+            async for ordinal, event in run_backend.events(run_id, after=cursor):
+                yield encode_sse(event, event_id=f"{run_id}:{ordinal}")
 
         return StreamingResponse(
             event_stream(),
@@ -168,4 +141,59 @@ def create_app(config: ServerConfig) -> FastAPI:
             },
         )
 
+    @router.post("/runs/{run_id}/cancel", response_model=RunStatusResponse)
+    async def cancel_run(run_id: str, request: Request) -> RunStatusResponse:
+        await _authorized_record(request, config, run_backend, run_id)
+        record = await run_backend.cancel(run_id)
+        return record.response()
+
+    return router
+
+
+def install_middlewares(app: FastAPI, config: ServerConfig, *, prefix: str = "") -> None:
+    """Install core-server's default request-size and CORS middleware."""
+    path = f"{prefix.rstrip('/')}/runs" or "/runs"
+    app.add_middleware(RequestSizeLimitMiddleware, max_bytes=config.max_request_bytes, path=path)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+def create_app(
+    config: ServerConfig,
+    *,
+    run_backend: RunBackend | None = None,
+    run_manager: RunManager | None = None,
+) -> FastAPI:
+    """Build a standalone FastAPI app; embedding apps should use ``create_router``."""
+    if run_backend is not None and run_manager is not None:
+        raise ValueError("pass run_backend or run_manager, not both")
+    backend = (
+        run_backend
+        if run_backend is not None
+        else InProcessRunBackend(RunExecutor(config), manager=run_manager)
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        await backend.shutdown()
+
+    app = FastAPI(title="core-server", version=PACKAGE_VERSION, lifespan=lifespan)
+    app.state.run_backend = backend
+    app.state.run_manager = getattr(backend, "manager", backend)
+    install_middlewares(app, config)
+    app.include_router(create_router(config, run_backend=backend))
     return app
+
+
+__all__ = [
+    "PACKAGE_VERSION",
+    "RunRequest",
+    "create_app",
+    "create_router",
+    "install_middlewares",
+]
