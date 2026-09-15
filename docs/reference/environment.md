@@ -7,8 +7,13 @@ process environment, then workspace `.env` if present, then
 `~/.symphony/.env`. `/reload` in the TUI reloads those files, re-reads
 OAuth tokens, and rebuilds the registry.
 
-An API key in the environment wins over a stored subscription token for
-the same provider.
+By default, an API key in the environment wins over a stored subscription token
+for the same provider. Choosing **Sign in with …** in `/provider` records the
+subscription choice and makes it win; choosing **API key** records the reverse.
+The setting is stored as `SYMPHONY_<PROVIDER>_AUTH` in `~/.symphony/.env`.
+
+You can also select explicitly with `SYMPHONY_OPENAI_AUTH=oauth` (or `key`),
+and similarly for Anthropic or Grok.
 
 
 ## Provider credentials

@@ -14,7 +14,7 @@ from textual.message import Message
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from coding_agent.credentials import save_provider_settings
+from coding_agent.credentials import save_provider_auth, save_provider_settings
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton
 from coding_agent.tui.theme import ONBOARD_CSS, PROVIDER_MODAL_CSS, SYMPHONY_RICH_THEME
 from core_ai.oauth import LoginCancelled, LoginFlow, save_token, start_login
@@ -192,6 +192,7 @@ class ProviderWizard(Vertical):
         try:
             flow = start_login(provider_id)
         except Exception as exc:
+            # Do not leave a preference behind when login could not start.
             self.show_method(provider_id)
             self.query_one("#onboard-error", Static).update(str(exc))
             return
@@ -280,6 +281,7 @@ class ProviderWizard(Vertical):
         try:
             if spec.requires_key:
                 save_provider_settings(self._pending, api_key=event.value)
+                save_provider_auth(self._pending, "key")
             else:
                 save_provider_settings(self._pending, base_url=event.value)
         except ValueError as exc:
@@ -328,6 +330,7 @@ class ProviderWizard(Vertical):
             return
         self._oauth_done = True
         save_token(self._pending, token)
+        save_provider_auth(self._pending, "oauth")
         self._close_flow()
         self._highlight_continue = True
         self.show_pick()
@@ -408,7 +411,7 @@ class OnboardApp(App[tuple[str, ...]]):
         self.exit(configured_provider_ids())
 
 
-class ProviderOnboardScreen(ModalBase[tuple[str, ...]]):
+class ProviderOnboardScreen(ModalBase[tuple[str, ...] | None]):
     """In-session overlay for `/provider`."""
 
     CSS = PROVIDER_MODAL_CSS
@@ -439,4 +442,4 @@ class ProviderOnboardScreen(ModalBase[tuple[str, ...]]):
         wizard = self.query_one(ProviderWizard)
         if not wizard.cancel():
             return
-        self.dismiss(configured_provider_ids())
+        self.dismiss(None)

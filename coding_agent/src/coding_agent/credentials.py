@@ -50,6 +50,15 @@ def save_provider_key(provider_id: str, api_key: str) -> ProviderSpec:
     return save_provider_settings(provider_id, api_key=api_key)
 
 
+def save_provider_auth(provider_id: str, auth: str) -> None:
+    """Persist whether a dual-mode provider should use its key or OAuth token."""
+    if auth not in {"key", "oauth"}:
+        raise ValueError(f"Unknown authentication method: {auth}")
+    name = f"SYMPHONY_{provider_id.upper()}_AUTH"
+    upsert_dotenv(global_env_path(), {name: auth})
+    os.environ[name] = auth
+
+
 def save_provider_settings(
     provider_id: str,
     *,

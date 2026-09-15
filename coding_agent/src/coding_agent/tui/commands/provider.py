@@ -27,15 +27,14 @@ def open_provider_onboard(app: Any, argument: str = "") -> None:
     )
 
 
-def on_provider_onboard(app: Any, _providers: tuple[str, ...] | None) -> None:
+def on_provider_onboard(app: Any, providers: tuple[str, ...] | None) -> None:
+    if providers is None:
+        app.query_one("#prompt").focus()
+        return
     current = set(configured_provider_ids())
-    previous = set(app._agent.registry.namespaces()) if app._agent is not None else set()
     if not current:
         if app._agent is None:
             app.add_notice(OFFLINE_HINT, "warning")
-        return
-    if current == previous:
-        app.query_one("#prompt").focus()
         return
     app.run_worker(reload_after_provider(app), exclusive=False)
 

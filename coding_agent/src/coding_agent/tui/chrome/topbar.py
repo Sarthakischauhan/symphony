@@ -5,14 +5,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from rich.cells import cell_len
 from rich.table import Table
 from rich.text import Text
 from textual import events
 from textual.widgets import Static
 
-from core_ai.providers.catalog import find_provider, provider_api_key, provider_has_oauth
+from core_ai.providers.catalog import (
+    find_provider,
+    provider_api_key,
+    provider_auth_preference,
+    provider_has_oauth,
+)
 
 CLUSTER_GAP = " " * 4
+AUTH_MODEL_GAP = " " * 3
 BRANCH_ICON = "⎇"
 
 
@@ -96,7 +103,10 @@ class TopBar(Static):
                 # Provider construction prefers an explicit API key over a
                 # stored subscription token, so report the credential actually
                 # selected by the runtime.
-                if provider_api_key(provider):
+                preference = provider_auth_preference(provider)
+                if preference == "oauth" and provider_has_oauth(provider):
+                    auth = "👤 signed in"
+                elif provider_api_key(provider):
                     auth = "🔑 API key"
                 elif provider_has_oauth(provider):
                     auth = "👤 signed in"
@@ -127,10 +137,14 @@ class TopBar(Static):
                 if left
                 else f"subagent  ›  {self._label}"
             )
-        model_width = min(
-            len(self._model) + len(self._auth) + 2,
-            max(width // 2, 1),
+        # Budget by terminal cells, not Python len(): emoji badges are one
+        # codepoint but two columns, and under-counting cramps/truncates the model.
+        right = (
+            f"{self._auth}{AUTH_MODEL_GAP}{self._model}"
+            if self._auth
+            else self._model
         )
+        model_width = min(cell_len(right), max(width // 2, 1))
         row = Table.grid(expand=True, padding=0)
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         row.add_column(
@@ -147,7 +161,7 @@ class TopBar(Static):
         row.add_row(
             branch,
             Text(
-                f"{self._auth}  {self._model}" if self._auth else self._model,
+                right,
                 overflow="ellipsis",
                 no_wrap=True,
             ),

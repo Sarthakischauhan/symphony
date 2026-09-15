@@ -37,6 +37,9 @@ PROVIDER_ENV = (
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
+    "SYMPHONY_OPENAI_AUTH",
+    "SYMPHONY_ANTHROPIC_AUTH",
+    "SYMPHONY_GROK_AUTH",
     "SYMPHONY_MODEL",
     "OPENAI_MODEL",
     "ANTHROPIC_MODEL",
@@ -235,6 +238,21 @@ def test_build_default_registry_prefers_api_key_over_oauth(monkeypatch: pytest.M
     assert provider.api_key == "sk-env"
     assert provider.base_url == "https://api.openai.com/v1"
     assert provider.extra_headers == {}
+
+
+def test_build_default_registry_honors_oauth_preference_over_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    save_token("openai", OAuthToken(access_token="oauth-tok", account_id="acct"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+    monkeypatch.setenv("SYMPHONY_OPENAI_AUTH", "oauth")
+
+    registry = build_default_registry()
+
+    provider = registry._providers["openai"]
+    assert provider.api_key == "oauth-tok"
+    assert provider.base_url == CODEX_BASE_URL
+    assert provider.extra_headers["ChatGPT-Account-Id"] == "acct"
 
 
 def test_build_default_registry_uses_anthropic_oauth_bearer() -> None:

@@ -11,6 +11,7 @@ from core_ai.providers.catalog import (
     MissingProviderCredentials,
     ProviderSpec,
     provider_api_key,
+    provider_auth_preference,
     provider_is_configured,
 )
 from core_ai.providers.gemini import GeminiProvider
@@ -82,14 +83,15 @@ def build_default_registry(
     }
     registry = ModelRegistry()
     for spec in PROVIDERS:
-        api_key = (
-            explicit_keys[spec.id]
-            if explicit_keys[spec.id] is not None
-            else provider_api_key(spec)
-        )
+        env_api_key = provider_api_key(spec)
+        explicit_key = explicit_keys[spec.id]
+        api_key = explicit_key if explicit_key is not None else env_api_key
         explicit_url = explicit_base_urls[spec.id]
         oauth = None
-        if not api_key and spec.supports_oauth:
+        if spec.supports_oauth and (
+            provider_auth_preference(spec) == "oauth"
+            or (not api_key and provider_auth_preference(spec) != "key")
+        ):
             oauth = oauth_runtime_for(spec.id)
             if oauth is not None:
                 api_key = oauth.api_key

@@ -483,6 +483,29 @@ def test_topbar_rebudgets_columns_after_terminal_resize(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_topbar_spaces_auth_badge_from_model_using_cell_width(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path, model_id="grok:grok-4-fast")
+        async with app.run_test(size=(90, 30)) as pilot:
+            await pilot.pause()
+            topbar = app.query_one(TopBar)
+            topbar.set_context(
+                tmp_path,
+                "grok:grok-4-fast",
+                auth="👤 signed in",
+            )
+            rendered = _render_plain(topbar.content, width=80).rstrip("\n")
+            assert "👤 signed in   grok:grok-4-fast" in rendered
+            assert rendered.endswith("👤 signed in   grok:grok-4-fast")
+
+    asyncio.run(_run())
+
+
 def test_footer_hint_switches_for_pending_question() -> None:
     assert footer_hint(question_pending=False) == "esc cancel"
     assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"

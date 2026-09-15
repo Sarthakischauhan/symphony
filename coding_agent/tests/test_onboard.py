@@ -19,6 +19,9 @@ from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 
 PROVIDER_ENV = (
     "OPENAI_API_KEY",
+    "SYMPHONY_OPENAI_AUTH",
+    "SYMPHONY_ANTHROPIC_AUTH",
+    "SYMPHONY_GROK_AUTH",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
@@ -146,6 +149,7 @@ def test_onboard_adds_two_providers(tmp_path: Path) -> None:
 
 def test_onboard_oauth_saves_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _FakeFlow("openai")
+    monkeypatch.setenv("SYMPHONY_OPENAI_AUTH", "key")
     monkeypatch.setattr("coding_agent.tui.screens.onboard.start_login", lambda provider_id, **kwargs: fake)
     app = OnboardApp(tmp_path)
 
@@ -170,8 +174,10 @@ def test_onboard_oauth_saves_token(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     token_file = Path.home() / ".symphony" / "oauth" / "openai.json"
     assert token_file.is_file()
     assert "codex-access" in token_file.read_text(encoding="utf-8")
+    assert "SYMPHONY_OPENAI_AUTH=oauth" in global_env_path().read_text(
+        encoding="utf-8"
+    )
     assert configured_provider_ids() == ("openai",)
-    assert not global_env_path().exists()
 
 
 def test_onboard_ollama_blank_submit_writes_default_base_url(tmp_path: Path) -> None:
@@ -291,7 +297,7 @@ def test_provider_command_unknown_name_stays_on_chat(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_provider_onboard_reloads_agent_after_new_key(
+def test_provider_onboard_reloads_agent_after_existing_provider_changes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app = CodingAgentApp(workspace=tmp_path)
@@ -321,6 +327,12 @@ def test_provider_onboard_reloads_agent_after_new_key(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
+            app._agent = SimpleNamespace(
+                session_id="current-session",
+                harness=SimpleNamespace(reasoning_effort=None),
+                registry=SimpleNamespace(namespaces=lambda: ("openai",)),
+                learning_loop=None,
+            )
             await app._command_manager.run("/provider openai")
             await pilot.pause()
             screen = app.screen

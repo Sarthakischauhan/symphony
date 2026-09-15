@@ -162,6 +162,20 @@ def provider_has_oauth(spec: ProviderSpec) -> bool:
     return bool(token and token.access_token)
 
 
+def provider_auth_preference(spec: ProviderSpec) -> str:
+    """Return the requested credential source for providers with OAuth."""
+    if not spec.supports_oauth:
+        return "key"
+    value = (os.getenv(f"SYMPHONY_{spec.id.upper()}_AUTH") or "").strip().lower()
+    if value in {"key", "oauth"}:
+        return value
+    from core_ai.oauth.store import load_token
+
+    token = load_token(spec.id)
+    token_preference = (token.raw.get("auth") if token is not None else "")
+    return token_preference if token_preference in {"key", "oauth"} else "auto"
+
+
 def provider_is_configured(
     spec: ProviderSpec,
     environ: Mapping[str, str] | None = None,
