@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 from typing import Any, Mapping, Sequence
@@ -17,8 +15,23 @@ from textual.message import Message
 from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.motion import enter_row, settle_row
+from coding_agent.tui.tools.activity import (
+    Activity,
+    explored_activity,
+    explored_count_label,
+    explored_title,
+    format_explored_duration,
+    parse_activity,
+    same_activity_group,
+    strip_activity_json,
+    take_activity,
+)
 from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
+from coding_agent.tui.tools.snapshots import (
+    ThoughtSnapshot,
+    ToolCallSnapshot,
+)
 from coding_agent.tui.transcript.messages import clip_text, compact_json
 
 TOOL_LABELS = {
@@ -138,18 +151,10 @@ class ToolCallWidget(Collapsible):
 
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         self.arguments = dict(arguments or {})
-        activity = self.arguments.pop("activity", None)
-        if isinstance(activity, Mapping):
-            self._set_activity_fields(activity)
-            if raw:
-                try:
-                    parsed_raw = json.loads(raw)
-                except json.JSONDecodeError:
-                    pass
-                else:
-                    if isinstance(parsed_raw, dict):
-                        parsed_raw.pop("activity", None)
-                        raw = json.dumps(parsed_raw, separators=(",", ":"))
+        nested = self.arguments.get("activity")
+        self._apply_activity(take_activity(self.arguments))
+        if isinstance(nested, Mapping):
+            raw = strip_activity_json(raw)
         self.raw_arguments = raw
         self._body_dirty = True
         self.refresh_content()
@@ -157,22 +162,17 @@ class ToolCallWidget(Collapsible):
     def set_running(self, arguments: Mapping[str, Any] | None) -> None:
         self.status = "running"
         self.arguments = dict(arguments or {})
-        activity = self.arguments.pop("activity", None)
-        if isinstance(activity, Mapping):
-            self._set_activity_fields(activity)
+        self._apply_activity(take_activity(self.arguments))
         self._body_dirty = True
         self.refresh_content()
 
-    def _set_activity_fields(self, activity: Mapping[str, Any]) -> None:
-        verb = activity.get("verb")
-        reason = activity.get("reason")
-        group = activity.get("group")
-        self.activity_verb = verb.strip() if isinstance(verb, str) else ""
-        self.activity_reason = reason.strip() if isinstance(reason, str) else ""
-        self.activity_group = group.strip() if isinstance(group, str) else ""
+    def _apply_activity(self, activity: Activity) -> None:
+        self.activity_verb = activity.verb
+        self.activity_reason = activity.reason
+        self.activity_group = activity.group
 
     def set_activity(self, activity: Mapping[str, Any] | None) -> None:
-        self._set_activity_fields(activity or {})
+        self._apply_activity(parse_activity(activity))
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
@@ -275,79 +275,6 @@ class ToolCallWidget(Collapsible):
         )
 
 
-@dataclass(frozen=True)
-class ThoughtSnapshot:
-    """Display data retained after a completed reasoning widget is folded."""
-
-    title: str
-    content: str = ""
-
-
-@dataclass(frozen=True)
-class ToolCallSnapshot:
-    """Display data retained after a live tool card is folded away."""
-
-    call_id: str
-    tool_name: str = "tool"
-    label: str = "Tool"
-    detail: str = ""
-    status: str = "done"
-    result: str = ""
-    activity_verb: str = ""
-    activity_reason: str = ""
-    activity_group: str = ""
-    duration: float | None = None
-
-    def as_text(self) -> str:
-        marker = "×" if self.status == "failed" else "✓"
-        line = f"{marker}  {self.label}"
-        if self.detail:
-            line = f"{line}  {self.detail}"
-        if self.result:
-            line = f"{line}\n   {self.result}"
-        return line
-
-
-def snapshot_from_call(
-    *,
-    call_id: str,
-    tool_name: str,
-    arguments: Mapping[str, Any] | None = None,
-    raw_arguments: str = "",
-    status: str = "done",
-    result: str = "",
-    activity: Mapping[str, Any] | None = None,
-) -> ToolCallSnapshot:
-    label, _icon = tool_label(tool_name)
-    display_arguments = dict(arguments or {})
-    nested_activity = display_arguments.pop("activity", None)
-    activity = activity if isinstance(activity, Mapping) else nested_activity
-    return ToolCallSnapshot(
-        call_id=call_id,
-        tool_name=tool_name,
-        label=label,
-        detail=clip_text(tool_detail(tool_name, display_arguments, raw_arguments), 300),
-        status=status,
-        result=clip_text(result, 260) if result else "",
-        activity_verb=(
-            str((activity or {}).get("verb", "")).strip()
-            if isinstance(activity, Mapping)
-            else ""
-        ),
-        activity_reason=(
-            str((activity or {}).get("reason", "")).strip()
-            if isinstance(activity, Mapping)
-            else ""
-        ),
-        duration=None,
-        activity_group=(
-            str((activity or {}).get("group", "")).strip()
-            if isinstance(activity, Mapping)
-            else ""
-        ),
-    )
-
-
 class ToolCallSummary(Static, can_focus=True):
     """A compact disclosure containing non-interactive tool snapshots."""
 
@@ -363,73 +290,32 @@ class ToolCallSummary(Static, can_focus=True):
     def on_mount(self) -> None:
         settle_row(self)
 
-    def _activity_reason(self) -> str:
-        return next(
-            (call.activity_reason for call in self.calls if call.activity_reason),
-            "",
-        )
-
-    def _activity_verb(self) -> str:
-        return next(
-            (call.activity_verb for call in self.calls if call.activity_verb),
-            "",
-        )
-
-    def _duration_label(self) -> str:
-        durations = [call.duration for call in self.calls if call.duration is not None]
-        if not durations or not any(call.activity_verb for call in self.calls):
-            return ""
-        seconds = sum(durations)
-        if seconds < 1:
-            return "<1s"
-        if seconds < 60:
-            return f"{seconds:.1f}s"
-        return f"{seconds / 60:.1f}m"
+    def _thought_count(self) -> int:
+        return sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
 
     def _summary_title(self) -> str:
-        failed = sum(call.status == "failed" for call in self.calls)
-        suffix = f" · {failed} failed" if failed else ""
-        title = self._activity_verb() or self._activity_reason() or "Explored"
-        duration = self._duration_label()
-        timing = f" for {duration}" if duration else ""
-        return f"{clip_text(title, 96)} · {self._count_label()}{timing}{suffix}"
-
-    def _activity_group(self) -> str:
-        return next(
-            (call.activity_group for call in self.calls if call.activity_group),
-            "",
-        )
+        return explored_title(self.calls, thought_count=self._thought_count())
 
     def accepts(self, call: ToolCallWidget | ToolCallSnapshot) -> bool:
         """Return whether a call belongs in this activity's folded row."""
         if not self.calls:
             return True
         snapshot = call.snapshot() if isinstance(call, ToolCallWidget) else call
-        current_group = self._activity_group()
-        incoming_group = snapshot.activity_group
-        if current_group or incoming_group:
-            return current_group == incoming_group
-        return bool(self._activity_reason()) == bool(snapshot.activity_reason)
-
-    def _count_label(self) -> str:
-        noun = "tool" if self.count == 1 else "tools"
-        parts = [f"{self.count} {noun}"] if self.count else []
-        thoughts = sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
-        if thoughts:
-            parts.append(f"{thoughts} thought{'s' if thoughts != 1 else ''}")
-        return " · ".join(parts) or "0 tools"
+        return same_activity_group(explored_activity(self.calls), snapshot)
 
     def render(self) -> Text:
+        activity = explored_activity(self.calls)
+        heading = activity.verb or activity.reason or "Explored"
         text = Text()
         text.append("[ ", style="#7395ab")
         text.append("▾ " if self.is_expanded else "▸ ", style="bold #8ab4cf")
-        text.append(
-            clip_text(self._activity_verb() or self._activity_reason() or "Explored", 96),
-            style="bold #8ab4cf",
-        )
-        duration = self._duration_label()
+        text.append(clip_text(heading, 96), style="bold #8ab4cf")
+        duration = format_explored_duration(self.calls)
         timing = f" for {duration}" if duration else ""
-        text.append(f" · {self._count_label()}{timing}", style="#a2adb8")
+        count = explored_count_label(
+            tool_count=self.count, thought_count=self._thought_count()
+        )
+        text.append(f" · {count}{timing}", style="#a2adb8")
         failed = sum(call.status == "failed" for call in self.calls)
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")

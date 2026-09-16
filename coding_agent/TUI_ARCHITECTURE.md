@@ -135,7 +135,9 @@ without requesting layout and build expandable bodies only when opened.
 Live tool cards stay in the transcript while their stretch is active.
 When assistant text, thinking, or another non-tool widget arrives, that
 consecutive stretch folds into one `Explored` snapshot row. Tools after
-the interruption start a new stretch. Interactive cards (generated images,
+the interruption start a new stretch. Activity-labeled rows partition on
+`activity.group`; without a group, different reasons still fold together
+via `bool(reason)`. Interactive cards (generated images,
 subagents) stay mounted until the run finalizes. Completed thoughts fold
 into their own Explored row, retaining only titles. Completed turns
 beyond the budget are removed from the widget tree and accumulated into one

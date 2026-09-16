@@ -59,7 +59,8 @@ of 10. Running tools, generated images, and subagent rows stay visible.
 When the run finishes, remaining completed tools fold too, and expanded
 batches close. Restored conversations use the same stretch-based
 presentation. Completed thoughts fold into their own Explored row, retaining
-only their titles.
+only their titles. Activity-labeled Explored rows partition on
+`activity.group`; without a group, different reasons still fold together.
 
 Click a summary, or focus it and press Enter or Space, to inspect tool paths,
 and commands in event order, without tool output or reasoning bodies. The
