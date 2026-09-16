@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Any, Mapping, Sequence
 
 from rich.console import Group
@@ -81,6 +82,9 @@ class ToolCallWidget(Collapsible):
         self.raw_arguments = ""
         self.result = ""
         self.status = "preparing"
+        self._started_at = monotonic()
+        self._duration: float | None = None
+        self.activity_verb = ""
         self.activity_reason = ""
         self.activity_group = ""
         self._body_dirty = True
@@ -160,8 +164,10 @@ class ToolCallWidget(Collapsible):
         self.refresh_content()
 
     def _set_activity_fields(self, activity: Mapping[str, Any]) -> None:
+        verb = activity.get("verb")
         reason = activity.get("reason")
         group = activity.get("group")
+        self.activity_verb = verb.strip() if isinstance(verb, str) else ""
         self.activity_reason = reason.strip() if isinstance(reason, str) else ""
         self.activity_group = group.strip() if isinstance(group, str) else ""
 
@@ -170,6 +176,8 @@ class ToolCallWidget(Collapsible):
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
+        if self._duration is None:
+            self._duration = max(0.0, monotonic() - self._started_at)
         self.status = "failed" if str(result).startswith("error:") else "done"
         self.result = str(result or "")
         self._body_dirty = True
@@ -247,6 +255,10 @@ class ToolCallWidget(Collapsible):
         self._refresh_status_class()
         self._refresh_body()
 
+    @property
+    def duration(self) -> float | None:
+        return self._duration
+
     def snapshot(self) -> ToolCallSnapshot:
         label, _icon = self._tool_title()
         return ToolCallSnapshot(
@@ -256,8 +268,10 @@ class ToolCallWidget(Collapsible):
             detail=clip_text(self._summary(), 300),
             status=self.status,
             result=self._result_summary(),
+            activity_verb=self.activity_verb,
             activity_reason=self.activity_reason,
             activity_group=self.activity_group,
+            duration=self._duration,
         )
 
 
@@ -279,8 +293,10 @@ class ToolCallSnapshot:
     detail: str = ""
     status: str = "done"
     result: str = ""
+    activity_verb: str = ""
     activity_reason: str = ""
     activity_group: str = ""
+    duration: float | None = None
 
     def as_text(self) -> str:
         marker = "×" if self.status == "failed" else "✓"
@@ -313,11 +329,17 @@ def snapshot_from_call(
         detail=clip_text(tool_detail(tool_name, display_arguments, raw_arguments), 300),
         status=status,
         result=clip_text(result, 260) if result else "",
+        activity_verb=(
+            str((activity or {}).get("verb", "")).strip()
+            if isinstance(activity, Mapping)
+            else ""
+        ),
         activity_reason=(
             str((activity or {}).get("reason", "")).strip()
             if isinstance(activity, Mapping)
             else ""
         ),
+        duration=None,
         activity_group=(
             str((activity or {}).get("group", "")).strip()
             if isinstance(activity, Mapping)
@@ -347,11 +369,30 @@ class ToolCallSummary(Static, can_focus=True):
             "",
         )
 
+    def _activity_verb(self) -> str:
+        return next(
+            (call.activity_verb for call in self.calls if call.activity_verb),
+            "",
+        )
+
+    def _duration_label(self) -> str:
+        durations = [call.duration for call in self.calls if call.duration is not None]
+        if not durations or not any(call.activity_verb for call in self.calls):
+            return ""
+        seconds = sum(durations)
+        if seconds < 1:
+            return "<1s"
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        return f"{seconds / 60:.1f}m"
+
     def _summary_title(self) -> str:
         failed = sum(call.status == "failed" for call in self.calls)
         suffix = f" · {failed} failed" if failed else ""
-        title = self._activity_reason() or "Explored"
-        return f"{clip_text(title, 96)} · {self._count_label()}{suffix}"
+        title = self._activity_verb() or self._activity_reason() or "Explored"
+        duration = self._duration_label()
+        timing = f" for {duration}" if duration else ""
+        return f"{clip_text(title, 96)} · {self._count_label()}{timing}{suffix}"
 
     def _activity_group(self) -> str:
         return next(
@@ -383,10 +424,12 @@ class ToolCallSummary(Static, can_focus=True):
         text.append("[ ", style="#7395ab")
         text.append("▾ " if self.is_expanded else "▸ ", style="bold #8ab4cf")
         text.append(
-            clip_text(self._activity_reason() or "Explored", 96),
+            clip_text(self._activity_verb() or self._activity_reason() or "Explored", 96),
             style="bold #8ab4cf",
         )
-        text.append(f" · {self._count_label()}", style="#a2adb8")
+        duration = self._duration_label()
+        timing = f" for {duration}" if duration else ""
+        text.append(f" · {self._count_label()}{timing}", style="#a2adb8")
         failed = sum(call.status == "failed" for call in self.calls)
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")
