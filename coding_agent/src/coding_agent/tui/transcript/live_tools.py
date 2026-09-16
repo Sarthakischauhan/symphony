@@ -141,7 +141,7 @@ def reconcile_live_tools(
             ),
             final=final,
         )
-        if not folded and final:
+        if not folded:
             items = snapshot()
             folded = _fold_ready_stretch(
                 snapshot,
@@ -150,6 +150,8 @@ def reconcile_live_tools(
                 tools,
                 members=segment_thought_stretches(items),
                 collectable=is_collectable_thought,
+                # Completed thoughts can be folded independently of a still-live
+                # reasoning widget in the same consecutive thought stretch.
                 final=True,
             )
         if not folded:
@@ -180,6 +182,17 @@ def _segment_stretches(
     return stretches
 
 
+def _same_activity(first: Any, candidate: Any) -> bool:
+    """Keep explicitly grouped task calls in separate folded rows."""
+    first_group = getattr(first, "activity_group", "")
+    candidate_group = getattr(candidate, "activity_group", "")
+    if first_group or candidate_group:
+        return first_group == candidate_group
+    return bool(getattr(first, "activity_reason", "")) == bool(
+        getattr(candidate, "activity_reason", "")
+    )
+
+
 def _fold_ready_stretch(
     snapshot: Callable[[], list[Any]],
     replace: Callable[[Any, Any], None],
@@ -198,10 +211,23 @@ def _fold_ready_stretch(
         selected = [item for item in stretch if collectable(item)]
         if not selected:
             continue
+        first = selected[0]
         existing = next(
-            (item for item in stretch if isinstance(item, ToolCallSummary)),
+            (
+                item
+                for item in stretch
+                if isinstance(item, ToolCallSummary) and item.accepts(first)
+            ),
             None,
         )
+        if existing is None:
+            first_index = stretch.index(first)
+            selected = [
+                item
+                for item in selected
+                if stretch.index(item) >= first_index
+                and _same_activity(first, item)
+            ]
         _fold_batch(
             selected,
             snapshot,
@@ -299,8 +325,14 @@ def _fold_into_explored(
     from coding_agent.tui.transcript.process import ReasoningWidget
 
     if isinstance(widget, ReasoningWidget):
-        summary.add_thought(str(widget.title), layout=False)
+        summary.add_thought(
+            str(widget.title),
+            str(getattr(widget, "_content_without_heading", "") or widget.reasoning_text),
+            layout=False,
+        )
     else:
+        if not summary.accepts(widget):
+            return batch_summary
         summary.add_call(widget, layout=False)
         release_live_binding(tools, widget, summary)
     return summary

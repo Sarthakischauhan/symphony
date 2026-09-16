@@ -33,6 +33,7 @@ class HarnessConfig(BaseModel):
     tool_result_prune_tokens: Optional[int] = Field(default=None, ge=0)
     context_warn_threshold: Optional[int] = Field(default=None, ge=0)
     context_compact_threshold: Optional[int] = Field(default=None, ge=0)
+    context_compact_ratio: Optional[float] = Field(default=None, gt=0, le=1)
     context_target_tokens: Optional[int] = Field(default=None, ge=1)
     compaction_keep_recent: int = Field(default=10, ge=1)
     max_spawn_depth: int = Field(default=1, ge=0)

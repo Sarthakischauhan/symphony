@@ -1573,7 +1573,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert "✓  Read  src/app.py" in tool_summary.render().plain
             await pilot.click(thought_summary)
             assert thought_summary.is_expanded
-            assert "Inspecting the requested file" not in thought_summary.render().plain
+            assert "Inspecting the requested file" in thought_summary.render().plain
 
     asyncio.run(_run())
 
@@ -3261,7 +3261,7 @@ def test_final_output_folds_remaining_tools(
             await pilot.pause()
             assert thought.is_expanded
             assert "Thought - Inspecting files" in thought.render().plain
-            assert "Reasoning body stays hidden" not in thought.render().plain
+            assert "Reasoning body stays hidden" in thought.render().plain
             assert tools.call_ids == [str(index) for index in range(12)]
             assert app._assistant is not None
             assert "SYMPHONY" not in str(app._assistant.render())

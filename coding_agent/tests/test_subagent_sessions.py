@@ -64,7 +64,7 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             thought.toggle()
             assert "Thought - Inspecting files" in thought.render().plain
             assert "Hidden tool output" not in thought.render().plain
-            assert "Hidden thought body" not in thought.render().plain
+            assert "Hidden thought body" in thought.render().plain
             screen.refresh_record()
             assert thought.call_ids == []
             await pilot.press("escape")

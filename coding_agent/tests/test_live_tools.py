@@ -8,6 +8,7 @@ from coding_agent.tui.tools.calls import (
     ToolCallSummary,
     ToolCallWidget,
     make_tool_widget,
+    snapshot_from_call,
 )
 from coding_agent.tui.transcript.live_tools import (
     collectable_tools,
@@ -377,7 +378,7 @@ def test_finalization_closes_expanded_batches_without_new_tools() -> None:
     assert not summary.is_expanded
 
 
-def test_interrupted_tools_do_not_absorb_a_following_thought() -> None:
+def test_interrupted_completed_thought_is_compacted_but_live_thought_remains() -> None:
     thought = ReasoningWidget("## Inspecting files\n\nPrivate reasoning body")
     thought.complete()
     tool = _done_tool("read")
@@ -386,11 +387,14 @@ def test_interrupted_tools_do_not_absorb_a_following_thought() -> None:
 
     reconcile_live_tools(timeline)
 
-    assert thought in timeline
+    assert thought not in timeline
     assert live_thought in timeline
-    summary = _summaries(timeline)[0]
-    assert summary.title == "Explored · 1 tool"
-    assert summary.call_ids == ["read"]
+    summaries = _summaries(timeline)
+    assert len(summaries) == 2
+    assert summaries[0].title == "Explored · 1 tool"
+    assert summaries[0].call_ids == ["read"]
+    assert summaries[1].title == "Explored · 1 thought"
+    assert summaries[1].archive_text() == "Thought - Inspecting files"
 
 
 def test_finalization_folds_thought_only_runs() -> None:
@@ -418,6 +422,77 @@ def test_assistant_message_is_plain_text_without_agent_chrome() -> None:
         assert "◆" not in message.archive_text()
     assert streaming.message_text == "Inspecting the CSS for spacing issues."
     assert finished.message_text == "Spacing is now correct."
+
+
+def test_activity_groups_form_separate_folded_task_rows() -> None:
+    first = ToolCallWidget("first", "read_file")
+    first.set_arguments(
+        {
+            "path": "one.py",
+            "activity": {"reason": "Inspect UI", "group": "inspect"},
+        }
+    )
+    first.set_result("ok")
+    second = ToolCallWidget("second", "bash")
+    second.set_arguments(
+        {
+            "command": "pytest",
+            "activity": {"reason": "Run checks", "group": "validate"},
+        }
+    )
+    second.set_result("ok")
+    items = [first, second]
+
+    reconcile_live_tools(items, final=True)
+
+    assert len(items) == 2
+    assert [item.title for item in items] == [
+        "Inspect UI · 1 tool",
+        "Run checks · 1 tool",
+    ]
+
+
+def test_activity_reason_labels_live_tool_and_folded_summary() -> None:
+    widget = ToolCallWidget("read", "read_file")
+    widget.set_arguments(
+        {
+            "path": "src/app.py",
+            "activity": {
+                "reason": "Trace the task UI",
+                "group": "task-ui",
+            },
+        }
+    )
+
+    assert widget.arguments == {"path": "src/app.py"}
+    assert widget.activity_reason == "Trace the task UI"
+    assert widget.activity_group == "task-ui"
+    assert widget._header_values == ("▸ ○  Read", "Trace the task UI", "preparing")
+
+    widget.status = "done"
+    summary = ToolCallSummary((widget.snapshot(),))
+    assert summary.title == "Trace the task UI · 1 tool"
+    assert summary.render().plain == "[ ▸ Trace the task UI · 1 tool ]"
+
+
+def test_snapshot_extracts_activity_without_showing_it_as_tool_arguments() -> None:
+    snapshot = snapshot_from_call(
+        call_id="search",
+        tool_name="search",
+        arguments={
+            "query": "ToolCallWidget",
+            "activity": {
+                "reason": "Find the rendering path",
+                "group": "task-ui",
+            },
+        },
+    )
+
+    assert snapshot.detail == "ToolCallWidget"
+    assert snapshot.activity_reason == "Find the rendering path"
+    assert snapshot.activity_group == "task-ui"
+    summary = ToolCallSummary((snapshot,))
+    assert summary.title == "Find the rendering path · 1 tool"
 
 
 def test_motion_helpers_are_safe_without_an_app() -> None:

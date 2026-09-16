@@ -157,6 +157,7 @@ class HarnessState:
         context_limits: Optional[Dict[str, int]] = None,
         context_warn_threshold: Optional[int] = None,
         context_compact_threshold: Optional[int] = None,
+        context_compact_ratio: Optional[float] = None,
         compactor: Optional[Compactor] = None,
         context_target_tokens: Optional[int] = None,
     ) -> None:
@@ -166,6 +167,7 @@ class HarnessState:
         }
         self.context_warn_threshold = context_warn_threshold
         self.context_compact_threshold = context_compact_threshold
+        self.context_compact_ratio = context_compact_ratio
         self.compactor = compactor
         if context_target_tokens is not None and context_target_tokens < 1:
             raise ValueError("context_target_tokens must be positive or None")
@@ -244,11 +246,20 @@ class HarnessState:
         self,
         context_left: Optional[int],
         estimated_tokens: Optional[int] = None,
+        context_limit: Optional[int] = None,
     ) -> bool:
         return (
             self.compactor is not None
             and (
                 (
+                    self.context_compact_ratio is not None
+                    and context_limit is not None
+                    and estimated_tokens is not None
+                    and estimated_tokens >= context_limit * self.context_compact_ratio
+                )
+                or (
+                    self.context_compact_ratio is None
+                    and
                     self.context_target_tokens is not None
                     and estimated_tokens is not None
                     and estimated_tokens >= self.context_target_tokens
@@ -272,7 +283,11 @@ class HarnessState:
         emit: EmitEvent,
     ) -> List[Message]:
         """Compact messages when the configured context threshold is reached."""
-        if not self.should_compact(context_left, estimate_prompt_tokens(messages)):
+        if not self.should_compact(
+            context_left,
+            tokens_used,
+            context_limit,
+        ):
             return messages
         return await self.compact(
             messages,
@@ -309,6 +324,7 @@ class HarnessState:
             "tokens_used": tokens_used,
             "context_left": context_left,
             "threshold": self.context_compact_threshold,
+            "ratio": self.context_compact_ratio,
         }
         if manual:
             started["manual"] = True
