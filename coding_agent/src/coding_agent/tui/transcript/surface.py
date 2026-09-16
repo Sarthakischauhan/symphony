@@ -72,12 +72,24 @@ class TranscriptSurface:
         if limit < 0:
             return
 
+        seen_process = False
         for turn in self._transcript_turns:
             reconcile_live_tools(turn, limit=limit, final=final)
             for item in turn.timeline_items():
                 if isinstance(item, RunProcess):
                     tools = self._tools if item is self._process else None
-                    reconcile_live_tools(item, tools, limit=limit, final=final or item.completed)
+                    reconcile_live_tools(
+                        item, tools, limit=limit, final=final or item.completed
+                    )
+                    if item is self._process:
+                        seen_process = True
+        if not seen_process and self._process is not None:
+            reconcile_live_tools(
+                self._process,
+                self._tools,
+                limit=limit,
+                final=final or self._process.completed,
+            )
 
     def finalize_transcript_history(self) -> None:
         """Apply condensation and freeze completed message renders."""
@@ -91,17 +103,14 @@ class TranscriptSurface:
         if new or self._assistant is None:
             if self._thinking is not None:
                 self._thinking.set_visible(False)
-            show_header = not getattr(self, "_symphony_header_emitted", False)
-            self._symphony_header_emitted = True
-            self._assistant = AssistantMessage(
-                text, streaming=True, header=show_header
-            )
-            # Keep live assistant text in the run timeline so later tools cannot
-            # mount above earlier streamed tokens for text-then-tool models.
+            self._assistant = AssistantMessage(text, streaming=True)
+            # Keep assistant text in the run timeline so tools and text stay in
+            # stream order: a later non-tool widget can close the open stretch.
             if self._process is not None and not self._process.completed:
                 self._mount_process_item(self._assistant)
             else:
                 self._mount_transcript(self._assistant)
+                self._compact_transcript()
         else:
             transcript = self.query_one("#transcript", VerticalScroll)
             was_at_end = transcript.is_vertical_scroll_end
@@ -109,63 +118,9 @@ class TranscriptSurface:
             self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def finish_assistant(self) -> None:
-        if self._assistant is None:
-            return
-        # Textual defers Widget.remove(), so a message nested in the run timeline
-        # cannot be remounted on the transcript root. Promote a finished copy.
-        if self._promote_assistant(self._assistant):
-            return
-        self._assistant.finish_stream()
-
-    def _promote_assistant(self, assistant: AssistantMessage) -> bool:
-        """Lift finished assistant text out of the live run timeline.
-
-        Text that streamed before tools is placed above the process block; text
-        that streamed after tools is placed below it. Returns True when the
-        assistant lived in the run timeline and was promoted.
-        """
-        process = self._process
-        if process is None:
-            return False
-        items = process.timeline_items()
-        try:
-            index = items.index(assistant)
-        except ValueError:
-            return False
-
-        def _is_timeline_content(item: Widget) -> bool:
-            return item is not process._thinking and not isinstance(item, ThinkingStatus)
-
-        prior = any(_is_timeline_content(item) for item in items[:index])
-        text = assistant.message_text
-        process.remove_item(assistant)
-
-        # Fresh widget: the removed instance may still be detaching from process.
-        finished = AssistantMessage(
-            text, streaming=False, header=assistant._header
-        )
-        self._assistant = finished
-
-        transcript = self.query_one("#transcript", VerticalScroll)
-        was_at_end = transcript.is_vertical_scroll_end
-        turn = self._current_transcript_turn
-        if prior:
-            if turn is not None:
-                turn.insert_item(finished, after=process)
-            if process.is_mounted:
-                transcript.mount(finished, after=process)
-            else:
-                transcript.mount(finished)
-        else:
-            if turn is not None:
-                turn.insert_item(finished, before=process)
-            if process.is_mounted:
-                transcript.mount(finished, before=process)
-            else:
-                transcript.mount(finished)
-        finished.finish_stream()
-        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-        return True
+        if self._assistant is not None:
+            self._assistant.finish_stream()
+            self._compact_transcript()
 
     def invalidate_workspace_caches(self) -> None:
         index = getattr(self, "_file_index", None)
@@ -206,6 +161,7 @@ class TranscriptSurface:
         assert self._process is not None
         self._process.add_item(widget)
         self._follow_transcript_tail(transcript, was_at_end=was_at_end)
+        self._compact_transcript()
 
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         if new or self._reasoning is None:
@@ -354,7 +310,6 @@ class TranscriptSurface:
         transcript.remove_children()
         transcript.mount(Welcome(self.workspace))
         self._assistant = None
-        self._symphony_header_emitted = False
         self._thinking = None
         self._reasoning = None
         self._process = None

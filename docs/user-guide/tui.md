@@ -50,12 +50,16 @@ child usage. Context usage remains available in the footer and `/context`.
 
 ## Tool transcript
 
-Completed tools leave the live card as soon as they finish and collect into
-an expandable **Explored** widget, in batches of 10. Running tools, generated
-images, and subagent rows stay visible. When the run finishes, remaining
-completed tools fold too, and expanded batches close. Restored conversations
-use the same compact presentation. Completed thoughts fold into the same
-widget, retaining only their titles.
+Completed tools stay visible as live cards while a consecutive stretch is
+active. When the stream is interrupted by assistant text, thinking, or any
+other non-tool widget, that stretch folds into one expandable **Explored**
+row. Later tools after the interruption start a new stretch — so 3 tools,
+then text, then 5 tools becomes fold(3), text, fold(5), not a fixed bucket
+of 10. Running tools, generated images, and subagent rows stay visible.
+When the run finishes, remaining completed tools fold too, and expanded
+batches close. Restored conversations use the same stretch-based
+presentation. Completed thoughts fold into their own Explored row, retaining
+only their titles.
 
 Click a summary, or focus it and press Enter or Space, to inspect tool paths,
 and commands in event order, without tool output or reasoning bodies. The

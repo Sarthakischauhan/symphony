@@ -236,16 +236,10 @@ class UserMessage(_SelectableStatic):
 
 class AssistantMessage(_SelectableStatic):
     def __init__(
-        self,
-        content: str = "",
-        *,
-        streaming: bool = False,
-        enter: bool = True,
-        header: bool = True,
+        self, content: str = "", *, streaming: bool = False, enter: bool = True
     ) -> None:
         self._streaming = False
         self._enter = enter
-        self._header = header
         self._markdown = None
         super().__init__(classes="message assistant-message")
         self.set_content(content, streaming=streaming)
@@ -271,12 +265,7 @@ class AssistantMessage(_SelectableStatic):
             self._markdown = themed_markdown(content or " ")
             body = self._markdown
         self._invalidate_render_cache(layout=True)
-        self.update(
-            Group(
-                *((Text("◆  SYMPHONY", style="bold #d0d0d0"),) if self._header else ()),
-                body,
-            )
-        )
+        self.update(Group(body))
 
     def finish_stream(self) -> None:
         if self._streaming:
@@ -285,7 +274,7 @@ class AssistantMessage(_SelectableStatic):
         settle_row(self)
 
     def archive_text(self) -> str:
-        return f"SYMPHONY\n{self.message_text}"
+        return self.message_text
 
 def _overlaps(start: int, end: int, occupied: Sequence[tuple[int, int]]) -> bool:
     return any(

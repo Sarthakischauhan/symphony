@@ -113,6 +113,7 @@ Screen {
 
 .assistant-message {
     padding-left: 3;
+    margin-left: 0;
     background: $background;
 }
 
@@ -384,7 +385,7 @@ tools = '''
     width: 1fr;
     height: auto;
     margin: 1 0 0 0;
-    padding: 0 1;
+    padding: 0 0 0 3;
     color: #a2adb8;
     background: transparent;
     pointer: pointer;

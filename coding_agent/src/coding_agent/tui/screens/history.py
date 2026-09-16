@@ -13,7 +13,6 @@ from coding_agent.tui.tools.calls import (
 )
 from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.transcript import UserMessage
-from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT
 from core_ai.content import text_from_content
 from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
@@ -65,8 +64,6 @@ def _history_widgets(messages: list[Any]) -> list[Any]:
 
     def add_snapshot(snapshot: ToolCallSnapshot) -> None:
         batch.append(snapshot)
-        if len(batch) >= LIVE_TOOL_WIDGET_LIMIT:
-            flush_batch()
 
     for message in messages:
         if message.role == "user":
@@ -79,6 +76,7 @@ def _history_widgets(messages: list[Any]) -> list[Any]:
         elif message.role == "assistant":
             content = text_from_content(message.content)
             if content:
+                flush_batch()
                 restored.append(AssistantMessage(content, enter=False))
             for call in message.tool_calls or []:
                 fields = _call_fields(call)

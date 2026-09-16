@@ -18,8 +18,10 @@ from coding_agent.tui.transcript.live_tools import (
     is_collectable_tool,
     is_hot_tool,
     is_interactive_tool,
+    is_tool_stretch_item,
     reconcile_live_tools,
     release_live_binding,
+    segment_tool_stretches,
 )
 from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
 from coding_agent.tui.transcript.surface import TranscriptSurface
@@ -43,7 +45,9 @@ __all__ = [
     "is_collectable_tool",
     "is_hot_tool",
     "is_interactive_tool",
+    "is_tool_stretch_item",
     "preview_text",
     "reconcile_live_tools",
     "release_live_binding",
+    "segment_tool_stretches",
 ]

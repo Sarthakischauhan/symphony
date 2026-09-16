@@ -47,7 +47,10 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             emit("text_delta", delta="Child answer")
             app.set_assistant("Parent continues while child view is open")
             await pilot.pause()
-            assert len(list(screen.query(ToolCallSummary))) == 2
+            tool_summaries = [
+                item for item in screen.query(ToolCallSummary) if item.count
+            ]
+            assert [item.count for item in tool_summaries] == [11]
             assert not list(screen.query(ToolCallWidget))
             assert [item.message_text for item in screen.query(AssistantMessage)] == ["Child answer"]
             assert app._assistant.parent is not screen.query_one("#transcript")
@@ -57,12 +60,13 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             assert not list(screen.query(ReasoningWidget))
             summaries = list(screen.query(ToolCallSummary))
             assert sum(item.count for item in summaries) == 11
-            summaries[0].toggle()
-            assert "Thought - Inspecting files" in summaries[0].render().plain
-            assert "Hidden tool output" not in summaries[0].render().plain
-            assert "Hidden thought body" not in summaries[0].render().plain
+            thought = next(item for item in summaries if "thought" in item.title)
+            thought.toggle()
+            assert "Thought - Inspecting files" in thought.render().plain
+            assert "Hidden tool output" not in thought.render().plain
+            assert "Hidden thought body" not in thought.render().plain
             screen.refresh_record()
-            assert summaries[0].is_expanded
+            assert thought.call_ids == []
             await pilot.press("escape")
             await pilot.pause()
             app.finish_process("Parent completed")
