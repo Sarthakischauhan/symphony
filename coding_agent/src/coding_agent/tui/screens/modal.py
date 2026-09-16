@@ -8,6 +8,7 @@ from rich.console import Group
 from rich.text import Text
 from textual import events
 from textual.binding import Binding
+from textual.app import ScreenStackError
 from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
@@ -23,12 +24,12 @@ class ModalCloseButton(Static, can_focus=True):
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
-        self.screen.dismiss(None)
+        dismiss_overlay(self.screen)
 
     def on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:
             event.stop()
-            self.screen.dismiss(None)
+            dismiss_overlay(self.screen)
 
 
 class ModalScroll(VerticalScroll):
@@ -39,12 +40,12 @@ class ModalScroll(VerticalScroll):
     ]
 
     def action_close_modal(self) -> None:
-        self.screen.dismiss(None)
+        dismiss_overlay(self.screen)
 
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "escape":
             event.stop()
-            self.screen.dismiss(None)
+            dismiss_overlay(self.screen)
             return
         await super()._on_key(event)
 
@@ -64,7 +65,19 @@ class ModalBase(ModalScreen[ResultT], Generic[ResultT]):
             reveal(pane, duration=0.2, offset_y=1)
 
     def action_close_modal(self) -> None:
-        self.dismiss(None)
+        dismiss_overlay(self)
+
+
+def dismiss_overlay(screen: ModalScreen[object], result: object = None) -> bool:
+    """Dismiss an overlay only while it is still the active extra screen."""
+    app = screen.app
+    if not screen.is_current or len(app.screen_stack) <= 1:
+        return False
+    try:
+        screen.dismiss(result)
+    except ScreenStackError:
+        return False
+    return True
 
 
 def _numbered_text(content: str) -> Text:

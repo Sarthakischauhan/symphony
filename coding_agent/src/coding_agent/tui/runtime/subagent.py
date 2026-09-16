@@ -418,7 +418,9 @@ class SubagentSurface:
     def _show_child_question(self, payload: Mapping[str, Any]) -> None:
         """Surface child questions through the parent's interactive composer."""
         if isinstance(self.screen, SubagentScreen):
-            self.screen.dismiss(None)
+            from coding_agent.tui.screens.modal import dismiss_overlay
+
+            dismiss_overlay(self.screen)
             self.call_after_refresh(self._show_question, dict(payload))
             return
         self._show_question(payload)
@@ -508,5 +510,7 @@ class SubagentTasksScreen(ModalBase[None]):
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         record = self.app._subagents.get(event.option.id)
         if record is not None:
-            self.dismiss(None)
+            from coding_agent.tui.screens.modal import dismiss_overlay
+
+            dismiss_overlay(self)
             self.app.call_after_refresh(self.app.open_subagent, record)
