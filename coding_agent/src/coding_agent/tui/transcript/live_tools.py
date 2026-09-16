@@ -141,7 +141,7 @@ def reconcile_live_tools(
             ),
             final=final,
         )
-        if not folded and final:
+        if not folded:
             items = snapshot()
             folded = _fold_ready_stretch(
                 snapshot,
@@ -150,6 +150,8 @@ def reconcile_live_tools(
                 tools,
                 members=segment_thought_stretches(items),
                 collectable=is_collectable_thought,
+                # Completed thoughts can be folded independently of a still-live
+                # reasoning widget in the same consecutive thought stretch.
                 final=True,
             )
         if not folded:
@@ -323,7 +325,11 @@ def _fold_into_explored(
     from coding_agent.tui.transcript.process import ReasoningWidget
 
     if isinstance(widget, ReasoningWidget):
-        summary.add_thought(str(widget.title), layout=False)
+        summary.add_thought(
+            str(widget.title),
+            str(getattr(widget, "_content_without_heading", "") or widget.reasoning_text),
+            layout=False,
+        )
     else:
         if not summary.accepts(widget):
             return batch_summary

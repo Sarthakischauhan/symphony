@@ -72,9 +72,9 @@ class ToolCallWidget(Collapsible):
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._body = self._make_body()
-        self._tool_label = Static(classes="tool-call-label")
-        self._tool_command = Static(classes="tool-call-command")
-        self._tool_status = Static(classes="tool-call-status")
+        self._tool_label = Static(classes="tool-call-label", markup=False)
+        self._tool_command = Static(classes="tool-call-command", markup=False)
+        self._tool_status = Static(classes="tool-call-status", markup=False)
         self.call_id = call_id
         self.tool_name = tool_name
         self.arguments: dict[str, Any] = {}
@@ -100,7 +100,7 @@ class ToolCallWidget(Collapsible):
         enter_row(self, duration=0.14)
 
     def _make_body(self) -> Static:
-        return Static()
+        return Static(markup=False)
 
     def compose(self):  # type: ignore[no-untyped-def]
         # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
@@ -262,6 +262,14 @@ class ToolCallWidget(Collapsible):
 
 
 @dataclass(frozen=True)
+class ThoughtSnapshot:
+    """Display data retained after a completed reasoning widget is folded."""
+
+    title: str
+    content: str = ""
+
+
+@dataclass(frozen=True)
 class ToolCallSnapshot:
     """Display data retained after a live tool card is folded away."""
 
@@ -323,9 +331,9 @@ class ToolCallSummary(Static, can_focus=True):
 
     def __init__(self, calls: Sequence[ToolCallSnapshot] | None = None) -> None:
         self.calls: list[ToolCallSnapshot] = []
-        self.entries: list[ToolCallSnapshot | str] = []
+        self.entries: list[ToolCallSnapshot | ThoughtSnapshot] = []
         self.is_expanded = False
-        super().__init__(classes="tool-call-summary")
+        super().__init__(classes="tool-call-summary", markup=False)
         for call in calls or ():
             self.add_call(call, layout=False)
         self.title = self._summary_title()
@@ -365,7 +373,7 @@ class ToolCallSummary(Static, can_focus=True):
     def _count_label(self) -> str:
         noun = "tool" if self.count == 1 else "tools"
         parts = [f"{self.count} {noun}"] if self.count else []
-        thoughts = sum(isinstance(entry, str) for entry in self.entries)
+        thoughts = sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
         if thoughts:
             parts.append(f"{thoughts} thought{'s' if thoughts != 1 else ''}")
         return " · ".join(parts) or "0 tools"
@@ -386,10 +394,19 @@ class ToolCallSummary(Static, can_focus=True):
         gap = max(1, self.content_size.width - header_length - 1)
         text.append(f"{' ' * gap}]", style="#7395ab")
         if not self.is_expanded:
+            thought = next(
+                (entry for entry in self.entries if isinstance(entry, ThoughtSnapshot)),
+                None,
+            )
+            if thought is not None and thought.content:
+                preview = clip_text(" ".join(thought.content.split()), 180)
+                text.append(f"\n  {preview}", style="#858585")
             return text
         for call in self.entries:
-            if isinstance(call, str):
-                text.append(f"\n  ▸  {call}", style="#969696")
+            if isinstance(call, ThoughtSnapshot):
+                text.append(f"\n  ▸  {call.title}", style="#969696")
+                if call.content:
+                    text.append(f"\n     {call.content}", style="#858585")
                 continue
             marker = "×" if call.status == "failed" else "✓"
             text.append("\n")
@@ -433,8 +450,14 @@ class ToolCallSummary(Static, can_focus=True):
         except NoActiveAppError:
             pass
 
-    def add_thought(self, title: str, *, layout: bool = True) -> None:
-        self.entries.append(title)
+    def add_thought(
+        self,
+        title: str,
+        content: str = "",
+        *,
+        layout: bool = True,
+    ) -> None:
+        self.entries.append(ThoughtSnapshot(title=title, content=content))
         self.title = self._summary_title()
         if layout:
             self.refresh(layout=True)
@@ -458,7 +481,10 @@ class ToolCallSummary(Static, can_focus=True):
 
     def archive_text(self) -> str:
         """Keep archived/explore transcripts as compact tool names only."""
-        return "\n".join(entry if isinstance(entry, str) else entry.label for entry in self.entries)
+        return "\n".join(
+            entry.title if isinstance(entry, ThoughtSnapshot) else entry.label
+            for entry in self.entries
+        )
 
 
 IMAGE_CHIP = "[Image 1]"
@@ -580,9 +606,9 @@ class BashToolWidget(ToolCallWidget):
     """Bash-specific row with command and lifecycle status on one line."""
 
     def __init__(self, call_id: str, tool_name: str) -> None:
-        self._bash_label = Static(classes="bash-tool-label")
-        self._bash_command = Static(classes="bash-tool-command")
-        self._bash_status = Static(classes="bash-tool-status")
+        self._bash_label = Static(classes="bash-tool-label", markup=False)
+        self._bash_command = Static(classes="bash-tool-command", markup=False)
+        self._bash_status = Static(classes="bash-tool-status", markup=False)
         super().__init__(call_id, tool_name)
         self.add_class("bash-tool")
         self._body.add_class("bash-tool-body")
