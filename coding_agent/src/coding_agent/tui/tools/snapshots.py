@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from coding_agent.tui.tools.activity import parse_activity
-from coding_agent.tui.transcript.messages import clip_text
 
 
 @dataclass(frozen=True)
@@ -53,6 +52,7 @@ def snapshot_from_call(
     activity: Mapping[str, Any] | None = None,
 ) -> ToolCallSnapshot:
     from coding_agent.tui.tools.calls import tool_detail, tool_label
+    from coding_agent.tui.transcript.messages import clip_text
 
     label, _icon = tool_label(tool_name)
     display_arguments = dict(arguments or {})

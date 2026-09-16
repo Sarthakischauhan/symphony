@@ -11,8 +11,6 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from coding_agent.tui.transcript.messages import clip_text
-
 
 @dataclass(frozen=True)
 class Activity:
@@ -115,10 +113,17 @@ def explored_title(calls: Sequence[Any], *, thought_count: int = 0) -> str:
     duration = format_explored_duration(calls)
     timing = f" for {duration}" if duration else ""
     return (
-        f"{clip_text(title, 96)} · "
+        f"{_clip_title(title)} · "
         f"{explored_count_label(tool_count=len(calls), thought_count=thought_count)}"
         f"{timing}{suffix}"
     )
+
+
+def _clip_title(title: str) -> str:
+    text = title.strip()
+    if len(text) <= 96:
+        return text
+    return f"{text[:96].rstrip()}…"
 
 
 def _activity_text(value: Any) -> str:
