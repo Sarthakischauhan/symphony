@@ -135,7 +135,7 @@ groups, recent window, token target) and exports it so products can build their
 own `Compactor` on it. coding_agent does not mount `KeepSystemRecentCompactor`;
 it mounts `AiCompactionAddon`, whose `InferenceCompactor` runs the same
 keep/drop plan and then writes the dropped-work summary with the active model.
-coding_agent auto-compacts when 16,000 or fewer context tokens remain, and
+coding_agent auto-compacts when 80% of the active model's context is used, and
 `/compact` runs the same mounted compactor on demand. Disable with
-`context_compact_threshold=None` (and `context_target_tokens=None` if you also
-use a token target).
+`context_compact_ratio=None`, `context_compact_threshold=None`, and
+`context_target_tokens=None`.

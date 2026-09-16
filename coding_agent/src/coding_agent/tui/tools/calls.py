@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -80,6 +81,8 @@ class ToolCallWidget(Collapsible):
         self.raw_arguments = ""
         self.result = ""
         self.status = "preparing"
+        self.activity_reason = ""
+        self.activity_group = ""
         self._body_dirty = True
         self._header_values: tuple[str, str, str] | None = None
         self._styled_status: str | None = None
@@ -131,6 +134,18 @@ class ToolCallWidget(Collapsible):
 
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         self.arguments = dict(arguments or {})
+        activity = self.arguments.pop("activity", None)
+        if isinstance(activity, Mapping):
+            self._set_activity_fields(activity)
+            if raw:
+                try:
+                    parsed_raw = json.loads(raw)
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    if isinstance(parsed_raw, dict):
+                        parsed_raw.pop("activity", None)
+                        raw = json.dumps(parsed_raw, separators=(",", ":"))
         self.raw_arguments = raw
         self._body_dirty = True
         self.refresh_content()
@@ -138,7 +153,20 @@ class ToolCallWidget(Collapsible):
     def set_running(self, arguments: Mapping[str, Any] | None) -> None:
         self.status = "running"
         self.arguments = dict(arguments or {})
+        activity = self.arguments.pop("activity", None)
+        if isinstance(activity, Mapping):
+            self._set_activity_fields(activity)
         self._body_dirty = True
+        self.refresh_content()
+
+    def _set_activity_fields(self, activity: Mapping[str, Any]) -> None:
+        reason = activity.get("reason")
+        group = activity.get("group")
+        self.activity_reason = reason.strip() if isinstance(reason, str) else ""
+        self.activity_group = group.strip() if isinstance(group, str) else ""
+
+    def set_activity(self, activity: Mapping[str, Any] | None) -> None:
+        self._set_activity_fields(activity or {})
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
@@ -192,7 +220,7 @@ class ToolCallWidget(Collapsible):
     def _refresh_header(self, label: str, summary: str) -> None:
         values = (
             f"{self._disclosure_symbol()} {self._marker()}  {label}",
-            summary,
+            clip_text(self.activity_reason, 140) if self.activity_reason else summary,
             self.status,
         )
         if values == self._header_values:
@@ -228,6 +256,8 @@ class ToolCallWidget(Collapsible):
             detail=clip_text(self._summary(), 300),
             status=self.status,
             result=self._result_summary(),
+            activity_reason=self.activity_reason,
+            activity_group=self.activity_group,
         )
 
 
@@ -241,6 +271,8 @@ class ToolCallSnapshot:
     detail: str = ""
     status: str = "done"
     result: str = ""
+    activity_reason: str = ""
+    activity_group: str = ""
 
     def as_text(self) -> str:
         marker = "×" if self.status == "failed" else "✓"
@@ -260,15 +292,29 @@ def snapshot_from_call(
     raw_arguments: str = "",
     status: str = "done",
     result: str = "",
+    activity: Mapping[str, Any] | None = None,
 ) -> ToolCallSnapshot:
     label, _icon = tool_label(tool_name)
+    display_arguments = dict(arguments or {})
+    nested_activity = display_arguments.pop("activity", None)
+    activity = activity if isinstance(activity, Mapping) else nested_activity
     return ToolCallSnapshot(
         call_id=call_id,
         tool_name=tool_name,
         label=label,
-        detail=clip_text(tool_detail(tool_name, arguments, raw_arguments), 300),
+        detail=clip_text(tool_detail(tool_name, display_arguments, raw_arguments), 300),
         status=status,
         result=clip_text(result, 260) if result else "",
+        activity_reason=(
+            str((activity or {}).get("reason", "")).strip()
+            if isinstance(activity, Mapping)
+            else ""
+        ),
+        activity_group=(
+            str((activity or {}).get("group", "")).strip()
+            if isinstance(activity, Mapping)
+            else ""
+        ),
     )
 
 
@@ -287,10 +333,34 @@ class ToolCallSummary(Static, can_focus=True):
     def on_mount(self) -> None:
         settle_row(self)
 
+    def _activity_reason(self) -> str:
+        return next(
+            (call.activity_reason for call in self.calls if call.activity_reason),
+            "",
+        )
+
     def _summary_title(self) -> str:
         failed = sum(call.status == "failed" for call in self.calls)
         suffix = f" · {failed} failed" if failed else ""
-        return f"Explored · {self._count_label()}{suffix}"
+        title = self._activity_reason() or "Explored"
+        return f"{clip_text(title, 96)} · {self._count_label()}{suffix}"
+
+    def _activity_group(self) -> str:
+        return next(
+            (call.activity_group for call in self.calls if call.activity_group),
+            "",
+        )
+
+    def accepts(self, call: ToolCallWidget | ToolCallSnapshot) -> bool:
+        """Return whether a call belongs in this activity's folded row."""
+        if not self.calls:
+            return True
+        snapshot = call.snapshot() if isinstance(call, ToolCallWidget) else call
+        current_group = self._activity_group()
+        incoming_group = snapshot.activity_group
+        if current_group or incoming_group:
+            return current_group == incoming_group
+        return bool(self._activity_reason()) == bool(snapshot.activity_reason)
 
     def _count_label(self) -> str:
         noun = "tool" if self.count == 1 else "tools"
@@ -304,7 +374,10 @@ class ToolCallSummary(Static, can_focus=True):
         text = Text()
         text.append("[ ", style="#7395ab")
         text.append("▾ " if self.is_expanded else "▸ ", style="bold #8ab4cf")
-        text.append("Explored", style="bold #8ab4cf")
+        text.append(
+            clip_text(self._activity_reason() or "Explored", 96),
+            style="bold #8ab4cf",
+        )
         text.append(f" · {self._count_label()}", style="#a2adb8")
         failed = sum(call.status == "failed" for call in self.calls)
         if failed:
@@ -524,7 +597,11 @@ class BashToolWidget(ToolCallWidget):
     def refresh_content(self) -> None:
         values = (
             f"{self._disclosure_symbol()} {self._marker()}  Bash",
-            clip_text(self._summary(), 180),
+            (
+                clip_text(self.activity_reason, 180)
+                if self.activity_reason
+                else clip_text(self._summary(), 180)
+            ),
             self.status,
         )
         if values != self._header_values:

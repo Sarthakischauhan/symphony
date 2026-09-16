@@ -49,7 +49,7 @@ class BashTool(WorkspaceTool):
         timeout_schema["maximum"] = config.max_timeout_seconds
 
     def prepare_args(self, args: dict[str, object]) -> dict[str, object]:
-        prepared = dict(args)
+        prepared = super().prepare_args(args)
         prepared.setdefault("timeout", self.config.default_timeout_seconds)
         return prepared
 

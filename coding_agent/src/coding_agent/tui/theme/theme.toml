@@ -197,7 +197,8 @@ tools = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 0;
+    /* Keep tool cards visually separated from preceding text/cards. */
+    margin: 1 0 0 0;
     padding: 0;
     background: $background;
     pointer: pointer;
@@ -384,6 +385,7 @@ tools = '''
 .tool-call-summary {
     width: 1fr;
     height: auto;
+    /* Match tool cards and leave a clear row after assistant text. */
     margin: 1 0 0 0;
     padding: 0 0 0 3;
     color: #a2adb8;

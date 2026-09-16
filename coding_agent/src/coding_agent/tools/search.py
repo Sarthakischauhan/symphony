@@ -187,7 +187,7 @@ class SearchTool(WorkspaceTool):
         properties["max_line_chars"]["default"] = config.default_max_line_chars
 
     def prepare_args(self, args: dict[str, object]) -> dict[str, object]:
-        prepared = dict(args)
+        prepared = super().prepare_args(args)
         prepared.setdefault("max_results", self.config.default_max_results)
         prepared.setdefault("max_line_chars", self.config.default_max_line_chars)
         return prepared

@@ -99,9 +99,10 @@ def default_coding_agent_harness() -> HarnessConfig:
     """Product harness settings. Engine field defaults fill the rest."""
     return HarnessConfig(
         max_turns=None,
-        tool_result_prune_tokens=48_000,
+        tool_result_prune_tokens=None,
         context_warn_threshold=32_000,
-        context_compact_threshold=16_000,
+        context_compact_threshold=None,
+        context_compact_ratio=0.8,
         context_target_tokens=80_000,
         compaction_keep_recent=10,
     )

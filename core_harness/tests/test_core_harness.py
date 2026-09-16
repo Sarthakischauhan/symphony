@@ -621,6 +621,29 @@ def test_context_limit_uses_gemini_family_fallback() -> None:
     assert state.context_limit("gemini:gemini-flash-latest") == 1_048_576
 
 
+def test_compaction_ratio_uses_current_model_context_limit() -> None:
+    state = HarnessState(
+        compactor=KeepSystemRecentCompactor(),
+        context_compact_ratio=0.8,
+    )
+
+    assert not state.should_compact(
+        context_left=20_001,
+        estimated_tokens=79_999,
+        context_limit=100_000,
+    )
+    assert state.should_compact(
+        context_left=20_000,
+        estimated_tokens=80_000,
+        context_limit=100_000,
+    )
+    assert not state.should_compact(
+        context_left=None,
+        estimated_tokens=80_000,
+        context_limit=200_000,
+    )
+
+
 def test_core_harness_estimates_usage_when_provider_omits_it() -> None:
     _, sink, result = call_fake_harness(emit_usage=False, context_limit=10_000)
 

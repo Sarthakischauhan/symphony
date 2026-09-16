@@ -80,6 +80,7 @@ class CoreHarness:
             context_limits=self.config.context_limits,
             context_warn_threshold=self.config.context_warn_threshold,
             context_compact_threshold=self.config.context_compact_threshold,
+            context_compact_ratio=self.config.context_compact_ratio,
             context_target_tokens=self.context_target_tokens,
         )
         self.addons: List[Addon] = []

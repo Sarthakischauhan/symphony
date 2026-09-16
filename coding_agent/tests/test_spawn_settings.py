@@ -31,7 +31,8 @@ def test_ensure_spawn_settings_writes_complete_file(tmp_path: Path) -> None:
     assert path.exists()
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["harness"]["max_turns"] is None
-    assert payload["harness"]["tool_result_prune_tokens"] == 48_000
+    assert payload["harness"]["tool_result_prune_tokens"] is None
+    assert payload["harness"]["context_compact_ratio"] == 0.8
     assert payload["harness"]["compaction_keep_recent"] == 10
     assert payload["learning"]["enabled"] is True
     assert config.harness.max_turns is None

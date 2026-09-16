@@ -250,6 +250,47 @@ def test_bash_is_async_and_does_not_use_blocking_run() -> None:
     assert inspect.iscoroutinefunction(BashTool.run)
 
 
+def test_workspace_tools_accept_ui_activity_without_passing_it_to_run(
+    tmp_path: Path,
+) -> None:
+    tool = BashTool(tmp_path).as_harness_tool()
+    activity = {
+        "reason": "Verify the change",
+        "group": "validation",
+    }
+
+    schema = tool.parameters
+    assert schema["properties"]["activity"]["properties"]["reason"] == {
+        "type": "string"
+    }
+
+    result = asyncio.run(
+        tool.execute(
+            sink=None,
+            args={
+                "command": "printf activity-ok",
+                "activity": activity,
+            },
+        )
+    )
+    assert result == "activity-ok"
+
+
+def test_configured_tools_also_strip_ui_activity(tmp_path: Path) -> None:
+    search = SearchTool(tmp_path)
+    prepared = search.prepare_args(
+        {
+            "query": "needle",
+            "activity": {
+                "reason": "Find the code",
+                "group": "inspection",
+            },
+        }
+    )
+    assert "activity" not in prepared
+    assert prepared["max_results"] == search.config.default_max_results
+
+
 def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
     tool = BashTool(tmp_path).as_harness_tool()
 

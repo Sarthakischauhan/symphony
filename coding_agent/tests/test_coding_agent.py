@@ -28,8 +28,10 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert settings_path.exists()
     saved = CodingAgentConfig.model_validate_json(settings_path.read_text(encoding="utf-8"))
     assert saved.harness.max_turns is None
-    assert saved.harness.tool_result_prune_tokens == 48_000
-    assert saved.harness.context_compact_threshold == 16_000
+    assert saved.harness.tool_result_prune_tokens is None
+    assert saved.harness.context_compact_threshold is None
+    assert saved.harness.context_compact_ratio == 0.8
+    assert saved.harness.context_target_tokens == 80_000
     assert saved.harness.compaction_keep_recent == 10
     assert isinstance(agent.harness.state.compactor, InferenceCompactor)
     assert isinstance(agent.persistence, JsonlPersistence)

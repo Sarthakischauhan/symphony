@@ -41,11 +41,26 @@ class WorkspaceTool(Tool, ABC):
         return candidate.resolve()
 
     def parameters_schema(self) -> Dict[str, Any]:
-        """JSON Schema for tool arguments (OpenAI-compatible parameters object)."""
+        """JSON Schema for tool arguments, including optional UI activity metadata."""
         schema = self.args_model.model_json_schema()
         schema.pop("title", None)
         schema.setdefault("type", "object")
         schema.setdefault("additionalProperties", False)
+        properties = schema.setdefault("properties", {})
+        properties["activity"] = {
+            "type": "object",
+            "description": (
+                "Optional UI context. Set verb to a short present-participle label, "
+                "reason to why this call is needed, and group to a stable label shared "
+                "by related calls."
+            ),
+            "properties": {
+                "verb": {"type": "string"},
+                "reason": {"type": "string"},
+                "group": {"type": "string"},
+            },
+            "additionalProperties": False,
+        }
         return schema
 
     def validate_args(self, **kwargs: Any) -> BaseModel:
@@ -56,8 +71,10 @@ class WorkspaceTool(Tool, ABC):
             raise ValueError(f"invalid {self.name} arguments: {exc}") from exc
 
     def prepare_args(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply instance configuration before schema validation."""
-        return dict(args)
+        """Remove presentation-only metadata before schema validation."""
+        prepared = dict(args)
+        prepared.pop("activity", None)
+        return prepared
 
     @abstractmethod
     def run(self, *args: Any, **kwargs: Any) -> str | list[dict[str, Any]]:
