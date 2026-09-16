@@ -378,7 +378,7 @@ def test_finalization_closes_expanded_batches_without_new_tools() -> None:
     assert not summary.is_expanded
 
 
-def test_interrupted_tools_do_not_absorb_a_following_thought() -> None:
+def test_interrupted_completed_thought_is_compacted_but_live_thought_remains() -> None:
     thought = ReasoningWidget("## Inspecting files\n\nPrivate reasoning body")
     thought.complete()
     tool = _done_tool("read")
@@ -387,11 +387,14 @@ def test_interrupted_tools_do_not_absorb_a_following_thought() -> None:
 
     reconcile_live_tools(timeline)
 
-    assert thought in timeline
+    assert thought not in timeline
     assert live_thought in timeline
-    summary = _summaries(timeline)[0]
-    assert summary.title == "Explored · 1 tool"
-    assert summary.call_ids == ["read"]
+    summaries = _summaries(timeline)
+    assert len(summaries) == 2
+    assert summaries[0].title == "Explored · 1 tool"
+    assert summaries[0].call_ids == ["read"]
+    assert summaries[1].title == "Explored · 1 thought"
+    assert summaries[1].archive_text() == "Thought - Inspecting files"
 
 
 def test_finalization_folds_thought_only_runs() -> None:
