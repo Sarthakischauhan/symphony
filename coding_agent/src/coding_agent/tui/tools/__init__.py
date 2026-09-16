@@ -6,7 +6,6 @@ from coding_agent.tui.tools.calls import (
     GenerateImageWidget,
     PatchDiffWidget,
     ReadFileWidget,
-    ToolCallSummary,
     ToolCallWidget,
     make_tool_widget,
 )
@@ -20,7 +19,11 @@ from coding_agent.tui.tools.images import (
     dropped_image_paths,
     render_half_block,
 )
-from coding_agent.tui.tools.snapshots import ToolCallSnapshot, snapshot_from_call
+from coding_agent.tui.tools.snapshots import (
+    ToolCallSnapshot,
+    ToolCallSummary,
+    snapshot_from_call,
+)
 
 __all__ = [
     "BashToolHeader",

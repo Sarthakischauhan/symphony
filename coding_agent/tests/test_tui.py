@@ -74,6 +74,7 @@ from coding_agent.tui.tools import (
     ReadFileWidget,
     ToolCallSummary,
     ToolCallWidget,
+    diff_stats,
     make_tool_widget,
 )
 from coding_agent.tui.chrome import (
@@ -2769,7 +2770,7 @@ def test_patch_events_render_a_specialized_diff_widget(
             assert widget.status == "running"
             assert widget.collapsed
             assert widget.arguments["path"] == "src/greeting.py"
-            assert widget._stats(diff) == (2, 2)
+            assert diff_stats(diff) == (2, 2)
             assert '-    return "hello"' in diff
             assert '+    return f"hello {name}"' in diff
             assert "Update" in str(widget.query_one(".tool-call-label").render())

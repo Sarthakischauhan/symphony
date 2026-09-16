@@ -50,7 +50,8 @@ def is_timeline_chrome(widget: Any) -> bool:
 
 def is_tool_stretch_item(widget: Any) -> bool:
     """Live tool cards and tool-bearing Explored folds in one consecutive stretch."""
-    from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+    from coding_agent.tui.tools.calls import ToolCallWidget
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     if isinstance(widget, ToolCallWidget):
         return True
@@ -194,7 +195,7 @@ def _fold_ready_stretch(
     collectable: Callable[[Any], bool],
     final: bool,
 ) -> bool:
-    from coding_agent.tui.tools.calls import ToolCallSummary
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     for stretch, interrupted in members:
         if not (interrupted or final):
@@ -255,7 +256,7 @@ def _timeline_ops(
 
 
 def _collapse_expanded_summaries(items: Sequence[Any]) -> None:
-    from coding_agent.tui.tools.calls import ToolCallSummary
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     for item in items:
         if isinstance(item, ToolCallSummary) and item.is_expanded:
@@ -300,7 +301,7 @@ def _fold_into_explored(
     tools: MutableMapping[str, Any] | None,
     batch_summary: Any = None,
 ) -> Any:
-    from coding_agent.tui.tools.calls import ToolCallSummary
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     items = snapshot()
     if widget not in items:

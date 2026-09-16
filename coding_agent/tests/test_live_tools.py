@@ -8,11 +8,10 @@ from coding_agent.tui.tools.activity import (
     same_activity_group,
 )
 from coding_agent.tui.tools.calls import (
-    ToolCallSummary,
     ToolCallWidget,
     make_tool_widget,
 )
-from coding_agent.tui.tools.snapshots import ToolCallSnapshot, snapshot_from_call
+from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary, snapshot_from_call
 from coding_agent.tui.transcript.live_tools import (
     collectable_tools,
     is_collectable_thought,

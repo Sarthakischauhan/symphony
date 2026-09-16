@@ -50,7 +50,8 @@ class TranscriptTurn:
             widget.remove()
 
     def tool_count(self) -> int:
-        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+        from coding_agent.tui.tools.calls import ToolCallWidget
+        from coding_agent.tui.tools.snapshots import ToolCallSummary
         from coding_agent.tui.transcript.process import RunProcess
 
         count = 0
