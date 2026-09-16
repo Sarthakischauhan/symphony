@@ -113,7 +113,7 @@ Screen {
 
 .assistant-message {
     padding-left: 3;
-    margin-left: 0;
+    margin: 1 0 1 0;
     background: $background;
 }
 

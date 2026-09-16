@@ -16,7 +16,7 @@ SCOPE = "openid profile email offline_access grok-cli:access api:access"
 CLI_CHAT_PROXY_BASE_URL = "https://cli-chat-proxy.grok.com/v1"
 TOKEN_AUTH_VALUE = "xai-grok-cli"
 CLIENT_IDENTIFIER = "symphony"
-CLIENT_VERSION = "0.1.0"
+CLIENT_VERSION = "0.1.202"
 FORM_HEADERS = {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json",
