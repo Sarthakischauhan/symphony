@@ -52,6 +52,7 @@ print((await agent.run("Fix the failing test")).output_text)
 | [TUI](../user-guide/tui.md) | Keybindings, plan mode, images |
 | [Tools](../user-guide/tools.md) | `read_file`, `write_file`, `patch`, `search`, `bash`, `spawn_agent` |
 | [Configuration](../user-guide/configuration.md) | `.symphony/config.json`, approvals |
+| [Langfuse](../user-guide/langfuse.md) | Optional traces of sent prompts and tools |
 | [Sessions](../user-guide/sessions.md) | JSONL, `--resume` |
 | [Slash commands](../reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
 

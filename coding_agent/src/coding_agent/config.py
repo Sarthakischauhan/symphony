@@ -95,6 +95,16 @@ class CompactionConfig(BaseModel):
     max_transcript_chars: int = Field(default=24_000, ge=1)
 
 
+class LangfuseConfig(BaseModel):
+    """Optional Langfuse tracing. Credentials stay in the environment, not this file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    max_payload_chars: int = Field(default=32_000, ge=1)
+
+
 def default_coding_agent_harness() -> HarnessConfig:
     """Product harness settings. Engine field defaults fill the rest."""
     return HarnessConfig(
@@ -117,6 +127,7 @@ class CodingAgentConfig(BaseModel):
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+    langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -258,6 +269,7 @@ __all__ = [
     "BashConfig",
     "CodingAgentConfig",
     "CompactionConfig",
+    "LangfuseConfig",
     "LearningConfig",
     "PluginsConfig",
     "ReadFileConfig",

@@ -132,6 +132,7 @@ coding_agent/src/coding_agent/
   tools/              # one file per workspace tool
   compaction/         # AiCompactionAddon + InferenceCompactor
   learning/           # after-run reflection, lesson store, run_summary
+  langfuse/           # optional LangfuseAddon: run/turn/tool traces
   persistence/        # JSONL sessions
   tui/                # Textual app, driven by CP events
 

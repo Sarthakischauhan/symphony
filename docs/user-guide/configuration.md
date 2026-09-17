@@ -61,6 +61,11 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
   "compaction": {
     "max_output_tokens": 700,
     "max_transcript_chars": 24000
+  },
+  "langfuse": {
+    "enabled": true,
+    "sample_rate": 1.0,
+    "max_payload_chars": 32000
   }
 }
 ```
@@ -109,6 +114,20 @@ listed in `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS`.
 
 This gives installed extensions predictable user/repository scopes while
 keeping executable plugin code behind an explicit trust boundary.
+
+## Langfuse telemetry
+
+`LangfuseAddon` records each coding-agent run as one Langfuse trace: the
+conversation actually sent on each model turn, tool arguments and results, and
+compaction. It is enabled in config by default and stays silent unless both
+`LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set (optional
+`LANGFUSE_BASE_URL` for self-hosted or another region). Install the optional
+extra with `uv sync --package symphony-code --extra langfuse` (or
+`pip install 'symphony-code[langfuse]'`). Set `"langfuse": {"enabled": false}`
+to skip the add-on. Secrets in payloads are redacted; image bytes are replaced
+with filenames.
+
+See [`docs/user-guide/langfuse.md`](langfuse.md).
 
 
 ## Harness-only config

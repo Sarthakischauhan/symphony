@@ -12,6 +12,7 @@ from coding_agent.tui.screens.file_selector import (
 )
 from coding_agent.tui.screens.history import load_session_history
 from coding_agent.tui.screens.learning import LearningCard, LearningModal
+from coding_agent.tui.screens.langfuse import LangfuseSetupScreen
 from coding_agent.tui.screens.modal import (
     ContentModal,
     EmptyState,
@@ -37,6 +38,7 @@ __all__ = [
     "ImageModal",
     "LearningCard",
     "LearningModal",
+    "LangfuseSetupScreen",
     "ModalBase",
     "ModalCloseButton",
     "ModalScroll",

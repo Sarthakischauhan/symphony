@@ -98,13 +98,14 @@ and `~` paths are allowed:
 
 - Default add-ons (`agent.default_addons`): `PersistenceAddon` (JSONL),
   `AiCompactionAddon` (`InferenceCompactor`: harness keep/drop plan + a
-  model-written summary of dropped work), `SubagentAddon`.
+  model-written summary of dropped work), `SubagentAddon`, optional
+  `LangfuseAddon` (silent without Langfuse keys / SDK).
 - Approvals (`coding_agent.approvals.ApprovalPolicy` + `ApprovalConfig`):
   ask before `bash`, overwrite, or a broad patch; `always_allow` mode;
   allow-once answers. The TUI renders the question; it does not own the
   rules. Children still run without per-tool prompts (`SECURITY.md`).
 - Config: `.symphony/config.json` → `CodingAgentConfig` (harness, approvals,
-  tools, learning, compaction). Defaults: 24 turns, 40 tool calls, 10 minutes.
+  tools, learning, compaction, langfuse). Defaults: 24 turns, 40 tool calls, 10 minutes.
 - Credentials: environment, workspace `.env`, `~/.symphony/.env`, and
   `~/.symphony/oauth/` for ChatGPT / Claude / xAI subscription tokens;
   first-run onboarding and `/provider` write those files.
@@ -233,8 +234,8 @@ Children skip the add-on.
 
 ### Harness
 
-- A concrete telemetry exporter (JSONL or OTel). There is no telemetry
-  add-on in the tree today.
+- A harness-level telemetry exporter (JSONL or OTel). `symphony-code` now
+  ships an optional Langfuse add-on; the harness itself still has none.
 
 ### Server
 

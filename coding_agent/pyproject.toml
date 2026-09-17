@@ -17,6 +17,9 @@ dependencies = [
     "textual>=8.2.8",
 ]
 
+[project.optional-dependencies]
+langfuse = ["langfuse>=3.0.0"]
+
 [project.urls]
 Homepage = "https://github.com/Sarthakischauhan/symphony"
 Documentation = "https://github.com/Sarthakischauhan/symphony/blob/main/docs/packages/symphony-code.md"

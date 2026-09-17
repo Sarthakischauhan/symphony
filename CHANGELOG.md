@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Optional `LangfuseAddon` on `symphony-code` records the conversation sent
+  each model turn, plus tools and compaction, when `LANGFUSE_PUBLIC_KEY` and
+  `LANGFUSE_SECRET_KEY` are set. Install `symphony-code[langfuse]`. Disable
+  with `"langfuse": {"enabled": false}`. Root spans no longer pass
+  `session_id` into Langfuse v4 `start_observation` (that TypeError was
+  swallowed and produced zero traces).
 - `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),
   Claude (`claude setup-token` or browser code), or xAI (device code)
   subscription. Tokens live in `~/.symphony/oauth/` and are used when no
