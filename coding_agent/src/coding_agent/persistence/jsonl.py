@@ -25,7 +25,7 @@ from core_harness.context import COMPACTED_CONTEXT_MARK
 _SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _SKIP_EVENTS = frozenset({"text_delta", "reasoning_delta", "tool_call_delta"})
 _MESSAGE_FIELDS = ("role", "content", "tool_calls", "tool_call_id", "tool_call_metadata")
-_MESSAGE_TYPES = frozenset({"system", "user", "assistant", "tool_result"})
+_MESSAGE_TYPES = frozenset({"system", "user", "assistant", "tool_result", "message"})
 
 
 def _utc_now() -> str:
@@ -76,6 +76,7 @@ class JsonlPersistence:
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._event_keys: Dict[str, set[tuple[str, int]]] = {}
+        self._entries: Dict[str, List[Dict[str, Any]]] = {}
 
     def _path(self, session_id: str) -> Path:
         if not _SESSION_ID.match(session_id):
@@ -83,9 +84,13 @@ class JsonlPersistence:
         return self.root / f"{session_id}.jsonl"
 
     def _read_entries(self, session_id: str) -> List[Dict[str, Any]]:
+        cached = self._entries.get(session_id)
+        if cached is not None:
+            return cached
         path = self._path(session_id)
         if not path.is_file():
-            return []
+            self._entries[session_id] = []
+            return self._entries[session_id]
         entries: List[Dict[str, Any]] = []
         with path.open(encoding="utf-8") as handle:
             for raw in handle:
@@ -98,6 +103,7 @@ class JsonlPersistence:
                     continue
                 if isinstance(item, dict):
                     entries.append(item)
+        self._entries[session_id] = entries
         return entries
 
     def _append_entries(self, session_id: str, entries: List[Dict[str, Any]]) -> None:
@@ -107,6 +113,8 @@ class JsonlPersistence:
         with path.open("a", encoding="utf-8") as handle:
             for entry in entries:
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        cached = self._entries.setdefault(session_id, [])
+        cached.extend(entries)
 
     def _next_seq(self, entries: List[Dict[str, Any]]) -> int:
         return max((int(entry.get("seq", 0)) for entry in entries if str(entry.get("seq", "0")).isdigit()), default=0) + 1
@@ -383,7 +391,6 @@ class JsonlPersistence:
                 for index, item in enumerate(candidates, 1)
             ]
             self._append_entries(session_id, [boundary, *additions])
-            self._event_keys.pop(session_id, None)
 
     async def load_conversation(self, *, session_id: str) -> List[Message]:
         """Load the reconstructed model context (runtime view)."""
@@ -426,16 +433,14 @@ class JsonlPersistence:
                             child_session = str(entry.get("session_id") or "")
                             if child_session:
                                 child_ids.add(child_session)
-                        if entry.get("type") not in _MESSAGE_TYPES:
+                        payload = self._message_payload_from_entry(entry)
+                        if payload is None:
                             continue
                         message_count += 1
                         if first_message:
                             continue
-                        content = entry.get("content")
-                        if entry.get("type") == "tool_result":
-                            content = entry.get("message", {}).get("content")
-                        text = text_from_content(content).strip()
-                        if entry.get("type") == "user" and text and not text.startswith(COMPACTED_CONTEXT_MARK):
+                        text = text_from_content(payload.get("content")).strip()
+                        if payload.get("role") == "user" and text and not text.startswith(COMPACTED_CONTEXT_MARK):
                             first_message = text
                 updated = datetime.fromtimestamp(
                     path.stat().st_mtime, tz=timezone.utc

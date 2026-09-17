@@ -223,17 +223,16 @@ class SearchTool(WorkspaceTool):
         line_cap = max(1, max_line_chars)
         results: list[str] = []
         base = root if root.is_dir() else root.parent
-        files = list(self._iter_files(root, glob, base))
 
         if mode == "files":
-            for file_path in files:
+            for file_path in self._iter_files(root, glob, base):
                 relative = _display_path(file_path, base)
                 if matcher.search(relative):
                     results.append(relative)
                     if len(results) >= limit:
                         break
         else:
-            for file_path in files:
+            for file_path in self._iter_files(root, glob, base):
                 relative = _display_path(file_path, base)
                 for line_no, line in self._iter_text_lines(file_path):
                     if not matcher.search(line):
@@ -253,23 +252,50 @@ class SearchTool(WorkspaceTool):
         return f"{len(results)} {mode} matches{suffix}\n" + "\n".join(results)
 
     def _iter_files(self, root: Path, glob_pattern: str, base: Path):
-        candidates = [root] if root.is_file() else sorted(root.rglob("*"))
-        for candidate in candidates:
-            if not candidate.is_file() or not self._searchable(candidate, base):
+        if root.is_file():
+            yield from self._yield_file(root, glob_pattern, base)
+            return
+        stack = [root]
+        while stack:
+            current = stack.pop()
+            try:
+                children = sorted(current.iterdir(), key=lambda path: path.name, reverse=True)
+            except OSError:
                 continue
-            relative = _display_path(candidate, base)
-            if glob_pattern and not (
-                fnmatch.fnmatch(candidate.name, glob_pattern)
-                or fnmatch.fnmatch(relative, glob_pattern)
-            ):
-                continue
-            yield candidate
+            for child in children:
+                if child.is_dir():
+                    if self._searchable_dir(child, base):
+                        stack.append(child)
+                    continue
+                yield from self._yield_file(child, glob_pattern, base)
+
+    def _yield_file(self, candidate: Path, glob_pattern: str, base: Path):
+        if not candidate.is_file() or not self._searchable(candidate, base):
+            return
+        relative = _display_path(candidate, base)
+        if glob_pattern and not (
+            fnmatch.fnmatch(candidate.name, glob_pattern)
+            or fnmatch.fnmatch(relative, glob_pattern)
+        ):
+            return
+        yield candidate
+
+    def _relative_parts(self, path: Path, base: Path) -> tuple[str, ...]:
+        try:
+            return path.relative_to(base).parts
+        except ValueError:
+            return path.parts
+
+    def _searchable_dir(self, path: Path, base: Path) -> bool:
+        relative_parts = self._relative_parts(path, base)
+        if any(part in DEFAULT_SKIP_DIRS for part in relative_parts):
+            return False
+        if any(part.startswith(".") for part in relative_parts):
+            return False
+        return not is_ignored(path, base)
 
     def _searchable(self, path: Path, base: Path) -> bool:
-        try:
-            relative_parts = path.relative_to(base).parts
-        except ValueError:
-            relative_parts = path.parts
+        relative_parts = self._relative_parts(path, base)
         if any(part in DEFAULT_SKIP_DIRS for part in relative_parts):
             return False
         if any(part.startswith(".") for part in relative_parts):
@@ -278,7 +304,8 @@ class SearchTool(WorkspaceTool):
 
     def _iter_text_lines(self, path: Path):
         try:
-            sample = path.read_bytes()[: self.config.binary_sniff_bytes]
+            with path.open("rb") as handle:
+                sample = handle.read(self.config.binary_sniff_bytes)
             if b"\x00" in sample:
                 return
             text = path.read_text(encoding="utf-8")
