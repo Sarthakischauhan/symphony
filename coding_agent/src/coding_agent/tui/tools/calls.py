@@ -95,9 +95,11 @@ class ToolCallWidget(Collapsible):
         # the timeline header is the visible control shared by every tool.
         yield self._title
         with BashToolHeader(classes="tool-call-header"):
+            yield Static("[", classes="tool-call-bracket", markup=False)
             yield self._tool_label
             yield self._tool_command
             yield self._tool_status
+            yield Static("]", classes="tool-call-bracket-end", markup=False)
         with self.Contents():
             yield self._body
 
@@ -341,14 +343,16 @@ class BashToolWidget(ToolCallWidget):
 
     def compose(self):  # type: ignore[no-untyped-def]
         with BashToolHeader(classes="bash-tool-header"):
+            yield Static("[", classes="tool-call-bracket", markup=False)
             yield self._bash_label
             yield self._bash_command
             yield self._bash_status
+            yield Static("]", classes="tool-call-bracket-end", markup=False)
         yield self._body
 
     def refresh_content(self) -> None:
         values = (
-            f"{self._disclosure_symbol()} {self._marker()}  Bash",
+            "Bash",
             header_command(self.activity_reason, clip_text(self._summary(), 180), 180),
             self.status,
         )

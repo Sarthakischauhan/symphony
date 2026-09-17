@@ -1703,19 +1703,18 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
             assert not list(bash.query("CollapsibleTitle"))
 
             header = bash.query_one(".bash-tool-header")
-            assert "▸" in str(bash.query_one(".bash-tool-label").render())
+            assert str(bash.query_one(".tool-call-bracket").render()) == "["
+            assert str(bash.query_one(".tool-call-bracket-end").render()) == "]"
             await pilot.click(header)
             await pilot.pause()
             assert not bash.collapsed
             assert bash.query_one(".bash-tool-body").display
-            assert "▾" in str(bash.query_one(".bash-tool-label").render())
 
             header.focus()
             await pilot.press("space")
             await pilot.pause()
             assert bash.collapsed
             assert not bash.query_one(".bash-tool-body").display
-            assert "▸" in str(bash.query_one(".bash-tool-label").render())
 
             app.update_tool("bash-1", status="done", result="clean")
             await pilot.pause()

@@ -144,8 +144,8 @@ Screen {
 .reasoning-block {
     width: 100%;
     height: auto;
-    margin: 0;
-    padding: 0;
+    margin: 1 0 0 0;
+    padding: 0 0 0 3;
     color: #5b9bd5;
     background: $background;
     pointer: pointer;
@@ -153,10 +153,19 @@ Screen {
 
 .reasoning-block > CollapsibleTitle {
     width: auto;
-    padding: 0 1;
+    padding: 0;
     color: #5b9bd5;
     background: $background;
     pointer: pointer;
+}
+
+.reasoning-block.is-complete {
+    opacity: 0.6;
+}
+
+.reasoning-block.is-complete:hover,
+.reasoning-block.is-complete:focus {
+    opacity: 1;
 }
 
 .reasoning-block.is-complete > CollapsibleTitle {
@@ -219,9 +228,25 @@ tools = '''
 .tool-call-header {
     width: 100%;
     height: 1;
-    padding: 0 1;
+    padding: 0 0 0 3;
     background: $background;
     pointer: pointer;
+}
+
+.tool-call-bracket,
+.tool-call-bracket-end {
+    width: auto;
+    height: 1;
+    color: #7395ab;
+    background: transparent;
+}
+
+.tool-call-bracket {
+    padding-right: 1;
+}
+
+.tool-call-bracket-end {
+    padding-left: 1;
 }
 
 .tool-call-header:hover,
@@ -299,7 +324,7 @@ tools = '''
 .bash-tool-header {
     width: 100%;
     height: 1;
-    padding: 0 1;
+    padding: 0 0 0 3;
     background: $background;
     pointer: pointer;
 }
