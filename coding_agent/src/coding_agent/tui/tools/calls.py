@@ -190,7 +190,7 @@ class ToolCallWidget(Collapsible):
 
     def _refresh_header(self, label: str, summary: str) -> None:
         values = (
-            f"{self._disclosure_symbol()} {self._marker()}  {label}",
+            label,
             header_command(self.activity_reason, summary, 140),
             self.status,
         )

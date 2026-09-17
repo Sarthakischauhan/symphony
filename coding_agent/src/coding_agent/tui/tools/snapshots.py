@@ -118,7 +118,6 @@ class ToolCallSummary(Static, can_focus=True):
         heading = activity.verb or activity.reason or "Explored"
         text = Text()
         text.append("[ ", style="#7395ab")
-        text.append("▾ " if self.is_expanded else "▸ ", style="bold #8ab4cf")
         text.append(clip_text(heading, 96), style="bold #8ab4cf")
         duration = format_explored_duration(self.calls)
         timing = f" for {duration}" if duration else ""
@@ -143,14 +142,13 @@ class ToolCallSummary(Static, can_focus=True):
             return text
         for call in self.entries:
             if isinstance(call, ThoughtSnapshot):
-                text.append(f"\n  ▸  {call.title}", style="#969696")
+                text.append(f"\n  {call.title}", style="#969696")
                 if call.content:
                     text.append(f"\n     {call.content}", style="#858585")
                 continue
-            marker = "×" if call.status == "failed" else "✓"
             text.append("\n")
-            color = "#d66b73" if call.status == "failed" else "#72a57a"
-            text.append(f"  {marker}  ", style=color)
+            color = "#d66b73" if call.status == "failed" else "#b8c7d4"
+            text.append("  ", style=color)
             text.append(call.label, style="bold #b8c7d4")
             if call.detail:
                 text.append(f"  {call.detail}", style="#a2adb8")

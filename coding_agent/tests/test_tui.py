@@ -1573,7 +1573,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
             await pilot.click(tool_summary)
             await pilot.pause()
             assert tool_summary.is_expanded
-            assert "✓  Read  src/app.py" in tool_summary.render().plain
+            assert "  Read  src/app.py" in tool_summary.render().plain
 
     asyncio.run(_run())
 
@@ -3295,14 +3295,14 @@ def test_explored_renders_folded_tool_snapshots_inline(
             summary = summaries[0]
             assert summary.call_ids == ["read-0", "read-1", "read-2"]
             closed = summary.render().plain
-            assert closed.startswith("[ ▸ Explored · 3 tools")
+            assert closed.startswith("[ Explored · 3 tools")
             assert closed.endswith("]")
             assert len(closed) == summary.content_size.width
 
             assert await pilot.click(summary)
             await pilot.pause()
             rendered = summary.render().plain
-            assert rendered.startswith("[ ▾ Explored · 3 tools")
+            assert rendered.startswith("[ Explored · 3 tools")
             assert "src/f0.py" in rendered
             assert "src/f1.py" in rendered
             assert "src/f2.py" in rendered

@@ -337,7 +337,7 @@ def test_tool_call_summary_line_uses_subtle_explored_and_muted_count() -> None:
     summary.add_call("read-0")
     summary.add_call("read-1")
     assert summary.title == "Explored · 2 tools"
-    assert summary.render().plain == "[ ▸ Explored · 2 tools ]"
+    assert summary.render().plain == "[ Explored · 2 tools ]"
 
 
 def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
@@ -351,8 +351,8 @@ def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
     summary.toggle()
 
     rendered = summary.render().plain
-    assert rendered.startswith("[ ▾ Explored · 1 tool ]")
-    assert "✓  Read  src/app.py" in rendered
+    assert rendered.startswith("[ Explored · 1 tool ]")
+    assert "  Read  src/app.py" in rendered
     assert "Read 2 lines (17 bytes)" not in rendered
 
 
@@ -498,12 +498,12 @@ def test_activity_reason_labels_live_tool_and_folded_summary() -> None:
     assert widget.arguments == {"path": "src/app.py"}
     assert widget.activity_reason == "Trace the task UI"
     assert widget.activity_group == "task-ui"
-    assert widget._header_values == ("▸ ○  Read", "Trace the task UI", "preparing")
+    assert widget._header_values == ("Read", "Trace the task UI", "preparing")
 
     widget.status = "done"
     summary = ToolCallSummary((widget.snapshot(),))
     assert summary.title == "Trace the task UI · 1 tool"
-    assert summary.render().plain == "[ ▸ Trace the task UI · 1 tool ]"
+    assert summary.render().plain == "[ Trace the task UI · 1 tool ]"
 
 
 def test_flattened_activity_aliases_are_accepted_and_stripped() -> None:
