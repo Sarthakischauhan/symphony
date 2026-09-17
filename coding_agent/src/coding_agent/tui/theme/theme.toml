@@ -390,12 +390,14 @@ tools = '''
     padding: 0 0 0 3;
     color: #a2adb8;
     background: transparent;
+    opacity: 0.6;
     pointer: pointer;
 }
 
 .tool-call-summary:hover,
 .tool-call-summary:focus {
     background: transparent;
+    opacity: 1;
     text-style: bold;
 }
 '''
