@@ -25,8 +25,9 @@ USER_PROMPT_GUTTER = 3
 
 
 class _SelectableStatic(Static):
-    """Static widget that reuses a completed render instead of rebuilding it."""
+    """Static widget that reuses a completed render and supports text selection."""
 
+    ALLOW_SELECT = True
     _render_cache_content: object | None = None
 
     def _invalidate_render_cache(self, *, layout: bool = False) -> None:

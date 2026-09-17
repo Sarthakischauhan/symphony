@@ -305,6 +305,12 @@ class TranscriptSurface:
             transcript.mount(widget)
         self._compact_transcript(final=True)
 
+    def action_copy_selection(self) -> None:
+        """Copy the currently selected rendered transcript text to the clipboard."""
+        selected = self.screen.get_selected_text()
+        if selected:
+            self.copy_to_clipboard(selected)
+
     def action_clear_transcript(self) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
         transcript.remove_children()

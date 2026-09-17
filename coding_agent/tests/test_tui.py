@@ -15,6 +15,8 @@ import pytest
 from textual import events
 from textual.app import App
 from textual.containers import VerticalScroll
+from textual.geometry import Offset
+from textual.selection import Selection
 from textual.widgets import Static
 
 from core_ai.types import Message, StreamEvent
@@ -3306,6 +3308,28 @@ def test_explored_renders_folded_tool_snapshots_inline(
             assert "src/f1.py" in rendered
             assert "src/f2.py" in rendered
             assert "Read 2 lines" not in rendered
+
+    asyncio.run(_run())
+
+
+def test_assistant_markdown_is_selectable_as_rendered_text(tmp_path: Path) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assistant = AssistantMessage("answer **bold**\n\n- item")
+            app.mount_transcript(assistant)
+            await pilot.pause()
+
+            rendered = app.screen.get_selected_text()
+            assert rendered is None
+            selected = assistant.get_selection(
+                Selection(Offset(0, 0), Offset(80, 2))
+            )
+            assert selected is not None
+            assert selected[0].startswith("answer bold\n\n")
+            assert "item" in selected[0]
 
     asyncio.run(_run())
 
