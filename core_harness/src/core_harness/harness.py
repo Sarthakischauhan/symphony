@@ -63,8 +63,6 @@ class CoreHarness:
         )
         self.max_turns = self.limits.max_turns
         self.tool_result_max_chars = self.config.tool_result_max_chars
-        self.tool_result_keep_recent = self.config.tool_result_keep_recent
-        self.tool_result_prune_tokens = self.config.tool_result_prune_tokens
         self.context_target_tokens = self.config.context_target_tokens
         self.agent_id = agent_id or str(uuid.uuid4())
         self.parent_id = parent_id
@@ -79,7 +77,6 @@ class CoreHarness:
         self.state = HarnessState(
             context_limits=self.config.context_limits,
             context_warn_threshold=self.config.context_warn_threshold,
-            context_compact_threshold=self.config.context_compact_threshold,
             context_compact_ratio=self.config.context_compact_ratio,
             context_target_tokens=self.context_target_tokens,
         )

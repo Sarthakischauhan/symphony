@@ -2646,7 +2646,11 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
     registry = SummaryRegistry()
     config = CodingAgentConfig(learning=LearningConfig(enabled=False))
     config = config.model_copy(
-        update={"harness": config.harness.model_copy(update={"compaction_keep_recent": 8})}
+        update={
+            "harness": config.harness.model_copy(
+                update={"compaction_keep_recent_tools": 8}
+            )
+        }
     )
     agent = CodingAgent(
         registry=registry,  # type: ignore[arg-type]
@@ -2707,8 +2711,6 @@ def test_context_modal_filters_buckets() -> None:
             Message(role="tool", content="command output " * 30, tool_call_id="c1"),
         ],
         context_limit=128_000,
-        keep_recent_tool_results=0,
-        prune_tokens=0,
     )
 
     class Host(App):
@@ -2727,7 +2729,8 @@ def test_context_modal_filters_buckets() -> None:
             filtered = str(modal.query_one("#context-list").render())
             assert "hello there" not in filtered
             assert "bash" in filtered
-            assert "stub" in filtered.lower()
+            assert "full" in filtered.lower()
+            assert "command output" in filtered.lower()
             meta = str(modal.query_one("#context-meta").render())
             assert "tool only" in meta
 

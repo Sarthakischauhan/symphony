@@ -9,11 +9,8 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 from core_harness.addons.compaction import (
     KeepDropPlan,
-    compaction_target,
-    fit_to_target,
     plan_keep_drop,
 )
-from core_harness.context.compact import DEFAULT_PRUNE_KEEP_RECENT
 
 from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 from coding_agent.compaction.transcript import (
@@ -48,23 +45,19 @@ class InferenceCompactor:
         *,
         registry: ModelRegistry,
         model_id: ModelIdSource,
-        keep_recent: int = 10,
+        keep_recent_tools: int = 32,
         target_tokens: Optional[int] = None,
-        keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
         max_output_tokens: int = DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS,
         max_transcript_chars: int = DEFAULT_TRANSCRIPT_MAX_CHARS,
     ) -> None:
-        if keep_recent < 1:
-            raise ValueError("keep_recent must be >= 1")
+        if keep_recent_tools < 1:
+            raise ValueError("keep_recent_tools must be >= 1")
         if target_tokens is not None and target_tokens < 1:
             raise ValueError("target_tokens must be positive or None")
-        if keep_recent_tool_results < 0:
-            raise ValueError("keep_recent_tool_results must be >= 0")
         self.registry = registry
         self._model_id = model_id
-        self.keep_recent = keep_recent
+        self.keep_recent_tools = keep_recent_tools
         self.target_tokens = target_tokens
-        self.keep_recent_tool_results = keep_recent_tool_results
         self.max_output_tokens = max_output_tokens
         self.max_transcript_chars = max_transcript_chars
 
@@ -76,7 +69,7 @@ class InferenceCompactor:
     def plan(self, messages: List[Message], *, context_limit: Optional[int]) -> KeepDropPlan:
         return plan_keep_drop(
             messages,
-            keep_recent=self.keep_recent,
+            keep_recent_tools=self.keep_recent_tools,
             target_tokens=self.target_tokens,
             context_limit=context_limit,
         )
@@ -93,11 +86,7 @@ class InferenceCompactor:
         del turn, tokens_used, context_left
         plan = self.plan(messages, context_limit=context_limit)
         summary = await self.summarize(plan) if plan.dropped else None
-        return fit_to_target(
-            plan.assemble(summary),
-            target=compaction_target(self.target_tokens, context_limit),
-            keep_recent_tool_results=self.keep_recent_tool_results,
-        )
+        return plan.assemble(summary)
 
     async def summarize(self, plan: KeepDropPlan) -> Message:
         """One compacted-context message for ``plan.dropped``; template on failure."""

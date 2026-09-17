@@ -346,7 +346,8 @@ def test_default_model_is_luna(monkeypatch) -> None:
     assert config.model_id == "openai:gpt-5.6-luna"
     assert config.tools == []
     assert config.enable_subagents is False
-    assert config.addons_for_run(RunContext(session_id="test")) == []
+    addons = config.addons_for_run(RunContext(session_id="test"))
+    assert [addon.name for addon in addons] == ["compaction"]
 
 
 def test_qualifies_anthropic_and_gemini_model_ids(monkeypatch) -> None:
@@ -753,7 +754,7 @@ def test_persistence_resumes_session() -> None:
     assert "what did I say?" in contents
 
 
-def test_compaction_streams_when_threshold_is_set() -> None:
+def test_compaction_streams_at_configured_ratio() -> None:
     registry = ScriptedRegistry(
         [
             _tool_turn("ping", "{}", "call-1", prompt_tokens=90),
@@ -766,8 +767,8 @@ def test_compaction_streams_when_threshold_is_set() -> None:
             model_id="openai:test",
             tools=[Tool(ping)],
             context_limits={"openai:test": 100},
-            context_compact_threshold=20,
-            compaction_keep_recent=2,
+            context_compact_ratio=0.8,
+            compaction_keep_recent_tools=2,
         )
     )
     prior = [{"role": "user", "content": f"earlier task {index}"} for index in range(6)]
@@ -951,8 +952,8 @@ def test_addon_factories_create_fresh_instances() -> None:
     )
     first = config.addons_for_run(RunContext(session_id="one"))
     second = config.addons_for_run(RunContext(session_id="two"))
-    assert first[0] is not second[0]
-    assert created == [first[0], second[0]]
+    assert first[-1] is not second[-1]
+    assert created == [first[-1], second[-1]]
 
 
 def test_events_emitted_after_harness_terminal_event_are_streamed() -> None:

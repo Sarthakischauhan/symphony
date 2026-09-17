@@ -89,7 +89,7 @@ def test_bare_harness_does_not_auto_build_compactor() -> None:
         registry=ScriptedRegistry([_text_turn()]),  # type: ignore[arg-type]
         model_id="fake:test",
         system_prompt="system",
-        config=HarnessConfig(context_compact_threshold=20, context_target_tokens=50),
+        config=HarnessConfig(context_compact_ratio=0.8, context_target_tokens=50),
     )
     assert harness.state.compactor is None
     assert isinstance(harness.persistence, NullPersistence)
@@ -123,12 +123,15 @@ def test_register_addon_mounts_compaction_and_fires_hooks() -> None:
         config=HarnessConfig(
             max_turns=8,
             context_limits={"fake:test": 100},
-            context_compact_threshold=20,
-            compaction_keep_recent=2,
+            context_compact_ratio=0.8,
+            compaction_keep_recent_tools=2,
         ),
         tools=[Tool(ping)],
         sink=plane,
-        addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=2)), recorder],
+        addons=[
+            CompactionAddon(KeepSystemRecentCompactor(keep_recent_tools=2)),
+            recorder,
+        ],
     )
     prior = [Message(role="user", content=f"earlier task {index}") for index in range(6)]
     result = asyncio.run(harness.run("go", conversation=prior))

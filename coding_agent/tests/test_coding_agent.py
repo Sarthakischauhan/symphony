@@ -28,11 +28,10 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert settings_path.exists()
     saved = CodingAgentConfig.model_validate_json(settings_path.read_text(encoding="utf-8"))
     assert saved.harness.max_turns is None
-    assert saved.harness.tool_result_prune_tokens is None
-    assert saved.harness.context_compact_threshold is None
+    assert saved.harness.tool_result_max_chars == 32_000
     assert saved.harness.context_compact_ratio == 0.8
     assert saved.harness.context_target_tokens == 80_000
-    assert saved.harness.compaction_keep_recent == 10
+    assert saved.harness.compaction_keep_recent_tools == 32
     assert isinstance(agent.harness.state.compactor, InferenceCompactor)
     assert isinstance(agent.persistence, JsonlPersistence)
     assert agent.harness.persistence is agent.persistence
@@ -136,8 +135,8 @@ def test_coding_agent_compacts_oversized_persisted_context(tmp_path: Path) -> No
                 update={
                     "context_limits": {"fake:test-model": 100},
                     "context_warn_threshold": 30,
-                    "context_compact_threshold": 20,
-                    "compaction_keep_recent": 2,
+                    "context_compact_ratio": 0.8,
+                    "compaction_keep_recent_tools": 2,
                 }
             ),
         }

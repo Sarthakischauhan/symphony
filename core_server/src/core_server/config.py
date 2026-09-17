@@ -71,12 +71,10 @@ class ServerConfig:
     max_tokens: Optional[int] = None
     context_limits: Optional[Dict[str, int]] = None
     context_warn_threshold: Optional[int] = None
-    context_compact_threshold: Optional[int] = None
-    tool_result_max_chars: Optional[int] = 4_000
-    tool_result_keep_recent: int = 8
-    tool_result_prune_tokens: Optional[int] = None
+    context_compact_ratio: Optional[float] = 0.8
+    tool_result_max_chars: Optional[int] = 32_000
     context_target_tokens: Optional[int] = None
-    compaction_keep_recent: int = 10
+    compaction_keep_recent_tools: int = 32
     max_spawn_depth: int = 1
     spawn_max_turns: int = 8
     max_parallel_tool_calls: int = 3
@@ -96,7 +94,7 @@ class ServerConfig:
 
         positive = {
             "max_turns": self.max_turns,
-            "compaction_keep_recent": self.compaction_keep_recent,
+            "compaction_keep_recent_tools": self.compaction_keep_recent_tools,
             "spawn_max_turns": self.spawn_max_turns,
             "max_parallel_tool_calls": self.max_parallel_tool_calls,
             "max_request_bytes": self.max_request_bytes,
@@ -109,8 +107,6 @@ class ServerConfig:
                 raise ValueError(f"{name} must be positive")
         if self.max_spawn_depth < 0:
             raise ValueError("max_spawn_depth must be non-negative")
-        if self.tool_result_keep_recent < 0:
-            raise ValueError("tool_result_keep_recent must be non-negative")
 
     def to_harness_config(self) -> HarnessConfig:
         """Settings object passed to ``CoreHarness`` for each run."""
@@ -120,12 +116,10 @@ class ServerConfig:
             "max_runtime_seconds": self.max_runtime_seconds,
             "max_tokens": self.max_tokens,
             "context_warn_threshold": self.context_warn_threshold,
-            "context_compact_threshold": self.context_compact_threshold,
+            "context_compact_ratio": self.context_compact_ratio,
             "tool_result_max_chars": self.tool_result_max_chars,
-            "tool_result_keep_recent": self.tool_result_keep_recent,
-            "tool_result_prune_tokens": self.tool_result_prune_tokens,
             "context_target_tokens": self.context_target_tokens,
-            "compaction_keep_recent": self.compaction_keep_recent,
+            "compaction_keep_recent_tools": self.compaction_keep_recent_tools,
             "max_spawn_depth": self.max_spawn_depth,
             "spawn_max_turns": self.spawn_max_turns,
             "max_parallel_tool_calls": self.max_parallel_tool_calls,
@@ -139,10 +133,7 @@ class ServerConfig:
         addons: list[Addon] = []
         if self.persistence is not None:
             addons.append(PersistenceAddon(self.persistence))
-        if (
-            self.context_compact_threshold is not None
-            or self.context_target_tokens is not None
-        ):
+        if self.context_compact_ratio is not None:
             addons.append(compaction_from_config(self.to_harness_config()))
         if self.enable_subagents or self.subagent_factory is not None:
             factory = self.subagent_factory or (lambda _: SubagentAddon())
@@ -175,12 +166,10 @@ def build_config(
     max_history_chars: int = 500_000,
     context_limits: Optional[Dict[str, int]] = None,
     context_warn_threshold: Optional[int] = None,
-    context_compact_threshold: Optional[int] = None,
-    tool_result_max_chars: Optional[int] = 4_000,
-    tool_result_keep_recent: int = 8,
-    tool_result_prune_tokens: Optional[int] = None,
+    context_compact_ratio: Optional[float] = 0.8,
+    tool_result_max_chars: Optional[int] = 32_000,
     context_target_tokens: Optional[int] = None,
-    compaction_keep_recent: int = 10,
+    compaction_keep_recent_tools: int = 32,
     max_spawn_depth: int = 1,
     spawn_max_turns: int = 8,
     max_parallel_tool_calls: int = 3,
@@ -211,12 +200,10 @@ def build_config(
         max_history_chars=max_history_chars,
         context_limits=context_limits,
         context_warn_threshold=context_warn_threshold,
-        context_compact_threshold=context_compact_threshold,
+        context_compact_ratio=context_compact_ratio,
         tool_result_max_chars=tool_result_max_chars,
-        tool_result_keep_recent=tool_result_keep_recent,
-        tool_result_prune_tokens=tool_result_prune_tokens,
         context_target_tokens=context_target_tokens,
-        compaction_keep_recent=compaction_keep_recent,
+        compaction_keep_recent_tools=compaction_keep_recent_tools,
         max_spawn_depth=max_spawn_depth,
         spawn_max_turns=spawn_max_turns,
         max_parallel_tool_calls=max_parallel_tool_calls,

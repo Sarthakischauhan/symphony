@@ -23,13 +23,10 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
     "max_parallel_tool_calls": 3,
     "max_spawn_depth": 1,
     "context_warn_threshold": 32000,
-    "context_compact_threshold": null,
     "context_compact_ratio": 0.8,
     "context_target_tokens": 80000,
-    "compaction_keep_recent": 10,
-    "tool_result_max_chars": 4000,
-    "tool_result_keep_recent": 8,
-    "tool_result_prune_tokens": null
+    "compaction_keep_recent_tools": 32,
+    "tool_result_max_chars": 32000
   },
   "approvals": {
     "mode": "ask",
@@ -79,21 +76,19 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
 
 coding_agent attaches AI compaction (`InferenceCompactor`) by default. When a
 prompt reaches 80% of the active model's context limit, it keeps the system prompt, the
-original task, and the ten most recent messages (the same keep/drop rule as
+original task, and the latest tool groups (the same keep/drop rule as
 the harness template compactor). Dropped messages are summarized by the active
 model into one compacted-context message that also lists the tools used and
 paths already observed; if the model call fails, the template summary is used
 for that slice instead. `/compact` runs the same compactor on demand and
 refreshes the footer's context meter. `compaction.max_output_tokens` and
 `compaction.max_transcript_chars` bound the summary request. The 80,000-token
-`context_target_tokens` is the desired post-compaction size; when a ratio is
-configured, it does not also trigger compaction. Tool results are capped at 4,000
-characters when they enter history. Older tool bodies remain visible to the model until
-compaction; set `tool_result_prune_tokens` to an integer to opt into earlier stubbing.
+`context_target_tokens` is the desired post-compaction size. Tool results are
+capped at 32,000 characters when they enter history. Older tool bodies remain
+visible to the model until compaction.
 
 A bare `CoreHarness` does not compact until a product attaches the add-on.
-Set `context_compact_ratio`, `context_compact_threshold`, and
-`context_target_tokens` to `null` to disable auto-compact. `/reload`
+Set `context_compact_ratio` to `null` to disable auto-compact. `/reload`
 rebuilds the provider registry and model choices from `.env` and stored
 OAuth tokens. `/provider` writes a key into `~/.symphony/.env` or a
 subscription token into `~/.symphony/oauth/`, then reloads so `/model`

@@ -18,10 +18,8 @@ from core_ai.types import Content, Message
 
 from core_harness.context.compact import (
     COMPACTED_CONTEXT_MARK,
-    DEFAULT_PRUNE_KEEP_RECENT,
     estimate_prompt_tokens,
     normalize_tool_protocol,
-    prune_stale_tool_results,
     _tool_names,
     _tool_refs,
 )
@@ -141,24 +139,41 @@ class Compactor(Protocol):
         """Return a reduced message list that fits better in the context window."""
 
 
-def _split_recent_blocks(
+def _tool_result_count(blocks: Sequence[Sequence[Message]]) -> int:
+    return sum(message.role == "tool" for block in blocks for message in block)
+
+
+def _split_recent_tool_blocks(
     remainder: List[List[Message]],
     *,
-    keep_recent: int,
+    keep_recent_tools: int,
 ) -> tuple[List[List[Message]], List[List[Message]]]:
-    """Split atomic blocks into ``(dropped, kept)`` keeping ~``keep_recent`` messages."""
+    """Keep the suffix containing the latest tool results and their call groups.
+
+    When a conversation has no tools, keep the latest ``keep_recent_tools``
+    message blocks so text-only conversations can still be compacted.
+    """
+    total_tools = _tool_result_count(remainder)
+    if total_tools == 0:
+        split = max(len(remainder) - keep_recent_tools, 0)
+        return remainder[:split], remainder[split:]
+
+    wanted = min(keep_recent_tools, total_tools)
     selected: List[List[Message]] = []
-    selected_count = 0
+    selected_tools = 0
     dropped_end = 0
     for index in range(len(remainder) - 1, -1, -1):
         block = remainder[index]
-        if selected and selected_count + len(block) > keep_recent:
-            dropped_end = index + 1
-            break
         selected.insert(0, block)
-        selected_count += len(block)
+        selected_tools += _tool_result_count([block])
         dropped_end = index
-        if selected_count >= keep_recent:
+        if selected_tools >= wanted:
+            previous = index - 1
+            if previous >= 0 and any(
+                message.role == "user" for message in remainder[previous]
+            ):
+                selected.insert(0, remainder[previous])
+                dropped_end = previous
             break
     else:
         dropped_end = 0
@@ -216,21 +231,19 @@ class KeepDropPlan:
 def plan_keep_drop(
     messages: List[Message],
     *,
-    keep_recent: int,
+    keep_recent_tools: int,
     target_tokens: Optional[int] = None,
     context_limit: Optional[int] = None,
 ) -> KeepDropPlan:
     """Decide what to keep and what to drop; no summary is written here.
 
-    Keeps the leading system prompt, the first real user message, and the last
-    ``keep_recent`` messages. Assistant/tool groups stay together so the
-    provider protocol stays valid; a group that does not fit in the window is
-    dropped whole. The token target (``target_tokens`` or a third of
-    ``context_limit``) is enforced with the template summary as a size proxy,
-    so a caller that summarises with a model still makes exactly one call.
+    Keeps the leading system prompt, the first real user message, and the suffix
+    containing the latest ``keep_recent_tools`` tool results. Assistant/tool
+    groups stay together so the provider protocol stays valid. The token target
+    is best-effort: protected recent tool results are never stubbed or dropped.
     """
-    if keep_recent < 1:
-        raise ValueError("keep_recent must be >= 1")
+    if keep_recent_tools < 1:
+        raise ValueError("keep_recent_tools must be >= 1")
     valid = normalize_tool_protocol(messages)
     system = valid[0] if valid and valid[0].role == "system" else None
     rest = valid[1:] if system is not None else valid
@@ -250,61 +263,47 @@ def plan_keep_drop(
     if first_user is not None:
         plan.leading.append(first_user)
 
-    plan.dropped, plan.kept = _split_recent_blocks(remainder, keep_recent=keep_recent)
+    plan.dropped, plan.kept = _split_recent_tool_blocks(
+        remainder, keep_recent_tools=keep_recent_tools
+    )
     target = compaction_target(target_tokens, context_limit)
+    protected_tools = min(keep_recent_tools, _tool_result_count(remainder))
     while (
         target is not None
         and estimate_prompt_tokens(plan.assemble(plan.template_summary())) > target
         and len(plan.kept) > 1
     ):
+        if protected_tools:
+            break
         plan.dropped.append(plan.kept.pop(0))
     return plan
-
-
-def fit_to_target(
-    compacted: List[Message],
-    *,
-    target: Optional[int],
-    keep_recent_tool_results: int,
-) -> List[Message]:
-    """Last resort: stub old tool bodies if the compact is still over ``target``."""
-    if target is not None and estimate_prompt_tokens(compacted) > target:
-        return prune_stale_tool_results(compacted, keep_recent=keep_recent_tool_results)
-    return compacted
 
 
 class KeepSystemRecentCompactor:
     """Keep the system prompt, the original task, and the most recent messages.
 
-    ``keep_recent`` counts messages. Assistant/tool groups stay together so the
-    provider protocol stays valid. A one-user N-tool loop is not one
-    un-droppable unit: earlier tool groups can be summarised while the last
-    ``keep_recent`` messages stay. Dropped messages become one deterministic
-    template summary; this compactor never calls a provider. Old tool bodies
-    inside kept messages are stubbed only as a last resort if the compact is
-    still over ``target_tokens``.
+    Assistant/tool groups stay together so the provider protocol stays valid.
+    Earlier tool groups are summarised while the latest tool results remain in
+    full. Dropped messages become one deterministic template summary; this
+    compactor never calls a provider.
     """
 
     def __init__(
         self,
-        keep_recent: int = 10,
+        keep_recent_tools: int = 32,
         target_tokens: Optional[int] = None,
-        keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
     ) -> None:
-        if keep_recent < 1:
-            raise ValueError("keep_recent must be >= 1")
+        if keep_recent_tools < 1:
+            raise ValueError("keep_recent_tools must be >= 1")
         if target_tokens is not None and target_tokens < 1:
             raise ValueError("target_tokens must be positive or None")
-        if keep_recent_tool_results < 0:
-            raise ValueError("keep_recent_tool_results must be >= 0")
-        self.keep_recent = keep_recent
+        self.keep_recent_tools = keep_recent_tools
         self.target_tokens = target_tokens
-        self.keep_recent_tool_results = keep_recent_tool_results
 
     def plan(self, messages: List[Message], *, context_limit: Optional[int]) -> KeepDropPlan:
         return plan_keep_drop(
             messages,
-            keep_recent=self.keep_recent,
+            keep_recent_tools=self.keep_recent_tools,
             target_tokens=self.target_tokens,
             context_limit=context_limit,
         )
@@ -320,11 +319,7 @@ class KeepSystemRecentCompactor:
     ) -> List[Message]:
         del turn, tokens_used, context_left
         plan = self.plan(messages, context_limit=context_limit)
-        return fit_to_target(
-            plan.assemble(plan.template_summary()),
-            target=compaction_target(self.target_tokens, context_limit),
-            keep_recent_tool_results=self.keep_recent_tool_results,
-        )
+        return plan.assemble(plan.template_summary())
 
 
 __all__ = [
@@ -335,7 +330,6 @@ __all__ = [
     "compaction_header",
     "compaction_target",
     "dropped_turn_facts",
-    "fit_to_target",
     "plan_keep_drop",
     "summarize_dropped_turns",
 ]

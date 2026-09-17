@@ -28,14 +28,11 @@ class HarnessConfig(BaseModel):
     max_tool_calls: Optional[int] = Field(default=None, ge=1)
     max_runtime_seconds: Optional[float] = Field(default=None, gt=0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
-    tool_result_max_chars: Optional[int] = Field(default=4000, ge=1)
-    tool_result_keep_recent: int = Field(default=8, ge=0)
-    tool_result_prune_tokens: Optional[int] = Field(default=None, ge=0)
+    tool_result_max_chars: Optional[int] = Field(default=32_000, ge=1)
     context_warn_threshold: Optional[int] = Field(default=None, ge=0)
-    context_compact_threshold: Optional[int] = Field(default=None, ge=0)
-    context_compact_ratio: Optional[float] = Field(default=None, gt=0, le=1)
+    context_compact_ratio: Optional[float] = Field(default=0.8, gt=0, le=1)
     context_target_tokens: Optional[int] = Field(default=None, ge=1)
-    compaction_keep_recent: int = Field(default=10, ge=1)
+    compaction_keep_recent_tools: int = Field(default=32, ge=1)
     max_spawn_depth: int = Field(default=1, ge=0)
     spawn_max_turns: int = Field(default=8, ge=1)
     max_parallel_tool_calls: int = Field(default=3, ge=1)
@@ -47,10 +44,18 @@ class HarnessConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _drop_removed_spill_settings(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "tool_output_dir" in data:
+    def _drop_removed_context_settings(cls, data: Any) -> Any:
+        removed = {
+            "tool_output_dir",
+            "tool_result_keep_recent",
+            "tool_result_prune_tokens",
+            "context_compact_threshold",
+            "compaction_keep_recent",
+        }
+        if isinstance(data, dict) and any(key in data for key in removed):
             data = dict(data)
-            data.pop("tool_output_dir", None)
+            for key in removed:
+                data.pop(key, None)
         return data
 
 

@@ -318,8 +318,6 @@ class CodingAgent:
         return build_context_report(
             messages,
             context_limit=self.harness.state.context_limit(self.harness.model_id),
-            keep_recent_tool_results=self.harness.tool_result_keep_recent,
-            prune_tokens=self.harness.tool_result_prune_tokens,
         )
 
 

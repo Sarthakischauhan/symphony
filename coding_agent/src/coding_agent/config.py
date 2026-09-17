@@ -99,12 +99,11 @@ def default_coding_agent_harness() -> HarnessConfig:
     """Product harness settings. Engine field defaults fill the rest."""
     return HarnessConfig(
         max_turns=None,
-        tool_result_prune_tokens=None,
+        tool_result_max_chars=32_000,
         context_warn_threshold=32_000,
-        context_compact_threshold=None,
         context_compact_ratio=0.8,
         context_target_tokens=80_000,
-        compaction_keep_recent=10,
+        compaction_keep_recent_tools=32,
     )
 
 
@@ -140,6 +139,31 @@ def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def _normalize_legacy_config(payload: dict[str, Any]) -> dict[str, Any]:
+    """Translate settings written by older coding-agent versions."""
+    normalized = dict(payload)
+
+    harness = normalized.get("harness")
+    if isinstance(harness, dict) and "spawn_context_tokens" in harness:
+        harness = dict(harness)
+        harness.pop("spawn_context_tokens")
+        normalized["harness"] = harness
+
+    bash = normalized.get("tools", {})
+    if isinstance(bash, dict):
+        bash = bash.get("bash")
+        if isinstance(bash, dict):
+            bash = dict(bash)
+            for key in ("default_timeout_seconds", "max_timeout_seconds"):
+                if bash.get(key) is None:
+                    bash.pop(key)
+            tools = dict(normalized["tools"])
+            tools["bash"] = bash
+            normalized["tools"] = tools
+
+    return normalized
 
 
 def _validate_tools(config: CodingAgentConfig) -> None:
@@ -179,7 +203,8 @@ def load_coding_agent_config(
         raise ValueError("path or workspace is required")
     if not source.exists():
         raise ValueError(f"Config file does not exist: {source}")
-    payload = _merge(CodingAgentConfig().model_dump(mode="json"), _read_json(source))
+    payload = _normalize_legacy_config(_read_json(source))
+    payload = _merge(CodingAgentConfig().model_dump(mode="json"), payload)
     config = CodingAgentConfig.model_validate(payload)
     _validate_tools(config)
     return config
@@ -211,7 +236,8 @@ def ensure_spawn_settings(
     if config is not None:
         payload = config.model_dump(mode="json")
     elif path.exists():
-        payload = _merge(CodingAgentConfig().model_dump(mode="json"), _read_json(path))
+        payload = _normalize_legacy_config(_read_json(path))
+        payload = _merge(CodingAgentConfig().model_dump(mode="json"), payload)
     else:
         payload = CodingAgentConfig().model_dump(mode="json")
 

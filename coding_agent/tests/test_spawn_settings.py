@@ -31,9 +31,9 @@ def test_ensure_spawn_settings_writes_complete_file(tmp_path: Path) -> None:
     assert path.exists()
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["harness"]["max_turns"] is None
-    assert payload["harness"]["tool_result_prune_tokens"] is None
+    assert payload["harness"]["tool_result_max_chars"] == 32_000
     assert payload["harness"]["context_compact_ratio"] == 0.8
-    assert payload["harness"]["compaction_keep_recent"] == 10
+    assert payload["harness"]["compaction_keep_recent_tools"] == 32
     assert payload["learning"]["enabled"] is True
     assert config.harness.max_turns is None
 
@@ -47,6 +47,34 @@ def test_ensure_spawn_settings_keeps_user_overrides(tmp_path: Path) -> None:
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["harness"]["max_turns"] == 5
     assert saved["harness"]["max_tool_calls"] is None
+
+
+def test_ensure_spawn_settings_migrates_legacy_values(tmp_path: Path) -> None:
+    path = spawn_settings_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "harness": {"spawn_context_tokens": 32000},
+                "tools": {
+                    "bash": {
+                        "default_timeout_seconds": None,
+                        "max_timeout_seconds": None,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = ensure_spawn_settings(tmp_path)
+
+    assert config.tools.bash.default_timeout_seconds == 30
+    assert config.tools.bash.max_timeout_seconds == 120
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert "spawn_context_tokens" not in saved["harness"]
+    assert saved["tools"]["bash"]["default_timeout_seconds"] == 30
+    assert saved["tools"]["bash"]["max_timeout_seconds"] == 120
 
 
 def test_load_coding_agent_config_requires_existing_file(tmp_path: Path) -> None:

@@ -37,8 +37,6 @@ class TurnRunner:
         state: HarnessState,
         context_limit: Optional[int],
         tool_result_max_chars: Optional[int],
-        tool_result_keep_recent: int = 8,
-        tool_result_prune_tokens: Optional[int] = None,
         context_target_tokens: Optional[int],
         remaining_runtime: Optional[float] = None,
         max_tool_calls: Optional[int] = None,
@@ -58,8 +56,6 @@ class TurnRunner:
         self.state = state
         self.context_limit = context_limit
         self.tool_result_max_chars = tool_result_max_chars
-        self.tool_result_keep_recent = tool_result_keep_recent
-        self.tool_result_prune_tokens = tool_result_prune_tokens
         self.context_target_tokens = context_target_tokens
         self.remaining_runtime = remaining_runtime
         self.max_tool_calls = max_tool_calls
