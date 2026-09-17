@@ -57,16 +57,16 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             emit("run_completed", output_text="Child answer")
             await pilot.pause()
             assert not list(screen.query(ToolCallWidget))
-            assert not list(screen.query(ReasoningWidget))
+            thoughts = list(screen.query(ReasoningWidget))
+            assert len(thoughts) == 1
+            thought = thoughts[0]
+            assert thought.title == "Thought - Inspecting files"
+            assert thought.collapsed
+            assert "Hidden thought body" in thought.reasoning_text
             summaries = list(screen.query(ToolCallSummary))
             assert sum(item.count for item in summaries) == 11
-            thought = next(item for item in summaries if "thought" in item.title)
-            thought.toggle()
-            assert "Thought - Inspecting files" in thought.render().plain
-            assert "Hidden tool output" not in thought.render().plain
-            assert "Hidden thought body" in thought.render().plain
+            assert all("thought" not in item.title for item in summaries)
             screen.refresh_record()
-            assert thought.call_ids == []
             await pilot.press("escape")
             await pilot.pause()
             app.finish_process("Parent completed")

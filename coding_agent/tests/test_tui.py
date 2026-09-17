@@ -1558,23 +1558,22 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
             assert not list(app.query(ReadFileWidget))
-            assert not list(app.query(ReasoningWidget))
+            thoughts = list(app.query(ReasoningWidget))
+            assert len(thoughts) == 1
+            assert thoughts[0].title == "Thought"
+            assert thoughts[0].collapsed
+            assert "Inspecting the requested file" in thoughts[0].reasoning_text
             process = app.query_one(RunProcess)
             assert not list(process.query(".process-complete"))
             assert app.query_one(".process-complete") is not None
             summaries = list(process.query(ToolCallSummary))
             tool_summary = next(summary for summary in summaries if summary.count)
-            thought_summary = next(
-                summary for summary in summaries if "thought" in summary.title
-            )
+            assert all("thought" not in summary.title for summary in summaries)
             assert tool_summary.call_ids == ["read-1"]
             await pilot.click(tool_summary)
             await pilot.pause()
             assert tool_summary.is_expanded
             assert "✓  Read  src/app.py" in tool_summary.render().plain
-            await pilot.click(thought_summary)
-            assert thought_summary.is_expanded
-            assert "Inspecting the requested file" in thought_summary.render().plain
 
     asyncio.run(_run())
 
@@ -3257,15 +3256,13 @@ def test_final_output_folds_remaining_tools(
             summaries = list(app.query(ToolCallSummary))
             assert sum(summary.count for summary in summaries) == 12
             assert all(not summary.is_expanded for summary in summaries)
-            assert not list(app.query(ReasoningWidget))
-            thought = next(summary for summary in summaries if "thought" in summary.title)
+            thoughts = list(app.query(ReasoningWidget))
+            assert len(thoughts) == 1
+            thought = thoughts[0]
+            assert thought.title == "Thought - Inspecting files"
+            assert thought.collapsed
+            assert "Reasoning body stays hidden" in thought.reasoning_text
             tools = next(summary for summary in summaries if summary.count == 12)
-            thought.focus()
-            await pilot.press("enter")
-            await pilot.pause()
-            assert thought.is_expanded
-            assert "Thought - Inspecting files" in thought.render().plain
-            assert "Reasoning body stays hidden" in thought.render().plain
             assert tools.call_ids == [str(index) for index in range(12)]
             assert app._assistant is not None
             assert "SYMPHONY" not in str(app._assistant.render())
