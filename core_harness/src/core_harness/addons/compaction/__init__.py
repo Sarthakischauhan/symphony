@@ -13,12 +13,10 @@ from core_harness.addons.compaction.policy import (
     compaction_header,
     compaction_target,
     dropped_turn_facts,
-    fit_to_target,
     plan_keep_drop,
     summarize_dropped_turns,
 )
 from core_harness.config import HarnessConfig
-from core_harness.context.compact import DEFAULT_PRUNE_KEEP_RECENT
 
 
 class CompactionAddon(Addon):
@@ -30,22 +28,18 @@ class CompactionAddon(Addon):
         self,
         compactor: Compactor | None = None,
         *,
-        keep_recent: int = 10,
+        keep_recent_tools: int = 32,
         target_tokens: Optional[int] = None,
-        keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
     ) -> None:
         self.compactor = compactor or KeepSystemRecentCompactor(
-            keep_recent=keep_recent,
+            keep_recent_tools=keep_recent_tools,
             target_tokens=target_tokens,
-            keep_recent_tool_results=keep_recent_tool_results,
         )
         if isinstance(self.compactor, KeepSystemRecentCompactor):
-            keep_recent = self.compactor.keep_recent
+            keep_recent_tools = self.compactor.keep_recent_tools
             target_tokens = self.compactor.target_tokens
-            keep_recent_tool_results = self.compactor.keep_recent_tool_results
-        self.keep_recent = keep_recent
+        self.keep_recent_tools = keep_recent_tools
         self.target_tokens = target_tokens
-        self.keep_recent_tool_results = keep_recent_tool_results
 
     def attach(self, harness: Any) -> None:
         harness.state.compactor = self.compactor
@@ -54,18 +48,16 @@ class CompactionAddon(Addon):
         """New add-on with a fresh compactor using the same settings."""
         del parent_harness
         return CompactionAddon(
-            keep_recent=self.keep_recent,
+            keep_recent_tools=self.keep_recent_tools,
             target_tokens=self.target_tokens,
-            keep_recent_tool_results=self.keep_recent_tool_results,
         )
 
 
 def compaction_from_config(config: HarnessConfig) -> CompactionAddon:
     """Build the keep-system-recent add-on from harness settings."""
     return CompactionAddon(
-        keep_recent=config.compaction_keep_recent,
+        keep_recent_tools=config.compaction_keep_recent_tools,
         target_tokens=config.context_target_tokens,
-        keep_recent_tool_results=config.tool_result_keep_recent,
     )
 
 
@@ -79,7 +71,6 @@ __all__ = [
     "compaction_header",
     "compaction_target",
     "dropped_turn_facts",
-    "fit_to_target",
     "plan_keep_drop",
     "summarize_dropped_turns",
 ]

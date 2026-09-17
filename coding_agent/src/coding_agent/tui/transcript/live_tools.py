@@ -156,6 +156,7 @@ def reconcile_live_tools(
                 # Completed thoughts can be folded independently of a still-live
                 # reasoning widget in the same consecutive thought stretch.
                 final=True,
+                min_count=2,
             )
         if not folded:
             return
@@ -194,6 +195,7 @@ def _fold_ready_stretch(
     members: Sequence[tuple[list[Any], bool]],
     collectable: Callable[[Any], bool],
     final: bool,
+    min_count: int = 1,
 ) -> bool:
     from coding_agent.tui.tools.snapshots import ToolCallSummary
 
@@ -202,6 +204,8 @@ def _fold_ready_stretch(
             continue
         selected = [item for item in stretch if collectable(item)]
         if not selected:
+            continue
+        if min_count > 1 and len(selected) < min_count:
             continue
         first = selected[0]
         existing = next(

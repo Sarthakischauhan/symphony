@@ -482,7 +482,9 @@ def test_parallel_children_get_distinct_compaction_addons() -> None:
             yield StreamEvent(type="text_delta", delta="ok")
             yield StreamEvent(type="done")
 
-    parent_compaction = CompactionAddon(KeepSystemRecentCompactor(keep_recent=3))
+    parent_compaction = CompactionAddon(
+        KeepSystemRecentCompactor(keep_recent_tools=3)
+    )
     child_compactions: list[CompactionAddon] = []
     orig_init = CoreHarness.__init__
 
@@ -516,5 +518,5 @@ def test_parallel_children_get_distinct_compaction_addons() -> None:
     assert child_compactions[1] is not parent_compaction
     assert child_compactions[0].compactor is not child_compactions[1].compactor
     assert child_compactions[0].compactor is not parent_compaction.compactor
-    assert child_compactions[0].keep_recent == 3
-    assert child_compactions[1].keep_recent == 3
+    assert child_compactions[0].keep_recent_tools == 3
+    assert child_compactions[1].keep_recent_tools == 3

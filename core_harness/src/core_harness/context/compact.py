@@ -1,4 +1,4 @@
-"""Token estimates, tool-result pruning, and protocol normalization."""
+"""Token estimates, tool-result bounding, and protocol normalization."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from core_ai.types import Content, Message
 
 CLEARED_TOOL_RESULT_MARK = "[tool result cleared:"
 COMPACTED_CONTEXT_MARK = "[compacted earlier context]"
-DEFAULT_PRUNE_KEEP_RECENT = 8
 _REF_KEYS = ("path", "file", "filename", "target", "query", "pattern", "command")
 _MIN_BOUND_KEEP = 10
 
@@ -201,58 +200,4 @@ def _tool_refs(messages: Sequence[Message]) -> Dict[str, str]:
 
 def _is_cleared_tool_result(content: Content) -> bool:
     return text_from_content(content).startswith(CLEARED_TOOL_RESULT_MARK)
-
-
-def _cleared_stub(ref: str, text: str) -> str:
-    return (
-        f"{CLEARED_TOOL_RESULT_MARK} {ref} · {len(text):,} chars"
-        f" — already observed; do not re-fetch unless it changed]"
-    )
-
-
-def prune_stale_tool_results(
-    messages: List[Message],
-    *,
-    keep_recent: int = DEFAULT_PRUNE_KEEP_RECENT,
-) -> List[Message]:
-    """Return messages with older tool results replaced by a one-line stub.
-
-    The most recent ``keep_recent`` tool messages stay intact. Stubs name the
-    tool and path so the model does not re-read work it has already seen.
-    Persisted history is not mutated.
-    """
-    if keep_recent < 0:
-        raise ValueError("keep_recent must be >= 0")
-    tool_indices = [index for index, message in enumerate(messages) if message.role == "tool"]
-    if len(tool_indices) <= keep_recent:
-        return list(messages)
-
-    stale = set(tool_indices if keep_recent == 0 else tool_indices[:-keep_recent])
-    refs = _tool_refs(messages)
-    pruned: List[Message] = []
-    for index, message in enumerate(messages):
-        if index not in stale or _is_cleared_tool_result(message.content):
-            pruned.append(message)
-            continue
-        text = text_from_content(message.content)
-        ref = refs.get(str(message.tool_call_id or ""), "tool")
-        pruned.append(message.model_copy(update={"content": _cleared_stub(ref, text)}))
-    return pruned
-
-
-def messages_for_model(
-    messages: List[Message],
-    *,
-    keep_recent: int = DEFAULT_PRUNE_KEEP_RECENT,
-    prune_tokens: Optional[int] = None,
-) -> List[Message]:
-    """Conversation sent to the model: linear until a token budget is crossed.
-
-    Insert-time bounding is what keeps TPM in check. Old tool bodies are only
-    stubbed once the estimated prompt is at least ``prune_tokens``. ``None``
-    means never prune on send.
-    """
-    if prune_tokens is None or estimate_prompt_tokens(messages) < prune_tokens:
-        return list(messages)
-    return prune_stale_tool_results(messages, keep_recent=keep_recent)
 

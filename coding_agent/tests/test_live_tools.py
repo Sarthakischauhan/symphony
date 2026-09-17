@@ -171,6 +171,36 @@ def test_reasoning_splits_tool_stretches() -> None:
     assert all("thought" not in summary.title for summary in summaries)
 
 
+def test_lone_completed_thought_stays_as_thought() -> None:
+    thought = ReasoningWidget("## Inspecting files\n\nReasoning body")
+    thought.complete()
+    text = _text("Finished the requested changes.")
+    timeline: list[object] = [thought, text]
+
+    reconcile_live_tools(timeline)
+
+    assert thought in timeline
+    assert _summaries(timeline) == []
+    assert thought.title == "Thought - Inspecting files"
+
+
+def test_multiple_completed_thoughts_fold_into_explored() -> None:
+    first = ReasoningWidget("## Inspecting files\n\nFirst")
+    first.complete()
+    second = ReasoningWidget("## Planning changes\n\nSecond")
+    second.complete()
+    text = _text("Finished the requested changes.")
+    timeline: list[object] = [first, second, text]
+
+    reconcile_live_tools(timeline)
+
+    summaries = _summaries(timeline)
+    assert first not in timeline
+    assert second not in timeline
+    assert len(summaries) == 1
+    assert summaries[0]._thought_count() == 2
+
+
 def test_uninterrupted_stretch_is_not_capped_by_ten() -> None:
     tools: dict[str, object] = {}
     timeline: list[object] = []
@@ -307,7 +337,7 @@ def test_tool_call_summary_line_uses_subtle_explored_and_muted_count() -> None:
     summary.add_call("read-0")
     summary.add_call("read-1")
     assert summary.title == "Explored · 2 tools"
-    assert summary.render().plain == "[ ▸ Explored · 2 tools ]"
+    assert summary.render().plain == "[ Explored · 2 tools ]"
 
 
 def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
@@ -321,8 +351,8 @@ def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
     summary.toggle()
 
     rendered = summary.render().plain
-    assert rendered.startswith("[ ▾ Explored · 1 tool ]")
-    assert "✓  Read  src/app.py" in rendered
+    assert rendered.startswith("[ Explored · 1 tool ]")
+    assert "  Read  src/app.py" in rendered
     assert "Read 2 lines (17 bytes)" not in rendered
 
 
@@ -389,26 +419,25 @@ def test_interrupted_completed_thought_is_compacted_but_live_thought_remains() -
 
     reconcile_live_tools(timeline)
 
-    assert thought not in timeline
+    assert thought in timeline
     assert live_thought in timeline
     summaries = _summaries(timeline)
-    assert len(summaries) == 2
+    assert len(summaries) == 1
     assert summaries[0].title == "Explored · 1 tool"
     assert summaries[0].call_ids == ["read"]
-    assert summaries[1].title == "Explored · 1 thought"
-    assert summaries[1].archive_text() == "Thought - Inspecting files"
+    assert thought.title == "Thought - Inspecting files"
 
 
-def test_finalization_folds_thought_only_runs() -> None:
+def test_finalization_keeps_a_lone_thought() -> None:
     thought = ReasoningWidget("## Answering\n\nDetails")
     thought.complete()
     timeline = [thought]
 
     reconcile_live_tools(timeline, final=True)
 
-    summary = _summaries(timeline)[0]
-    assert summary.title == "Explored · 1 thought"
-    assert summary.archive_text() == "Thought - Answering"
+    assert thought in timeline
+    assert _summaries(timeline) == []
+    assert thought.title == "Thought - Answering"
 
 
 def test_assistant_message_is_plain_text_without_agent_chrome() -> None:
@@ -469,12 +498,31 @@ def test_activity_reason_labels_live_tool_and_folded_summary() -> None:
     assert widget.arguments == {"path": "src/app.py"}
     assert widget.activity_reason == "Trace the task UI"
     assert widget.activity_group == "task-ui"
-    assert widget._header_values == ("▸ ○  Read", "Trace the task UI", "preparing")
+    assert widget._header_values == ("Read", "Trace the task UI", "preparing")
 
     widget.status = "done"
     summary = ToolCallSummary((widget.snapshot(),))
     assert summary.title == "Trace the task UI · 1 tool"
-    assert summary.render().plain == "[ ▸ Trace the task UI · 1 tool ]"
+    assert summary.render().plain == "[ Trace the task UI · 1 tool ]"
+
+
+def test_flattened_activity_aliases_are_accepted_and_stripped() -> None:
+    widget = ToolCallWidget("search", "search")
+    widget.set_arguments(
+        {
+            "query": "ToolCallWidget",
+            "verb": "Searching",
+            "goal": "Find the rendering path",
+            "group": "task-ui",
+        },
+        '{"query":"ToolCallWidget","verb":"Searching","goal":"Find the rendering path","group":"task-ui"}',
+    )
+
+    assert widget.arguments == {"query": "ToolCallWidget"}
+    assert widget.activity_verb == "Searching"
+    assert widget.activity_reason == "Find the rendering path"
+    assert widget.activity_group == "task-ui"
+    assert widget.raw_arguments == '{"query":"ToolCallWidget"}'
 
 
 def test_snapshot_extracts_activity_without_showing_it_as_tool_arguments() -> None:

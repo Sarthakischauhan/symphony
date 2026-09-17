@@ -210,6 +210,37 @@ def test_search_file_names(tmp_path: Path) -> None:
     assert "notes.txt" not in result
 
 
+def test_search_skips_ignored_dirs_and_sniffs_a_prefix(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "keep.py").write_text("needle\n", encoding="utf-8")
+    skipped = tmp_path / "node_modules"
+    skipped.mkdir()
+    (skipped / "dep.py").write_text("needle\n", encoding="utf-8")
+    binary = tmp_path / "blob.bin"
+    binary.write_bytes(b"\x00needle" + b"x" * 8)
+
+    opened: list[int] = []
+    original_open = Path.open
+
+    def tracking_open(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        handle = original_open(self, *args, **kwargs)
+        if self == binary and "b" in str(args[0] if args else kwargs.get("mode", "r")):
+            inner_read = handle.read
+
+            def limited_read(size: int = -1) -> bytes:
+                opened.append(size)
+                return inner_read(size)
+
+            handle.read = limited_read  # type: ignore[method-assign]
+        return handle
+
+    monkeypatch.setattr(Path, "open", tracking_open)
+    result = SearchTool(tmp_path).run(query="needle")
+    assert "keep.py:1:needle" in result
+    assert "node_modules" not in result
+    assert "blob.bin" not in result
+    assert opened and opened[0] > 0
+
+
 def test_search_outside_working_dir_and_bad_regex(tmp_path: Path) -> None:
     cwd = tmp_path / "cwd"
     cwd.mkdir()
@@ -260,9 +291,8 @@ def test_workspace_tools_accept_ui_activity_without_passing_it_to_run(
     }
 
     schema = tool.parameters
-    assert schema["properties"]["activity"]["properties"]["reason"] == {
-        "type": "string"
-    }
+    assert schema["properties"]["activity"]["properties"]["reason"]["type"] == "string"
+    assert "nested object" in schema["properties"]["activity"]["description"]
 
     result = asyncio.run(
         tool.execute(
@@ -289,6 +319,35 @@ def test_configured_tools_also_strip_ui_activity(tmp_path: Path) -> None:
     )
     assert "activity" not in prepared
     assert prepared["max_results"] == search.config.default_max_results
+
+
+def test_workspace_tools_strip_flattened_activity_aliases(tmp_path: Path) -> None:
+    search = SearchTool(tmp_path)
+    prepared = search.prepare_args(
+        {
+            "query": "needle",
+            "verb": "Searching",
+            "goal": "Find the code",
+            "group": "inspection",
+        }
+    )
+    assert prepared == {
+        "query": "needle",
+        "max_results": search.config.default_max_results,
+        "max_line_chars": search.config.default_max_line_chars,
+    }
+
+    result = asyncio.run(
+        search.execute(
+            sink=None,
+            args={
+                "query": "needle",
+                "verb": "Searching",
+                "goal": "Find the code",
+            },
+        )
+    )
+    assert "no content matches" in result or "matches" in result
 
 
 def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:

@@ -20,8 +20,6 @@ from core_harness.context import (
     ContextReport,
     bound_tool_result,
     build_context_report,
-    messages_for_model,
-    prune_stale_tool_results,
 )
 from core_harness.config import (
     HarnessConfig,
@@ -79,7 +77,5 @@ __all__ = [
     "compaction_from_config",
     "load_harness_config",
     "resolve_harness_config",
-    "messages_for_model",
     "plan_keep_drop",
-    "prune_stale_tool_results",
 ]

@@ -14,14 +14,15 @@ uv run --package symphony-code symphony --resume
 One JSONL file per session (including child agents). Messages append as the run
 progresses; compaction currently rewrites the message entries in that file.
 Checkpoints are slim status records, not a second copy of the transcript.
-Token deltas are not stored. Tool-result stubs replace old bodies in the
-**model-facing** copy once the prune budget is hit.
+Token deltas are not stored. During a run, the model receives every stored
+message. Summary compaction retains the configured number of recent tool
+results in full.
 
 <div align="center">
   <img src="../context-modal.png" alt="Context modal" height="240">
 </div>
 
-`/context` breaks down stored vs sent tokens by role.
+`/context` breaks down the active context by role.
 
 ## Library
 

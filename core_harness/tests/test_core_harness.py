@@ -29,9 +29,7 @@ from core_harness.context import (
     COMPACTED_CONTEXT_MARK,
     bound_tool_result,
     build_context_report,
-    messages_for_model,
     normalize_tool_protocol,
-    prune_stale_tool_results,
 )
 
 
@@ -338,66 +336,7 @@ def test_bound_tool_result_keeps_40_60_head_tail() -> None:
     assert "tool_outputs" not in bounded
 
 
-def test_prune_stale_tool_results_stubs_older_and_does_not_mutate() -> None:
-    messages = [
-        Message(role="system", content="sys"),
-        Message(role="user", content="go"),
-    ]
-    for index in range(4):
-        messages.extend(
-            _tool_group(
-                f"c{index}",
-                "read_file",
-                "A" * 500,
-                arguments={"path": f"src/file{index}.py"},
-            )
-        )
-
-    original = [message.content for message in messages]
-    pruned = prune_stale_tool_results(messages, keep_recent=2)
-    assert [message.content for message in messages] == original
-
-    tools = [message for message in pruned if message.role == "tool"]
-    assert len(tools) == 4
-    assert str(tools[0].content).startswith(CLEARED_TOOL_RESULT_MARK)
-    assert "read_file path=src/file0.py" in str(tools[0].content)
-    assert "500" in str(tools[0].content)
-    assert "already observed" in str(tools[0].content)
-    assert str(tools[1].content).startswith(CLEARED_TOOL_RESULT_MARK)
-    assert tools[2].content == "A" * 500
-    assert tools[3].content == "A" * 500
-    assert estimate_prompt_tokens(pruned) < estimate_prompt_tokens(messages)
-
-
-def test_messages_for_model_stays_linear_until_budget() -> None:
-    messages = [
-        Message(role="system", content="sys"),
-        Message(role="user", content="go"),
-    ]
-    for index in range(6):
-        messages.extend(_tool_group(f"c{index}", "bash", "PAYLOAD-" + ("x" * 200)))
-
-    linear = messages_for_model(messages, keep_recent=2, prune_tokens=None)
-    assert [message.content for message in linear if message.role == "tool"] == [
-        message.content for message in messages if message.role == "tool"
-    ]
-
-    under = messages_for_model(messages, keep_recent=2, prune_tokens=1_000_000)
-    assert under == linear
-
-    over = messages_for_model(messages, keep_recent=2, prune_tokens=0)
-    tools = [message for message in over if message.role == "tool"]
-    stubs = [
-        message
-        for message in tools
-        if str(message.content).startswith(CLEARED_TOOL_RESULT_MARK)
-    ]
-    full = [message for message in tools if str(message.content).startswith("PAYLOAD-")]
-    assert len(stubs) == 4
-    assert len(full) == 2
-
-
-def test_stale_tool_results_stay_until_token_budget() -> None:
+def test_all_tool_results_are_sent_during_a_run() -> None:
     registry = RepeatToolRegistry(n_calls=8)
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
@@ -406,8 +345,6 @@ def test_stale_tool_results_stay_until_token_budget() -> None:
         config=HarnessConfig(
             max_turns=16,
             tool_result_max_chars=4_000,
-            tool_result_keep_recent=2,
-            tool_result_prune_tokens=None,
         ),
         tools=[Tool(bulky_result)],
     )
@@ -425,47 +362,7 @@ def test_stale_tool_results_stay_until_token_budget() -> None:
     )
 
 
-def test_stale_tool_results_are_pruned_once_over_budget() -> None:
-    registry = RepeatToolRegistry(n_calls=8)
-    harness = CoreHarness(
-        registry=registry,  # type: ignore[arg-type]
-        model_id="fake:test-model",
-        system_prompt="system",
-        config=HarnessConfig(
-            max_turns=16,
-            tool_result_max_chars=4_000,
-            tool_result_keep_recent=2,
-            tool_result_prune_tokens=0,
-        ),
-        tools=[Tool(bulky_result)],
-    )
-
-    result = asyncio.run(harness.run("inspect files"))
-
-    persisted = [message for message in result.messages if message.role == "tool"]
-    assert len(persisted) == 8
-    assert all("PAYLOAD-" in str(message.content) for message in persisted)
-
-    last_sent = [message for message in registry.calls[-1] if message.role == "tool"]
-    assert len(last_sent) == 8
-    full = [
-        message
-        for message in last_sent
-        if "PAYLOAD-" in str(message.content)
-        and not str(message.content).startswith(CLEARED_TOOL_RESULT_MARK)
-    ]
-    stubs = [
-        message
-        for message in last_sent
-        if str(message.content).startswith(CLEARED_TOOL_RESULT_MARK)
-    ]
-    assert len(full) == 2
-    assert len(stubs) == 6
-    assert "already observed" in str(stubs[0].content)
-    assert estimate_prompt_tokens(registry.calls[-1]) < estimate_prompt_tokens(result.messages)
-
-
-def test_build_context_report_splits_stored_and_sent() -> None:
+def test_build_context_report_matches_model_payload() -> None:
     messages = [
         Message(role="system", content="sys"),
         Message(role="user", content="fix the tpm limit"),
@@ -473,23 +370,17 @@ def test_build_context_report_splits_stored_and_sent() -> None:
     for index in range(3):
         messages.extend(_tool_group(f"c{index}", "bash", "B" * 800))
 
-    report = build_context_report(
-        messages,
-        context_limit=100_000,
-        keep_recent_tool_results=1,
-        prune_tokens=0,
-    )
+    report = build_context_report(messages, context_limit=100_000)
     assert report.message_count == 8
     assert report.tool_result_count == 3
-    assert report.stubbed_result_count == 2
-    assert report.sent_tokens < report.stored_tokens
+    assert report.stubbed_result_count == 0
+    assert report.sent_tokens == report.stored_tokens
     assert report.utilization is not None
     tool_bucket = next(bucket for bucket in report.buckets if bucket.role == "tool")
     sent_tool = next(bucket for bucket in report.sent_buckets if bucket.role == "tool")
     assert tool_bucket.count == 3
-    assert sent_tool.tokens < tool_bucket.tokens
+    assert sent_tool.tokens == tool_bucket.tokens
     assert report.messages[-1].stubbed is False
-    assert report.messages[-3].stubbed is True
 
 
 def test_build_context_report_matches_stored_when_under_budget() -> None:
@@ -498,7 +389,7 @@ def test_build_context_report_matches_stored_when_under_budget() -> None:
         Message(role="user", content="go"),
     ]
     messages.extend(_tool_group("c0", "bash", "B" * 800))
-    report = build_context_report(messages, context_limit=100_000, prune_tokens=None)
+    report = build_context_report(messages, context_limit=100_000)
     assert report.sent_tokens == report.stored_tokens
     assert report.stubbed_result_count == 0
 
@@ -685,12 +576,12 @@ def test_core_harness_compacts_when_context_left_is_low() -> None:
         config=HarnessConfig(
             max_turns=8,
             context_limits={"fake:test-model": 100},
-            context_compact_threshold=20,
-            compaction_keep_recent=2,
+            context_compact_ratio=0.8,
+            compaction_keep_recent_tools=2,
         ),
         tools=[Tool(get_weather)],
         sink=sink,
-        addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=2))],
+        addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent_tools=2))],
     )
     prior = [Message(role="user", content=f"earlier task {index}") for index in range(6)]
     result = asyncio.run(
@@ -789,7 +680,7 @@ def test_compactor_keeps_complete_tool_group_even_above_message_budget() -> None
     ]
 
     compacted = asyncio.run(
-        KeepSystemRecentCompactor(keep_recent=2).compact(
+        KeepSystemRecentCompactor(keep_recent_tools=2).compact(
             messages,
             turn=0,
             context_limit=100,
@@ -816,7 +707,7 @@ def test_compactor_pins_original_task_and_summarizes_dropped_turns() -> None:
         messages.append(Message(role="assistant", content=f"ack {index}"))
 
     compacted = asyncio.run(
-        KeepSystemRecentCompactor(keep_recent=3).compact(
+        KeepSystemRecentCompactor(keep_recent_tools=3).compact(
             messages,
             turn=0,
             context_limit=8_000,
@@ -851,7 +742,7 @@ def test_compactor_summarizes_dropped_tool_paths() -> None:
         )
 
     compacted = asyncio.run(
-        KeepSystemRecentCompactor(keep_recent=1).compact(
+        KeepSystemRecentCompactor(keep_recent_tools=1).compact(
             messages,
             turn=0,
             context_limit=50_000,
@@ -870,7 +761,7 @@ def test_compactor_summarizes_dropped_tool_paths() -> None:
     assert tools[0].content == "Z" * 200
 
 
-def test_compactor_prunes_tool_bodies_only_if_still_over_target() -> None:
+def test_compactor_never_stubs_protected_tool_results() -> None:
     messages = [
         Message(role="system", content="system"),
         Message(role="user", content="original task"),
@@ -889,9 +780,8 @@ def test_compactor_prunes_tool_bodies_only_if_still_over_target() -> None:
     before = estimate_prompt_tokens(messages)
     compacted = asyncio.run(
         KeepSystemRecentCompactor(
-            keep_recent=3,
+            keep_recent_tools=3,
             target_tokens=200,
-            keep_recent_tool_results=0,
         ).compact(
             messages,
             turn=0,
@@ -902,12 +792,10 @@ def test_compactor_prunes_tool_bodies_only_if_still_over_target() -> None:
     )
     tools = [message for message in compacted if message.role == "tool"]
     assert len(tools) == 1
-    assert str(tools[0].content).startswith(CLEARED_TOOL_RESULT_MARK)
-    assert "src/huge.py" in str(tools[0].content)
-    assert estimate_prompt_tokens(compacted) < before
+    assert tools[0].content == "Z" * 8000
 
 
-def test_compactor_keeps_last_messages_in_one_user_tool_loop() -> None:
+def test_compactor_keeps_last_tool_results_in_one_user_tool_loop() -> None:
     messages = [
         Message(role="system", content="system"),
         Message(role="user", content="original task"),
@@ -923,7 +811,7 @@ def test_compactor_keeps_last_messages_in_one_user_tool_loop() -> None:
         )
 
     compacted = asyncio.run(
-        KeepSystemRecentCompactor(keep_recent=10).compact(
+        KeepSystemRecentCompactor(keep_recent_tools=10).compact(
             messages,
             turn=0,
             context_limit=50_000,
@@ -940,14 +828,14 @@ def test_compactor_keeps_last_messages_in_one_user_tool_loop() -> None:
     assert all(message.content != "BODY-0-" + ("Z" * 40) for message in compacted)
 
     recent = compacted[3:]
-    assert len(recent) == 10
+    assert len(recent) == 20
     tools = [message for message in recent if message.role == "tool"]
-    assert len(tools) == 5
+    assert len(tools) == 10
     assert tools[-1].content == "BODY-19-" + ("Z" * 40)
-    assert tools[0].content == "BODY-15-" + ("Z" * 40)
+    assert tools[0].content == "BODY-10-" + ("Z" * 40)
     assert all(
         f"BODY-{index}-" + ("Z" * 40) not in [message.content for message in compacted]
-        for index in range(15)
+        for index in range(10)
     )
 
 
@@ -957,7 +845,7 @@ def test_plan_keep_drop_pins_leading_and_enforces_token_target() -> None:
         messages.append(Message(role="user", content=f"follow-up {index} " * 30))
         messages.append(Message(role="assistant", content=f"ack {index} " * 30))
 
-    plan = plan_keep_drop(messages, keep_recent=6, target_tokens=400)
+    plan = plan_keep_drop(messages, keep_recent_tools=6, target_tokens=400)
 
     assert plan.leading == messages[:2]
     kept = [message for group in plan.kept for message in group]
@@ -976,7 +864,7 @@ def test_plan_keep_drop_pins_leading_and_enforces_token_target() -> None:
     template = plan.template_summary()
     assert template is not None and str(template.content).startswith(COMPACTED_CONTEXT_MARK)
     compacted = asyncio.run(
-        KeepSystemRecentCompactor(keep_recent=6, target_tokens=400).compact(
+        KeepSystemRecentCompactor(keep_recent_tools=6, target_tokens=400).compact(
             messages, turn=0, context_limit=None, tokens_used=0, context_left=None
         )
     )
@@ -992,15 +880,15 @@ def test_plan_keep_drop_keeps_tool_groups_atomic_and_no_summary_when_nothing_dro
         Message(role="assistant", content="done"),
     ]
 
-    tight = plan_keep_drop(messages, keep_recent=2)
-    assert [len(group) for group in tight.dropped] == [1, 2]
-    assert [m.role for group in tight.kept for m in group] == ["assistant"]
+    tight = plan_keep_drop(messages, keep_recent_tools=2)
+    assert [len(group) for group in tight.dropped] == [1]
+    assert [m.role for group in tight.kept for m in group] == ["assistant", "tool", "assistant"]
 
-    roomy = plan_keep_drop(messages, keep_recent=3)
+    roomy = plan_keep_drop(messages, keep_recent_tools=3)
     assert [len(group) for group in roomy.dropped] == [1]
     assert [m.role for group in roomy.kept for m in group] == ["assistant", "tool", "assistant"]
 
-    short = plan_keep_drop(messages[:3], keep_recent=10)
+    short = plan_keep_drop(messages[:3], keep_recent_tools=10)
     assert short.dropped == []
     assert short.template_summary() is None
     assert short.assemble(None) == messages[:3]
@@ -1008,13 +896,15 @@ def test_plan_keep_drop_keeps_tool_groups_atomic_and_no_summary_when_nothing_dro
 
 
 def test_compaction_addon_fork_uses_fresh_compactor_with_same_settings() -> None:
-    parent = CompactionAddon(KeepSystemRecentCompactor(keep_recent=4, target_tokens=900))
+    parent = CompactionAddon(
+        KeepSystemRecentCompactor(keep_recent_tools=4, target_tokens=900)
+    )
     child = parent.fork_for_child(None)
     assert isinstance(child.compactor, KeepSystemRecentCompactor)
     assert child.compactor is not parent.compactor
-    assert child.compactor.keep_recent == 4
+    assert child.compactor.keep_recent_tools == 4
     assert child.compactor.target_tokens == 900
-    assert child.keep_recent == 4
+    assert child.keep_recent_tools == 4
 
 
 def test_state_compact_marks_manual_and_reports_context_limit() -> None:
@@ -1025,7 +915,7 @@ def test_state_compact_marks_manual_and_reports_context_limit() -> None:
 
     messages = [Message(role="system", content="system")]
     messages.extend(Message(role="user", content=f"m{index}") for index in range(6))
-    state = HarnessState(compactor=KeepSystemRecentCompactor(keep_recent=2))
+    state = HarnessState(compactor=KeepSystemRecentCompactor(keep_recent_tools=2))
 
     compacted = asyncio.run(
         state.compact(
@@ -1103,12 +993,13 @@ def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
         config=HarnessConfig(
             max_turns=32,
             tool_result_max_chars=80,
-            tool_result_prune_tokens=None,
+            context_limits={"fake:test-model": 200},
+            context_compact_ratio=0.8,
             context_target_tokens=50,
         ),
         tools=[Tool(bulky_result)],
         sink=sink,
-        addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=10))],
+        addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent_tools=10))],
     )
 
     result = asyncio.run(harness.run("inspect files"))
@@ -1121,14 +1012,14 @@ def test_harness_turn_path_summarises_one_user_tool_loop() -> None:
         for message in result.messages
     )
     tools = [message for message in result.messages if message.role == "tool"]
-    assert 0 < len(tools) <= 5
+    assert 0 < len(tools) <= 10
     assert "PAYLOAD-" in str(tools[-1].content)
     assert not any(
         message.role == "tool" and "call-0" == message.tool_call_id
         for message in result.messages
     )
     last_sent_tools = [message for message in registry.calls[-1] if message.role == "tool"]
-    assert len(last_sent_tools) <= 5
+    assert len(last_sent_tools) <= 10
 
 
 class ImageEchoRegistry:

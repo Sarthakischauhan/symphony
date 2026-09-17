@@ -113,7 +113,7 @@ SLASH_COMMANDS = (
     SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),
-    SlashCommand("context", "Inspect stored vs sent context"),
+    SlashCommand("context", "Inspect active model context"),
     SlashCommand("learning", "Open markdown-rendered agent learnings"),
     SlashCommand("installed", "View installed skills and plugins"),
     SlashCommand("diff", "Open the current workspace diff in a modal"),

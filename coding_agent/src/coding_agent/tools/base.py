@@ -50,14 +50,25 @@ class WorkspaceTool(Tool, ABC):
         properties["activity"] = {
             "type": "object",
             "description": (
-                "Optional UI context. Set verb to a short present-participle label, "
-                "reason to why this call is needed, and group to a stable label shared "
-                "by related calls."
+                "Optional UI context as a nested object. Do not put verb, reason, "
+                "goal, or group at the top level of the tool arguments. "
+                "Set activity.verb to a short present-participle label such as "
+                "'Searching' or 'Reading', activity.reason to why this call is "
+                "needed, and activity.group to a stable label shared by related calls."
             ),
             "properties": {
-                "verb": {"type": "string"},
-                "reason": {"type": "string"},
-                "group": {"type": "string"},
+                "verb": {
+                    "type": "string",
+                    "description": "Short present-participle label, e.g. Searching, Reading.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why this call is needed.",
+                },
+                "group": {
+                    "type": "string",
+                    "description": "Stable label shared by related calls.",
+                },
             },
             "additionalProperties": False,
         }
@@ -73,7 +84,8 @@ class WorkspaceTool(Tool, ABC):
     def prepare_args(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Remove presentation-only metadata before schema validation."""
         prepared = dict(args)
-        prepared.pop("activity", None)
+        for key in ("activity", "verb", "reason", "goal", "group"):
+            prepared.pop(key, None)
         return prepared
 
     @abstractmethod

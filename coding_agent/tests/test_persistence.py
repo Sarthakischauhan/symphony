@@ -88,6 +88,52 @@ def _message_lines(path: Path) -> list[dict[str, Any]]:
     ]
 
 
+def test_append_event_reuses_cached_entries(tmp_path: Path, monkeypatch) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    reads = {"count": 0}
+    original = store._read_entries
+
+    def counting_read(session_id: str):
+        reads["count"] += 1
+        return original(session_id)
+
+    monkeypatch.setattr(store, "_read_entries", counting_read)
+
+    async def _run() -> None:
+        await store.append_event(
+            event_type="run_started",
+            payload={"session_id": "cached", "run_id": "r1", "seq": 1},
+        )
+        first = reads["count"]
+        await store.append_event(
+            event_type="run_completed",
+            payload={"session_id": "cached", "run_id": "r1", "seq": 2},
+        )
+        assert reads["count"] == first + 1
+        events = await store.load_events(session_id="cached")
+        assert [event for event, _ in events] == ["run_started", "run_completed"]
+
+    asyncio.run(_run())
+
+
+def test_list_sessions_counts_typed_message_entries(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    messages = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hello from current format"),
+        Message(role="assistant", content="ack"),
+    ]
+
+    async def _run() -> None:
+        await store.save_conversation(session_id="typed", messages=messages)
+        sessions = await store.list_sessions()
+        assert sessions[0].session_id == "typed"
+        assert sessions[0].message_count == 3
+        assert sessions[0].first_message == "hello from current format"
+
+    asyncio.run(_run())
+
+
 def test_jsonl_persistence_roundtrip(tmp_path: Path) -> None:
     store = JsonlPersistence(tmp_path / "sessions")
     messages = [

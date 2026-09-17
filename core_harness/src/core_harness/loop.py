@@ -18,7 +18,6 @@ from core_harness.context import (
     bound_tool_result,
     estimate_completion_tokens,
     estimate_prompt_tokens,
-    messages_for_model,
 )
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import HarnessResult, PendingToolCall, ToolCall, ToolResult, UsageTotals
@@ -208,11 +207,7 @@ async def iter_provider_events(
         stream_options["reasoning_effort"] = runner.reasoning_effort
     agen = runner.registry.stream(
         runner.model_id,
-        messages_for_model(
-            messages,
-            keep_recent=runner.tool_result_keep_recent,
-            prune_tokens=runner.tool_result_prune_tokens,
-        ),
+        messages,
         runner.tool_schemas,
         **stream_options,
     )
@@ -563,8 +558,6 @@ async def run_session(
         state=harness.state,
         context_limit=context_limit,
         tool_result_max_chars=harness.tool_result_max_chars,
-        tool_result_keep_recent=harness.tool_result_keep_recent,
-        tool_result_prune_tokens=harness.tool_result_prune_tokens,
         context_target_tokens=harness.context_target_tokens,
         max_tool_calls=harness.limits.max_tool_calls,
         deadline=deadline,

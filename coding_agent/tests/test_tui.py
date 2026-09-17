@@ -15,6 +15,8 @@ import pytest
 from textual import events
 from textual.app import App
 from textual.containers import VerticalScroll
+from textual.geometry import Offset
+from textual.selection import Selection
 from textual.widgets import Static
 
 from core_ai.types import Message, StreamEvent
@@ -1558,23 +1560,22 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
             assert not list(app.query(ReadFileWidget))
-            assert not list(app.query(ReasoningWidget))
+            thoughts = list(app.query(ReasoningWidget))
+            assert len(thoughts) == 1
+            assert thoughts[0].title == "Thought"
+            assert thoughts[0].collapsed
+            assert "Inspecting the requested file" in thoughts[0].reasoning_text
             process = app.query_one(RunProcess)
             assert not list(process.query(".process-complete"))
             assert app.query_one(".process-complete") is not None
             summaries = list(process.query(ToolCallSummary))
             tool_summary = next(summary for summary in summaries if summary.count)
-            thought_summary = next(
-                summary for summary in summaries if "thought" in summary.title
-            )
+            assert all("thought" not in summary.title for summary in summaries)
             assert tool_summary.call_ids == ["read-1"]
             await pilot.click(tool_summary)
             await pilot.pause()
             assert tool_summary.is_expanded
-            assert "✓  Read  src/app.py" in tool_summary.render().plain
-            await pilot.click(thought_summary)
-            assert thought_summary.is_expanded
-            assert "Inspecting the requested file" in thought_summary.render().plain
+            assert "  Read  src/app.py" in tool_summary.render().plain
 
     asyncio.run(_run())
 
@@ -1704,19 +1705,18 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
             assert not list(bash.query("CollapsibleTitle"))
 
             header = bash.query_one(".bash-tool-header")
-            assert "▸" in str(bash.query_one(".bash-tool-label").render())
+            assert str(bash.query_one(".tool-call-bracket").render()) == "["
+            assert str(bash.query_one(".tool-call-bracket-end").render()) == "]"
             await pilot.click(header)
             await pilot.pause()
             assert not bash.collapsed
             assert bash.query_one(".bash-tool-body").display
-            assert "▾" in str(bash.query_one(".bash-tool-label").render())
 
             header.focus()
             await pilot.press("space")
             await pilot.pause()
             assert bash.collapsed
             assert not bash.query_one(".bash-tool-body").display
-            assert "▸" in str(bash.query_one(".bash-tool-label").render())
 
             app.update_tool("bash-1", status="done", result="clean")
             await pilot.pause()
@@ -2646,7 +2646,11 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
     registry = SummaryRegistry()
     config = CodingAgentConfig(learning=LearningConfig(enabled=False))
     config = config.model_copy(
-        update={"harness": config.harness.model_copy(update={"compaction_keep_recent": 8})}
+        update={
+            "harness": config.harness.model_copy(
+                update={"compaction_keep_recent_tools": 8}
+            )
+        }
     )
     agent = CodingAgent(
         registry=registry,  # type: ignore[arg-type]
@@ -2707,8 +2711,6 @@ def test_context_modal_filters_buckets() -> None:
             Message(role="tool", content="command output " * 30, tool_call_id="c1"),
         ],
         context_limit=128_000,
-        keep_recent_tool_results=0,
-        prune_tokens=0,
     )
 
     class Host(App):
@@ -2727,7 +2729,8 @@ def test_context_modal_filters_buckets() -> None:
             filtered = str(modal.query_one("#context-list").render())
             assert "hello there" not in filtered
             assert "bash" in filtered
-            assert "stub" in filtered.lower()
+            assert "full" in filtered.lower()
+            assert "command output" in filtered.lower()
             meta = str(modal.query_one("#context-meta").render())
             assert "tool only" in meta
 
@@ -3254,15 +3257,13 @@ def test_final_output_folds_remaining_tools(
             summaries = list(app.query(ToolCallSummary))
             assert sum(summary.count for summary in summaries) == 12
             assert all(not summary.is_expanded for summary in summaries)
-            assert not list(app.query(ReasoningWidget))
-            thought = next(summary for summary in summaries if "thought" in summary.title)
+            thoughts = list(app.query(ReasoningWidget))
+            assert len(thoughts) == 1
+            thought = thoughts[0]
+            assert thought.title == "Thought - Inspecting files"
+            assert thought.collapsed
+            assert "Reasoning body stays hidden" in thought.reasoning_text
             tools = next(summary for summary in summaries if summary.count == 12)
-            thought.focus()
-            await pilot.press("enter")
-            await pilot.pause()
-            assert thought.is_expanded
-            assert "Thought - Inspecting files" in thought.render().plain
-            assert "Reasoning body stays hidden" in thought.render().plain
             assert tools.call_ids == [str(index) for index in range(12)]
             assert app._assistant is not None
             assert "SYMPHONY" not in str(app._assistant.render())
@@ -3295,18 +3296,40 @@ def test_explored_renders_folded_tool_snapshots_inline(
             summary = summaries[0]
             assert summary.call_ids == ["read-0", "read-1", "read-2"]
             closed = summary.render().plain
-            assert closed.startswith("[ ▸ Explored · 3 tools")
+            assert closed.startswith("[ Explored · 3 tools")
             assert closed.endswith("]")
             assert len(closed) == summary.content_size.width
 
             assert await pilot.click(summary)
             await pilot.pause()
             rendered = summary.render().plain
-            assert rendered.startswith("[ ▾ Explored · 3 tools")
+            assert rendered.startswith("[ Explored · 3 tools")
             assert "src/f0.py" in rendered
             assert "src/f1.py" in rendered
             assert "src/f2.py" in rendered
             assert "Read 2 lines" not in rendered
+
+    asyncio.run(_run())
+
+
+def test_assistant_markdown_is_selectable_as_rendered_text(tmp_path: Path) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assistant = AssistantMessage("answer **bold**\n\n- item")
+            app.mount_transcript(assistant)
+            await pilot.pause()
+
+            rendered = app.screen.get_selected_text()
+            assert rendered is None
+            selected = assistant.get_selection(
+                Selection(Offset(0, 0), Offset(80, 2))
+            )
+            assert selected is not None
+            assert selected[0].startswith("answer bold\n\n")
+            assert "item" in selected[0]
 
     asyncio.run(_run())
 

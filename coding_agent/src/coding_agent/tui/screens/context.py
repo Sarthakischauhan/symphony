@@ -1,4 +1,4 @@
-"""Stored vs sent context inspector."""
+"""Context inspector."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class ContextBucketChip(Static, can_focus=True):
 
 
 class ContextModal(ModalBase[None]):
-    """Small interactive breakdown of stored vs sent context."""
+    """Small interactive breakdown of model context."""
 
     CSS = CONTEXT_MODAL_CSS
     BINDINGS = [
@@ -134,35 +134,26 @@ class ContextModal(ModalBase[None]):
 
     def _render_meters(self) -> Text:
         stored = self.report.stored_tokens
-        sent = self.report.sent_tokens
         limit = self.report.context_limit
         stored_frac = stored / limit if limit else 0.0
-        sent_frac = sent / limit if limit else (sent / stored if stored else 0.0)
         text = Text()
-        text.append("stored  ", style="#686868")
+        text.append("context ", style="#686868")
         text.append(f"{stored:,}", style="bold #d0d0d0")
         text.append(" tok   ", style="#686868")
         text.append(_meter_bar(stored_frac), style="#8eafc2")
         if limit:
             text.append(f"  {min(stored_frac * 100, 100):.0f}% of {limit:,}", style="#686868")
-        text.append("\nsent    ", style="#686868")
-        text.append(f"{sent:,}", style="bold #79a985")
-        text.append(" tok   ", style="#686868")
-        text.append(_meter_bar(sent_frac), style="#79a985")
-        if limit:
-            text.append(f"  {min(sent_frac * 100, 100):.0f}% of {limit:,}", style="#686868")
-        saved = max(stored - sent, 0)
-        if saved:
-            text.append(f"\npruned  {saved:,} tok held back from the next model call", style="#686868")
         return text
 
     def _render_meta(self) -> str:
         active = "all messages" if self._filter is None else f"{self._filter} only"
-        return (
+        meta = (
             f"{self.report.message_count} messages  ·  "
-            f"{self.report.tool_result_count} tool results  ·  "
-            f"{self.report.stubbed_result_count} stubbed on send  ·  {active}"
+            f"{self.report.tool_result_count} tool results"
         )
+        if self.report.stubbed_result_count:
+            meta += f"  ·  {self.report.stubbed_result_count} legacy stubs"
+        return f"{meta}  ·  {active}"
 
     def _visible_messages(self) -> tuple[ContextMessage, ...]:
         if self._filter is None:
@@ -175,16 +166,12 @@ class ContextModal(ModalBase[None]):
         if not visible:
             rows.append("Nothing in this bucket.", style="#686868")
             return rows
-        rows.append("TYPE  TOKENS    SENT  STATE   CONTENT\n", style="#555555")
+        rows.append("TYPE  TOKENS  STATE   CONTENT\n", style="#555555")
         for item in visible:
             color = _ROLE_COLORS.get(item.role, "#bdbdbd")
             short = _ROLE_SHORT.get(item.role, item.role[:3].upper())
             rows.append(f"{short:<4} ", style=color)
             rows.append(f"{_token_label(item.tokens):>6}", style="#c8c8c8")
-            if item.sent_tokens != item.tokens:
-                rows.append(f" → {_token_label(item.sent_tokens):>5}", style="#79a985")
-            else:
-                rows.append("         ", style="#101010")
             if item.stubbed:
                 rows.append("  stub", style="#c67b82")
             elif item.role == "tool":

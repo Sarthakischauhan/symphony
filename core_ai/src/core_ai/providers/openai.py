@@ -99,18 +99,35 @@ class OpenAIProvider(BaseProvider):
                 async for data in iter_sse_json(response):
                     usage = data.get("usage")
                     if usage:
+                        # OpenAI nests this under completion_tokens_details. xAI's
+                        # compatible API has returned it both there and as a
+                        # top-level field across model/API versions, so accept
+                        # both forms (and its older thinking_tokens spelling).
                         details = usage.get("completion_tokens_details") or {}
+                        reasoning_tokens = (
+                            details.get("reasoning_tokens")
+                            or details.get("thinking_tokens")
+                            or usage.get("reasoning_tokens")
+                            or usage.get("thinking_tokens")
+                        )
                         yield StreamEvent(
                             type="usage",
                             prompt_tokens=usage.get("prompt_tokens"),
                             completion_tokens=usage.get("completion_tokens"),
-                            reasoning_tokens=details.get("reasoning_tokens"),
+                            reasoning_tokens=reasoning_tokens,
                             total_tokens=usage.get("total_tokens"),
                         )
                     if not data.get("choices"):
                         continue
                     delta = data["choices"][0].get("delta", {})
                     index = data["choices"][0].get("index", 0)
+                    reasoning = delta.get("reasoning_content")
+                    if reasoning is None:
+                        reasoning = delta.get("thinking")
+                    if reasoning is not None:
+                        yield StreamEvent(
+                            type="reasoning_delta", content_index=index, delta=reasoning
+                        )
                     if delta.get("content") is not None:
                         yield StreamEvent(type="text_delta", content_index=index, delta=delta["content"])
                     for tool_call in delta.get("tool_calls", []):

@@ -118,7 +118,7 @@ core_harness/src/core_harness/
   models.py           # ControlPlaneEventType, ToolCall, HarnessResult
   config.py           # HarnessConfig, load_harness_config
   errors.py           # HarnessCancelled, HarnessLimitExceeded
-  context/            # token estimates, pruning, HarnessState, keep/drop planner
+  context/            # token estimates, result bounds, HarnessState, keep/drop planner
   loop/               # TurnRunner, tool calls, run session, stream handling
   addons/             # Addon base, persistence, compaction, subagent
 

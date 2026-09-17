@@ -69,7 +69,7 @@ harness.register_tool(
 ```
 
 A tool may declare a `sink` parameter. The harness injects the active
-plane; it is not a model argument. Tool results are bounded to 4,000 characters
+plane; it is not a model argument. Tool results are bounded to 32,000 characters
 at insert time (40/60 head/tail) unless you set `tool_result_max_chars=None`.
 
 ## Runs and results
@@ -137,5 +137,4 @@ it mounts `AiCompactionAddon`, whose `InferenceCompactor` runs the same
 keep/drop plan and then writes the dropped-work summary with the active model.
 coding_agent auto-compacts when 80% of the active model's context is used, and
 `/compact` runs the same mounted compactor on demand. Disable with
-`context_compact_ratio=None`, `context_compact_threshold=None`, and
-`context_target_tokens=None`.
+`context_compact_ratio=None`.

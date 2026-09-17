@@ -57,7 +57,7 @@ async def main() -> None:
             max_tool_calls=12,
             max_runtime_seconds=120,
             max_tokens=8_000,
-            tool_result_max_chars=4_000,
+            tool_result_max_chars=32_000,
             context_target_tokens=80_000,
         ),
         tools=[Tool(read_file)],
@@ -131,18 +131,12 @@ def approve(action: str, sink: EventSink) -> str:
     return f"Approved {action}"  # application code can also inspect/emit events
 ```
 
-Tool results are bounded to 4,000 characters at insert time (40/60 head/tail)
+Tool results are bounded to 32,000 characters at insert time (40/60 head/tail)
 before being persisted. Image parts in a tool result are not
 character-truncated. Configure `tool_result_max_chars` on `CoreHarness`, or
 pass `None` to disable the bound. Values below 1 are rejected. Truncation
 stays in memory: the bounded text is what is stored, and the original payload
-is discarded.
-
-History stays linear until the estimated prompt reaches
-`tool_result_prune_tokens` (off by default). Only then are older tool bodies
-replaced with a path-aware one-line stub on a **copy** of the conversation —
-persisted history is unchanged. Unconditional last-N pruning made the model
-re-read files it had already seen.
+is discarded. Older tool bodies stay in the conversation until compaction.
 
 ## Runs, results, and conversations
 
@@ -285,20 +279,18 @@ add-ons for each child, using separate sessions in the parent's storage backend.
 ## Context management
 
 The harness includes token-estimation helpers. Set `context_limits`,
-`context_warn_threshold`, `context_compact_threshold`,
-`context_target_tokens`, `tool_result_keep_recent`, and
-`tool_result_prune_tokens` on `HarnessConfig`. Attach a `CompactionAddon` when
-a run should compact; provide a custom `Compactor` for application-specific
-summarization.
+`context_warn_threshold`, `context_compact_ratio`,
+`context_target_tokens`, and `compaction_keep_recent_tools` on
+`HarnessConfig`. Attach a `CompactionAddon` when a run should compact;
+provide a custom `Compactor` for application-specific summarization.
 
 `KeepSystemRecentCompactor` keeps the leading system prompt, the original
-user task, and the most recent messages. Assistant/tool groups stay together
+user task, and the latest tool groups. Assistant/tool groups stay together
 so the provider protocol stays valid. Dropped messages become one summary
 message instead of disappearing. A one-user N-tool loop is not one
-un-droppable turn: earlier tool groups can be summarised while the last
-`keep_recent` messages stay. Old tool bodies inside kept messages are stubbed
-only if the compact is still over the token target. `keep_recent` counts
-messages, not conversation turns.
+un-droppable turn: earlier tool groups can be summarised while the latest
+`keep_recent_tools` tool results stay. Text-only conversations keep the
+latest `keep_recent_tools` message blocks.
 
 The summary is a deterministic path-aware template; the harness never calls a
 provider. The keep/drop rule itself is exported as `plan_keep_drop`, which
@@ -319,12 +311,10 @@ harness = CoreHarness(
     system_prompt="Be concise.",
     config=HarnessConfig(
         context_target_tokens=20_000,
-        tool_result_keep_recent=8,
-        tool_result_prune_tokens=48_000,
-        context_compact_threshold=16_000,
-        compaction_keep_recent=10,
+        context_compact_ratio=0.8,
+        compaction_keep_recent_tools=32,
     ),
-    addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent=10, target_tokens=20_000))],
+    addons=[CompactionAddon(KeepSystemRecentCompactor(keep_recent_tools=32, target_tokens=20_000))],
 )
 ```
 
@@ -337,8 +327,7 @@ The package exports the main types needed to integrate the harness:
 `HarnessConfig`, `RunLimits`, `UsageTotals`, `Checkpoint`, `Persistence`,
 `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `KeepDropPlan`,
 `plan_keep_drop`, `ContextReport`,
-`build_context_report`, `bound_tool_result`, `messages_for_model`,
-`prune_stale_tool_results`, `EventSink`, `ControlPlaneEvent`,
+`build_context_report`, `bound_tool_result`, `EventSink`, `ControlPlaneEvent`,
 `ControlPlaneEventType`, `EventSink`, `EventSink`,
 `HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
 

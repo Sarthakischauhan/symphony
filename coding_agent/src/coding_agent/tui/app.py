@@ -64,6 +64,7 @@ class CodingAgentApp(
         Binding("ctrl+g", "subagents", "Subagents", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear", show=False),
+        Binding("ctrl+y", "copy_selection", "Copy selection", show=False),
         Binding("escape", "cancel_run", "Cancel", show=True, priority=True),
         Binding("ctrl+x", "cancel_run", "Cancel", show=False, priority=True),
     ]

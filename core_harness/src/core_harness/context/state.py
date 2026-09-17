@@ -11,10 +11,8 @@ from core_ai.types import Content, Message
 from core_ai.models.registry import context_limits
 from core_harness.models import ToolCall
 from core_harness.context.compact import (
-    DEFAULT_PRUNE_KEEP_RECENT,
     estimate_message_tokens,
     estimate_prompt_tokens,
-    messages_for_model,
     _is_cleared_tool_result,
     _tool_names,
 )
@@ -92,15 +90,9 @@ def build_context_report(
     messages: List[Message],
     *,
     context_limit: Optional[int] = None,
-    keep_recent_tool_results: int = DEFAULT_PRUNE_KEEP_RECENT,
-    prune_tokens: Optional[int] = None,
 ) -> ContextReport:
-    """Stored conversation vs the payload that would be sent to the model."""
-    sent = messages_for_model(
-        messages,
-        keep_recent=keep_recent_tool_results,
-        prune_tokens=prune_tokens,
-    )
+    """Report the conversation sent to the model."""
+    sent = list(messages)
     names = _tool_names(messages)
     entries: List[ContextMessage] = []
     stubbed = 0
@@ -156,7 +148,6 @@ class HarnessState:
         *,
         context_limits: Optional[Dict[str, int]] = None,
         context_warn_threshold: Optional[int] = None,
-        context_compact_threshold: Optional[int] = None,
         context_compact_ratio: Optional[float] = None,
         compactor: Optional[Compactor] = None,
         context_target_tokens: Optional[int] = None,
@@ -166,7 +157,6 @@ class HarnessState:
             **(context_limits or {}),
         }
         self.context_warn_threshold = context_warn_threshold
-        self.context_compact_threshold = context_compact_threshold
         self.context_compact_ratio = context_compact_ratio
         self.compactor = compactor
         if context_target_tokens is not None and context_target_tokens < 1:
@@ -250,26 +240,10 @@ class HarnessState:
     ) -> bool:
         return (
             self.compactor is not None
-            and (
-                (
-                    self.context_compact_ratio is not None
-                    and context_limit is not None
-                    and estimated_tokens is not None
-                    and estimated_tokens >= context_limit * self.context_compact_ratio
-                )
-                or (
-                    self.context_compact_ratio is None
-                    and
-                    self.context_target_tokens is not None
-                    and estimated_tokens is not None
-                    and estimated_tokens >= self.context_target_tokens
-                )
-                or (
-                    self.context_compact_threshold is not None
-                    and context_left is not None
-                    and context_left <= self.context_compact_threshold
-                )
-            )
+            and self.context_compact_ratio is not None
+            and context_limit is not None
+            and estimated_tokens is not None
+            and estimated_tokens >= context_limit * self.context_compact_ratio
         )
 
     async def maybe_compact(
@@ -323,7 +297,6 @@ class HarnessState:
             "message_count": before_count,
             "tokens_used": tokens_used,
             "context_left": context_left,
-            "threshold": self.context_compact_threshold,
             "ratio": self.context_compact_ratio,
         }
         if manual:

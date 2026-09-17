@@ -41,6 +41,34 @@ def test_grok_uses_chat_completions_stream() -> None:
     assert events[-1].type == "done"
 
 
+def test_grok_reports_xai_top_level_reasoning_tokens() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = "\n\n".join(
+            (
+                'data: {"choices":[{"index":0,"delta":{"reasoning_content":"Think"}}]}',
+                'data: {"usage":{"prompt_tokens":10,"completion_tokens":20,"reasoning_tokens":12,"total_tokens":30}}',
+                "data: [DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> list[StreamEvent]:
+        provider = GrokProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "grok-4.6", [Message(role="user", content="Hi")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert events[0].type == "reasoning_delta"
+    assert events[0].delta == "Think"
+    usage = next(event for event in events if event.type == "usage")
+    assert usage.reasoning_tokens == 12
+    assert usage.total_tokens == 30
+
+
 def test_grok_skips_reasoning_effort_for_non_reasoning_models() -> None:
     register_model(
         ModelInfo(id="grok-fast", provider="grok", api="chat_completions", reasoning=False)
