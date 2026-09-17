@@ -69,7 +69,7 @@ harness.register_tool(
 ```
 
 A tool may declare a `sink` parameter. The harness injects the active
-plane; it is not a model argument. Tool results are bounded to 4,000 characters
+plane; it is not a model argument. Tool results are bounded to 32,000 characters
 at insert time (40/60 head/tail) unless you set `tool_result_max_chars=None`.
 
 ## Runs and results

@@ -344,7 +344,7 @@ class JsonlPersistence:
                     )
                 return
             if not self._is_compact_rewrite(stored, incoming):
-                # In-place edits (pruned tool bodies, injected memory) must
+                # In-place edits (including legacy tool stubs or injected memory) must
                 # not mint a compaction boundary. Re-emitting the whole
                 # conversation after through_seq is what ballooned session
                 # files to thousands of duplicate message lines.

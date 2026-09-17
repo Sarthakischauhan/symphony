@@ -84,8 +84,9 @@ for that slice instead. `/compact` runs the same compactor on demand and
 refreshes the footer's context meter. `compaction.max_output_tokens` and
 `compaction.max_transcript_chars` bound the summary request. The 80,000-token
 `context_target_tokens` is the desired post-compaction size. Tool results are
-capped at 32,000 characters when they enter history. Older tool bodies remain
-visible to the model until compaction.
+capped at 32,000 characters when they enter history. The target is best-effort:
+the latest 32 tool results remain visible in full, even if they exceed it.
+The harness never silently stubs tool results between model calls.
 
 A bare `CoreHarness` does not compact until a product attaches the add-on.
 Set `context_compact_ratio` to `null` to disable auto-compact. `/reload`
