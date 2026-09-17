@@ -207,7 +207,7 @@ class TranscriptSurface:
         status: str = "preparing",
         result: Any = None,
     ) -> None:
-        from coding_agent.tui.tools.calls import ToolCallSummary
+        from coding_agent.tui.tools.snapshots import ToolCallSummary
 
         transcript = self.query_one("#transcript", VerticalScroll)
         was_at_end = transcript.is_vertical_scroll_end

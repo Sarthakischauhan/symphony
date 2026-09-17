@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, MutableMapping, Sequence
 
+from coding_agent.tui.tools.activity import same_activity_group
+
 LIVE_TOOL_WIDGET_LIMIT = 10
 
 
@@ -48,7 +50,8 @@ def is_timeline_chrome(widget: Any) -> bool:
 
 def is_tool_stretch_item(widget: Any) -> bool:
     """Live tool cards and tool-bearing Explored folds in one consecutive stretch."""
-    from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+    from coding_agent.tui.tools.calls import ToolCallWidget
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     if isinstance(widget, ToolCallWidget):
         return True
@@ -182,17 +185,6 @@ def _segment_stretches(
     return stretches
 
 
-def _same_activity(first: Any, candidate: Any) -> bool:
-    """Keep explicitly grouped task calls in separate folded rows."""
-    first_group = getattr(first, "activity_group", "")
-    candidate_group = getattr(candidate, "activity_group", "")
-    if first_group or candidate_group:
-        return first_group == candidate_group
-    return bool(getattr(first, "activity_reason", "")) == bool(
-        getattr(candidate, "activity_reason", "")
-    )
-
-
 def _fold_ready_stretch(
     snapshot: Callable[[], list[Any]],
     replace: Callable[[Any, Any], None],
@@ -203,7 +195,7 @@ def _fold_ready_stretch(
     collectable: Callable[[Any], bool],
     final: bool,
 ) -> bool:
-    from coding_agent.tui.tools.calls import ToolCallSummary
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     for stretch, interrupted in members:
         if not (interrupted or final):
@@ -226,7 +218,7 @@ def _fold_ready_stretch(
                 item
                 for item in selected
                 if stretch.index(item) >= first_index
-                and _same_activity(first, item)
+                and same_activity_group(first, item)
             ]
         _fold_batch(
             selected,
@@ -264,7 +256,7 @@ def _timeline_ops(
 
 
 def _collapse_expanded_summaries(items: Sequence[Any]) -> None:
-    from coding_agent.tui.tools.calls import ToolCallSummary
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     for item in items:
         if isinstance(item, ToolCallSummary) and item.is_expanded:
@@ -309,7 +301,7 @@ def _fold_into_explored(
     tools: MutableMapping[str, Any] | None,
     batch_summary: Any = None,
 ) -> Any:
-    from coding_agent.tui.tools.calls import ToolCallSummary
+    from coding_agent.tui.tools.snapshots import ToolCallSummary
 
     items = snapshot()
     if widget not in items:

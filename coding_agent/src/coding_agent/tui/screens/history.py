@@ -6,12 +6,12 @@ import json
 from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
-from coding_agent.tui.tools.calls import (
+from coding_agent.tui.tools.images import display_from_content
+from coding_agent.tui.tools.snapshots import (
     ToolCallSnapshot,
     ToolCallSummary,
     snapshot_from_call,
 )
-from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.transcript import UserMessage
 from core_ai.content import text_from_content
 from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens

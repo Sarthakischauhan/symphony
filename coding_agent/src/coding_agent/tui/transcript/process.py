@@ -206,7 +206,8 @@ class RunProcess(Container):
             self.add_item(ProcessComplete(title))
 
     def tool_count(self) -> int:
-        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+        from coding_agent.tui.tools.calls import ToolCallWidget
+        from coding_agent.tui.tools.snapshots import ToolCallSummary
 
         count = 0
         for item in self.timeline_items():
@@ -217,7 +218,8 @@ class RunProcess(Container):
         return count
 
     def archive_text(self) -> str:
-        from coding_agent.tui.tools.calls import ToolCallSummary, ToolCallWidget
+        from coding_agent.tui.tools.calls import ToolCallWidget
+        from coding_agent.tui.tools.snapshots import ToolCallSummary
 
         chunks: list[str] = []
         for item in self.timeline_items():

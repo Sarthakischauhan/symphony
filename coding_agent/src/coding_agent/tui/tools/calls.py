@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from rich.console import Group
 from rich.style import Style
@@ -16,38 +14,24 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.motion import enter_row, settle_row
-from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
+from coding_agent.tui.motion import enter_row
+from coding_agent.tui.tools.activity import parse_activity, strip_activity_json, take_activity
+from coding_agent.tui.tools.diff import make_unified_diff, patch_summary
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
-from coding_agent.tui.transcript.messages import clip_text, compact_json
+from coding_agent.tui.tools.labels import (
+    TOOL_LABELS,
+    generate_image_result,
+    header_command,
+    read_file_detail,
+    read_file_result,
+    result_preview,
+    tool_detail,
+    tool_label,
+)
+from coding_agent.tui.tools.snapshots import ToolCallSnapshot
+from coding_agent.tui.transcript.messages import clip_text
 
-TOOL_LABELS = {
-    "bash": ("Bash", "$"),
-    "search": ("Search", "⌕"),
-    "write_file": ("Write", "+"),
-    "generate_image": ("Image", "└"),
-    "patch": ("Edit", "±"),
-    "read_file": ("Read", "└"),
-}
-
-
-def tool_label(tool_name: str) -> tuple[str, str]:
-    return TOOL_LABELS.get(tool_name, (tool_name.replace("_", " ").title(), "›"))
-
-
-def tool_detail(
-    tool_name: str,
-    arguments: Mapping[str, Any] | None = None,
-    raw_arguments: str = "",
-) -> str:
-    args = dict(arguments or {})
-    if tool_name == "bash":
-        return str(args.get("command") or raw_arguments)
-    if tool_name == "search":
-        return str(args.get("query") or args.get("pattern") or compact_json(args))
-    if tool_name in {"write_file", "patch", "generate_image", "read_file"}:
-        return str(args.get("path") or compact_json(args))
-    return compact_json(args) or raw_arguments
+IMAGE_CHIP = "[Image 1]"
 
 
 class BashToolHeader(Horizontal, can_focus=True):
@@ -138,18 +122,10 @@ class ToolCallWidget(Collapsible):
 
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         self.arguments = dict(arguments or {})
-        activity = self.arguments.pop("activity", None)
-        if isinstance(activity, Mapping):
-            self._set_activity_fields(activity)
-            if raw:
-                try:
-                    parsed_raw = json.loads(raw)
-                except json.JSONDecodeError:
-                    pass
-                else:
-                    if isinstance(parsed_raw, dict):
-                        parsed_raw.pop("activity", None)
-                        raw = json.dumps(parsed_raw, separators=(",", ":"))
+        nested = self.arguments.get("activity")
+        self._apply_activity(take_activity(self.arguments))
+        if isinstance(nested, Mapping):
+            raw = strip_activity_json(raw)
         self.raw_arguments = raw
         self._body_dirty = True
         self.refresh_content()
@@ -157,22 +133,17 @@ class ToolCallWidget(Collapsible):
     def set_running(self, arguments: Mapping[str, Any] | None) -> None:
         self.status = "running"
         self.arguments = dict(arguments or {})
-        activity = self.arguments.pop("activity", None)
-        if isinstance(activity, Mapping):
-            self._set_activity_fields(activity)
+        self._apply_activity(take_activity(self.arguments))
         self._body_dirty = True
         self.refresh_content()
 
-    def _set_activity_fields(self, activity: Mapping[str, Any]) -> None:
-        verb = activity.get("verb")
-        reason = activity.get("reason")
-        group = activity.get("group")
-        self.activity_verb = verb.strip() if isinstance(verb, str) else ""
-        self.activity_reason = reason.strip() if isinstance(reason, str) else ""
-        self.activity_group = group.strip() if isinstance(group, str) else ""
+    def _apply_activity(self, activity: Any) -> None:
+        self.activity_verb = activity.verb
+        self.activity_reason = activity.reason
+        self.activity_group = activity.group
 
     def set_activity(self, activity: Mapping[str, Any] | None) -> None:
-        self._set_activity_fields(activity or {})
+        self._apply_activity(parse_activity(activity))
         self.refresh_content()
 
     def set_result(self, result: Any) -> None:
@@ -190,12 +161,7 @@ class ToolCallWidget(Collapsible):
         return tool_detail(self.tool_name, self.arguments, self.raw_arguments)
 
     def _result_summary(self) -> str:
-        if not self.result:
-            return ""
-        lines = self.result.splitlines()
-        if self.tool_name == "bash":
-            return clip_text("\n".join(lines[-4:]), 360)
-        return clip_text(self.result, 260)
+        return result_preview(self.tool_name, self.result)
 
     def _body_rows(self) -> list[Any]:
         rows: list[Any] = []
@@ -228,7 +194,7 @@ class ToolCallWidget(Collapsible):
     def _refresh_header(self, label: str, summary: str) -> None:
         values = (
             f"{self._disclosure_symbol()} {self._marker()}  {label}",
-            clip_text(self.activity_reason, 140) if self.activity_reason else summary,
+            header_command(self.activity_reason, summary, 140),
             self.status,
         )
         if values == self._header_values:
@@ -250,8 +216,7 @@ class ToolCallWidget(Collapsible):
 
     def refresh_content(self) -> None:
         label, _icon = self._tool_title()
-        summary = clip_text(self._summary(), 140)
-        self._refresh_header(label, summary)
+        self._refresh_header(label, clip_text(self._summary(), 140))
         self._refresh_status_class()
         self._refresh_body()
 
@@ -273,264 +238,6 @@ class ToolCallWidget(Collapsible):
             activity_group=self.activity_group,
             duration=self._duration,
         )
-
-
-@dataclass(frozen=True)
-class ThoughtSnapshot:
-    """Display data retained after a completed reasoning widget is folded."""
-
-    title: str
-    content: str = ""
-
-
-@dataclass(frozen=True)
-class ToolCallSnapshot:
-    """Display data retained after a live tool card is folded away."""
-
-    call_id: str
-    tool_name: str = "tool"
-    label: str = "Tool"
-    detail: str = ""
-    status: str = "done"
-    result: str = ""
-    activity_verb: str = ""
-    activity_reason: str = ""
-    activity_group: str = ""
-    duration: float | None = None
-
-    def as_text(self) -> str:
-        marker = "×" if self.status == "failed" else "✓"
-        line = f"{marker}  {self.label}"
-        if self.detail:
-            line = f"{line}  {self.detail}"
-        if self.result:
-            line = f"{line}\n   {self.result}"
-        return line
-
-
-def snapshot_from_call(
-    *,
-    call_id: str,
-    tool_name: str,
-    arguments: Mapping[str, Any] | None = None,
-    raw_arguments: str = "",
-    status: str = "done",
-    result: str = "",
-    activity: Mapping[str, Any] | None = None,
-) -> ToolCallSnapshot:
-    label, _icon = tool_label(tool_name)
-    display_arguments = dict(arguments or {})
-    nested_activity = display_arguments.pop("activity", None)
-    activity = activity if isinstance(activity, Mapping) else nested_activity
-    return ToolCallSnapshot(
-        call_id=call_id,
-        tool_name=tool_name,
-        label=label,
-        detail=clip_text(tool_detail(tool_name, display_arguments, raw_arguments), 300),
-        status=status,
-        result=clip_text(result, 260) if result else "",
-        activity_verb=(
-            str((activity or {}).get("verb", "")).strip()
-            if isinstance(activity, Mapping)
-            else ""
-        ),
-        activity_reason=(
-            str((activity or {}).get("reason", "")).strip()
-            if isinstance(activity, Mapping)
-            else ""
-        ),
-        duration=None,
-        activity_group=(
-            str((activity or {}).get("group", "")).strip()
-            if isinstance(activity, Mapping)
-            else ""
-        ),
-    )
-
-
-class ToolCallSummary(Static, can_focus=True):
-    """A compact disclosure containing non-interactive tool snapshots."""
-
-    def __init__(self, calls: Sequence[ToolCallSnapshot] | None = None) -> None:
-        self.calls: list[ToolCallSnapshot] = []
-        self.entries: list[ToolCallSnapshot | ThoughtSnapshot] = []
-        self.is_expanded = False
-        super().__init__(classes="tool-call-summary", markup=False)
-        for call in calls or ():
-            self.add_call(call, layout=False)
-        self.title = self._summary_title()
-
-    def on_mount(self) -> None:
-        settle_row(self)
-
-    def _activity_reason(self) -> str:
-        return next(
-            (call.activity_reason for call in self.calls if call.activity_reason),
-            "",
-        )
-
-    def _activity_verb(self) -> str:
-        return next(
-            (call.activity_verb for call in self.calls if call.activity_verb),
-            "",
-        )
-
-    def _duration_label(self) -> str:
-        durations = [call.duration for call in self.calls if call.duration is not None]
-        if not durations or not any(call.activity_verb for call in self.calls):
-            return ""
-        seconds = sum(durations)
-        if seconds < 1:
-            return "<1s"
-        if seconds < 60:
-            return f"{seconds:.1f}s"
-        return f"{seconds / 60:.1f}m"
-
-    def _summary_title(self) -> str:
-        failed = sum(call.status == "failed" for call in self.calls)
-        suffix = f" · {failed} failed" if failed else ""
-        title = self._activity_verb() or self._activity_reason() or "Explored"
-        duration = self._duration_label()
-        timing = f" for {duration}" if duration else ""
-        return f"{clip_text(title, 96)} · {self._count_label()}{timing}{suffix}"
-
-    def _activity_group(self) -> str:
-        return next(
-            (call.activity_group for call in self.calls if call.activity_group),
-            "",
-        )
-
-    def accepts(self, call: ToolCallWidget | ToolCallSnapshot) -> bool:
-        """Return whether a call belongs in this activity's folded row."""
-        if not self.calls:
-            return True
-        snapshot = call.snapshot() if isinstance(call, ToolCallWidget) else call
-        current_group = self._activity_group()
-        incoming_group = snapshot.activity_group
-        if current_group or incoming_group:
-            return current_group == incoming_group
-        return bool(self._activity_reason()) == bool(snapshot.activity_reason)
-
-    def _count_label(self) -> str:
-        noun = "tool" if self.count == 1 else "tools"
-        parts = [f"{self.count} {noun}"] if self.count else []
-        thoughts = sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
-        if thoughts:
-            parts.append(f"{thoughts} thought{'s' if thoughts != 1 else ''}")
-        return " · ".join(parts) or "0 tools"
-
-    def render(self) -> Text:
-        text = Text()
-        text.append("[ ", style="#7395ab")
-        text.append("▾ " if self.is_expanded else "▸ ", style="bold #8ab4cf")
-        text.append(
-            clip_text(self._activity_verb() or self._activity_reason() or "Explored", 96),
-            style="bold #8ab4cf",
-        )
-        duration = self._duration_label()
-        timing = f" for {duration}" if duration else ""
-        text.append(f" · {self._count_label()}{timing}", style="#a2adb8")
-        failed = sum(call.status == "failed" for call in self.calls)
-        if failed:
-            text.append(f" · {failed} failed", style="bold #d66b73")
-        header_length = len(text.plain)
-        gap = max(1, self.content_size.width - header_length - 1)
-        text.append(f"{' ' * gap}]", style="#7395ab")
-        if not self.is_expanded:
-            thought = next(
-                (entry for entry in self.entries if isinstance(entry, ThoughtSnapshot)),
-                None,
-            )
-            if thought is not None and thought.content:
-                preview = clip_text(" ".join(thought.content.split()), 180)
-                text.append(f"\n  {preview}", style="#858585")
-            return text
-        for call in self.entries:
-            if isinstance(call, ThoughtSnapshot):
-                text.append(f"\n  ▸  {call.title}", style="#969696")
-                if call.content:
-                    text.append(f"\n     {call.content}", style="#858585")
-                continue
-            marker = "×" if call.status == "failed" else "✓"
-            text.append("\n")
-            color = "#d66b73" if call.status == "failed" else "#72a57a"
-            text.append(f"  {marker}  ", style=color)
-            text.append(call.label, style="bold #b8c7d4")
-            if call.detail:
-                text.append(f"  {call.detail}", style="#a2adb8")
-        return text
-
-    @property
-    def call_ids(self) -> list[str]:
-        return [call.call_id for call in self.calls]
-
-    @property
-    def count(self) -> int:
-        return len(self.calls)
-
-    def add_call(
-        self,
-        call: str | ToolCallWidget | ToolCallSnapshot,
-        *,
-        layout: bool = True,
-    ) -> None:
-        if isinstance(call, ToolCallWidget):
-            snapshot = call.snapshot()
-        elif isinstance(call, ToolCallSnapshot):
-            snapshot = call
-        else:
-            snapshot = ToolCallSnapshot(call_id=call)
-        if snapshot.call_id not in self.call_ids:
-            self.calls.append(snapshot)
-            self.entries.append(snapshot)
-        from textual._context import NoActiveAppError
-
-        try:
-            self.title = self._summary_title()
-            self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
-            if layout:
-                self.refresh(layout=True)
-        except NoActiveAppError:
-            pass
-
-    def add_thought(
-        self,
-        title: str,
-        content: str = "",
-        *,
-        layout: bool = True,
-    ) -> None:
-        self.entries.append(ThoughtSnapshot(title=title, content=content))
-        self.title = self._summary_title()
-        if layout:
-            self.refresh(layout=True)
-
-    def toggle(self) -> None:
-        self.is_expanded = not self.is_expanded
-        self.refresh(layout=True)
-
-    def on_click(self, event: events.Click) -> None:
-        event.stop()
-        self.toggle()
-
-    def on_key(self, event: events.Key) -> None:
-        if event.key in {"enter", "space"}:
-            event.stop()
-            event.prevent_default()
-            self.toggle()
-
-    def snapshot_text(self) -> str:
-        return "\n\n".join(call.as_text() for call in self.calls)
-
-    def archive_text(self) -> str:
-        """Keep archived/explore transcripts as compact tool names only."""
-        return "\n".join(
-            entry.title if isinstance(entry, ThoughtSnapshot) else entry.label
-            for entry in self.entries
-        )
-
-
-IMAGE_CHIP = "[Image 1]"
 
 
 class ImageChipBody(Static):
@@ -568,11 +275,7 @@ class GenerateImageWidget(ToolCallWidget):
         return str(self.arguments.get("path") or self.raw_arguments)
 
     def _result_summary(self) -> str:
-        if not self.result:
-            return ""
-        if self.result.startswith("error:"):
-            return self.result
-        return self.result.splitlines()[0]
+        return generate_image_result(self.result)
 
     def set_result(self, result: Any) -> None:
         super().set_result(result)
@@ -614,7 +317,7 @@ class GenerateImageWidget(ToolCallWidget):
         self.app.push_screen(ImageModal(image))
         return True
 
-# --- read_file.py ---
+
 class ReadFileWidget(ToolCallWidget):
     """Compact, path-oriented presentation for the read_file tool."""
 
@@ -622,29 +325,12 @@ class ReadFileWidget(ToolCallWidget):
         return ("Read", "└")
 
     def _summary(self) -> str:
-        path = self.arguments.get("path")
-        if not path:
-            return self.raw_arguments
-        offset = int(self.arguments.get("offset") or 1)
-        limit = int(self.arguments.get("limit") or 0)
-        window = ""
-        if offset != 1 or limit:
-            end = offset + limit - 1 if limit else "…"
-            window = f"  lines {offset}–{end}"
-        return f"{path}{window}"
+        return read_file_detail(self.arguments, self.raw_arguments)
 
     def _result_summary(self) -> str:
-        if not self.result:
-            return ""
-        if self.result.startswith("error:"):
-            return self.result
-        if self.result.startswith("Read image ") or "[image:" in self.result:
-            return self.result.splitlines()[0]
-        count = len(self.result.splitlines())
-        size = len(self.result.encode("utf-8"))
-        return f"Read {count} lines ({size:,} bytes)"
+        return read_file_result(self.result)
 
-# --- bash.py ---
+
 class BashToolWidget(ToolCallWidget):
     """Bash-specific row with command and lifecycle status on one line."""
 
@@ -666,11 +352,7 @@ class BashToolWidget(ToolCallWidget):
     def refresh_content(self) -> None:
         values = (
             f"{self._disclosure_symbol()} {self._marker()}  Bash",
-            (
-                clip_text(self.activity_reason, 180)
-                if self.activity_reason
-                else clip_text(self._summary(), 180)
-            ),
+            header_command(self.activity_reason, clip_text(self._summary(), 180), 180),
             self.status,
         )
         if values != self._header_values:
@@ -685,7 +367,7 @@ class BashToolWidget(ToolCallWidget):
         self._refresh_status_class()
         self._refresh_body()
 
-# --- patch.py ---
+
 class PatchDiffWidget(ToolCallWidget):
     """Unified diff presentation for the exact-text patch tool."""
 
@@ -705,29 +387,17 @@ class PatchDiffWidget(ToolCallWidget):
         if key == self._diff_key:
             return self._diff_cache
         self._diff_key = key
-        if not old and not new:
-            self._diff_cache = []
-            return []
-        self._diff_cache = make_unified_diff(old, new, path)
+        self._diff_cache = make_unified_diff(old, new, path) if old or new else []
         return self._diff_cache
-
-    def _stats(self, diff: list[str]) -> tuple[int, int]:
-        return diff_stats(diff)
 
     def refresh_content(self) -> None:
         path = str(self.arguments.get("path") or "")
         diff = self._diff()
-        additions, deletions = self._stats(diff)
-        summary = path
-        if diff:
-            stats = f"+{additions} -{deletions}"
-            summary = f"{summary}  {stats}" if summary else stats
-        self._refresh_header("Update", summary)
+        self._refresh_header("Update", patch_summary(path, diff))
         self._refresh_status_class()
         if self.collapsed or not self._body_dirty:
             return
         rows: list[Any] = []
-
         visible = diff[: self.MAX_DIFF_LINES]
         for line in visible:
             if line.startswith("@@"):
@@ -741,14 +411,13 @@ class PatchDiffWidget(ToolCallWidget):
         if len(diff) > self.MAX_DIFF_LINES:
             hidden = len(diff) - self.MAX_DIFF_LINES
             rows.append(Text(f"… {hidden} diff lines hidden", style="#555555"))
-
         if self.result:
             result_color = "#d66b73" if self.status == "failed" else "#626262"
             rows.append(Text(f"└  {clip_text(self.result, 260)}", style=result_color))
         self._body.update(Group(*rows))
         self._body_dirty = False
 
-# --- factory.py ---
+
 def make_tool_widget(call_id: str, tool_name: str) -> ToolCallWidget:
     if tool_name == "spawn_agent":
         from coding_agent.tui.runtime.subagent import SubagentWidget

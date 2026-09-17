@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from coding_agent.tui.motion import enter_row, settle_row
+from coding_agent.tui.tools.activity import (
+    format_explored_duration,
+    same_activity_group,
+)
 from coding_agent.tui.tools.calls import (
-    ToolCallSnapshot,
-    ToolCallSummary,
     ToolCallWidget,
     make_tool_widget,
-    snapshot_from_call,
 )
+from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary, snapshot_from_call
 from coding_agent.tui.transcript.live_tools import (
     collectable_tools,
     is_collectable_thought,
@@ -493,6 +495,78 @@ def test_snapshot_extracts_activity_without_showing_it_as_tool_arguments() -> No
     assert snapshot.activity_group == "task-ui"
     summary = ToolCallSummary((snapshot,))
     assert summary.title == "Find the rendering path · 1 tool"
+
+
+def test_activity_reasons_without_group_fold_together() -> None:
+    first = ToolCallWidget("first", "read_file")
+    first.set_arguments({"path": "one.py", "activity": {"reason": "Inspect UI"}})
+    first.set_result("ok")
+    second = ToolCallWidget("second", "bash")
+    second.set_arguments({"command": "pytest", "activity": {"reason": "Run checks"}})
+    second.set_result("ok")
+    items = [first, second]
+
+    reconcile_live_tools(items, final=True)
+
+    assert len(items) == 1
+    assert items[0].call_ids == ["first", "second"]
+    assert items[0].title == "Inspect UI · 2 tools"
+
+
+def test_labeled_and_unlabeled_calls_do_not_share_an_explored_row() -> None:
+    labeled = ToolCallWidget("labeled", "read_file")
+    labeled.set_arguments({"path": "one.py", "activity": {"reason": "Inspect UI"}})
+    labeled.set_result("ok")
+    unlabeled = ToolCallWidget("plain", "bash")
+    unlabeled.set_arguments({"command": "pytest"})
+    unlabeled.set_result("ok")
+    items = [labeled, unlabeled]
+
+    reconcile_live_tools(items, final=True)
+
+    assert [item.call_ids for item in items] == [["labeled"], ["plain"]]
+
+
+def test_same_activity_group_keys_on_group_then_bool_reason() -> None:
+    inspect = ToolCallSnapshot("a", activity_reason="Inspect UI", activity_group="inspect")
+    validate = ToolCallSnapshot("b", activity_reason="Run checks", activity_group="validate")
+    reason_a = ToolCallSnapshot("c", activity_reason="Inspect UI")
+    reason_b = ToolCallSnapshot("d", activity_reason="Run checks")
+    plain = ToolCallSnapshot("e")
+
+    assert not same_activity_group(inspect, validate)
+    assert same_activity_group(reason_a, reason_b)
+    assert not same_activity_group(reason_a, plain)
+    assert same_activity_group(plain, ToolCallSnapshot("f"))
+
+
+def test_explored_title_appends_duration_only_when_verb_is_set() -> None:
+    with_verb = ToolCallSnapshot(
+        "search",
+        activity_verb="Searching",
+        activity_reason="Find the path",
+        duration=1.5,
+    )
+    reason_only = ToolCallSnapshot("read", activity_reason="Find the path", duration=1.5)
+
+    assert ToolCallSummary((with_verb,)).title == "Searching · 1 tool for 1.5s"
+    assert ToolCallSummary((reason_only,)).title == "Find the path · 1 tool"
+    assert format_explored_duration((with_verb,)) == "1.5s"
+    assert format_explored_duration((reason_only,)) == ""
+
+
+def test_thought_snapshot_keeps_collapsed_preview() -> None:
+    summary = ToolCallSummary()
+    summary.add_thought("Thought - Inspecting files", "Private reasoning body")
+
+    collapsed = summary.render().plain
+    assert "Private reasoning body" in collapsed
+    assert "Thought - Inspecting files" not in collapsed
+
+    summary.toggle()
+    expanded = summary.render().plain
+    assert "Thought - Inspecting files" in expanded
+    assert "Private reasoning body" in expanded
 
 
 def test_motion_helpers_are_safe_without_an_app() -> None:

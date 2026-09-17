@@ -25,3 +25,12 @@ def diff_stats(diff: list[str]) -> tuple[int, int]:
     additions = sum(line.startswith("+") and not line.startswith("+++") for line in diff)
     deletions = sum(line.startswith("-") and not line.startswith("---") for line in diff)
     return int(additions), int(deletions)
+
+
+def patch_summary(path: str, diff: list[str]) -> str:
+    """Path plus +/− counts for a patch card header."""
+    if not diff:
+        return path
+    additions, deletions = diff_stats(diff)
+    stats = f"+{additions} -{deletions}"
+    return f"{path}  {stats}" if path else stats
