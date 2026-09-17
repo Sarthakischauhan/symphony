@@ -1,9 +1,9 @@
 # symphony-core
 
 `symphony-core` is the smallest package. It does not run an agent. It routes
-`provider:model` ids, streams OpenAI / Anthropic / Gemini / Grok / Ollama /
-local OpenAI-compatible servers through one event contract, and ships a
-generated catalog of tool-calling text models.
+`provider:model` ids, streams OpenAI / Anthropic / Gemini / Grok / OpenRouter /
+Vercel AI Gateway / Ollama / local OpenAI-compatible servers through one event
+contract, and ships a generated catalog of tool-calling text models.
 
 ```sh
 uv add symphony-core
@@ -17,7 +17,8 @@ See also the [PyPI-facing README](../../core_ai/README.md).
 
 - `ModelRegistry` routes `provider:model` requests.
 - `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, `GrokProvider`,
-  `OllamaProvider`, `LocalProvider` stream model output.
+  `OpenRouterProvider`, `VercelProvider`, `OllamaProvider`, `LocalProvider`
+  stream model output.
 - `build_default_registry()` registers every cloud provider that has
   credentials (API key or a stored ChatGPT / Claude / xAI token), plus
   Ollama/local when opted in.
@@ -32,7 +33,7 @@ See also the [PyPI-facing README](../../core_ai/README.md).
 from core_ai import build_default_registry, default_model_id, list_models
 
 registry = build_default_registry()
-model_id = default_model_id(registry)   # first available: OpenAI, Anthropic, Gemini, Grok, Ollama, Local
+model_id = default_model_id(registry)   # first available: OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel, Ollama, Local
 openai_models = list_models("openai")
 print(model_id, len(openai_models))
 ```
@@ -42,9 +43,10 @@ print(model_id, len(openai_models))
 1. An explicit id (`--model`, constructor `model_id`, or a run request).
 2. `SYMPHONY_MODEL`.
 3. Provider-specific `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `GEMINI_MODEL` /
-   `GROK_MODEL` / `OLLAMA_MODEL` / `LOCAL_MODEL`.
+   `GROK_MODEL` / `OPENROUTER_MODEL` / `VERCEL_MODEL` / `OLLAMA_MODEL` /
+   `LOCAL_MODEL`.
 4. `default_model_id()` — default for the first registered provider, in
-   OpenAI → Anthropic → Gemini → Grok → Ollama → Local order.
+   OpenAI → Anthropic → Gemini → Grok → OpenRouter → Vercel → Ollama → Local order.
 
 Unqualified ids are assigned to OpenAI when OpenAI is registered, otherwise to
 the first registered provider. Unqualified names beginning with `claude-`,
@@ -57,8 +59,10 @@ Providers translate streamed text, reasoning, tool calls, usage, completion,
 and retry signals (429, SSL MAC, 5xx, connection) into `StreamEvent`. OpenAI
 selects Responses or Chat Completions from the catalog (with an `o1` / `o3` /
 `o4` fallback). Anthropic uses Messages. Gemini uses streamGenerateContent.
-Grok, Ollama, and local servers use Chat Completions. Ollama/local omit
-`stream_options` and send `max_tokens`.
+Grok, OpenRouter, Vercel AI Gateway, Ollama, and local servers use Chat
+Completions. Vercel evaluation models such as `typesafe-ai/jev` use
+`POST /evaluation-model`. OpenRouter and Vercel send `max_tokens` with
+`stream_options`. Ollama/local omit `stream_options` and send `max_tokens`.
 
 ## Model catalog
 

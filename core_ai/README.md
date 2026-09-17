@@ -18,7 +18,8 @@ Docs: **[symphony-core](../docs/packages/symphony-core.md)** ·
 
 - `ModelRegistry` for routing `provider:model` requests
 - `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, `GrokProvider`,
-  `OllamaProvider`, and `LocalProvider` for streaming model output
+  `OpenRouterProvider`, `VercelProvider`, `OllamaProvider`, and
+  `LocalProvider` for streaming model output
 - `build_default_registry()` to register every provider that has credentials
   in the environment or a stored subscription token (`~/.symphony/oauth/`)
 - A generated model catalog (`ModelCatalog`, `ModelInfo`, `list_models()`,
@@ -48,6 +49,8 @@ key. Ollama and local servers are opt-in (no localhost probe):
 | Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_BASE_URL` | `GEMINI_MODEL` |
 | Grok | `XAI_API_KEY` or xAI login | `XAI_BASE_URL` (API key: `api.x.ai`; login: CLI proxy) | `GROK_MODEL` or `XAI_MODEL` |
+| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `OPENROUTER_MODEL` |
+| Vercel AI Gateway | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` | `AI_GATEWAY_BASE_URL` | `VERCEL_MODEL` or `AI_GATEWAY_MODEL` |
 | Ollama | `OLLAMA_ENABLED=1`, `OLLAMA_BASE_URL`, or `OLLAMA_HOST` | `OLLAMA_BASE_URL` | `OLLAMA_MODEL` |
 | Local | `LOCAL_BASE_URL` | — | `LOCAL_MODEL` |
 
@@ -55,16 +58,20 @@ key. Ollama and local servers are opt-in (no localhost probe):
 ids should use `provider:model`; an unqualified explicit id is assigned to
 OpenAI when OpenAI is registered, otherwise to the first registered provider.
 With no model override, `default_model_id()` chooses the default for the first
-available provider in OpenAI, Anthropic, Gemini, Grok, Ollama, Local order.
-For Ollama/local it prefers a discovered model (or `OLLAMA_MODEL` /
-`LOCAL_MODEL`). It raises if no credential or local opt-in is set.
+available provider in OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel,
+Ollama, Local order. For OpenRouter, Vercel, Ollama, and local it prefers a
+discovered model (or the provider-specific model override). It raises if no
+credential or local opt-in is set.
 
 The providers translate streamed text, reasoning, tool calls, usage,
 completion, and retry signals (429, SSL MAC, 5xx, connection) into the shared
 `StreamEvent` format. OpenAI selects Responses or Chat Completions from the
 catalog (with an `o1` / `o3` / `o4` fallback); Anthropic uses Messages,
-Gemini uses streamGenerateContent, and Grok, Ollama, and local servers use
-Chat Completions. Ollama/local omit `stream_options` and send `max_tokens`,
+Gemini uses streamGenerateContent, and Grok, OpenRouter, Vercel AI Gateway,
+Ollama, and local servers use Chat Completions. Vercel evaluation models
+(`typesafe-ai/jev` and similar) call `POST /evaluation-model` instead of
+chat completions. OpenRouter and Vercel send `max_tokens` with
+`stream_options`; Ollama/local omit `stream_options` and send `max_tokens`,
 matching OpenAI-compatible daemons.
 
 ## Model catalog

@@ -32,8 +32,9 @@ class MissingProviderCredentials(RuntimeError):
     def __init__(self) -> None:
         super().__init__(
             "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY / GOOGLE_API_KEY, "
-            "or XAI_API_KEY, sign in with /provider (ChatGPT, Claude, or xAI), "
-            "or opt in to Ollama / a local OpenAI-compatible server"
+            "XAI_API_KEY, OPENROUTER_API_KEY, or AI_GATEWAY_API_KEY, sign in with "
+            "/provider (ChatGPT, Claude, or xAI), or opt in to Ollama / a local "
+            "OpenAI-compatible server"
         )
 
 
@@ -87,6 +88,29 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         supports_oauth=True,
     ),
     ProviderSpec(
+        id="openrouter",
+        label="OpenRouter",
+        description="Hundreds of models through one OpenAI-compatible API",
+        env_key="OPENROUTER_API_KEY",
+        default_model="openrouter:openai/gpt-4o",
+        docs_url="https://openrouter.ai/keys",
+        key_placeholder="sk-or-...",
+        default_base_url="https://openrouter.ai/api/v1",
+        base_url_env="OPENROUTER_BASE_URL",
+    ),
+    ProviderSpec(
+        id="vercel",
+        label="Vercel",
+        description="Vercel AI Gateway (AI SDK OpenAI-compatible endpoint)",
+        env_key="AI_GATEWAY_API_KEY",
+        default_model="vercel:openai/gpt-4o",
+        docs_url="https://vercel.com/docs/ai-gateway",
+        key_placeholder="vck_...",
+        env_aliases=("VERCEL_AI_GATEWAY_API_KEY",),
+        default_base_url="https://ai-gateway.vercel.sh/v1",
+        base_url_env="AI_GATEWAY_BASE_URL",
+    ),
+    ProviderSpec(
         id="ollama",
         label="Ollama",
         description="Local models via Ollama (OpenAI-compatible)",
@@ -131,14 +155,23 @@ def find_provider(value: str) -> Optional[ProviderSpec]:
     matches = [
         spec
         for spec in PROVIDERS
-        if needle in {
-            spec.id,
-            spec.label.lower(),
-            spec.env_key.lower(),
-            spec.env_key.lower().removesuffix("_api_key"),
-        }
+        if needle in _provider_names(spec)
     ]
     return matches[0] if len(matches) == 1 else None
+
+
+def _provider_names(spec: ProviderSpec) -> set[str]:
+    names = {
+        spec.id,
+        spec.label.lower(),
+        spec.env_key.lower(),
+        spec.env_key.lower().removesuffix("_api_key"),
+    }
+    for alias in spec.env_aliases:
+        lowered = alias.lower()
+        names.add(lowered)
+        names.add(lowered.removesuffix("_api_key"))
+    return names
 
 
 def provider_api_key(

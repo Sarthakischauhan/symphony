@@ -23,11 +23,16 @@ class FakeObservation:
         self.updates: list[dict[str, Any]] = []
         self.ended = False
         self.children: list[FakeObservation] = []
+        self.id = f"span-{name}"
+        self.trace_id = kwargs.get("trace_id") or "trace-run"
 
     def start_observation(self, name: str, as_type: str = "span", **kwargs: Any) -> FakeObservation:
-        child = FakeObservation(name, as_type, kwargs)
+        child = FakeObservation(name, as_type, {**kwargs, "trace_id": self.trace_id})
         self.children.append(child)
         return child
+
+    def update_trace(self, **kwargs: Any) -> None:
+        self.updates.append({"trace": dict(kwargs)})
 
     def update(self, **kwargs: Any) -> None:
         self.updates.append(dict(kwargs))
@@ -43,6 +48,8 @@ class FakeLangfuse:
 
     def start_observation(self, name: str, as_type: str = "span", **kwargs: Any) -> FakeObservation:
         observation = FakeObservation(name, as_type, kwargs)
+        if "trace_context" in kwargs:
+            observation.trace_id = kwargs["trace_context"].get("trace_id", observation.trace_id)
         self.observations.append(observation)
         return observation
 
@@ -136,6 +143,8 @@ def test_addon_records_run_turn_and_tool() -> None:
     assert run.name == "coding-agent-run"
     assert run.kwargs["input"] == "Fix the failing test"
     assert "session_id" not in run.kwargs
+    assert any(update.get("trace", {}).get("session_id") == "session-1" for update in run.updates)
+    assert any(update.get("trace", {}).get("session_id") == "session-1" for update in run.children[1].updates)
     assert run.ended is True
     assert client.flushed == 1
     names = [child.name for child in run.children]
@@ -212,6 +221,54 @@ def test_addon_records_when_sdk_rejects_session_id() -> None:
     assert any(update.get("trace", {}).get("session_id") == "session-1" for update in run.updates)
     assert run.ended is True
     assert client.flushed == 1
+
+
+def test_tools_reuse_parent_trace_when_parent_cannot_start_children() -> None:
+    class RootOnlyObservation(FakeObservation):
+        def start_observation(self, name: str, as_type: str = "span", **kwargs: Any) -> FakeObservation:
+            raise TypeError("root observation cannot nest")
+
+    class Client:
+        def __init__(self) -> None:
+            self.observations: list[FakeObservation] = []
+            self.flushed = 0
+
+        def start_observation(self, name: str, as_type: str = "span", **kwargs: Any) -> FakeObservation:
+            observation = FakeObservation(name, as_type, kwargs)
+            if "trace_context" in kwargs:
+                observation.trace_id = kwargs["trace_context"]["trace_id"]
+            self.observations.append(observation)
+            return observation
+
+        def flush(self) -> None:
+            self.flushed += 1
+
+    client = Client()
+    addon = LangfuseAddon(client=client)
+    root = RootOnlyObservation("coding-agent-run", "span", {})
+    root.trace_id = "trace-run"
+    root.id = "span-run"
+    addon.attach(type("Harness", (), {
+        "model_id": "fake:test-model",
+        "session_id": "session-1",
+        "_active_session_id": "session-1",
+        "_active_run_id": "run-1",
+        "agent_id": "agent-1",
+        "parent_id": None,
+    })())
+    addon._run_observation = root
+
+    async def scenario() -> None:
+        tool_call = ToolCall(id="c1", name="read_file", arguments={"path": "a.py"})
+        await addon.before_tool(tool_name="read_file", arguments={"path": "a.py"}, tool_call=tool_call)
+        await addon.on_tool(tool_call=tool_call, result=ToolResult(status="success", content="ok"))
+
+    asyncio.run(scenario())
+    assert len(client.observations) == 1
+    tool = client.observations[0]
+    assert tool.name == "read_file"
+    assert tool.kwargs["trace_context"] == {"trace_id": "trace-run", "parent_span_id": "span-run"}
+    assert any(update.get("trace", {}).get("session_id") == "session-1" for update in tool.updates)
 
 
 def test_coding_agent_mounts_langfuse_by_default(tmp_path: Path) -> None:

@@ -32,6 +32,8 @@ from core_ai.providers.grok import GrokProvider
 from core_ai.providers.local import LocalProvider
 from core_ai.providers.ollama import OllamaProvider
 from core_ai.providers.openai import OpenAIProvider
+from core_ai.providers.openrouter import OpenRouterProvider
+from core_ai.providers.vercel import VercelProvider
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message, StreamEvent
 
@@ -51,9 +53,11 @@ __all__ = [
     "ModelRegistry",
     "OllamaProvider",
     "OpenAIProvider",
+    "OpenRouterProvider",
     "PROVIDERS",
     "ProviderSpec",
     "StreamEvent",
+    "VercelProvider",
     "build_default_registry",
     "configured_provider_ids",
     "default_model_id",

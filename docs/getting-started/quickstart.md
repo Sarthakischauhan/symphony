@@ -10,7 +10,7 @@ uv run --package symphony-code symphony
 ```
 
 If no API key or subscription is set, Symphony asks which provider to use (OpenAI, Anthropic,
-Gemini, Grok, Ollama, or a local server). OpenAI, Anthropic, and Grok can
+Gemini, Grok, OpenRouter, Vercel AI Gateway, Ollama, or a local server). OpenAI, Anthropic, and Grok can
 sign in with a ChatGPT / Claude / xAI subscription, or you can paste an API
 key. Keys go to `~/.symphony/.env`; subscription tokens go to
 `~/.symphony/oauth/`. Add another provider from the same screen, or later

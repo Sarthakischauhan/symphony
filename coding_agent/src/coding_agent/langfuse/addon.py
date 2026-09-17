@@ -109,6 +109,42 @@ class LangfuseAddon(Addon):
         blocked = {"session_id", "user_id", "tags", "trace_id"}
         return {key: value for key, value in kwargs.items() if key not in blocked and value is not None}
 
+    def _trace_context(self, parent: Any) -> Optional[dict[str, str]]:
+        if parent is None:
+            return None
+        trace_id = getattr(parent, "trace_id", None)
+        span_id = getattr(parent, "id", None)
+        if not trace_id:
+            return None
+        context: dict[str, str] = {"trace_id": str(trace_id)}
+        if span_id:
+            context["parent_span_id"] = str(span_id)
+        return context
+
+    def _call_start(self, host: Any, *, name: str, as_type: str, payload: dict[str, Any]) -> Any:
+        starter = getattr(host, "start_observation", None)
+        if not callable(starter):
+            return None
+        try:
+            return starter(name=name, as_type=as_type, **payload)
+        except TypeError:
+            try:
+                return starter(name=name, **payload)
+            except TypeError:
+                trimmed = dict(payload)
+                trimmed.pop("trace_context", None)
+                try:
+                    return starter(name=name, as_type=as_type, **trimmed)
+                except Exception:
+                    logger.exception("Langfuse start_observation failed")
+                    return None
+            except Exception:
+                logger.exception("Langfuse start_observation failed")
+                return None
+        except Exception:
+            logger.exception("Langfuse start_observation failed")
+            return None
+
     def _start(
         self,
         *,
@@ -118,28 +154,19 @@ class LangfuseAddon(Addon):
         **kwargs: Any,
     ) -> Any:
         payload = self._observation_kwargs(**kwargs)
-        hosts = [host for host in (parent, self._client) if host is not None]
-        seen: set[int] = set()
-        for host in hosts:
-            marker = id(host)
-            if marker in seen:
-                continue
-            seen.add(marker)
-            starter = getattr(host, "start_observation", None)
-            if not callable(starter):
-                continue
-            try:
-                return starter(name=name, as_type=as_type, **payload)
-            except TypeError:
-                try:
-                    return starter(name=name, **payload)
-                except Exception:
-                    logger.exception("Langfuse start_observation failed")
-                    continue
-            except Exception:
-                logger.exception("Langfuse start_observation failed")
-                return None
-        return None
+        observation = None
+        if parent is not None:
+            observation = self._call_start(parent, name=name, as_type=as_type, payload=payload)
+        if observation is None and self._client is not None:
+            context = self._trace_context(parent)
+            client_payload = dict(payload)
+            if context:
+                client_payload["trace_context"] = context
+            observation = self._call_start(
+                self._client, name=name, as_type=as_type, payload=client_payload
+            )
+        self._apply_trace_attributes(observation)
+        return observation
 
     def _update(self, observation: Any, **kwargs: Any) -> None:
         if observation is None or not kwargs:
@@ -239,7 +266,6 @@ class LangfuseAddon(Addon):
             input=task,
             metadata=self._metadata({"message_count": len(messages)}),
         )
-        self._apply_trace_attributes(self._run_observation)
         self._update(
             self._run_observation,
             input=task,

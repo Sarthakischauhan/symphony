@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `symphony-core` registers OpenRouter (`OPENROUTER_API_KEY`) and Vercel AI
+  Gateway (`AI_GATEWAY_API_KEY`) as OpenAI-compatible Chat Completions
+  providers. Model slugs like `openai/gpt-4o` are discovered from `/models`
+  at registry build. Vercel evaluation models such as `typesafe-ai/jev` use
+  the Gateway evaluation generation API (`POST /evaluation-model`) instead
+  of chat completions.
 - Optional `LangfuseAddon` on `symphony-code` records the conversation sent
   each model turn, plus tools and compaction, when `LANGFUSE_PUBLIC_KEY` and
   `LANGFUSE_SECRET_KEY` are set. Install `symphony-code[langfuse]`. Disable

@@ -24,6 +24,8 @@ and similarly for Anthropic or Grok.
 | `ANTHROPIC_API_KEY` | Anthropic. Alternatively paste a `claude setup-token` via `/provider`. |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini |
 | `XAI_API_KEY` | Grok (console API key at `api.x.ai`). Alternatively sign in with xAI via `/provider` (CLI chat proxy). |
+| `OPENROUTER_API_KEY` | OpenRouter |
+| `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` | Vercel AI Gateway (OpenAI-compatible chat plus evaluation models such as `typesafe-ai/jev`) |
 
 ## Subscription login
 
@@ -36,7 +38,8 @@ OpenAI, Anthropic, and Grok:
 | Anthropic | Preferred: run `claude setup-token` (Claude Code) and paste the token. Alternative: open the shown Claude authorize URL and paste the `code#state` from the redirect. |
 | Grok | RFC 8628 device login. Open the shown URL, enter the user code, wait. Subscription traffic goes to `https://cli-chat-proxy.grok.com/v1`. An `XAI_API_KEY` still uses the console API at `https://api.x.ai/v1`. |
 
-Gemini, Ollama, and local servers stay API-key / endpoint based.
+Gemini, OpenRouter, Vercel AI Gateway, Ollama, and local servers stay API-key /
+endpoint based.
 
 ## Local providers
 
@@ -68,6 +71,8 @@ can list them. They are not added to the checked-in models.dev snapshot.
 | `ANTHROPIC_MODEL` | Anthropic default |
 | `GEMINI_MODEL` | Gemini default |
 | `GROK_MODEL` or `XAI_MODEL` | Grok default |
+| `OPENROUTER_MODEL` | OpenRouter default (`provider/model` slug, e.g. `openai/gpt-4o`) |
+| `VERCEL_MODEL` or `AI_GATEWAY_MODEL` | Vercel AI Gateway default (`provider/model` slug) |
 | `OLLAMA_MODEL` | Ollama default when that provider is registered |
 | `LOCAL_MODEL` | Local default when that provider is registered |
 
@@ -79,6 +84,8 @@ can list them. They are not added to the checked-in models.dev snapshot.
 | `ANTHROPIC_BASE_URL` | Anthropic-compatible endpoints |
 | `GEMINI_BASE_URL` | Gemini-compatible endpoints |
 | `XAI_BASE_URL` | xAI-compatible endpoints |
+| `OPENROUTER_BASE_URL` | OpenRouter OpenAI-compatible endpoint |
+| `AI_GATEWAY_BASE_URL` | Vercel AI Gateway OpenAI-compatible endpoint |
 | `OLLAMA_BASE_URL` | Ollama OpenAI-compatible endpoint |
 | `LOCAL_BASE_URL` | Local OpenAI-compatible endpoint |
 

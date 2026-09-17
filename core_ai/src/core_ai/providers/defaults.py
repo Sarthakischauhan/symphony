@@ -23,6 +23,16 @@ from core_ai.providers.ollama import (
     ollama_chat_base_url,
 )
 from core_ai.providers.openai import OpenAIProvider
+from core_ai.providers.openrouter import (
+    OpenRouterProvider,
+    discover_openrouter_models,
+    openrouter_chat_base_url,
+)
+from core_ai.providers.vercel import (
+    VercelProvider,
+    discover_vercel_models,
+    vercel_chat_base_url,
+)
 from core_ai.registry import ModelRegistry
 
 DEFAULT_MODELS = {spec.id: spec.default_model for spec in PROVIDERS}
@@ -33,6 +43,8 @@ _PROVIDER_TYPES = {
     "anthropic": AnthropicProvider,
     "gemini": GeminiProvider,
     "grok": GrokProvider,
+    "openrouter": OpenRouterProvider,
+    "vercel": VercelProvider,
     "ollama": OllamaProvider,
     "local": LocalProvider,
 }
@@ -44,6 +56,9 @@ _MODEL_ENV = (
     "GEMINI_MODEL",
     "GROK_MODEL",
     "XAI_MODEL",
+    "OPENROUTER_MODEL",
+    "VERCEL_MODEL",
+    "AI_GATEWAY_MODEL",
     "OLLAMA_MODEL",
     "LOCAL_MODEL",
 )
@@ -55,12 +70,16 @@ def build_default_registry(
     anthropic_api_key: Optional[str] = None,
     gemini_api_key: Optional[str] = None,
     grok_api_key: Optional[str] = None,
+    openrouter_api_key: Optional[str] = None,
+    vercel_api_key: Optional[str] = None,
     ollama_api_key: Optional[str] = None,
     local_api_key: Optional[str] = None,
     openai_base_url: Optional[str] = None,
     anthropic_base_url: Optional[str] = None,
     gemini_base_url: Optional[str] = None,
     grok_base_url: Optional[str] = None,
+    openrouter_base_url: Optional[str] = None,
+    vercel_base_url: Optional[str] = None,
     ollama_base_url: Optional[str] = None,
     local_base_url: Optional[str] = None,
 ) -> ModelRegistry:
@@ -70,6 +89,8 @@ def build_default_registry(
         "anthropic": anthropic_api_key,
         "gemini": gemini_api_key,
         "grok": grok_api_key,
+        "openrouter": openrouter_api_key,
+        "vercel": vercel_api_key,
         "ollama": ollama_api_key,
         "local": local_api_key,
     }
@@ -78,6 +99,8 @@ def build_default_registry(
         "anthropic": anthropic_base_url,
         "gemini": gemini_base_url,
         "grok": grok_base_url,
+        "openrouter": openrouter_base_url,
+        "vercel": vercel_base_url,
         "ollama": ollama_base_url,
         "local": local_base_url,
     }
@@ -148,7 +171,7 @@ def default_model_id(registry: ModelRegistry, model_id: Optional[str] = None) ->
         if provider not in namespaces:
             continue
         runtime = list_models(provider)
-        if provider in {"ollama", "local"} and runtime:
+        if provider in {"openrouter", "vercel", "ollama", "local"} and runtime:
             return runtime[0].full_id
         return full_id
     raise RuntimeError("No model providers are registered")
@@ -173,6 +196,10 @@ def _resolve_base_url(spec: ProviderSpec, explicit: Optional[str]) -> str:
         return ollama_chat_base_url(raw)
     if spec.id == "local":
         return local_chat_base_url(raw)
+    if spec.id == "openrouter":
+        return openrouter_chat_base_url(raw)
+    if spec.id == "vercel":
+        return vercel_chat_base_url(raw)
     return raw
 
 
@@ -185,6 +212,20 @@ def _refresh_runtime_models(spec: ProviderSpec, base_url: str, api_key: str) -> 
     if spec.id == "local":
         discovered = discover_local_models(base_url, api_key=api_key)
         preferred = _unqualified_model(os.getenv("LOCAL_MODEL"))
+        _replace_runtime_models(spec.id, _merge_model_ids(preferred, discovered))
+        return
+    if spec.id == "openrouter":
+        discovered = discover_openrouter_models(base_url, api_key=api_key)
+        preferred = _unqualified_model(os.getenv("OPENROUTER_MODEL")) or "openai/gpt-4o"
+        _replace_runtime_models(spec.id, _merge_model_ids(preferred, discovered))
+        return
+    if spec.id == "vercel":
+        discovered = discover_vercel_models(base_url, api_key=api_key)
+        preferred = (
+            _unqualified_model(os.getenv("VERCEL_MODEL"))
+            or _unqualified_model(os.getenv("AI_GATEWAY_MODEL"))
+            or "openai/gpt-4o"
+        )
         _replace_runtime_models(spec.id, _merge_model_ids(preferred, discovered))
 
 

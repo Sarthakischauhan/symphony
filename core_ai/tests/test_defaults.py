@@ -20,6 +20,14 @@ PROVIDER_ENV = (
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_BASE_URL",
+    "OPENROUTER_MODEL",
+    "AI_GATEWAY_API_KEY",
+    "VERCEL_AI_GATEWAY_API_KEY",
+    "AI_GATEWAY_BASE_URL",
+    "VERCEL_MODEL",
+    "AI_GATEWAY_MODEL",
     "SYMPHONY_MODEL",
     "OPENAI_MODEL",
     "ANTHROPIC_MODEL",
@@ -59,9 +67,9 @@ def test_build_default_registry_registers_available_providers(monkeypatch: pytes
 
 
 def test_build_default_registry_requires_at_least_one_key() -> None:
-    with pytest.raises(MissingProviderCredentials, match="OPENAI_API_KEY"):
+    with pytest.raises(MissingProviderCredentials, match="OPENROUTER_API_KEY"):
         build_default_registry()
-    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+    with pytest.raises(RuntimeError, match="AI_GATEWAY_API_KEY"):
         build_default_registry()
 
 
@@ -87,6 +95,9 @@ def test_find_provider_matches_id_and_label() -> None:
     assert find_provider("OpenAI").id == "openai"  # type: ignore[union-attr]
     assert find_provider("grok").id == "grok"  # type: ignore[union-attr]
     assert find_provider("xai").id == "grok"  # type: ignore[union-attr]
+    assert find_provider("openrouter").id == "openrouter"  # type: ignore[union-attr]
+    assert find_provider("vercel").id == "vercel"  # type: ignore[union-attr]
+    assert find_provider("ai_gateway").id == "vercel"  # type: ignore[union-attr]
     assert find_provider("ollama").id == "ollama"  # type: ignore[union-attr]
     assert find_provider("local").id == "local"  # type: ignore[union-attr]
     assert find_provider("missing") is None
