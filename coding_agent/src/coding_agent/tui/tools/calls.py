@@ -122,11 +122,8 @@ class ToolCallWidget(Collapsible):
 
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         self.arguments = dict(arguments or {})
-        nested = self.arguments.get("activity")
         self._apply_activity(take_activity(self.arguments))
-        if isinstance(nested, Mapping):
-            raw = strip_activity_json(raw)
-        self.raw_arguments = raw
+        self.raw_arguments = strip_activity_json(raw) if raw else raw
         self._body_dirty = True
         self.refresh_content()
 

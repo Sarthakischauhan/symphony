@@ -19,25 +19,36 @@ class Activity:
     group: str = ""
 
 
-def parse_activity(activity: Mapping[str, Any] | None) -> Activity:
+_ACTIVITY_KEYS = ("activity", "verb", "reason", "goal", "group")
+
+
+def parse_activity(activity: Mapping[str, Any] | str | None) -> Activity:
     """Normalize ``verb`` / ``reason`` / ``group`` from a tool activity mapping."""
+    if isinstance(activity, str):
+        return Activity(reason=_activity_text(activity))
     if not isinstance(activity, Mapping):
         return Activity()
     return Activity(
         verb=_activity_text(activity.get("verb")),
-        reason=_activity_text(activity.get("reason")),
+        reason=_activity_text(activity.get("reason") or activity.get("goal")),
         group=_activity_text(activity.get("group")),
     )
 
 
 def take_activity(arguments: dict[str, Any]) -> Activity:
-    """Pop UI ``activity`` from tool arguments and normalize it."""
+    """Pop UI activity from nested or flattened tool arguments and normalize it."""
     nested = arguments.pop("activity", None)
-    return parse_activity(nested if isinstance(nested, Mapping) else None)
+    parsed = parse_activity(nested)
+    verb = parsed.verb or _activity_text(arguments.pop("verb", None))
+    reason = parsed.reason or _activity_text(
+        arguments.pop("reason", None) or arguments.pop("goal", None)
+    )
+    group = parsed.group or _activity_text(arguments.pop("group", None))
+    return Activity(verb=verb, reason=reason, group=group)
 
 
 def strip_activity_json(raw: str) -> str:
-    """Drop ``activity`` from a raw JSON argument blob when it is a dict."""
+    """Drop nested and flattened activity fields from a raw JSON argument blob."""
     if not raw:
         return raw
     try:
@@ -46,7 +57,8 @@ def strip_activity_json(raw: str) -> str:
         return raw
     if not isinstance(parsed, dict):
         return raw
-    parsed.pop("activity", None)
+    for key in _ACTIVITY_KEYS:
+        parsed.pop(key, None)
     return json.dumps(parsed, separators=(",", ":"))
 
 

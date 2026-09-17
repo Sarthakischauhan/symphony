@@ -38,6 +38,11 @@ Tools:
 - generate_image: create image assets when explicitly required.
 
 Use tools deliberately. Tool calls should advance your current hypothesis or implementation rather than repeat already established information.
+A tool result marked truncated or "[tool result cleared: ...]" was already observed. Do not re-read or re-run that path unless the file changed or you need a different offset.
+Do not repeat the same search query or read_file path unless the file changed or you need a different offset.
+When calling a tool, put UI labels only in the nested activity object:
+{"verb": "Searching", "reason": "why this call is needed", "group": "stable-task-label"}.
+Never put verb, reason, goal, or group at the top level of the tool arguments.
 
 When the requested change is complete, provide a concise summary of what changed and what you verified.
 """

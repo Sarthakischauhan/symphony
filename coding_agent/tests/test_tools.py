@@ -260,9 +260,8 @@ def test_workspace_tools_accept_ui_activity_without_passing_it_to_run(
     }
 
     schema = tool.parameters
-    assert schema["properties"]["activity"]["properties"]["reason"] == {
-        "type": "string"
-    }
+    assert schema["properties"]["activity"]["properties"]["reason"]["type"] == "string"
+    assert "nested object" in schema["properties"]["activity"]["description"]
 
     result = asyncio.run(
         tool.execute(
@@ -289,6 +288,35 @@ def test_configured_tools_also_strip_ui_activity(tmp_path: Path) -> None:
     )
     assert "activity" not in prepared
     assert prepared["max_results"] == search.config.default_max_results
+
+
+def test_workspace_tools_strip_flattened_activity_aliases(tmp_path: Path) -> None:
+    search = SearchTool(tmp_path)
+    prepared = search.prepare_args(
+        {
+            "query": "needle",
+            "verb": "Searching",
+            "goal": "Find the code",
+            "group": "inspection",
+        }
+    )
+    assert prepared == {
+        "query": "needle",
+        "max_results": search.config.default_max_results,
+        "max_line_chars": search.config.default_max_line_chars,
+    }
+
+    result = asyncio.run(
+        search.execute(
+            sink=None,
+            args={
+                "query": "needle",
+                "verb": "Searching",
+                "goal": "Find the code",
+            },
+        )
+    )
+    assert "no content matches" in result or "matches" in result
 
 
 def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:

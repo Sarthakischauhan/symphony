@@ -506,6 +506,25 @@ def test_activity_reason_labels_live_tool_and_folded_summary() -> None:
     assert summary.render().plain == "[ ▸ Trace the task UI · 1 tool ]"
 
 
+def test_flattened_activity_aliases_are_accepted_and_stripped() -> None:
+    widget = ToolCallWidget("search", "search")
+    widget.set_arguments(
+        {
+            "query": "ToolCallWidget",
+            "verb": "Searching",
+            "goal": "Find the rendering path",
+            "group": "task-ui",
+        },
+        '{"query":"ToolCallWidget","verb":"Searching","goal":"Find the rendering path","group":"task-ui"}',
+    )
+
+    assert widget.arguments == {"query": "ToolCallWidget"}
+    assert widget.activity_verb == "Searching"
+    assert widget.activity_reason == "Find the rendering path"
+    assert widget.activity_group == "task-ui"
+    assert widget.raw_arguments == '{"query":"ToolCallWidget"}'
+
+
 def test_snapshot_extracts_activity_without_showing_it_as_tool_arguments() -> None:
     snapshot = snapshot_from_call(
         call_id="search",
