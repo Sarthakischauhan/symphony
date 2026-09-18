@@ -11,7 +11,7 @@ from coding_agent.tui.app import run_tui
 from coding_agent.tui.screens.resume import ResumeApp, load_session_options
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Symphony coding agent TUI")
     parser.add_argument(
         "--workspace",
@@ -41,7 +41,19 @@ def main() -> None:
         action="store_false",
         help="Disable post-run learning / reflection",
     )
+    parser.add_argument(
+        "--jev",
+        dest="enable_jev",
+        action="store_true",
+        default=None,
+        help="Enable Jev critic mode (findings only; does not switch the chat model)",
+    )
     parser.set_defaults(enable_learning=None)
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
     workspace = Path(args.workspace or ".").resolve()
     session_id = None
@@ -58,6 +70,7 @@ def main() -> None:
         model_id=args.model,
         session_id=session_id,
         enable_learning=args.enable_learning,
+        enable_jev=args.enable_jev,
     )
 
 

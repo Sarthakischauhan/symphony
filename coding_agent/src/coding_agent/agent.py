@@ -27,11 +27,13 @@ from coding_agent.approvals import ApprovalAddon
 from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
     CompactionConfig,
+    EvaluationConfig,
     LangfuseConfig,
     SettingsSource,
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
+from coding_agent.evaluation import jev_from_config
 from coding_agent.langfuse import langfuse_from_config
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
@@ -53,12 +55,16 @@ def default_addons(
     spawn_configure: Any = None,
     include_subagent: bool = True,
     langfuse: Optional[LangfuseConfig] = None,
+    evaluation: Optional[EvaluationConfig] = None,
+    plan_store: Optional[PlanStore] = None,
+    plan_mode: Optional[PlanModeState] = None,
 ) -> list:
-    """Product defaults: persistence, AI compaction, spawn_agent, and Langfuse.
+    """Product defaults: persistence, AI compaction, spawn_agent, Langfuse, and Jev.
 
     Compaction is always ``AiCompactionAddon`` (``InferenceCompactor``); the
     harness template compactor is not mounted by coding_agent. Langfuse is
     mounted when enabled in config; the add-on stays silent without keys.
+    Jev critic mode mounts only when ``evaluation.enabled`` is true.
     """
     compaction = compaction or CompactionConfig()
     addons: list = [
@@ -70,6 +76,13 @@ def default_addons(
     langfuse_addon = langfuse_from_config(langfuse or LangfuseConfig())
     if langfuse_addon is not None:
         addons.append(langfuse_addon)
+    jev_addon = jev_from_config(
+        evaluation or EvaluationConfig(),
+        plan_store=plan_store,
+        plan_mode=plan_mode,
+    )
+    if jev_addon is not None:
+        addons.append(jev_addon)
     return addons
 
 
@@ -170,6 +183,9 @@ class CodingAgent:
             spawn_configure=self._spawn_child_config if include_subagent else None,
             include_subagent=include_subagent,
             langfuse=self.config.langfuse,
+            evaluation=self.config.evaluation,
+            plan_store=self.plan_store,
+            plan_mode=self.plan_mode,
         )
         addons.append(PlanModeAddon(self.plan_mode))
         addons.append(ApprovalAddon(self.workspace, self.sink))
@@ -337,6 +353,7 @@ def build_agent(
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
     enable_learning: Optional[bool] = None,
+    enable_jev: Optional[bool] = None,
     config: Optional[SettingsSource] = None,
 ) -> CodingAgent:
     """Build a coding agent from whatever provider credentials are available."""
@@ -344,10 +361,16 @@ def build_agent(
 
     registry = build_default_registry()
     loaded = None if config is None else resolve_coding_agent_config(config)
-    overrides = None
+    overrides: dict[str, Any] = {}
     if enable_learning is not None:
-        overrides = {"learning": {"enabled": enable_learning}}
-    resolved = ensure_spawn_settings(workspace, config=loaded, overrides=overrides)
+        overrides["learning"] = {"enabled": enable_learning}
+    if enable_jev is not None:
+        overrides["evaluation"] = {"enabled": enable_jev}
+    resolved = ensure_spawn_settings(
+        workspace,
+        config=loaded,
+        overrides=overrides or None,
+    )
     return CodingAgent(
         registry=registry,
         model_id=default_model_id(registry, model_id),

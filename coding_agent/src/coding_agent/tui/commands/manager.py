@@ -38,6 +38,34 @@ def _on_langfuse_saved(app: Any, saved: bool | None) -> None:
     app.add_notice("Langfuse saved · reloading configuration.", "success")
 
 
+def jev_enabled_from_argument(current: bool, argument: str) -> bool | None:
+    """Resolve `/jev` as a mode toggle. ``None`` means the argument was invalid."""
+    needle = argument.strip().lower()
+    if needle in {"", "toggle"}:
+        return not current
+    if needle in {"on", "enable", "true", "1"}:
+        return True
+    if needle in {"off", "disable", "false", "0"}:
+        return False
+    return None
+
+
+def toggle_jev(app: Any, argument: str = "") -> None:
+    """Enable or disable critic mode without switching the chat model."""
+    current = bool(getattr(getattr(app, "config", None), "evaluation", None) and app.config.evaluation.enabled)
+    enabled = jev_enabled_from_argument(current, argument)
+    if enabled is None:
+        app.add_notice("Usage: /jev [on|off] · critic mode toggle, not a model switch.", "warning")
+        return
+    app.enable_jev = enabled
+    app.config = ensure_spawn_settings(app.workspace, overrides={"evaluation": {"enabled": enabled}})
+    app.run_worker(reload_project(app), exclusive=False)
+    if enabled:
+        app.add_notice("Jev critic mode on · findings only; chat model unchanged.", "success")
+    else:
+        app.add_notice("Jev critic mode off.", "success")
+
+
 # --- model_switcher.py ---
 def select_model(app: Any, argument: str) -> None:
     agent = app._agent
@@ -260,6 +288,7 @@ async def reload_project(app: Any) -> None:
             model_id=app.model_id,
             session_id=session_id,
             enable_learning=app.enable_learning,
+            enable_jev=getattr(app, "enable_jev", None),
             config=reloaded_config,
         )
         reloaded_agent.set_mode(app.mode)
@@ -437,6 +466,8 @@ class CommandManager:
             open_provider_onboard(app, argument)
         elif command == "langfuse":
             app.push_screen(LangfuseSetupScreen(), lambda saved: _on_langfuse_saved(app, saved))
+        elif command == "jev":
+            toggle_jev(app, argument)
         elif app._agent is None:
             app.add_notice(OFFLINE_HINT, "error")
         elif command == "new":

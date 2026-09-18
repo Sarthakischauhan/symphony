@@ -66,6 +66,15 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
     "enabled": true,
     "sample_rate": 1.0,
     "max_payload_chars": 32000
+  },
+  "evaluation": {
+    "enabled": false,
+    "provider": "vercel",
+    "model": "typesafe-ai/jev",
+    "on_error": "fail-open",
+    "brief_max_chars": 2000,
+    "plan_max_chars": 2000,
+    "final_max_chars": 4000
   }
 }
 ```
@@ -128,6 +137,12 @@ to skip the add-on. Secrets in payloads are redacted; image bytes are replaced
 with filenames.
 
 See [`docs/user-guide/langfuse.md`](langfuse.md).
+
+## Jev critic mode
+
+`evaluation` is off by default. `--jev` or `/jev` enables a findings-only
+critic (`typesafe-ai/jev` via Vercel). It does not switch the chat model and
+does not rewrite plans. See [`docs/user-guide/jev.md`](jev.md).
 
 
 ## Harness-only config

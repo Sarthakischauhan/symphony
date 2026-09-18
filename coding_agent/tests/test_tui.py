@@ -1965,7 +1965,8 @@ def test_reasoning_title_uses_only_a_standalone_markdown_heading(
 
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
-    assert "provider" in [command.name for command in SLASH_COMMANDS]
+    assert "langfuse" in [command.name for command in SLASH_COMMANDS]
+    assert "jev" in [command.name for command in SLASH_COMMANDS]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
     assert "plan" in [command.name for command in SLASH_COMMANDS]

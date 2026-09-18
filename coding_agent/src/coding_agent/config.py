@@ -105,6 +105,24 @@ class LangfuseConfig(BaseModel):
     max_payload_chars: int = Field(default=32_000, ge=1)
 
 
+class EvaluationConfig(BaseModel):
+    """Optional Jev critic mode. Off by default; never switches the chat model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    provider: str = "vercel"
+    model: str = "typesafe-ai/jev"
+    on_error: Literal["fail-open"] = "fail-open"
+    request_max_chars: int = Field(default=2_000, ge=1)
+    brief_max_chars: int = Field(default=2_000, ge=1)
+    plan_max_chars: int = Field(default=2_000, ge=1)
+    observations_max_chars: int = Field(default=2_000, ge=1)
+    last_tool_results_max_chars: int = Field(default=2_000, ge=1)
+    final_max_chars: int = Field(default=4_000, ge=1)
+    files_modified_max: int = Field(default=40, ge=1)
+
+
 def default_coding_agent_harness() -> HarnessConfig:
     """Product harness settings. Engine field defaults fill the rest."""
     return HarnessConfig(
@@ -128,6 +146,7 @@ class CodingAgentConfig(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -269,6 +288,7 @@ __all__ = [
     "BashConfig",
     "CodingAgentConfig",
     "CompactionConfig",
+    "EvaluationConfig",
     "LangfuseConfig",
     "LearningConfig",
     "PluginsConfig",
