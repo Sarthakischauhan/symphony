@@ -207,6 +207,84 @@ def test_state_budget_clips_fields() -> None:
     assert clip_text(huge, 4) == "xxx…"
 
 
+def test_eval_state_redacts_secrets_from_tool_plan_and_final() -> None:
+    assigned = "OPENAI_API_KEY=sk-leakedkey99999"
+    token = "sk-secretABCDEFG12"
+    messages = [
+        Message(role="user", content=f"Fix the leak {assigned}"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "function": {
+                        "name": "bash",
+                        "arguments": json.dumps({"command": f"echo {assigned}"}),
+                    },
+                }
+            ],
+        ),
+        Message(role="tool", tool_call_id="c1", content=f"printed {token} and {assigned}"),
+    ]
+    state = build_run_state(
+        config=EvaluationConfig(enabled=True),
+        phase="finish",
+        request=f"rotate {assigned}",
+        messages=messages,
+        plan_text=f"- [ ] keep {token} out of the plan\n- [x] done",
+        final=f"shipped with {token}",
+    )
+    payload = json.dumps(state.as_eval_state())
+    assert assigned not in payload
+    assert token not in payload
+    assert "sk-leakedkey99999" not in payload
+    assert "sk-secretABCDEFG12" not in payload
+    assert "[REDACTED]" in payload
+    assert assigned not in state.request
+    assert assigned not in state.brief
+    assert token not in state.plan
+    assert token not in state.final
+    assert all(token not in item and assigned not in item for item in state.last_tool_results)
+    assert all(assigned not in item for item in state.observations)
+
+
+def test_vercel_eval_payload_redacts_secrets_end_to_end() -> None:
+    assigned = "OPENAI_API_KEY=sk-leakedkey99999"
+    token = "sk-secretABCDEFG12"
+    captured: dict[str, Any] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(200, json={"answers": {"task_complete": {"type": "boolean", "value": True}}})
+
+    evaluator = VercelJevEvaluator(
+        EvaluationConfig(enabled=True),
+        api_key="gw-key",
+        transport=httpx.MockTransport(handler),
+    )
+    state = build_run_state(
+        config=EvaluationConfig(),
+        phase="finish",
+        request=f"fix {assigned}",
+        messages=[
+            Message(role="tool", tool_call_id="c1", content=f"stdout {token} {assigned}"),
+        ],
+        plan_text=f"Do not paste {token}",
+        final=f"done {assigned}",
+    )
+    asyncio.run(evaluator.on_finish(state))
+    blob = json.dumps(captured["payload"])
+    assert assigned not in blob
+    assert token not in blob
+    assert "sk-leakedkey99999" not in blob
+    assert "sk-secretABCDEFG12" not in blob
+    assert captured["payload"]["state"]["final"].startswith("done OPENAI_API_KEY")
+    assert "[REDACTED]" in captured["payload"]["state"]["final"]
+    assert "[REDACTED]" in captured["payload"]["state"]["last_tool_results"][0]
+    assert "[REDACTED]" in captured["payload"]["state"]["plan"]
+
+
 def test_fail_open_on_evaluator_error(tmp_path: Path) -> None:
     mock = MockEvaluator(error=RuntimeError("gateway down"))
     store = PlanStore(tmp_path)

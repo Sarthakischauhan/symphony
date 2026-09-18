@@ -12,6 +12,7 @@ from core_ai.types import Message
 
 from coding_agent.config import EvaluationConfig
 from coding_agent.evaluation.protocol import EvaluationPhase
+from coding_agent.learning.sanitize import redact_secrets
 
 WRITE_TOOLS = frozenset({"write_file", "patch"})
 MAX_PLAN_ITEMS = 40
@@ -39,19 +40,39 @@ class RunState:
     final: str = ""
 
     def as_eval_state(self) -> dict[str, Any]:
-        """Compact payload for the evaluation-model ``state`` field."""
-        return {
-            "request": self.request,
-            "brief": self.brief,
-            "plan": self.plan,
-            "plan_items": [
-                {"text": item.text, "status": item.status} for item in self.plan_items
-            ],
-            "observations": self.observations,
-            "files_modified": self.files_modified,
-            "last_tool_results": self.last_tool_results,
-            "final": self.final,
-        }
+        """Compact, redacted payload for the evaluation-model ``state`` field."""
+        return redact_eval_value(
+            {
+                "request": self.request,
+                "brief": self.brief,
+                "plan": self.plan,
+                "plan_items": [
+                    {"text": item.text, "status": item.status} for item in self.plan_items
+                ],
+                "observations": self.observations,
+                "files_modified": self.files_modified,
+                "last_tool_results": self.last_tool_results,
+                "final": self.final,
+            }
+        )
+
+
+def redact_field(text: str) -> str:
+    """Strip secrets from one outbound text field (same path as Langfuse)."""
+    return redact_secrets(text or "")
+
+
+def redact_eval_value(value: Any) -> Any:
+    """Walk a state payload and redact every string leaf."""
+    if isinstance(value, str):
+        return redact_field(value)
+    if isinstance(value, dict):
+        return {str(key): redact_eval_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_eval_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [redact_eval_value(item) for item in value]
+    return value
 
 
 def clip_text(text: str, limit: int) -> str:
@@ -61,6 +82,15 @@ def clip_text(text: str, limit: int) -> str:
     if limit == 1:
         return "…"
     return value[: limit - 1] + "…"
+
+
+def bound_text(text: str, limit: int) -> str:
+    """Redact secrets, then apply the field's character cap."""
+    return clip_text(redact_field(text), limit)
+
+
+def bound_lines(lines: Iterable[str], max_chars: int) -> list[str]:
+    return clip_lines((redact_field(line) for line in lines), max_chars)
 
 
 def clip_lines(lines: Iterable[str], max_chars: int) -> list[str]:
@@ -93,7 +123,7 @@ def plan_items_from_markdown(text: str) -> list[PlanItem]:
         if match is None:
             continue
         status = "done" if match.group(1).strip() else "pending"
-        items.append(PlanItem(text=clip_text(match.group(2).strip(), 200), status=status))
+        items.append(PlanItem(text=bound_text(match.group(2).strip(), 200), status=status))
     return items
 
 
@@ -205,7 +235,7 @@ def build_run_state(
     final: str = "",
     tool_calls: Optional[Iterable[object]] = None,
 ) -> RunState:
-    """Assemble a capped semantic snapshot. Caps apply per field."""
+    """Assemble a capped, secret-redacted semantic snapshot."""
     message_list = list(messages or [])
     request_text = request.strip() or request_from_messages(message_list)
     items = plan_items_from_markdown(plan_text)
@@ -214,19 +244,19 @@ def build_run_state(
         files = files_modified_from_messages(message_list, limit=config.files_modified_max)
     return RunState(
         phase=phase,
-        request=clip_text(request_text, config.request_max_chars),
-        brief=clip_text(first_line(request_text), config.brief_max_chars),
-        plan=clip_text(plan_text, config.plan_max_chars),
+        request=bound_text(request_text, config.request_max_chars),
+        brief=bound_text(first_line(request_text), config.brief_max_chars),
+        plan=bound_text(plan_text, config.plan_max_chars),
         plan_items=items[:MAX_PLAN_ITEMS],
-        observations=clip_lines(
+        observations=bound_lines(
             observations_from_messages(message_list), config.observations_max_chars
         ),
-        files_modified=files,
-        last_tool_results=clip_lines(
+        files_modified=[redact_field(path) for path in files],
+        last_tool_results=bound_lines(
             last_tool_results_from_messages(message_list),
             config.last_tool_results_max_chars,
         ),
-        final=clip_text(final, config.final_max_chars),
+        final=bound_text(final, config.final_max_chars),
     )
 
 
@@ -234,9 +264,13 @@ __all__ = [
     "PlanItem",
     "RunState",
     "WRITE_TOOLS",
+    "bound_lines",
+    "bound_text",
     "build_run_state",
     "clip_lines",
     "clip_text",
+    "redact_eval_value",
+    "redact_field",
     "files_modified_from_calls",
     "files_modified_from_messages",
     "first_line",

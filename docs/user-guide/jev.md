@@ -51,8 +51,10 @@ The add-on implements only the existing `Addon` pair:
 
 `before_turn` and `on_tool` are not overridden. Semantic state is rebuilt from
 the run payload (request, plan items + status, observations, files modified,
-last tool results, final text) with hard character caps. Raw transcripts and
-JSONL are never dumped into the evaluator.
+last tool results, final text) with hard character caps. Every outbound text
+field is run through `redact_secrets` (the same helper Langfuse uses) inside
+the state builder before the gateway call. Raw transcripts and JSONL are
+never dumped into the evaluator.
 
 ## Enable it
 
