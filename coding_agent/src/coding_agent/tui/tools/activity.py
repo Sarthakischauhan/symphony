@@ -138,6 +138,38 @@ def _clip_title(title: str) -> str:
     return f"{text[:96].rstrip()}…"
 
 
+_IRREGULAR_PAST_TENSE = {
+    "build": "Built",
+    "check": "Checked",
+    "consider": "Considered",
+    "cook": "Cooked",
+    "explore": "Explored",
+    "inspect": "Inspected",
+    "plan": "Planned",
+    "read": "Read",
+    "run": "Ran",
+    "search": "Searched",
+    "think": "Thought",
+    "write": "Wrote",
+}
+
+
+def past_tense_verb(verb: str, *, fallback: str = "Cooked") -> str:
+    """Convert a present-participle or infinitive activity verb into past tense."""
+    text = verb.strip()
+    if not text:
+        return fallback
+    lowered = text.lower()
+    stem = lowered[:-3] if lowered.endswith("ing") else lowered
+    if stem in _IRREGULAR_PAST_TENSE:
+        return _IRREGULAR_PAST_TENSE[stem]
+    if stem.endswith("e"):
+        return stem.capitalize() + "d"
+    if stem.endswith("y") and len(stem) > 1 and stem[-2] not in "aeiou":
+        return stem[:-1].capitalize() + "ied"
+    return (stem + "ed").capitalize()
+
+
 def _activity_text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
