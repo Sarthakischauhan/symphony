@@ -80,6 +80,7 @@ from coding_agent.tui.tools import (
     diff_stats,
     make_tool_widget,
 )
+from coding_agent.tui.tools.snapshots import ThoughtSnapshot
 from coding_agent.tui.chrome import (
     TopBar,
     context_percent,
@@ -1238,7 +1239,6 @@ def test_text_then_tools_then_text_keeps_stream_order(
             )
             app.set_assistant("The header was mounting twice.", new=True)
             app.finish_assistant()
-            app.finish_process("Completed")
             await pilot.pause()
 
             assert app._process is not None
@@ -1249,7 +1249,7 @@ def test_text_then_tools_then_text_keeps_stream_order(
             ]
             assert kinds == [
                 "AssistantMessage",
-                "ToolCallSummary",
+                "ReadFileWidget",
                 "AssistantMessage",
             ]
             messages = [
@@ -1261,11 +1261,37 @@ def test_text_then_tools_then_text_keeps_stream_order(
                 "I'll inspect the transcript next.",
                 "The header was mounting twice.",
             ]
+
+            app.finish_process("Completed")
+            await pilot.pause()
+
+            kinds = [
+                type(item).__name__
+                for item in app._process.timeline_items()
+                if type(item).__name__ not in {"ThinkingStatus", "ProcessComplete"}
+            ]
+            assert kinds == [
+                "CompletedRunSummary",
+                "AssistantMessage",
+            ]
+            messages = [
+                item
+                for item in app._process.timeline_items()
+                if isinstance(item, AssistantMessage)
+            ]
+            assert [message.message_text for message in messages] == [
+                "The header was mounting twice.",
+            ]
             assert all("SYMPHONY" not in message.archive_text() for message in messages)
             assert all("◆" not in str(message.render()) for message in messages)
             archive = app._process.archive_text()
-            assert "I'll inspect the transcript next." in archive
             assert "The header was mounting twice." in archive
+            summary = next(
+                item
+                for item in app._process.timeline_items()
+                if isinstance(item, CompletedRunSummary)
+            )
+            assert summary.call_ids == ["call-1"]
 
     asyncio.run(_run())
 
@@ -1548,6 +1574,14 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert "18 reasoning" in str(thinking.render())
             assert app._assistant is not None
             assert "inspect it" in app._assistant.message_text.lower()
+            thoughts = list(app.query(ReasoningWidget))
+            assert len(thoughts) == 1
+            assert not thoughts[0].collapsed
+            assert "Inspecting the requested file" in thoughts[0].reasoning_text
+            assert "Choosing an implementation" in thoughts[0].reasoning_text
+            thought_body = str(thoughts[0].query_one(".reasoning-text").render())
+            assert "Inspecting the requested file" in thought_body
+            assert "Choosing an implementation" in thought_body
 
             app._presenter.handle(
                 "run_completed",
@@ -1562,22 +1596,25 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
             assert not list(app.query(ReadFileWidget))
-            thoughts = list(app.query(ReasoningWidget))
-            assert len(thoughts) == 1
-            assert thoughts[0].title == "[ Thought ]"
-            assert thoughts[0].collapsed
-            assert "Inspecting the requested file" in thoughts[0].reasoning_text
+            assert not list(app.query(ReasoningWidget))
             process = app.query_one(RunProcess)
             assert not list(process.query(".process-complete"))
-            assert app.query_one(".process-complete") is not None
-            summaries = list(process.query(ToolCallSummary))
-            tool_summary = next(summary for summary in summaries if summary.count)
-            assert all("thought" not in summary.title for summary in summaries)
-            assert tool_summary.call_ids == ["read-1"]
-            await pilot.click(tool_summary)
+            summaries = list(process.query(CompletedRunSummary))
+            assert len(summaries) == 1
+            summary = summaries[0]
+            assert "thought" not in summary.title.lower()
+            assert summary.call_ids == ["read-1"]
+            thought_entries = [
+                entry for entry in summary.entries if isinstance(entry, ThoughtSnapshot)
+            ]
+            assert len(thought_entries) == 1
+            assert "Inspecting the requested file" in thought_entries[0].content
+            assert "Choosing an implementation" in thought_entries[0].content
+            await pilot.click(summary)
             await pilot.pause()
-            assert tool_summary.is_expanded
-            assert "  Read  src/app.py" in tool_summary.render().plain
+            assert summary.is_expanded
+            assert "  Read  src/app.py" in summary.render().plain
+            assert "Inspecting the requested file" in summary.render().plain
 
     asyncio.run(_run())
 
@@ -1932,6 +1969,10 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
             header = thought.query_one(ReasoningHeader)
             label = thought.query_one(".reasoning-label")
             status = thought.query_one(".reasoning-status")
+            assert header.query_one(".reasoning-label") is label
+            assert header.query_one(".reasoning-status") is status
+            assert header.query_one(".tool-call-bracket") is not None
+            assert header.query_one(".tool-call-bracket-end") is not None
             assert "Thinking…" in str(label.render())
             assert str(status.render()).strip() == ""
             assert not thought.collapsed
@@ -1958,6 +1999,81 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
             assert body.styles.color is not None
             assert app._thinking is not None
             assert not app._thinking.display
+
+    asyncio.run(_run())
+
+
+def test_reasoning_delta_paints_visible_thought_body(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A reasoning_delta stream becomes Thought body text, not only duration chrome."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:gpt-5.6-luna"})
+            app._presenter.handle("turn_started", {"turn": 0, "message_count": 2})
+            app._presenter.handle(
+                "reasoning_delta",
+                {
+                    "turn": 0,
+                    "summary_index": 0,
+                    "delta": (
+                        "**Explaining application context**\n\n"
+                        "The file uses a lock during writes."
+                    ),
+                    "text": (
+                        "**Explaining application context**\n\n"
+                        "The file uses a lock during writes."
+                    ),
+                },
+            )
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
+
+            thought = app.query_one(ReasoningWidget)
+            header = thought.query_one(ReasoningHeader)
+            label = thought.query_one(".reasoning-label")
+            body = thought.query_one(".reasoning-text")
+            rendered = str(body.render())
+            assert header.query_one(".reasoning-label") is label
+            assert "Thinking…" in str(label.render())
+            assert str(thought.query_one(".reasoning-status").render()).strip() == ""
+            assert "Explaining application context" in rendered
+            assert "The file uses a lock during writes." in rendered
+            assert not thought.collapsed
+
+            app._presenter.handle(
+                "reasoning_delta",
+                {
+                    "turn": 0,
+                    "summary_index": 0,
+                    "delta": " Later tools will read it.",
+                    "text": (
+                        "**Explaining application context**\n\n"
+                        "The file uses a lock during writes. Later tools will read it."
+                    ),
+                },
+            )
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
+            rendered = str(thought.query_one(".reasoning-text").render())
+            assert "Later tools will read it." in rendered
+
+            app._presenter.handle("text_delta", {"turn": 0, "delta": "I'll inspect it."})
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
+
+            thought = app.query_one(ReasoningWidget)
+            completed_body = str(thought.query_one(".reasoning-text").render())
+            assert thought.title.startswith("[ Thought for ")
+            assert thought.title.endswith("s ]")
+            assert not thought.collapsed
+            assert "The file uses a lock during writes." in completed_body
+            assert "Later tools will read it." in completed_body
 
     asyncio.run(_run())
 
