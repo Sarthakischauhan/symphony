@@ -1249,7 +1249,7 @@ def test_text_then_tools_then_text_keeps_stream_order(
             ]
             assert kinds == [
                 "AssistantMessage",
-                "ReadFileWidget",
+                "ToolCallSummary",
                 "AssistantMessage",
             ]
             messages = [
