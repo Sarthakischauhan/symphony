@@ -16,6 +16,7 @@ from coding_agent.tui.tools.activity import (
     explored_title,
     format_explored_duration,
     parse_activity,
+    past_tense_verb,
     same_activity_group,
 )
 from coding_agent.tui.tools.labels import tool_detail, tool_label
@@ -219,3 +220,47 @@ class ToolCallSummary(Static, can_focus=True):
             entry.title if isinstance(entry, ThoughtSnapshot) else entry.label
             for entry in self.entries
         )
+
+
+class CompletedRunSummary(ToolCallSummary):
+    """A past-tense fold covering the work that happened before the final reply."""
+
+    def __init__(
+        self,
+        calls: Sequence[ToolCallSnapshot] | None = None,
+        *,
+        verb: str = "Cooked",
+        duration: str = "",
+    ) -> None:
+        self._verb = past_tense_verb(verb)
+        self._duration = duration
+        super().__init__(calls)
+
+    def _summary_title(self) -> str:
+        timing = f" for {self._duration}" if self._duration else ""
+        return f"{self._verb}{timing}"
+
+    def render(self) -> Text:
+        text = Text()
+        text.append("[ ", style="#7395ab")
+        text.append(self._verb, style="bold #8ab4cf")
+        if self._duration:
+            text.append(f" for {self._duration}", style="#a2adb8")
+        header_length = len(text.plain)
+        gap = max(1, self.content_size.width - header_length - 1)
+        text.append(f"{' ' * gap}]", style="#7395ab")
+        if not self.is_expanded:
+            return text
+        for call in self.entries:
+            if isinstance(call, ThoughtSnapshot):
+                text.append(f"\n  {call.title}", style="#969696")
+                if call.content:
+                    text.append(f"\n     {call.content}", style="#858585")
+                continue
+            text.append("\n")
+            color = "#d66b73" if call.status == "failed" else "#b8c7d4"
+            text.append("  ", style=color)
+            text.append(call.label, style="bold #b8c7d4")
+            if call.detail:
+                text.append(f"  {call.detail}", style="#a2adb8")
+        return text

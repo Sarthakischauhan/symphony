@@ -171,7 +171,13 @@ class OpenAIProvider(BaseProvider):
             if instructions:
                 payload["instructions"] = instructions
         if model_name.startswith("gpt-5"):
-            payload["reasoning"] = {"effort": reasoning_effort or "medium", "summary": "auto"}
+            # OpenAI exposes a reasoning *summary*, not private chain of
+            # thought. Request the detailed form so the UI receives more than
+            # a one-line heading when the model supports it.
+            payload["reasoning"] = {
+                "effort": reasoning_effort or "medium",
+                "summary": "detailed",
+            }
         if max_output_tokens is not None and not codex:
             payload["max_output_tokens"] = max_output_tokens
         if tools:

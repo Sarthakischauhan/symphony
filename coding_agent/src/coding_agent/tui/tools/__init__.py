@@ -20,6 +20,7 @@ from coding_agent.tui.tools.images import (
     render_half_block,
 )
 from coding_agent.tui.tools.snapshots import (
+    CompletedRunSummary,
     ToolCallSnapshot,
     ToolCallSummary,
     snapshot_from_call,
@@ -28,6 +29,7 @@ from coding_agent.tui.tools.snapshots import (
 __all__ = [
     "BashToolHeader",
     "BashToolWidget",
+    "CompletedRunSummary",
     "GenerateImageWidget",
     "IMAGE_MARKER_RE",
     "ImageAttachment",

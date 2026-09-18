@@ -265,10 +265,16 @@ class TranscriptSurface:
         *,
         collapse: bool = True,
         add_completion: bool = True,
+        verb: str = "Cooked",
+        duration: str = "",
     ) -> None:
         if self._process is not None:
             self._process.complete(
-                title, collapse=collapse, add_completion=add_completion
+                title,
+                collapse=collapse,
+                add_completion=add_completion,
+                verb=verb,
+                duration=duration,
             )
             reconcile_live_tools(
                 self._process,
@@ -277,7 +283,7 @@ class TranscriptSurface:
                 final=True,
             )
         self._compact_transcript()
-        if add_completion and self._process is not None:
+        if add_completion and not collapse and self._process is not None:
             self._mount_transcript(ProcessComplete(title))
 
     def add_run_completion(self, title: str) -> None:

@@ -71,6 +71,7 @@ from coding_agent.tui.screens.resume import ResumeApp, SessionOption, load_sessi
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, themed_markdown
 from coding_agent.tui.tools import (
     BashToolWidget,
+    CompletedRunSummary,
     GenerateImageWidget,
     PatchDiffWidget,
     ReadFileWidget,
@@ -3269,18 +3270,17 @@ def test_final_output_folds_remaining_tools(
             await pilot.pause()
 
             assert not list(app.query(ToolCallWidget))
-            summaries = list(app.query(ToolCallSummary))
-            assert sum(summary.count for summary in summaries) == 12
-            assert all(not summary.is_expanded for summary in summaries)
-            thoughts = list(app.query(ReasoningWidget))
-            assert len(thoughts) == 1
-            thought = thoughts[0]
-            assert thought.title == "[ Thought for Inspecting files ]"
-            assert thought.collapsed
-            assert "Reasoning body stays hidden" in thought.reasoning_text
-            tools = next(summary for summary in summaries if summary.count == 12)
-            assert tools.call_ids == [str(index) for index in range(12)]
+            assert not list(app.query(ReasoningWidget))
+            summaries = list(app.query(CompletedRunSummary))
+            assert len(summaries) == 1
+            summary = summaries[0]
+            assert summary.count == 12
+            assert not summary.is_expanded
+            rendered = summary.render().plain
+            assert rendered.startswith("[ Cooked")
+            assert rendered.endswith("]")
             assert app._assistant is not None
+            assert "Finished the requested changes." in app._assistant.message_text
             assert "SYMPHONY" not in str(app._assistant.render())
             assert all(isinstance(tool, ToolCallSummary) for tool in app._tools.values())
 

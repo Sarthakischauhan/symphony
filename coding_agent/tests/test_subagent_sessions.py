@@ -8,8 +8,8 @@ from coding_agent.persistence import JsonlPersistence
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.runtime.subagent import SubagentScreen, SubagentTasksScreen
-from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
-from coding_agent.tui.transcript import AssistantMessage, ReasoningWidget, UserMessage
+from coding_agent.tui.tools import CompletedRunSummary, ToolCallSummary, ToolCallWidget
+from coding_agent.tui.transcript import AssistantMessage, UserMessage
 
 
 def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_path: Path) -> None:
@@ -57,16 +57,14 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             emit("run_completed", output_text="Child answer")
             await pilot.pause()
             assert not list(screen.query(ToolCallWidget))
-            thoughts = list(screen.query(ReasoningWidget))
-            assert len(thoughts) == 1
-            thought = thoughts[0]
-            assert thought.title.startswith("[ Thought for ")
-            assert thought.title.endswith("s ]")
-            assert not thought.collapsed
-            assert "Hidden thought body" in thought.reasoning_text
-            summaries = list(screen.query(ToolCallSummary))
-            assert sum(item.count for item in summaries) == 11
-            assert all("thought" not in item.title for item in summaries)
+            summaries = list(screen.query(CompletedRunSummary))
+            assert len(summaries) == 1
+            summary = summaries[0]
+            assert summary.count == 11
+            rendered = summary.render().plain
+            assert rendered.startswith("[ Cooked")
+            assert rendered.endswith("]")
+            assert [item.message_text for item in screen.query(AssistantMessage)] == ["Child answer"]
             screen.refresh_record()
             await pilot.press("escape")
             await pilot.pause()

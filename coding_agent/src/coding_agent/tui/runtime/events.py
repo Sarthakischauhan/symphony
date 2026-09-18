@@ -300,18 +300,26 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "ready"
         completed = self._completed_text()
+        elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
+        final_output = str(payload.get("output_text") or "")
+        if final_output:
+            # The run-level output is authoritative. Intermediate text_delta
+            # widgets represent turn-by-turn narration and must not survive
+            # finalization as if they were the final answer.
+            self.view.set_assistant(final_output, new=self._assistant_open is False)
         self.view.set_thinking(completed)
-        # Keep the final response as the last conversational content. The
-        # compact completion row is mounted after it below.
+        # Fold the work that happened before the final reply into a past-tense
+        # summary, then keep the assistant response as the last content.
         try:
-            self.view.finish_process(completed, add_completion=False)
+            self.view.finish_process(
+                completed,
+                add_completion=False,
+                verb="Cooked",
+                duration=elapsed,
+            )
         except TypeError:
             # Keep compatibility with lightweight presenter test doubles.
             self.view.finish_process(completed)
-        else:
-            add_completion = getattr(self.view, "add_run_completion", None)
-            if callable(add_completion):
-                add_completion(completed)
         self._assistant_open = False
 
     def _on_run_summary(self, payload: Dict[str, Any]) -> None:

@@ -220,14 +220,71 @@ class RunProcess(Container):
         *,
         collapse: bool = True,
         add_completion: bool = True,
+        verb: str = "Cooked",
+        duration: str = "",
     ) -> None:
         if self._completed:
             return
         self._completed = True
         self.archiveable = collapse
         self._thinking.set_visible(False)
-        if add_completion:
+        if collapse:
+            self.fold_into_summary(verb=verb, duration=duration)
+        elif add_completion:
             self.add_item(ProcessComplete(title))
+
+    def fold_into_summary(self, *, verb: str = "Cooked", duration: str = "") -> None:
+        """Replace remaining live timeline cards with a past-tense fold."""
+        from coding_agent.tui.tools.calls import ToolCallWidget
+        from coding_agent.tui.tools.snapshots import CompletedRunSummary
+        from coding_agent.tui.transcript.messages import AssistantMessage
+
+        chosen_verb = verb
+        for item in list(self.timeline_items()):
+            activity_verb = getattr(item, "activity_verb", "") or ""
+            if activity_verb:
+                chosen_verb = activity_verb
+        summary = CompletedRunSummary(verb=chosen_verb, duration=duration)
+        assistants: list[AssistantMessage] = []
+        for item in list(self.timeline_items()):
+            if item is self._thinking:
+                self.remove_item(item)
+                continue
+            if isinstance(item, AssistantMessage):
+                assistants.append(item)
+                continue
+            if isinstance(item, ReasoningWidget):
+                summary.add_thought(item.title, item.reasoning_text, layout=False)
+                self.remove_item(item)
+                continue
+            if isinstance(item, ToolCallWidget):
+                if getattr(item, "keep_in_transcript", False) or item.tool_name in {
+                    "generate_image",
+                    "spawn_agent",
+                }:
+                    continue
+                summary.add_call(item, layout=False)
+                self.remove_item(item)
+                continue
+            from coding_agent.tui.tools.snapshots import ThoughtSnapshot, ToolCallSummary
+
+            if isinstance(item, ToolCallSummary):
+                for entry in item.entries:
+                    if isinstance(entry, ThoughtSnapshot):
+                        summary.add_thought(entry.title, entry.content, layout=False)
+                    else:
+                        summary.add_call(entry, layout=False)
+                self.remove_item(item)
+        final_assistant = assistants[-1] if assistants else None
+        for assistant in assistants[:-1]:
+            self.remove_item(assistant)
+        if final_assistant is not None and final_assistant in self._items:
+            index = self._items.index(final_assistant)
+            self._items.insert(index, summary)
+            if final_assistant.is_attached:
+                self.mount(summary, before=final_assistant)
+            return
+        self.add_item(summary)
 
     def tool_count(self) -> int:
         from coding_agent.tui.tools.calls import ToolCallWidget

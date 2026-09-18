@@ -5,13 +5,19 @@ from __future__ import annotations
 from coding_agent.tui.motion import enter_row, settle_row
 from coding_agent.tui.tools.activity import (
     format_explored_duration,
+    past_tense_verb,
     same_activity_group,
 )
 from coding_agent.tui.tools.calls import (
     ToolCallWidget,
     make_tool_widget,
 )
-from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary, snapshot_from_call
+from coding_agent.tui.tools.snapshots import (
+    CompletedRunSummary,
+    ToolCallSnapshot,
+    ToolCallSummary,
+    snapshot_from_call,
+)
 from coding_agent.tui.transcript.live_tools import (
     collectable_tools,
     is_collectable_thought,
@@ -589,6 +595,21 @@ def test_same_activity_group_keys_on_group_then_bool_reason() -> None:
     assert same_activity_group(reason_a, reason_b)
     assert not same_activity_group(reason_a, plain)
     assert same_activity_group(plain, ToolCallSnapshot("f"))
+
+
+def test_past_tense_verb_converts_present_participles() -> None:
+    assert past_tense_verb("Cooking") == "Cooked"
+    assert past_tense_verb("Exploring") == "Explored"
+    assert past_tense_verb("Thinking") == "Thought"
+    assert past_tense_verb("Plan") == "Planned"
+    assert past_tense_verb("") == "Cooked"
+
+
+def test_completed_run_summary_renders_past_tense_header() -> None:
+    summary = CompletedRunSummary(verb="Cooking", duration="10s")
+    rendered = summary.render().plain
+    assert rendered.startswith("[ Cooked for 10s")
+    assert rendered.endswith("]")
 
 
 def test_explored_title_appends_duration_only_when_verb_is_set() -> None:
