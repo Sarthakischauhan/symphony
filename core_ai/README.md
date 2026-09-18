@@ -69,10 +69,10 @@ completion, and retry signals (429, SSL MAC, 5xx, connection) into the shared
 catalog (with an `o1` / `o3` / `o4` fallback); Anthropic uses Messages,
 Gemini uses streamGenerateContent, and Grok, OpenRouter, Vercel AI Gateway,
 Ollama, and local servers use Chat Completions. Vercel evaluation models
-(`typesafe-ai/jev` and similar) call `POST /evaluation-model` instead of
-chat completions. OpenRouter and Vercel send `max_tokens` with
-`stream_options`; Ollama/local omit `stream_options` and send `max_tokens`,
-matching OpenAI-compatible daemons.
+(`typesafe-ai/jev` and similar) call `POST /v4/ai/evaluation-model` on the
+Gateway protocol base, not the OpenAI-compatible `/v1` endpoint. OpenRouter
+and Vercel send `max_tokens` with `stream_options`; Ollama/local omit
+`stream_options` and send `max_tokens`, matching OpenAI-compatible daemons.
 
 ## Model catalog
 

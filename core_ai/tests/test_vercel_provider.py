@@ -11,10 +11,13 @@ from core_ai.providers.catalog import configured_provider_ids, find_provider, pr
 from core_ai.providers.defaults import build_default_registry, default_model_id
 from core_ai.providers.vercel import (
     VERCEL_DEFAULT_BASE_URL,
+    VERCEL_DEFAULT_GATEWAY_BASE_URL,
     VercelProvider,
     discover_vercel_models,
+    evaluation_model_url,
     is_evaluation_model,
     vercel_chat_base_url,
+    vercel_gateway_base_url,
     vercel_model_ids,
 )
 from core_ai.types import Message, StreamEvent
@@ -55,6 +58,15 @@ def test_vercel_chat_base_url_normalizes() -> None:
     assert vercel_chat_base_url("") == VERCEL_DEFAULT_BASE_URL
     assert vercel_chat_base_url("https://ai-gateway.vercel.sh") == VERCEL_DEFAULT_BASE_URL
     assert vercel_chat_base_url("https://ai-gateway.vercel.sh/v1") == VERCEL_DEFAULT_BASE_URL
+
+
+def test_vercel_gateway_base_url_uses_protocol_path() -> None:
+    assert vercel_gateway_base_url("") == VERCEL_DEFAULT_GATEWAY_BASE_URL
+    assert vercel_gateway_base_url("https://ai-gateway.vercel.sh") == VERCEL_DEFAULT_GATEWAY_BASE_URL
+    assert vercel_gateway_base_url("https://ai-gateway.vercel.sh/v1") == VERCEL_DEFAULT_GATEWAY_BASE_URL
+    assert vercel_gateway_base_url(VERCEL_DEFAULT_GATEWAY_BASE_URL) == VERCEL_DEFAULT_GATEWAY_BASE_URL
+    assert vercel_gateway_base_url("https://gateway.example/v1") == "https://gateway.example/v4/ai"
+    assert evaluation_model_url() == f"{VERCEL_DEFAULT_GATEWAY_BASE_URL}/evaluation-model"
 
 
 def test_vercel_stream_uses_chat_completions() -> None:
@@ -130,6 +142,7 @@ def test_vercel_model_ids_keeps_evaluation_models() -> None:
 
 def test_is_evaluation_model_detects_typesafe_jev() -> None:
     assert is_evaluation_model("typesafe-ai/jev") is True
+    assert is_evaluation_model("typesafe-ai/jev-latest") is True
     assert is_evaluation_model("anthropic/claude-sonnet-5") is False
 
 
@@ -137,6 +150,7 @@ def test_vercel_evaluation_model_uses_evaluation_generation_api() -> None:
     captured: dict[str, object] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
         captured["path"] = request.url.path
         captured["payload"] = json.loads(request.content)
         captured["headers"] = dict(request.headers)
@@ -166,9 +180,12 @@ def test_vercel_evaluation_model_uses_evaluation_generation_api() -> None:
     events = asyncio.run(collect())
     payload = captured["payload"]
     headers = captured["headers"]
-    assert captured["path"] == "/v1/evaluation-model"
+    assert captured["path"] == "/v4/ai/evaluation-model"
+    assert captured["url"] == f"{VERCEL_DEFAULT_GATEWAY_BASE_URL}/evaluation-model"
+    assert "/v1/" not in str(captured["path"])
     assert payload["state"] == "user: Should we keep helping?"
     assert payload["questions"]["response"]["type"] == "boolean"
+    assert "providerOptions" not in payload
     assert headers["ai-model-id"] == "typesafe-ai/jev"
     assert headers["ai-evaluation-model-specification-version"] == "4"
     assert [(event.type, event.delta) for event in events if event.type != "usage"] == [

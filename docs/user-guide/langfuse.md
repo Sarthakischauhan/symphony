@@ -22,8 +22,10 @@ observations:
 Child agents inherit the add-on and emit their own traces, tagged with
 `parent_id` / `agent_id`.
 
-Payloads are redacted for common secret patterns. Image parts are replaced with
-`[image:filename]` so base64 never leaves the process.
+Every observation input and output that can carry user or tool text (the run
+task, each turn's assistant text and tool calls, tool arguments, tool results,
+and final `output_text`) goes through the same redaction path. Image parts are
+replaced with `[image:filename]` so base64 never leaves the process.
 
 ## Enable it
 
@@ -57,7 +59,7 @@ Disable it in spawn settings:
 ```
 
 `sample_rate` (0–1) drops whole runs. `max_payload_chars` bounds each serialized
-message or tool result.
+observation payload (messages, tool arguments, tool results, and run input/output).
 
 ## Skill
 

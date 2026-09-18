@@ -5,7 +5,7 @@ rather than embedding the TypeScript SDK:
 
 - language models: ``POST https://ai-gateway.vercel.sh/v1/chat/completions``
 - evaluation models (for example ``typesafe-ai/jev``):
-  ``POST https://ai-gateway.vercel.sh/v1/evaluation-model``
+  ``POST https://ai-gateway.vercel.sh/v4/ai/evaluation-model``
 """
 
 from __future__ import annotations
@@ -27,9 +27,10 @@ from core_ai.providers.openai import (
 from core_ai.types import Message, StreamEvent
 
 VERCEL_DEFAULT_BASE_URL = "https://ai-gateway.vercel.sh/v1"
+VERCEL_DEFAULT_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v4/ai"
 DISCOVER_TIMEOUT = 8.0
 EVALUATION_SPEC_VERSION = "4"
-_EVALUATION_MODEL_MARKERS = ("typesafe-ai/", "/jev", "-jev")
+_EVALUATION_MODEL_MARKERS = ("typesafe-ai/jev", "/jev", "-jev")
 _NON_LANGUAGE_TYPES = {
     "embedding",
     "embeddings",
@@ -94,19 +95,15 @@ class VercelProvider(OpenAIProvider):
             tools=tools,
             reasoning_effort=reasoning_effort,
         )
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "ai-evaluation-model-specification-version": EVALUATION_SPEC_VERSION,
-            "ai-model-id": model_name,
-            **self.extra_headers,
-        }
         async with httpx.AsyncClient(transport=self.transport) as client:
             response = await client.post(
-                f"{self.base_url}/evaluation-model",
+                evaluation_model_url(self.base_url),
                 json=payload,
-                headers=headers,
+                headers=evaluation_request_headers(
+                    model_name,
+                    api_key=self.api_key,
+                    extra_headers=self.extra_headers,
+                ),
                 timeout=60.0,
             )
             await _raise_if_http_error(response)
@@ -137,6 +134,40 @@ class VercelProvider(OpenAIProvider):
 
 def vercel_chat_base_url(value: str = "") -> str:
     return openai_compat_base_url(value, default=VERCEL_DEFAULT_BASE_URL)
+
+
+def vercel_gateway_base_url(value: str = "") -> str:
+    """Normalize a host or OpenAI-compat URL to the Gateway protocol ``.../v4/ai`` base."""
+    raw = (value or "").strip()
+    if raw:
+        normalized = raw if "://" in raw else f"http://{raw}"
+        normalized = normalized.rstrip("/")
+        if normalized.endswith("/v4/ai"):
+            return normalized
+    chat_url = vercel_chat_base_url(value)
+    if chat_url.endswith("/v1"):
+        return f"{chat_url[:-3]}/v4/ai"
+    return VERCEL_DEFAULT_GATEWAY_BASE_URL
+
+
+def evaluation_model_url(base_url: str = "") -> str:
+    return f"{vercel_gateway_base_url(base_url)}/evaluation-model"
+
+
+def evaluation_request_headers(
+    model_name: str,
+    *,
+    api_key: str,
+    extra_headers: Optional[dict[str, str]] = None,
+) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "ai-evaluation-model-specification-version": EVALUATION_SPEC_VERSION,
+        "ai-model-id": model_name,
+        **(extra_headers or {}),
+    }
 
 
 def is_evaluation_model(model_name: str) -> bool:

@@ -14,14 +14,17 @@ import os
 import random
 from typing import Any, Optional
 
-from core_ai.content import text_from_content
 from core_ai.types import Message
 from core_harness.addons import Addon
 
 from coding_agent.config import LangfuseConfig
 from coding_agent.langfuse.serialize import (
     serialize_messages,
+    serialize_run_output,
+    serialize_task,
+    serialize_tool_arguments,
     serialize_tool_result,
+    serialize_turn_output,
     usage_payload,
 )
 
@@ -258,7 +261,7 @@ class LangfuseAddon(Addon):
         task = ""
         for message in reversed(list(messages)):
             if isinstance(message, Message) and message.role == "user":
-                task = text_from_content(message.content)
+                task = serialize_task(message.content, max_chars=self.max_payload_chars)
                 break
         self._run_observation = self._start(
             name="coding-agent-run",
@@ -297,18 +300,17 @@ class LangfuseAddon(Addon):
         if not self._active():
             return
         messages = payload.get("messages") or []
-        assistant = ""
+        assistant: Any = ""
         tool_calls: list[Any] = []
         for message in reversed(list(messages)):
             if isinstance(message, Message) and message.role == "assistant":
-                assistant = text_from_content(message.content)
+                assistant = message.content
                 tool_calls = list(message.tool_calls or [])
                 break
-        output: dict[str, Any] = {"text": assistant}
-        if tool_calls:
-            output["tool_calls"] = tool_calls
         self._end_turn(
-            output=output,
+            output=serialize_turn_output(
+                assistant, tool_calls, max_chars=self.max_payload_chars
+            ),
             metadata=self._metadata({
                 "turn": payload.get("turn"),
                 "had_tool_calls": payload.get("had_tool_calls"),
@@ -328,7 +330,7 @@ class LangfuseAddon(Addon):
             name=str(tool_name),
             as_type="tool",
             parent=self._run_observation,
-            input=arguments,
+            input=serialize_tool_arguments(arguments, max_chars=self.max_payload_chars),
             metadata=self._metadata({"tool_call_id": call_id}),
         )
         self._tool_observations[str(call_id)] = observation
@@ -379,7 +381,10 @@ class LangfuseAddon(Addon):
             self._end(observation)
         self._tool_observations.clear()
         result = payload.get("result")
-        output = getattr(result, "output_text", None) or payload.get("task")
+        output = serialize_run_output(
+            getattr(result, "output_text", None) or payload.get("task"),
+            max_chars=self.max_payload_chars,
+        )
         usage = usage_payload(getattr(result, "usage", None))
         update: dict[str, Any] = {"output": output, "metadata": self._metadata()}
         if usage:

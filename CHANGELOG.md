@@ -6,12 +6,14 @@
   Gateway (`AI_GATEWAY_API_KEY`) as OpenAI-compatible Chat Completions
   providers. Model slugs like `openai/gpt-4o` are discovered from `/models`
   at registry build. Vercel evaluation models such as `typesafe-ai/jev` use
-  the Gateway evaluation generation API (`POST /evaluation-model`) instead
-  of chat completions.
+  the Gateway protocol (`POST /v4/ai/evaluation-model`), not the OpenAI-compatible
+  `/v1` base. Chat completions stay on `/v1/chat/completions`.
 - Optional `LangfuseAddon` on `symphony-code` records the conversation sent
   each model turn, plus tools and compaction, when `LANGFUSE_PUBLIC_KEY` and
   `LANGFUSE_SECRET_KEY` are set. Install `symphony-code[langfuse]`. Disable
-  with `"langfuse": {"enabled": false}`. Root spans no longer pass
+  with `"langfuse": {"enabled": false}`. Observation input/output (run task,
+  turn text and tool calls, tool arguments, and final `output_text`) is
+  redacted before it leaves the process. Root spans no longer pass
   `session_id` into Langfuse v4 `start_observation` (that TypeError was
   swallowed and produced zero traces).
 - `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),

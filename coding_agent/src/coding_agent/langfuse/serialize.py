@@ -20,7 +20,20 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[: max_chars - 3].rstrip() + "..."
 
 
+def _jsonish(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        try:
+            return dump()
+        except TypeError:
+            pass
+    return value
+
+
 def _redact(value: Any) -> Any:
+    value = _jsonish(value)
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, dict):
@@ -29,7 +42,25 @@ def _redact(value: Any) -> Any:
         return [_redact(item) for item in value]
     if isinstance(value, tuple):
         return [_redact(item) for item in value]
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    return redact_secrets(str(value))
+
+
+def _truncate_value(value: Any, max_chars: int) -> Any:
+    if isinstance(value, str):
+        return _truncate(value, max_chars)
+    if isinstance(value, dict):
+        return {str(key): _truncate_value(item, max_chars) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_truncate_value(item, max_chars) for item in value]
+    if isinstance(value, tuple):
+        return [_truncate_value(item, max_chars) for item in value]
     return value
+
+
+def _sanitize(value: Any, max_chars: int) -> Any:
+    return _truncate_value(_redact(value), max_chars)
 
 
 def serialize_content(content: Any, *, max_chars: int = DEFAULT_MAX_CHARS) -> Any:
@@ -44,6 +75,36 @@ def serialize_content(content: Any, *, max_chars: int = DEFAULT_MAX_CHARS) -> An
         return _truncate(redact_secrets(str(content)), max_chars)
 
 
+def serialize_task(task: Any, *, max_chars: int = DEFAULT_MAX_CHARS) -> str:
+    """Bound, redacted run input (the user task text)."""
+    return serialize_content(task, max_chars=max_chars)
+
+
+def serialize_run_output(output: Any, *, max_chars: int = DEFAULT_MAX_CHARS) -> str:
+    """Bound, redacted final run output (``output_text`` or the original task)."""
+    return serialize_content(output, max_chars=max_chars)
+
+
+def serialize_tool_arguments(arguments: Any, *, max_chars: int = DEFAULT_MAX_CHARS) -> Any:
+    """Redact and bound tool-call arguments before they leave the process."""
+    if arguments is None:
+        return {}
+    return _sanitize(arguments, max_chars)
+
+
+def serialize_turn_output(
+    text: Any = "",
+    tool_calls: Any = None,
+    *,
+    max_chars: int = DEFAULT_MAX_CHARS,
+) -> dict[str, Any]:
+    """Bound, redacted generation output: assistant text plus any tool calls."""
+    payload: dict[str, Any] = {"text": serialize_content(text, max_chars=max_chars)}
+    if tool_calls:
+        payload["tool_calls"] = serialize_tool_arguments(tool_calls, max_chars=max_chars)
+    return payload
+
+
 def serialize_message(message: Message, *, max_chars: int = DEFAULT_MAX_CHARS) -> dict[str, Any]:
     """Dump one conversation message as it would be sent to the model."""
     payload: dict[str, Any] = {
@@ -51,7 +112,7 @@ def serialize_message(message: Message, *, max_chars: int = DEFAULT_MAX_CHARS) -
         "content": serialize_content(message.content, max_chars=max_chars),
     }
     if message.tool_calls:
-        payload["tool_calls"] = _redact(message.tool_calls)
+        payload["tool_calls"] = serialize_tool_arguments(message.tool_calls, max_chars=max_chars)
     if message.tool_call_id:
         payload["tool_call_id"] = message.tool_call_id
     return payload

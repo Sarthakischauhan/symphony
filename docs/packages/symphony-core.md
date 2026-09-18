@@ -61,7 +61,8 @@ selects Responses or Chat Completions from the catalog (with an `o1` / `o3` /
 `o4` fallback). Anthropic uses Messages. Gemini uses streamGenerateContent.
 Grok, OpenRouter, Vercel AI Gateway, Ollama, and local servers use Chat
 Completions. Vercel evaluation models such as `typesafe-ai/jev` use
-`POST /evaluation-model`. OpenRouter and Vercel send `max_tokens` with
+`POST /v4/ai/evaluation-model` on the Gateway protocol base (chat stays on
+`/v1/chat/completions`). OpenRouter and Vercel send `max_tokens` with
 `stream_options`. Ollama/local omit `stream_options` and send `max_tokens`.
 
 ## Model catalog

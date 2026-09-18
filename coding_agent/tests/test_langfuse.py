@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,13 @@ from core_harness.models import HarnessResult, ToolCall, ToolResult, UsageTotals
 from coding_agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LangfuseConfig, LearningConfig
 from coding_agent.langfuse import LangfuseAddon, langfuse_from_config
-from coding_agent.langfuse.serialize import serialize_messages
+from coding_agent.langfuse.serialize import (
+    serialize_messages,
+    serialize_run_output,
+    serialize_task,
+    serialize_tool_arguments,
+    serialize_turn_output,
+)
 
 
 class FakeObservation:
@@ -100,6 +107,105 @@ def test_serialize_messages_redacts_secrets_and_omits_image_bytes() -> None:
     assert serialized[0]["content"] == "Use OPENAI_API_KEY[REDACTED]"
     assert serialized[1]["content"] == "look at this\n[image:shot.png]"
     assert "AAA" not in serialized[1]["content"]
+
+
+def _observation_text(client: FakeLangfuse) -> str:
+    blobs: list[Any] = []
+
+    def walk(observation: FakeObservation) -> None:
+        blobs.append(observation.kwargs)
+        blobs.extend(observation.updates)
+        for child in observation.children:
+            walk(child)
+
+    for observation in client.observations:
+        walk(observation)
+    return json.dumps(blobs, default=str)
+
+
+def test_addon_redacts_secrets_on_every_observation_payload() -> None:
+    secret = "sk-secretABCDEFG12"
+    assigned = "OPENAI_API_KEY=sk-leakedkey99999"
+    client = FakeLangfuse()
+    addon = _addon(client)
+    messages = [
+        Message(role="system", content="You are Symphony."),
+        Message(role="user", content=f"Fix the leak {assigned}"),
+    ]
+
+    async def scenario() -> None:
+        await addon.before_run(messages=messages)
+        await addon.before_turn(turn=0, messages=messages)
+        messages.append(Message(
+            role="assistant",
+            content=f"calling bash with {secret}",
+            tool_calls=[{
+                "id": "c1",
+                "name": "bash",
+                "arguments": {"command": f"echo {assigned}"},
+            }],
+        ))
+        tool_call = ToolCall(
+            id="c1",
+            name="bash",
+            arguments={"command": f"echo {assigned}"},
+        )
+        await addon.before_tool(
+            tool_name="bash",
+            arguments={"command": f"echo {assigned}"},
+            tool_call=tool_call,
+        )
+        await addon.on_tool(
+            tool_call=tool_call,
+            result=ToolResult(status="success", content=f"printed {secret}"),
+        )
+        messages.append(Message(role="tool", content=f"printed {secret}", tool_call_id="c1"))
+        await addon.after_turn(turn=0, messages=messages, had_tool_calls=True)
+        await addon.after_run(
+            task=f"Fix the leak {assigned}",
+            result=HarnessResult(
+                output_text=f"done {assigned} {secret}",
+                messages=messages,
+                usage=UsageTotals(prompt_tokens=4, completion_tokens=2, total_tokens=6),
+            ),
+        )
+
+    asyncio.run(scenario())
+
+    dumped = _observation_text(client)
+    assert secret not in dumped
+    assert assigned not in dumped
+    assert "sk-leakedkey99999" not in dumped
+    assert "OPENAI_API_KEY=" not in dumped
+    run = client.observations[0]
+    assert "[REDACTED]" in run.kwargs["input"]
+    generation = run.children[0]
+    turn_output = next(update["output"] for update in generation.updates if "output" in update)
+    assert "[REDACTED]" in turn_output["text"]
+    assert "[REDACTED]" in json.dumps(turn_output["tool_calls"], default=str)
+    tool = run.children[1]
+    assert "[REDACTED]" in json.dumps(tool.kwargs["input"], default=str)
+    run_output = next(update["output"] for update in run.updates if "output" in update)
+    assert "[REDACTED]" in run_output
+
+
+def test_serialize_helpers_redact_task_tool_args_and_outputs() -> None:
+    secret = "sk-secretABCDEFG12"
+    assigned = "OPENAI_API_KEY=sk-leakedkey99999"
+    assert secret not in serialize_task(f"do this {assigned}")
+    assert assigned not in serialize_task(f"do this {assigned}")
+    args = serialize_tool_arguments({"command": f"export {assigned}"})
+    assert secret not in json.dumps(args)
+    assert assigned not in json.dumps(args)
+    turn = serialize_turn_output(
+        f"here {secret}",
+        [{"id": "c1", "name": "write", "arguments": {"contents": assigned}}],
+    )
+    dumped = json.dumps(turn)
+    assert secret not in dumped
+    assert assigned not in dumped
+    assert secret not in serialize_run_output(f"final {assigned}")
+    assert assigned not in serialize_run_output(f"final {assigned}")
 
 
 def test_addon_records_run_turn_and_tool() -> None:
