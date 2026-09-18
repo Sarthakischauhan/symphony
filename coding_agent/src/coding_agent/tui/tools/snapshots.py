@@ -231,14 +231,17 @@ class CompletedRunSummary(ToolCallSummary):
         *,
         verb: str = "Cooked",
         duration: str = "",
+        detail: str = "",
     ) -> None:
         self._verb = past_tense_verb(verb)
         self._duration = duration
+        self._detail = detail
         super().__init__(calls)
 
     def _summary_title(self) -> str:
         timing = f" for {self._duration}" if self._duration else ""
-        return f"{self._verb}{timing}"
+        detail = f" · {self._detail}" if self._detail else ""
+        return f"{self._verb}{timing}{detail}"
 
     def render(self) -> Text:
         text = Text()
@@ -246,6 +249,8 @@ class CompletedRunSummary(ToolCallSummary):
         text.append(self._verb, style="bold #8ab4cf")
         if self._duration:
             text.append(f" for {self._duration}", style="#a2adb8")
+        if self._detail:
+            text.append(f" · {self._detail}", style="#a2adb8")
         header_length = len(text.plain)
         gap = max(1, self.content_size.width - header_length - 1)
         text.append(f"{' ' * gap}]", style="#7395ab")

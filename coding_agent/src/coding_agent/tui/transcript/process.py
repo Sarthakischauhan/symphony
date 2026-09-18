@@ -222,6 +222,7 @@ class RunProcess(Container):
         add_completion: bool = True,
         verb: str = "Cooked",
         duration: str = "",
+        detail: str = "",
     ) -> None:
         if self._completed:
             return
@@ -229,11 +230,13 @@ class RunProcess(Container):
         self.archiveable = collapse
         self._thinking.set_visible(False)
         if collapse:
-            self.fold_into_summary(verb=verb, duration=duration)
+            self.fold_into_summary(verb=verb, duration=duration, detail=detail)
         elif add_completion:
             self.add_item(ProcessComplete(title))
 
-    def fold_into_summary(self, *, verb: str = "Cooked", duration: str = "") -> None:
+    def fold_into_summary(
+        self, *, verb: str = "Cooked", duration: str = "", detail: str = ""
+    ) -> None:
         """Replace remaining live timeline cards with a past-tense fold."""
         from coding_agent.tui.tools.calls import ToolCallWidget
         from coding_agent.tui.tools.snapshots import CompletedRunSummary
@@ -244,7 +247,11 @@ class RunProcess(Container):
             activity_verb = getattr(item, "activity_verb", "") or ""
             if activity_verb:
                 chosen_verb = activity_verb
-        summary = CompletedRunSummary(verb=chosen_verb, duration=duration)
+        summary = CompletedRunSummary(
+            verb=chosen_verb,
+            duration=duration,
+            detail=detail,
+        )
         assistants: list[AssistantMessage] = []
         for item in list(self.timeline_items()):
             if item is self._thinking:

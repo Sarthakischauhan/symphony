@@ -302,11 +302,14 @@ class EventPresenter:
         completed = self._completed_text()
         elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
         final_output = str(payload.get("output_text") or "")
+        detail = completed
+        if " · " in detail:
+            detail = detail.split(" · ", 1)[1]
         if final_output:
             # The run-level output is authoritative. Intermediate text_delta
             # widgets represent turn-by-turn narration and must not survive
             # finalization as if they were the final answer.
-            self.view.set_assistant(final_output, new=self._assistant_open is False)
+            self.view.set_assistant(final_output, new=True)
         self.view.set_thinking(completed)
         # Fold the work that happened before the final reply into a past-tense
         # summary, then keep the assistant response as the last content.
@@ -316,6 +319,7 @@ class EventPresenter:
                 add_completion=False,
                 verb="Cooked",
                 duration=elapsed,
+                detail=detail,
             )
         except TypeError:
             # Keep compatibility with lightweight presenter test doubles.

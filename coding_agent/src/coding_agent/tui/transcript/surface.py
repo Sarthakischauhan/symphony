@@ -267,6 +267,7 @@ class TranscriptSurface:
         add_completion: bool = True,
         verb: str = "Cooked",
         duration: str = "",
+        detail: str = "",
     ) -> None:
         if self._process is not None:
             self._process.complete(
@@ -275,6 +276,7 @@ class TranscriptSurface:
                 add_completion=add_completion,
                 verb=verb,
                 duration=duration,
+                detail=detail,
             )
             reconcile_live_tools(
                 self._process,
