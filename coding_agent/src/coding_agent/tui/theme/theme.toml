@@ -89,14 +89,17 @@ Screen {
 .message {
     width: 100%;
     height: auto;
-    margin: 1 0 0 1;
-    padding: 0 2;
+    margin: 0;
+    padding: 0 0 0 3;
 }
 
-/* The user prompt is rendered as an accent `>` glyph plus the prompt text
-   (see UserMessage); the glyph replaces the old coloured left border. */
+/* Textual spacing is measured in terminal cells rather than pixels. Add one
+   row only at conversation boundaries; spacing every nested timeline widget
+   makes Thought, tool, and status margins stack into large empty bands. */
 .user-message {
+    margin: 1 0 0 0;
     background: $background;
+    /* The `>` occupies the shared 3-cell gutter; prompt text starts with tools. */
     padding: 0;
 }
 
@@ -112,7 +115,6 @@ Screen {
    event-loop animation driver rather than blocking streamed output. */
 
 .assistant-message {
-    padding-left: 3;
     margin: 1 0 1 0;
     background: $background;
 }
@@ -121,15 +123,15 @@ Screen {
     width: auto;
     max-width: 72;
     height: 1;
-    margin: 1 0 1 1;
-    padding: 0 1 0 3;
+    margin: 0;
+    padding: 0 0 0 3;
     color: $muted;
 }
 
 .run-process {
     width: 100%;
     height: auto;
-    margin: 0 0 1 0;
+    margin: 0;
     padding: 0;
     background: $background;
 }
@@ -137,44 +139,79 @@ Screen {
 .process-complete {
     width: auto;
     height: 1;
-    margin: 1 0 0 1;
+    margin: 0;
+    padding: 0 0 0 3;
     color: #5f6a62;
 }
 
 .reasoning-block {
     width: 100%;
     height: auto;
-    margin: 1 0 0 0;
-    padding: 0 0 0 3;
-    color: #5b9bd5;
-    background: $background;
-    pointer: pointer;
-}
-
-.reasoning-block > CollapsibleTitle {
-    width: auto;
+    min-width: 100%;
+    margin: 0;
     padding: 0;
     color: #5b9bd5;
     background: $background;
     pointer: pointer;
 }
 
-.reasoning-block.is-complete {
-    opacity: 0.6;
+.reasoning-block > CollapsibleTitle {
+    width: 1;
+    height: 0;
+    padding: 0;
+    color: transparent;
+    background: transparent;
 }
 
-.reasoning-block.is-complete:hover,
-.reasoning-block.is-complete:focus {
+.reasoning-header {
+    width: 100%;
+    height: 1;
+    padding: 0 0 0 3;
+    background: $background;
+    pointer: pointer;
+}
+
+.reasoning-header:hover,
+.reasoning-header:focus {
+    background: $panel;
+}
+
+.reasoning-label {
+    width: auto;
+    height: 1;
+    color: #5b9bd5;
+    background: transparent;
+}
+
+.reasoning-status {
+    width: 1fr;
+    height: 1;
+    padding-left: 1;
+    color: #5b9bd5;
+    text-align: left;
+    background: transparent;
+}
+
+.reasoning-block.is-complete {
     opacity: 1;
 }
 
-.reasoning-block.is-complete > CollapsibleTitle {
-    color: #5b9bd5;
+.reasoning-block.is-complete .reasoning-label,
+.reasoning-block.is-complete .reasoning-status,
+.reasoning-block.is-complete .tool-call-bracket,
+.reasoning-block.is-complete .tool-call-bracket-end {
+    opacity: 0.6;
 }
 
-.reasoning-block > CollapsibleTitle:hover {
-    color: #83b8e8;
-    background: $panel;
+.reasoning-block.is-complete:hover .reasoning-label,
+.reasoning-block.is-complete:hover .reasoning-status,
+.reasoning-block.is-complete:hover .tool-call-bracket,
+.reasoning-block.is-complete:hover .tool-call-bracket-end,
+.reasoning-block.is-complete:focus .reasoning-label,
+.reasoning-block.is-complete:focus .reasoning-status,
+.reasoning-block.is-complete:focus .tool-call-bracket,
+.reasoning-block.is-complete:focus .tool-call-bracket-end {
+    opacity: 1;
 }
 
 .reasoning-block > Contents {
@@ -198,7 +235,14 @@ Screen {
 .reasoning-text {
     width: 100%;
     height: auto;
+    padding: 0 0 0 3;
+    color: #6e6e6e;
+}
+
+.reasoning-block.is-complete .reasoning-text {
+    /* Keep the reasoning subordinate to the header without losing legibility. */
     color: #858585;
+    opacity: 0.85;
 }
 '''
 tools = '''
@@ -206,8 +250,8 @@ tools = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    /* Keep tool cards visually separated from preceding text/cards. */
-    margin: 1 0 0 0;
+    /* Terminal-cell margins add a full row, so keep timeline cards flush. */
+    margin: 0;
     padding: 0;
     background: $background;
     pointer: pointer;
@@ -296,10 +340,6 @@ tools = '''
     color: #d66b73;
 }
 
-.tool-call > Contents {
-    padding: 0;
-}
-
 .tool-call.status-preparing > CollapsibleTitle,
 .tool-call.status-running > CollapsibleTitle {
     color: #d7a84b;
@@ -314,7 +354,8 @@ tools = '''
 }
 
 .tool-call > Contents {
-    padding: 0 0 0 1;
+    /* Align expanded output with the opening bracket in the tool header. */
+    padding: 0 0 0 3;
 }
 
 .bash-tool {
@@ -410,7 +451,7 @@ tools = '''
 .tool-call-summary {
     width: 1fr;
     height: auto;
-    /* Match tool cards and leave a clear row after assistant text. */
+    /* Separate a collected group from the preceding response by one row. */
     margin: 1 0 0 0;
     padding: 0 0 0 3;
     color: #a2adb8;
@@ -431,7 +472,8 @@ composer = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 0 0 0 1;
+    margin: 0;
+    padding: 0 0 0 3;
     color: $muted;
 }
 

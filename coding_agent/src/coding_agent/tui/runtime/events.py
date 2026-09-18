@@ -433,9 +433,16 @@ class EventPresenter:
         index = int(payload.get("summary_index") or 0)
         is_new = not self._reasoning_active
         self._reasoning_active = True
-        self._reasoning_parts[index] = _clean_reasoning(
-            str(payload.get("text") or delta)
-        )
+        cumulative_text = str(payload.get("text") or "")
+        if cumulative_text:
+            # Some adapters include the complete content accumulated so far;
+            # retain that form without appending it twice.
+            self._reasoning_parts[index] = _clean_reasoning(cumulative_text)
+        else:
+            # Delta-only providers (for example Anthropic thinking streams)
+            # require incremental accumulation rather than replacement.
+            previous = self._reasoning_parts.get(index, "")
+            self._reasoning_parts[index] = previous + delta
         text = "\n\n".join(
             self._reasoning_parts[key] for key in sorted(self._reasoning_parts)
         )

@@ -60,8 +60,9 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             thoughts = list(screen.query(ReasoningWidget))
             assert len(thoughts) == 1
             thought = thoughts[0]
-            assert thought.title == "Thought - Inspecting files"
-            assert thought.collapsed
+            assert thought.title.startswith("[ Thought for ")
+            assert thought.title.endswith("s ]")
+            assert not thought.collapsed
             assert "Hidden thought body" in thought.reasoning_text
             summaries = list(screen.query(ToolCallSummary))
             assert sum(item.count for item in summaries) == 11

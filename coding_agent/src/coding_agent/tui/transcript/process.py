@@ -2,21 +2,43 @@
 
 from __future__ import annotations
 
+import random
 import re
 import time
+from time import monotonic
 from typing import Any
 
 from rich.text import Text
-from textual.containers import Container, VerticalScroll
+from textual import events
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.motion import enter_row, reveal, settle_row
-from coding_agent.tui.theme import themed_markdown
 
 
 class ThinkingStatus(Static):
     """Muted run/usage metadata displayed directly beneath the user prompt."""
+
+    # Short, present-participle activity verbs in the style of Claude Code's
+    # transient status messages. Keep these provider-neutral and readable.
+    _CHURNING_VERBS = (
+        "Thinking",
+        "Reasoning",
+        "Planning",
+        "Exploring",
+        "Analyzing",
+        "Considering",
+        "Working",
+        "Reflecting",
+        "Inspecting",
+        "Connecting",
+        "Organizing",
+        "Synthesizing",
+        "Checking",
+        "Preparing",
+    )
 
     _WORKING_COLORS = (
         "#6f5930",
@@ -34,6 +56,7 @@ class ThinkingStatus(Static):
         self._working_detail = ""
         self._gradient_step = 0
         self._churning_started_at = 0.0
+        self._churning_verb = "Thinking"
         self._animation_timer: Any = None
         super().__init__(classes="thinking-status")
         self.set_text(text)
@@ -78,6 +101,7 @@ class ThinkingStatus(Static):
         self._working = True
         self._working_detail = ""
         self._churning_started_at = time.monotonic()
+        self._churning_verb = random.choice(self._CHURNING_VERBS)
         self._sync_animation_timer()
         self._render_churning()
 
@@ -85,7 +109,7 @@ class ThinkingStatus(Static):
         # Elapsed text only. Opacity pulses here fight transcript enter/settle
         # and stack a new animation on every timer tick.
         elapsed = time.monotonic() - self._churning_started_at
-        self.update(Text(f"Churning {elapsed:.1f}s", style="#858585"))
+        self.update(Text(f"{self._churning_verb} {elapsed:.1f}s", style="#858585"))
         self.styles.opacity = 1.0
 
     def set_working(self, detail: str = "") -> None:
@@ -251,6 +275,22 @@ class ProcessComplete(Static):
         reveal(self, duration=0.16)
 
 
+class ReasoningHeader(Horizontal, can_focus=True):
+    """Focusable Thought header that matches the tool-call bracket layout."""
+
+    class Toggle(Message):
+        pass
+
+    def _on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.post_message(self.Toggle())
+
+    def _on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            self.post_message(self.Toggle())
+
+
 class ReasoningWidget(Collapsible):
     """A live tail-following thought that folds into the tool timeline."""
 
@@ -259,16 +299,49 @@ class ReasoningWidget(Collapsible):
         self._content_without_heading = content
         self._body = Static(classes="reasoning-text")
         self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
-        self._markdown = None
+        self._label = Static("Thinking…", classes="reasoning-label", markup=False)
+        self._status = Static("", classes="reasoning-status", markup=False)
+        self._started_at = monotonic()
+        self._duration: float | None = None
         super().__init__(
             self._scroll,
             title="Thinking…",
             collapsed=False,
-            collapsed_symbol="▸",
-            expanded_symbol="▾",
+            collapsed_symbol="",
+            expanded_symbol="",
             classes="reasoning-block is-live",
         )
         self.set_content(content)
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
+        # the visible header matches the tool-call bracket layout.
+        yield self._title
+        with ReasoningHeader(classes="reasoning-header"):
+            yield Static("[", classes="tool-call-bracket", markup=False)
+            yield self._label
+            yield self._status
+            yield Static("]", classes="tool-call-bracket-end", markup=False)
+        with self.Contents():
+            yield self._scroll
+
+    def on_reasoning_header_toggle(self, event: ReasoningHeader.Toggle) -> None:
+        event.stop()
+        self.collapsed = not self.collapsed
+
+    def _watch_collapsed(self, collapsed: bool) -> None:
+        self._update_collapsed(collapsed)
+        if collapsed:
+            self.post_message(self.Collapsed(self))
+        else:
+            self.post_message(self.Expanded(self))
+        self._scroll.display = not collapsed
+
+    def _set_visible_title(self, title: str) -> None:
+        self.title = title
+        label, _, duration = title.strip("[] ").partition(" for ")
+        self._label.update(label or "Thought")
+        self._status.update(duration)
 
     def set_content(self, content: str) -> None:
         self.reasoning_text = content
@@ -301,20 +374,29 @@ class ReasoningWidget(Collapsible):
         self._scroll.anchor()
         enter_row(self, duration=0.14)
 
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        if seconds < 10:
+            return f"{seconds:.1f}s"
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        minutes, remainder = divmod(int(seconds), 60)
+        return f"{minutes}m {remainder:02d}s"
+
     def complete(self) -> None:
         if self.has_class("is-complete"):
             return
         if self.is_mounted:
             self._scroll.anchor(False)
             self._scroll.scroll_home(animate=False, force=True)
-        source = self._content_without_heading if self._summary_heading else self.reasoning_text
-        if self._markdown is None:
-            self._markdown = themed_markdown(source or " ", style="#858585")
-        self.title = (
-            f"Thought - {self._summary_heading}" if self._summary_heading else "Thought"
-        )
-        self._body.update(self._markdown)
-        self.collapsed = True
+        self._duration = max(0.0, monotonic() - self._started_at)
+        completed_title = f"[ Thought for {self._format_duration(self._duration)} ]"
+        body = self.reasoning_text.strip() or " "
+        self._body.update(body)
+        # Keep completed reasoning expanded so the provider's streamed content
+        # remains visible; the title still identifies the Thought row.
+        self.collapsed = False
+        self._set_visible_title(completed_title)
         self.remove_class("is-live")
         self.add_class("is-complete")
         settle_row(self)

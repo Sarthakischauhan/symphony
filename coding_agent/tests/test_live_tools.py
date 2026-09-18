@@ -181,7 +181,8 @@ def test_lone_completed_thought_stays_as_thought() -> None:
 
     assert thought in timeline
     assert _summaries(timeline) == []
-    assert thought.title == "Thought - Inspecting files"
+    assert thought.title.startswith("[ Thought for ")
+    assert thought.title.endswith("s ]")
 
 
 def test_multiple_completed_thoughts_fold_into_explored() -> None:
@@ -425,7 +426,8 @@ def test_interrupted_completed_thought_is_compacted_but_live_thought_remains() -
     assert len(summaries) == 1
     assert summaries[0].title == "Explored · 1 tool"
     assert summaries[0].call_ids == ["read"]
-    assert thought.title == "Thought - Inspecting files"
+    assert thought.title.startswith("[ Thought for ")
+    assert thought.title.endswith("s ]")
 
 
 def test_finalization_keeps_a_lone_thought() -> None:
@@ -437,7 +439,8 @@ def test_finalization_keeps_a_lone_thought() -> None:
 
     assert thought in timeline
     assert _summaries(timeline) == []
-    assert thought.title == "Thought - Answering"
+    assert thought.title.startswith("[ Thought for ")
+    assert thought.title.endswith("s ]")
 
 
 def test_assistant_message_is_plain_text_without_agent_chrome() -> None:
@@ -605,15 +608,15 @@ def test_explored_title_appends_duration_only_when_verb_is_set() -> None:
 
 def test_thought_snapshot_keeps_collapsed_preview() -> None:
     summary = ToolCallSummary()
-    summary.add_thought("Thought - Inspecting files", "Private reasoning body")
+    summary.add_thought("[ Thought for Inspecting files ]", "Private reasoning body")
 
     collapsed = summary.render().plain
     assert "Private reasoning body" in collapsed
-    assert "Thought - Inspecting files" not in collapsed
+    assert "[ Thought for Inspecting files ]" not in collapsed
 
     summary.toggle()
     expanded = summary.render().plain
-    assert "Thought - Inspecting files" in expanded
+    assert "[ Thought for Inspecting files ]" in expanded
     assert "Private reasoning body" in expanded
 
 

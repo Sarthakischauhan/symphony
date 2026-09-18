@@ -93,6 +93,7 @@ from coding_agent.tui.composer import PromptInput, SlashMenu
 from coding_agent.tui.runtime import RunMetrics, UiRunState
 from coding_agent.tui.transcript import (
     AssistantMessage,
+    ReasoningHeader,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
@@ -1562,7 +1563,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert not list(app.query(ReadFileWidget))
             thoughts = list(app.query(ReasoningWidget))
             assert len(thoughts) == 1
-            assert thoughts[0].title == "Thought"
+            assert thoughts[0].title == "[ Thought ]"
             assert thoughts[0].collapsed
             assert "Inspecting the requested file" in thoughts[0].reasoning_text
             process = app.query_one(RunProcess)
@@ -1927,6 +1928,11 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
 
             thought = app.query_one(ReasoningWidget)
             scroll = thought.query_one(".reasoning-scroll")
+            header = thought.query_one(ReasoningHeader)
+            label = thought.query_one(".reasoning-label")
+            status = thought.query_one(".reasoning-status")
+            assert "Thinking…" in str(label.render())
+            assert str(status.render()).strip() == ""
             assert not thought.collapsed
             assert "REASONING SUMMARY" not in thought.reasoning_text
             assert scroll.is_anchored
@@ -1937,9 +1943,18 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
             )
             await pilot.pause()
 
-            assert thought.title == "Thought - Explaining application context"
-            assert thought.collapsed
+            assert thought.title.startswith("[ Thought for ")
+            assert thought.title.endswith("s ]")
+            assert "Thought" in str(label.render())
+            assert str(status.render()).endswith("s")
+            assert not thought.collapsed
             assert not scroll.is_anchored
+            body = thought.query_one(".reasoning-text")
+            rendered = str(body.render())
+            assert "Streaming thought 0." in rendered
+            assert "Streaming thought 29." in rendered
+            assert "Explaining application context" in rendered
+            assert body.styles.color is not None
             assert app._thinking is not None
             assert not app._thinking.display
 
@@ -1949,10 +1964,10 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
 @pytest.mark.parametrize(
     ("content", "expected_title"),
     [
-        ("# Inspecting files\n\nReading the repository.", "Thought - Inspecting files"),
-        ("__Planning changes__\n\nReviewing the code.", "Thought - Planning changes"),
-        ("Explaining application context\n\nThis is ordinary prose.", "Thought"),
-        ("**Bold opening sentence.** More prose follows.", "Thought"),
+        ("# Inspecting files\n\nReading the repository.", "[ Thought for 0.0s ]"),
+        ("__Planning changes__\n\nReviewing the code.", "[ Thought for 0.0s ]"),
+        ("Explaining application context\n\nThis is ordinary prose.", "[ Thought for 0.0s ]"),
+        ("**Bold opening sentence.** More prose follows.", "[ Thought for 0.0s ]"),
     ],
 )
 def test_reasoning_title_uses_only_a_standalone_markdown_heading(
@@ -3260,7 +3275,7 @@ def test_final_output_folds_remaining_tools(
             thoughts = list(app.query(ReasoningWidget))
             assert len(thoughts) == 1
             thought = thoughts[0]
-            assert thought.title == "Thought - Inspecting files"
+            assert thought.title == "[ Thought for Inspecting files ]"
             assert thought.collapsed
             assert "Reasoning body stays hidden" in thought.reasoning_text
             tools = next(summary for summary in summaries if summary.count == 12)
@@ -3427,7 +3442,10 @@ def test_churning_is_text_only_and_thinking_does_not_remount_when_last(
             thinking.set_churning(0)
             await pilot.pause()
             assert thinking.styles.opacity == 1.0
-            assert "Churning" in thinking.render().plain
+            assert any(
+                verb in thinking.render().plain
+                for verb in ThinkingStatus._CHURNING_VERBS
+            )
 
             before = id(thinking)
             process.place_thinking_last()
