@@ -316,6 +316,24 @@ def test_provider_command_opens_onboard_while_offline(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_provider_command_escape_closes_onboard(tmp_path: Path) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app._command_manager.run("/provider")
+            await pilot.pause()
+            assert isinstance(app.screen, ProviderOnboardScreen)
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert not isinstance(app.screen, ProviderOnboardScreen)
+
+    asyncio.run(_run())
+
+
 def test_provider_command_unknown_name_stays_on_chat(tmp_path: Path) -> None:
     app = CodingAgentApp(workspace=tmp_path)
 

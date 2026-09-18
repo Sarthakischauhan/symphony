@@ -165,6 +165,7 @@ def evaluation_request_headers(
         "Accept": "application/json",
         "Content-Type": "application/json",
         "ai-evaluation-model-specification-version": EVALUATION_SPEC_VERSION,
+        "ai-gateway-protocol-version": "0.0.1",
         "ai-model-id": model_name,
         **(extra_headers or {}),
     }
