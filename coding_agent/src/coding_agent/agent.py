@@ -27,10 +27,12 @@ from coding_agent.approvals import ApprovalAddon
 from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
     CompactionConfig,
+    LangfuseConfig,
     SettingsSource,
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
+from coding_agent.langfuse import langfuse_from_config
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.plan import PlanStore
@@ -50,11 +52,13 @@ def default_addons(
     compaction: Optional[CompactionConfig] = None,
     spawn_configure: Any = None,
     include_subagent: bool = True,
+    langfuse: Optional[LangfuseConfig] = None,
 ) -> list:
-    """Product defaults: persistence, AI compaction, and spawn_agent.
+    """Product defaults: persistence, AI compaction, spawn_agent, and Langfuse.
 
     Compaction is always ``AiCompactionAddon`` (``InferenceCompactor``); the
-    harness template compactor is not mounted by coding_agent.
+    harness template compactor is not mounted by coding_agent. Langfuse is
+    mounted when enabled in config; the add-on stays silent without keys.
     """
     compaction = compaction or CompactionConfig()
     addons: list = [
@@ -63,6 +67,9 @@ def default_addons(
     ]
     if include_subagent:
         addons.append(SubagentAddon(configure=spawn_configure, background=True))
+    langfuse_addon = langfuse_from_config(langfuse or LangfuseConfig())
+    if langfuse_addon is not None:
+        addons.append(langfuse_addon)
     return addons
 
 
@@ -162,6 +169,7 @@ class CodingAgent:
             compaction=self.config.compaction,
             spawn_configure=self._spawn_child_config if include_subagent else None,
             include_subagent=include_subagent,
+            langfuse=self.config.langfuse,
         )
         addons.append(PlanModeAddon(self.plan_mode))
         addons.append(ApprovalAddon(self.workspace, self.sink))
@@ -213,6 +221,7 @@ class CodingAgent:
             addon_factory=lambda parent: default_addons(
                 persistence=self.persistence, harness_config=parent.config,
                 compaction=self.config.compaction, include_subagent=False,
+                langfuse=self.config.langfuse,
             ),
         )
 

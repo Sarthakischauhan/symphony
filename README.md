@@ -95,7 +95,7 @@ flowchart TD
 | Layer | Package | Role |
 | --- | --- | --- |
 | Harness | [`symphony-harness`](./core_harness/README.md) | Turns, tools, control-plane events, compaction |
-| Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, Gemini, Grok; catalog; streaming types |
+| Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel AI Gateway; catalog; streaming types |
 | Agent | [`symphony-code`](./coding_agent/README.md) | Workspace tools, JSONL sessions, Textual TUI |
 | Server | [`core-server`](./core_server/README.md) | FastAPI wrapper that streams those events over SSE |
 

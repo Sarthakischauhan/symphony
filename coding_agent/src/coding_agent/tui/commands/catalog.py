@@ -109,6 +109,7 @@ SLASH_COMMANDS = (
     SlashCommand("plan", "Enter plan mode", ""),
     SlashCommand("plans", "Choose and open a workspace plan", "[plan]"),
     SlashCommand("provider", "Sign in or add a model provider", "[name]"),
+    SlashCommand("langfuse", "Configure Langfuse telemetry", ""),
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),

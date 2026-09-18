@@ -15,7 +15,7 @@ from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from coding_agent.credentials import save_provider_auth, save_provider_settings
-from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton
+from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, dismiss_overlay
 from coding_agent.tui.theme import ONBOARD_CSS, PROVIDER_MODAL_CSS, SYMPHONY_RICH_THEME
 from core_ai.oauth import LoginCancelled, LoginFlow, save_token, start_login
 from core_ai.providers.catalog import (
@@ -448,10 +448,8 @@ class ProviderOnboardScreen(ModalBase[tuple[str, ...] | None]):
 
     def on_provider_wizard_completed(self, event: ProviderWizard.Completed) -> None:
         event.stop()
-        self.dismiss(event.providers)
+        dismiss_overlay(self, event.providers)
 
     def action_close_modal(self) -> None:
         wizard = self.query_one(ProviderWizard)
-        if not wizard.cancel():
-            return
-        self.dismiss(None)
+        wizard.cancel()

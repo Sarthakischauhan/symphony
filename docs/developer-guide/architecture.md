@@ -12,7 +12,7 @@ stream, tagged with `parent_id` and `agent_id`.
 | Layer | Package | Role |
 | --- | --- | --- |
 | Harness | `symphony-harness` | Turns, tools, control-plane events, compaction |
-| Harness | `symphony-core` | OpenAI, Anthropic, Gemini, Grok; catalog; streaming types |
+| Harness | `symphony-core` | OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel AI Gateway; catalog; streaming types |
 | Agent | `symphony-code` | Workspace tools, JSONL sessions, Textual TUI |
 | Server | `core-server` | FastAPI wrapper that streams those events over SSE |
 
@@ -132,6 +132,7 @@ coding_agent/src/coding_agent/
   tools/              # one file per workspace tool
   compaction/         # AiCompactionAddon + InferenceCompactor
   learning/           # after-run reflection, lesson store, run_summary
+  langfuse/           # optional LangfuseAddon: run/turn/tool traces
   persistence/        # JSONL sessions
   tui/                # Textual app, driven by CP events
 

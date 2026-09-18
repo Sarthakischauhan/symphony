@@ -28,6 +28,7 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [core-server](./packages/core-server.md) | FastAPI + SSE |
 | [TUI](./user-guide/tui.md) | Composer, modes, keybindings, images |
 | [Configuration](./user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
+| [Langfuse](./user-guide/langfuse.md) | Optional traces of sent prompts and tools |
 | [Tools](./user-guide/tools.md) | Workspace tool surface |
 | [Learning](./user-guide/learning.md) | Post-run reflection |
 | [Sessions](./user-guide/sessions.md) | JSONL resume |

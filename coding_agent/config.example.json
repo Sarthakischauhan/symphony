@@ -37,5 +37,10 @@
     "max_lessons": 200,
     "context_limit": 6,
     "context_max_chars": 1400
+  },
+  "langfuse": {
+    "enabled": true,
+    "sample_rate": 1.0,
+    "max_payload_chars": 32000
   }
 }

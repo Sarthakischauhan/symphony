@@ -7,7 +7,8 @@ are libraries you can import on their own.
 > **Requirements:** Python **3.11+** and uv. You need at least one provider
 > credential. If none is set, the TUI walks you through choosing a provider
 > and pasting an API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-> `GEMINI_API_KEY` / `GOOGLE_API_KEY`, or `XAI_API_KEY`).
+> `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`,
+> or `AI_GATEWAY_API_KEY`).
 
 ## Install from source
 
@@ -74,6 +75,8 @@ also sign in with a subscription; those tokens are stored in
 | Anthropic | `ANTHROPIC_API_KEY` or `claude setup-token` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
 | Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
 | Grok | `XAI_API_KEY` or xAI device login | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL`. Subscription login uses `cli-chat-proxy.grok.com`; an API key uses `api.x.ai`. |
+| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` |
+| Vercel AI Gateway | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` | `VERCEL_MODEL` / `AI_GATEWAY_MODEL`, `AI_GATEWAY_BASE_URL` |
 | Ollama | `OLLAMA_ENABLED=1` or `OLLAMA_BASE_URL` | `OLLAMA_HOST`, `OLLAMA_MODEL` |
 | Local | `LOCAL_BASE_URL` | `LOCAL_API_KEY`, `LOCAL_MODEL` |
 

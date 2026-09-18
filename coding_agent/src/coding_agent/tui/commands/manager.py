@@ -9,7 +9,14 @@ from core_ai import get_model, get_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
-from coding_agent.tui.screens import ContextModal, DiffModal, ExtensionsModal, LearningModal, PlanModal
+from coding_agent.tui.screens import (
+    ContextModal,
+    DiffModal,
+    ExtensionsModal,
+    LangfuseSetupScreen,
+    LearningModal,
+    PlanModal,
+)
 from coding_agent.tui.commands.provider import open_provider_onboard
 from coding_agent.tui.commands.catalog import (
     EFFORT_CATALOG,
@@ -21,6 +28,15 @@ from coding_agent.tui.commands.catalog import (
     find_model,
     model_options,
 )
+
+# --- langfuse.py ---
+def _on_langfuse_saved(app: Any, saved: bool | None) -> None:
+    app.query_one("#prompt").focus()
+    if not saved:
+        return
+    app.run_worker(reload_project(app), exclusive=False)
+    app.add_notice("Langfuse saved · reloading configuration.", "success")
+
 
 # --- model_switcher.py ---
 def select_model(app: Any, argument: str) -> None:
@@ -419,6 +435,8 @@ class CommandManager:
             await reload_project(app)
         elif command == "provider":
             open_provider_onboard(app, argument)
+        elif command == "langfuse":
+            app.push_screen(LangfuseSetupScreen(), lambda saved: _on_langfuse_saved(app, saved))
         elif app._agent is None:
             app.add_notice(OFFLINE_HINT, "error")
         elif command == "new":
