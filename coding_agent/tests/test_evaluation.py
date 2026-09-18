@@ -137,10 +137,10 @@ def test_enabled_multi_turn_still_two_eval_calls(tmp_path: Path) -> None:
 def test_evaluator_not_invoked_from_before_turn_or_on_tool(tmp_path: Path) -> None:
     mock = MockEvaluator()
     addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock)
-    assert addon.before_turn is Addon.before_turn
-    assert addon.on_tool is Addon.on_tool
-    assert addon.before_tool is Addon.before_tool
-    assert addon.after_turn is Addon.after_turn
+    assert JevAddon.before_turn is Addon.before_turn
+    assert JevAddon.on_tool is Addon.on_tool
+    assert JevAddon.before_tool is Addon.before_tool
+    assert JevAddon.after_turn is Addon.after_turn
 
     async def scenario() -> None:
         await addon.before_turn(turn=0, messages=[])
@@ -279,8 +279,7 @@ def test_jev_flag_parses_into_evaluation_config(tmp_path: Path) -> None:
     assert config.evaluation.provider == "vercel"
     assert config.evaluation.model == "typesafe-ai/jev"
     assert config.evaluation.on_error == "fail-open"
-    defaulted = ensure_spawn_settings(tmp_path / "other")
-    assert defaulted.evaluation.enabled is False
+    assert CodingAgentConfig().evaluation.enabled is False
 
 
 def test_slash_jev_is_mode_toggle_not_model_switch() -> None:
