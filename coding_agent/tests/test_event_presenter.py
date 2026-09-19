@@ -213,6 +213,19 @@ def test_reasoning_deltas_coalesce_to_one_scheduled_paint() -> None:
     assert len(scheduled) == 2
 
 
+def test_delta_only_reasoning_fragments_are_accumulated() -> None:
+    scheduled: list = []
+    presenter, view, _chrome = _presenter(schedule=scheduled)
+    presenter.handle("run_started", {"model_id": "anthropic:test"})
+    presenter.handle("turn_started", {"turn": 0})
+    presenter.handle("reasoning_delta", {"delta": "Plan", "summary_index": 0})
+    presenter.handle("reasoning_delta", {"delta": " the change", "summary_index": 0})
+
+    scheduled[0]()
+
+    assert view.reasoning == [("Plan the change", True)]
+
+
 def test_tool_argument_deltas_coalesce_to_one_scheduled_paint() -> None:
     scheduled: list = []
     presenter, view, _chrome = _presenter(schedule=scheduled)

@@ -300,18 +300,30 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "ready"
         completed = self._completed_text()
+        elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
+        final_output = str(payload.get("output_text") or "")
+        detail = completed
+        if " · " in detail:
+            detail = detail.split(" · ", 1)[1]
+        if final_output:
+            # The run-level output is authoritative. Intermediate text_delta
+            # widgets represent turn-by-turn narration and must not survive
+            # finalization as if they were the final answer.
+            self.view.set_assistant(final_output, new=True)
         self.view.set_thinking(completed)
-        # Keep the final response as the last conversational content. The
-        # compact completion row is mounted after it below.
+        # Fold the work that happened before the final reply into a past-tense
+        # summary, then keep the assistant response as the last content.
         try:
-            self.view.finish_process(completed, add_completion=False)
+            self.view.finish_process(
+                completed,
+                add_completion=False,
+                verb="Cooked",
+                duration=elapsed,
+                detail=detail,
+            )
         except TypeError:
             # Keep compatibility with lightweight presenter test doubles.
             self.view.finish_process(completed)
-        else:
-            add_completion = getattr(self.view, "add_run_completion", None)
-            if callable(add_completion):
-                add_completion(completed)
         self._assistant_open = False
 
     def _on_run_summary(self, payload: Dict[str, Any]) -> None:
@@ -433,9 +445,16 @@ class EventPresenter:
         index = int(payload.get("summary_index") or 0)
         is_new = not self._reasoning_active
         self._reasoning_active = True
-        self._reasoning_parts[index] = _clean_reasoning(
-            str(payload.get("text") or delta)
-        )
+        cumulative_text = str(payload.get("text") or "")
+        if cumulative_text:
+            # Some adapters include the complete content accumulated so far;
+            # retain that form without appending it twice.
+            self._reasoning_parts[index] = _clean_reasoning(cumulative_text)
+        else:
+            # Delta-only providers (for example Anthropic thinking streams)
+            # require incremental accumulation rather than replacement.
+            previous = self._reasoning_parts.get(index, "")
+            self._reasoning_parts[index] = previous + delta
         text = "\n\n".join(
             self._reasoning_parts[key] for key in sorted(self._reasoning_parts)
         )

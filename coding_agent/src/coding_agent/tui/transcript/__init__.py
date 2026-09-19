@@ -23,13 +23,19 @@ from coding_agent.tui.transcript.live_tools import (
     release_live_binding,
     segment_tool_stretches,
 )
-from coding_agent.tui.transcript.process import ReasoningWidget, RunProcess, ThinkingStatus
+from coding_agent.tui.transcript.process import (
+    ReasoningHeader,
+    ReasoningWidget,
+    RunProcess,
+    ThinkingStatus,
+)
 from coding_agent.tui.transcript.surface import TranscriptSurface
 
 __all__ = [
     "AssistantMessage",
     "Notice",
     "RunSummary",
+    "ReasoningHeader",
     "ReasoningWidget",
     "RunProcess",
     "ThinkingStatus",

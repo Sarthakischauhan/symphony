@@ -15,7 +15,7 @@ def test_gpt_5_6_uses_responses_reasoning_stream() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/responses"
         payload = json.loads(request.content)
-        assert payload["reasoning"] == {"effort": "xhigh", "summary": "auto"}
+        assert payload["reasoning"] == {"effort": "xhigh", "summary": "detailed"}
         assert payload["max_output_tokens"] == 900
         body = "\n\n".join(
             f"data: {event}"
