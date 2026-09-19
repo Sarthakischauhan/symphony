@@ -75,11 +75,20 @@ class LangfuseAddon(Addon):
                 "Install it with: pip install 'symphony-code[langfuse]'"
             )
             return
-        kwargs: dict[str, Any] = {}
-        base_url = os.environ.get("LANGFUSE_BASE_URL", "").strip()
+        # Pass credentials explicitly instead of relying on the SDK to read
+        # them from its own environment.  This matters when the TUI has just
+        # written ~/.symphony/.env (or when the addon is used as a library).
+        kwargs: dict[str, Any] = {
+            "public_key": os.environ["LANGFUSE_PUBLIC_KEY"].strip(),
+            "secret_key": os.environ["LANGFUSE_SECRET_KEY"].strip(),
+        }
+        # LANGFUSE_HOST is the name used by the Langfuse SDK/documentation;
+        # BASE_URL is retained for Symphony's existing setup screen.
+        base_url = (
+            os.environ.get("LANGFUSE_BASE_URL", "").strip()
+            or os.environ.get("LANGFUSE_HOST", "").strip()
+        )
         if base_url:
-            # Langfuse v3 used ``host``; v4 accepts ``base_url`` (and still
-            # aliases ``host``). Pass both so either SDK version works.
             kwargs["base_url"] = base_url
             kwargs["host"] = base_url
         try:

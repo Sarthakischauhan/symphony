@@ -132,11 +132,12 @@ class SubagentAddon(Addon):
         """Construct the child ``CoreHarness``. Does not run it."""
         from core_harness.harness import CoreHarness
 
-        child_turns = max_turns if max_turns is not None else min(
-            parent.max_turns if parent.max_turns is not None else parent.config.spawn_max_turns,
-            parent.config.spawn_max_turns,
+        # Children get a fresh turn budget. Do not inherit the parent's remaining
+        # max_turns — a long parent run would otherwise starve every spawn.
+        child_turns = (
+            max_turns if max_turns is not None else parent.config.spawn_max_turns
         )
-        child_turns = max(1, min(child_turns, parent.config.spawn_max_turns))
+        child_turns = max(1, min(int(child_turns), parent.config.spawn_max_turns))
         return CoreHarness(
             registry=parent.registry,
             model_id=model_id or parent.model_id,
@@ -263,6 +264,8 @@ class SubagentAddon(Addon):
                 "remaining children before finalizing your answer. No polling is needed. "
                 f"Background defaults to {default_background}. "
                 "Optionally set model_id and max_turns for that child. "
+                "Children get a fresh turn budget (spawn_max_turns by default) "
+                "and do not inherit the parent's remaining turns. "
                 "Children run without approval prompts and cannot spawn further "
                 "agents."
             ),
@@ -287,7 +290,7 @@ class SubagentAddon(Addon):
                     },
                     "max_turns": {
                         "type": "integer",
-                        "description": "Optional turn cap for the child, limited by spawn_max_turns.",
+                        "description": "Optional fresh turn cap for the child, limited by spawn_max_turns. Defaults to spawn_max_turns, not the parent's remaining turns.",
                     },
                 },
                 "required": ["prompt"],

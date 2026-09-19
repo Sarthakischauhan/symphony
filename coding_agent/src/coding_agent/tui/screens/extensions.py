@@ -45,12 +45,12 @@ class ExtensionsModal(ModalBase[None]):
                 yield Static(f"{total} total", id="extensions-counter")
                 yield ModalCloseButton("Esc  close", id="modal-close")
             yield Static(
-                "Skills and plugins available to this workspace",
+                "Skills and plugins available from your Symphony configuration",
                 id="extensions-subtitle",
             )
             with ModalScroll(id="extensions-body", classes="modal-body"):
                 if not total:
-                    yield EmptyState("No extensions installed", "Add skills or plugins to your workspace configuration.")
+                    yield EmptyState("No extensions installed", "Add skills or plugins to ~/.symphony.")
                 else:
                     if skills:
                         yield Static(f"SKILLS  ·  {len(skills)}", classes="extensions-section")

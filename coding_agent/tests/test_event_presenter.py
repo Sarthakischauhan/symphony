@@ -148,6 +148,24 @@ def test_completed_metrics_reset_and_use_monotonic_time_without_timestamps(monke
     assert view.finished_process[-1] == "5s (↑1 ↓53) · 1 model call · 0 tool calls"
 
 
+def test_completed_output_is_replaced_before_process_is_finished() -> None:
+    presenter, view, _ = _presenter()
+    presenter.handle("run_started", {"ts": 100.0})
+    presenter.handle("turn_started", {"turn": 0})
+    presenter.handle("text_delta", {"delta": "intermediate"})
+    presenter.handle(
+        "run_completed",
+        {
+            "ts": 101.0,
+            "output_text": "**final**\n\n- formatted",
+            "usage": {"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7},
+        },
+    )
+    assert view.assistant[-1] == ("**final**\n\n- formatted", False)
+    assert view.finished_assistant == 1
+    assert view.finished_process[-1].endswith("1 model call · 0 tool calls")
+
+
 def test_text_deltas_coalesce_to_one_scheduled_paint() -> None:
     scheduled: list = []
     presenter, view, chrome = _presenter(schedule=scheduled)

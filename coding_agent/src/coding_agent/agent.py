@@ -133,16 +133,15 @@ class CodingAgent:
         )
         skill_roots = [
             ("user", Path.home() / ".symphony" / "skills"),
-            ("workspace", self.workspace / ".symphony" / "skills"),
             *[("configured", root) for root in self.config.skills.roots],
         ]
         plugin_addons = []
         plugin_skill_roots = []
         self.plugin_diagnostics = ()
         if self.config.plugins.enabled:
-            # Repository config must not be able to authorize executable code.
+            # Global config must not be able to authorize executable code.
             # Authorization is supplied by the trusted process environment;
-            # workspace config may only select already-authorized plugins.
+            # config may only select already-authorized plugins.
             trusted_roots = [
                 Path(value)
                 for value in os.environ.get("SYMPHONY_PLUGIN_AUTHORIZED_ROOTS", "").split(os.pathsep)

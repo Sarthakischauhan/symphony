@@ -16,15 +16,15 @@ def _write_plugin(root: Path, plugin_id: str = "demo") -> Path:
     return plugin
 
 
-def test_plugin_discovery_finds_user_and_workspace_scopes(tmp_path, monkeypatch):
+def test_plugin_discovery_finds_user_scope_only(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
     workspace = tmp_path / "repo"
     user_plugin = _write_plugin(tmp_path / "home" / ".symphony" / "plugins", "user-plugin")
-    workspace_plugin = _write_plugin(workspace / ".symphony" / "plugins", "workspace-plugin")
+    _write_plugin(workspace / ".symphony" / "plugins", "workspace-plugin")
 
     entries = PluginManager(workspace).discover()
 
-    assert {entry.path for entry in entries} == {user_plugin.resolve(), workspace_plugin.resolve()}
+    assert {entry.path for entry in entries} == {user_plugin.resolve()}
 
 
 def test_plugin_discovery_ignores_directories_without_manifest(tmp_path, monkeypatch):
