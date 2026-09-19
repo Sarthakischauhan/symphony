@@ -33,9 +33,11 @@ from coding_agent.evaluation import (
     apply_findings_gate,
     build_run_state,
     clip_text,
+    critic_message,
+    decide_next_step,
     jev_from_config,
 )
-from coding_agent.evaluation.protocol import EvaluationDecision, EvaluationResult
+from coding_agent.evaluation.protocol import EvaluationDecision, EvaluationFinding, EvaluationResult
 from coding_agent.plan import PlanStore
 from coding_agent.tui.__main__ import build_parser
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS
@@ -324,9 +326,9 @@ def test_findings_do_not_rewrite_plan(tmp_path: Path) -> None:
     mock = MockEvaluator(
         finish=EvaluationResult(
             phase="finish",
-            decisions=[
-                EvaluationDecision(name="needs_replan", kind="boolean", value=True, label="true"),
-                EvaluationDecision(name="next_action", kind="choice", value="replan", label="replan"),
+            findings=[
+                EvaluationFinding(question="remaining_work", kind="boolean", value=True, label="true"),
+                EvaluationFinding(question="next_action", kind="choice", value="retry", label="retry"),
             ],
         )
     )
@@ -339,8 +341,55 @@ def test_findings_do_not_rewrite_plan(tmp_path: Path) -> None:
         )
     )
     assert path.read_text(encoding="utf-8") == original
-    assert apply_findings_gate(addon.last_finish) == CONTINUE_NORMALLY
-    assert addon.gated_action == CONTINUE_NORMALLY
+    assert apply_findings_gate(addon.last_finish) == "retry"
+    assert addon.gated_action == "retry"
+
+
+def test_policy_maps_start_replan_and_finish_retry() -> None:
+    replan = EvaluationResult(
+        phase="start",
+        findings=[
+            EvaluationFinding(question="needs_replan", kind="boolean", value=True, rationale="plan is stale"),
+        ],
+    )
+    decision = decide_next_step(replan)
+    assert decision.action == "replan"
+    assert "Revise the plan" in critic_message(decision)
+
+    retry = EvaluationResult(
+        phase="finish",
+        findings=[
+            EvaluationFinding(question="next_action", kind="choice", value="retry", label="retry"),
+        ],
+    )
+    assert decide_next_step(retry).action == "retry"
+    skipped = EvaluationResult(phase="start", status="error")
+    assert decide_next_step(skipped).action == CONTINUE_NORMALLY
+
+
+def test_start_replan_is_injected_for_the_model(tmp_path: Path) -> None:
+    mock = MockEvaluator(
+        start=EvaluationResult(
+            phase="start",
+            findings=[
+                EvaluationFinding(
+                    question="needs_replan",
+                    kind="boolean",
+                    value=True,
+                    rationale="current plan cannot ship the request",
+                )
+            ],
+        )
+    )
+    agent = _agent(tmp_path, enabled=True)
+    addon = _jev(agent)
+    addon.evaluator = mock
+    messages: list[Message] = [Message(role="user", content="implement the feature")]
+    asyncio.run(addon.before_run(task="implement the feature", messages=messages))
+    assert addon.gated_action == "replan"
+    assert addon.plan_mode is not None and addon.plan_mode.active
+    assert messages[-1].role == "user"
+    assert "Jev requested a replan" in str(messages[-1].content)
 
 
 def test_jev_flag_parses_into_evaluation_config(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-"""Optional Jev critic mode for coding-agent runs (findings only)."""
+"""Optional Jev critic mode for coding-agent runs."""
 
 from coding_agent.evaluation.addon import JevAddon, jev_from_config
 from coding_agent.evaluation.evaluators import (
@@ -6,6 +6,12 @@ from coding_agent.evaluation.evaluators import (
     MockEvaluator,
     StubEvaluator,
     VercelJevEvaluator,
+)
+from coding_agent.evaluation.policy import (
+    PolicyDecision,
+    apply_findings_gate,
+    critic_message,
+    decide_next_step,
 )
 from coding_agent.evaluation.protocol import (
     CONTINUE_NORMALLY,
@@ -15,7 +21,6 @@ from coding_agent.evaluation.protocol import (
     Evaluator,
     FINISH_QUESTIONS,
     START_QUESTIONS,
-    apply_findings_gate,
 )
 from coding_agent.evaluation.state import RunState, build_run_state, clip_text
 
@@ -28,6 +33,7 @@ __all__ = [
     "FINISH_QUESTIONS",
     "JevAddon",
     "LLMEvaluator",
+    "PolicyDecision",
     "MockEvaluator",
     "RunState",
     "START_QUESTIONS",
@@ -36,5 +42,7 @@ __all__ = [
     "apply_findings_gate",
     "build_run_state",
     "clip_text",
+    "critic_message",
+    "decide_next_step",
     "jev_from_config",
 ]

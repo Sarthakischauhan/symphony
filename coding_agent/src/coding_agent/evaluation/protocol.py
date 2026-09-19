@@ -164,9 +164,14 @@ def error_result(phase: EvaluationPhase, rationale: str = "") -> EvaluationResul
 
 
 def apply_findings_gate(result: EvaluationResult) -> str:
-    """High-confidence control-flow is stubbed in v1. Findings are recorded only."""
-    del result
-    return CONTINUE_NORMALLY
+    """Return the code-owned next-step action for this result.
+
+    The mapping lives in ``evaluation.policy`` so thresholds and honour rules
+    stay out of the protocol types.
+    """
+    from coding_agent.evaluation.policy import apply_findings_gate as decide
+
+    return decide(result)
 
 
 __all__ = [

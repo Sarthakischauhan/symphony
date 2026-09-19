@@ -270,7 +270,7 @@ class CodingAgent:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
         try:
-            return await self.harness.run(
+            result = await self.harness.run(
                 user_input,
                 conversation=conversation,
                 session_id=session_id or self.session_id,
@@ -280,11 +280,28 @@ class CodingAgent:
             if registry is None:
                 raise
             self.harness.registry = registry
-            return await self.harness.run(
+            result = await self.harness.run(
                 user_input,
                 conversation=conversation,
                 session_id=session_id or self.session_id,
             )
+        follow_up = self._jev_follow_up()
+        if follow_up:
+            if self.mode != "plan" and "replan" in follow_up.lower():
+                self.set_mode("plan")
+            result = await self.harness.run(
+                follow_up,
+                session_id=session_id or self.session_id,
+            )
+        return result
+
+    def _jev_follow_up(self) -> Optional[str]:
+        addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)
+        consume = getattr(addon, "consume_follow_up", None)
+        if not callable(consume):
+            return None
+        prompt = consume()
+        return prompt if isinstance(prompt, str) and prompt.strip() else None
 
     def set_mode(self, mode: AgentMode) -> None:
         self.mode = mode
