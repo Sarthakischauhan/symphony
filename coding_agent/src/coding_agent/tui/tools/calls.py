@@ -119,9 +119,6 @@ class ToolCallWidget(Collapsible):
         self._body.display = not collapsed
         self.refresh_content()
 
-    def _disclosure_symbol(self) -> str:
-        return "▸" if self.collapsed else "▾"
-
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         self.arguments = dict(arguments or {})
         self._apply_activity(take_activity(self.arguments))

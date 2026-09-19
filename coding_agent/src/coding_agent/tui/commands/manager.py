@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Iterable
+from typing import Any
 
-from core_ai import get_model, get_provider
+from core_ai import get_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
@@ -19,17 +19,24 @@ from coding_agent.tui.screens import (
 )
 from coding_agent.tui.commands.provider import open_provider_onboard
 from coding_agent.tui.commands.catalog import (
-    EFFORT_CATALOG,
-    MODE_CATALOG,
     SLASH_COMMANDS,
-    EffortOption,
     PlanOption,
-    find_mode,
     find_model,
     model_options,
 )
+from coding_agent.tui.commands.effort import (
+    model_info,
+    model_supports_effort,
+    select_effort,
+    show_effort_picker,
+)
+from coding_agent.tui.commands.mode import (
+    select_mode,
+    show_mode_picker,
+    sync_app_mode,
+)
 
-# --- langfuse.py ---
+
 def _on_langfuse_saved(app: Any, saved: bool | None) -> None:
     app.query_one("#prompt").focus()
     if not saved:
@@ -39,7 +46,7 @@ def _on_langfuse_saved(app: Any, saved: bool | None) -> None:
 
 
 def jev_enabled_from_argument(current: bool, argument: str) -> bool | None:
-    """Resolve `/jev` as a mode toggle. ``None`` means the argument was invalid."""
+    """Slash `/jev` contract: toggle, on/off aliases, or ``None`` if invalid."""
     needle = argument.strip().lower()
     if needle in {"", "toggle"}:
         return not current
@@ -51,7 +58,7 @@ def jev_enabled_from_argument(current: bool, argument: str) -> bool | None:
 
 
 def toggle_jev(app: Any, argument: str = "") -> None:
-    """Enable or disable critic mode without switching the chat model."""
+    """Slash `/jev` handler. Flips ``evaluation.enabled``; does not change the chat model."""
     current = bool(getattr(getattr(app, "config", None), "evaluation", None) and app.config.evaluation.enabled)
     enabled = jev_enabled_from_argument(current, argument)
     if enabled is None:
@@ -66,7 +73,6 @@ def toggle_jev(app: Any, argument: str = "") -> None:
         app.add_notice("Jev critic mode off.", "success")
 
 
-# --- model_switcher.py ---
 def select_model(app: Any, argument: str) -> None:
     agent = app._agent
     assert agent is not None
@@ -93,89 +99,6 @@ def show_model_picker(app: Any) -> None:
     prompt.cursor_position = len(prompt.value)
     app.query_one("#slash-menu").set_models(app._model_options, app._agent.harness.model_id)
 
-# --- mode_switcher.py ---
-def effort_matches(
-    value: str,
-    efforts: Iterable[EffortOption] = EFFORT_CATALOG,
-) -> tuple[EffortOption, ...]:
-    needle = value.strip().lower()
-    return tuple(
-        effort
-        for effort in efforts
-        if not needle
-        or needle in effort.id.lower()
-        or needle in effort.label.lower()
-    )
-
-
-def effort_options_for_model(model_id: str) -> tuple[EffortOption, ...]:
-    """Return only effort levels advertised by the active model."""
-    model = _model_info(model_id)
-    if model is None or not model.thinking_level_map:
-        return ()
-
-    supported = {
-        "none" if level == "off" else level
-        for level, provider_value in model.thinking_level_map
-        if provider_value is not None
-    }
-    return tuple(
-        option
-        for option in EFFORT_CATALOG
-        if option.id == "default" or option.id in supported
-    )
-
-
-def _model_info(model_id: str):
-    provider, separator, model_name = model_id.partition(":")
-    if not separator:
-        return None
-    return get_model(provider, model_name)
-
-
-def model_supports_effort(model_id: str) -> bool:
-    return bool(effort_options_for_model(model_id))
-
-
-def select_effort(app: Any, argument: str) -> None:
-    value = argument.strip().lower()
-    efforts = effort_options_for_model(app._agent.harness.model_id)
-    supported = {option.id for option in efforts}
-    if value not in supported:
-        choices = ", ".join(option.id for option in efforts)
-        app.add_notice(f"Unknown effort: {argument}. Choose: {choices}", "warning")
-        return
-    app._agent.harness.reasoning_effort = None if value == "default" else value
-    label = next(option.label for option in efforts if option.id == value)
-    app.add_notice(f"Reasoning effort set to {label}", "success")
-
-
-def show_effort_picker(app: Any) -> None:
-    efforts = effort_options_for_model(app._agent.harness.model_id)
-    if not efforts:
-        app.add_notice("The active model does not support effort settings.", "warning")
-        return
-    prompt = app.query_one("#prompt")
-    prompt.value = "/effort "
-    prompt.cursor_position = len(prompt.value)
-    current = app._agent.harness.reasoning_effort or "default"
-    app.query_one("#slash-menu").set_efforts(efforts, current)
-
-
-def sync_app_mode(app: Any, mode: str, *, plan_path: str | None = None) -> None:
-    """Keep TUI mode, agent mode, and the plan-mode gate in lockstep."""
-    app.mode = mode
-    agent = getattr(app, "_agent", None)
-    if agent is not None:
-        agent.set_mode(mode)
-        plan_state = getattr(agent, "plan_mode", None)
-        if plan_state is not None:
-            if mode == "plan":
-                plan_state.begin(plan_path)
-            else:
-                plan_state.reset()
-    app._update_composer_hint()
-
 
 def current_plan_path(app: Any) -> str | None:
     store = getattr(app, "_plan_store", None)
@@ -183,27 +106,6 @@ def current_plan_path(app: Any) -> str | None:
     return str(path) if path is not None else None
 
 
-def select_mode(app: Any, argument: str) -> None:
-    selected = find_mode(argument)
-    if selected is None:
-        app.add_notice(f"Unknown mode: {argument}. Run /mode to see available modes.", "warning")
-        return
-    sync_app_mode(app, selected.id)
-    app.add_notice(f"Switched to {selected.label} mode", "success")
-
-
-def show_mode_picker(app: Any) -> None:
-    prompt = app.query_one("#prompt")
-    prompt.value = "/mode "
-    prompt.cursor_position = len(prompt.value)
-    app.query_one("#slash-menu").set_modes(MODE_CATALOG, app.mode)
-
-
-def toggle_mode(app: Any) -> None:
-    sync_app_mode(app, "plan" if app.mode == "build" else "build")
-
-
-# --- plan_list.py ---
 def list_plan_options(app: Any, query: str = "") -> tuple[PlanOption, ...]:
     cached = getattr(app, "_plan_list_cache", None)
     if cached is None:
@@ -269,7 +171,7 @@ def on_plan_action(app: Any, action: str | None) -> None:
     prompt.value = f"Build the approved plan in {plan_path}."
     prompt.action_submit()
 
-# --- reload.py ---
+
 async def reload_project(app: Any) -> None:
     """Reload environment-backed agent configuration in the current session."""
     previous_agent = app._agent
@@ -293,7 +195,7 @@ async def reload_project(app: Any) -> None:
         )
         reloaded_agent.set_mode(app.mode)
         reloaded_model = reloaded_agent.harness.model_id
-        reloaded_info = _model_info(reloaded_model)
+        reloaded_info = model_info(reloaded_model)
         reloaded_agent.harness.reasoning_effort = (
             None
             if reloaded_info is not None and not model_supports_effort(reloaded_model)
@@ -324,7 +226,6 @@ async def reload_project(app: Any) -> None:
         app.add_notice(f"Reload failed · {exc}", "error")
 
 
-# --- session.py ---
 def start_new_session(app: Any) -> None:
     agent = app._agent
     assert agent is not None
@@ -339,7 +240,7 @@ def start_new_session(app: Any) -> None:
     app.add_notice(f"New conversation · {session_id[:8]}", "success")
     app._set_status("")
 
-# --- status.py ---
+
 def show_status(app: Any) -> None:
     if app._agent is None:
         app.add_notice("Status · offline", "warning")
@@ -379,7 +280,6 @@ async def show_context(app: Any) -> None:
     app.push_screen(ContextModal(report))
 
 
-# --- compact.py ---
 async def compact_context(app: Any) -> None:
     """Run the harness-mounted compactor on the saved conversation.
 
@@ -400,9 +300,8 @@ async def compact_context(app: Any) -> None:
         app._presenter.refresh_chrome()
 
 
-# --- command_manager.py ---
 class CommandManager:
-    """Parse slash commands and run the matching handler."""
+    """Slash-command dispatcher. Catalog + handlers are the public `/` seam."""
 
     def __init__(self, app: Any) -> None:
         self.app = app

@@ -71,11 +71,6 @@ class UiRunState:
         self.stream_text += delta
         self.detail = "streaming"
 
-    def append_reasoning(self, delta: str) -> None:
-        self.phase = "thinking"
-        self.reasoning_text += delta
-        self.detail = "reasoning"
-
     def update_usage(self, payload: Dict[str, Any]) -> None:
         m = self.metrics
         m.prompt_tokens = int(payload.get("prompt_tokens") or 0)
@@ -152,15 +147,3 @@ class UiRunState:
             parts.append(f"context_left={m.context_left}")
 
         return "  ·  ".join(parts)
-
-    def live_line(self) -> str:
-        if self.phase == "streaming" and self.stream_text:
-            return f"assistant> {self.stream_text}"
-        if self.phase == "tool":
-            preview = self.tool_args_preview
-            return f"thinking · tool {preview}".rstrip()
-        if self.phase == "thinking":
-            return "thinking…"
-        if self.phase == "paused":
-            return "paused"
-        return ""

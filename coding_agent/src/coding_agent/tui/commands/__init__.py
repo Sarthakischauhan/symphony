@@ -17,13 +17,13 @@ from coding_agent.tui.commands.catalog import (
     model_matches,
     model_options,
 )
-from coding_agent.tui.commands.manager import (
-    CommandManager,
+from coding_agent.tui.commands.effort import (
     effort_matches,
     effort_options_for_model,
     model_supports_effort,
-    toggle_mode,
 )
+from coding_agent.tui.commands.manager import CommandManager
+from coding_agent.tui.commands.mode import toggle_mode
 
 __all__ = [
     "CommandManager",

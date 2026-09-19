@@ -102,6 +102,7 @@ MODE_CATALOG = (
     ModeOption("plan", "Plan", "Inspect and write a plan only"),
 )
 
+# Public slash-command catalog. CommandManager.dispatch is the runtime seam.
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
     SlashCommand("mode", "View or switch between build and plan", "[mode]"),

@@ -17,7 +17,6 @@ from coding_agent.tui.transcript.messages import (
     Welcome,
 )
 from coding_agent.tui.transcript.process import (
-    ProcessComplete,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
@@ -285,10 +284,6 @@ class TranscriptSurface:
                 final=True,
             )
         self._compact_transcript()
-
-    def add_run_completion(self, title: str) -> None:
-        """Place compact run metrics after the finalized assistant reply."""
-        self._mount_transcript(ProcessComplete(title))
 
     def mount_transcript(self, widget: Widget) -> None:
         """Public adapter used by the persisted-history loader."""

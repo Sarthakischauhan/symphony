@@ -85,6 +85,7 @@ class CodingAgentApp(
         self.model_id = model_id
         self.session_id = session_id
         self.enable_learning = enable_learning
+        # Config knob: None keeps workspace/settings; bool forces evaluation.enabled.
         self.enable_jev = enable_jev
         overrides: dict = {}
         if enable_learning is not None:
@@ -136,6 +137,7 @@ class CodingAgentApp(
         self._pending_question_default = ""
         self._model_options = model_options()
         self._command_manager = CommandManager(self)
+        # Config knob: live Explored fold threshold; ``< 1`` disables compaction.
         self.live_tool_widget_limit = LIVE_TOOL_WIDGET_LIMIT
         self._scroll_end_scheduled = False
         self._pending_scroll_end = False

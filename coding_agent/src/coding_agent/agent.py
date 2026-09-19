@@ -59,7 +59,7 @@ def default_addons(
     plan_store: Optional[PlanStore] = None,
     plan_mode: Optional[PlanModeState] = None,
 ) -> list:
-    """Product defaults: persistence, AI compaction, spawn_agent, Langfuse, and Jev.
+    """Addon hook: product defaults for persistence, compaction, spawn, Langfuse, Jev.
 
     Compaction is always ``AiCompactionAddon`` (``InferenceCompactor``); the
     harness template compactor is not mounted by coding_agent. Langfuse is

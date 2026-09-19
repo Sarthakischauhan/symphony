@@ -7,7 +7,15 @@ import re
 import time
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 
+from coding_agent.tui.runtime.lifecycle import apply_idle_terminal
 from coding_agent.tui.runtime.state import UiRunState
+from coding_agent.tui.runtime.summary import (
+    clock_duration,
+    compaction_notice,
+    completed_run_text,
+    count_label,
+    usage_thinking_text,
+)
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
@@ -32,37 +40,8 @@ def _clean_reasoning(text: str) -> str:
     )
 
 
-def _compact_tokens(value: int) -> str:
-    for divisor, suffix in ((1_000_000, "M"), (1_000, "k")):
-        if value >= divisor:
-            return f"{value / divisor:.2f}".rstrip("0").rstrip(".") + suffix
-    return str(value)
-
-
-def _duration(seconds: float) -> str:
-    minutes, seconds = divmod(max(0, int(seconds)), 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours}h {minutes}m {seconds}s"
-    if minutes:
-        return f"{minutes}m {seconds}s"
-    return f"{seconds}s"
-
-
-def _compaction_notice(payload: Mapping[str, Any]) -> str:
-    """Notice text with message counts and, when known, estimated token counts."""
-    before = payload.get("message_count_before", "?")
-    after = payload.get("message_count_after", "?")
-    text = f"Compacted context · {before} → {after} messages"
-    tokens_before = payload.get("estimated_tokens_before")
-    tokens_after = payload.get("estimated_tokens_after")
-    if isinstance(tokens_before, int) and isinstance(tokens_after, int):
-        text += f" · ~{tokens_before:,} → ~{tokens_after:,} tokens"
-    return text
-
-
 class TranscriptView(Protocol):
-    """Small rendering boundary, deliberately free of Textual types."""
+    """Transcript rendering seam consumed by EventPresenter (not an Addon hook)."""
 
     def set_assistant(self, text: str, *, new: bool = False) -> None: ...
 
@@ -101,8 +80,6 @@ class TranscriptView(Protocol):
         label: str = "summary so far",
         event_type: str = "run_summary",
     ) -> None: ...
-
-    def add_run_metrics(self, metrics: str) -> None: ...
 
 
 class EventPresenter:
@@ -243,20 +220,6 @@ class EventPresenter:
         _, was_new = self._pending_reasoning
         self._pending_reasoning = (text, was_new or new)
 
-    def _usage_text(self, prefix: str = "Thinking") -> str:
-        m = self.state.metrics
-        if not (m.prompt_tokens or m.completion_tokens):
-            turn = f" · turn {self.state.turn + 1}" if self.state.turn is not None else ""
-            return f"{prefix}{turn}"
-        estimate = "~" if m.estimated else ""
-        text = (
-            f"{prefix} · {estimate}{m.prompt_tokens:,} in / "
-            f"{estimate}{m.completion_tokens:,} out"
-        )
-        if m.reasoning_tokens:
-            text += f" · {m.reasoning_tokens:,} reasoning"
-        return text
-
     # Run lifecycle
     def _on_run_started(self, payload: Dict[str, Any]) -> None:
         self.state.reset_for_run(model_id=str(payload.get("model_id") or self.state.model_id))
@@ -298,8 +261,20 @@ class EventPresenter:
             self.state.update_context(context)
         self.state.phase = "idle"
         self.state.detail = "ready"
-        completed = self._completed_text()
-        elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
+        m = self.state.metrics
+        completed = completed_run_text(
+            elapsed_seconds=self._elapsed_seconds,
+            prompt_tokens=m.prompt_tokens,
+            completion_tokens=m.completion_tokens,
+            estimated=m.estimated,
+            model_calls=len(self._model_turns),
+            tool_calls=len(self._tool_executions),
+        )
+        elapsed = (
+            clock_duration(self._elapsed_seconds)
+            if self._elapsed_seconds is not None
+            else ""
+        )
         final_output = str(payload.get("output_text") or "")
         # Keep the complete metrics line together for the finished process
         # summary. Splitting it here made the visible fold differ from the
@@ -334,46 +309,33 @@ class EventPresenter:
         label = str(payload.get("label") or "summary so far").strip() or "summary so far"
         self.view.add_run_summary(summary, label=label, event_type="run_summary")
 
-    def _completed_text(self) -> str:
-        m = self.state.metrics
-        elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else "—"
-        estimate = "~" if m.estimated else ""
-        models = len(self._model_turns)
-        tools = len(self._tool_executions)
-        return (
-            f"{elapsed} (↑{estimate}{_compact_tokens(m.prompt_tokens)} "
-            f"↓{estimate}{_compact_tokens(m.completion_tokens)})"
-            f" · {models} model call{'s' if models != 1 else ''}"
-            f" · {tools} tool call{'s' if tools != 1 else ''}"
-        )
-
     def _on_run_failed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
-        self.state.phase = "idle"
-        self.state.detail = "failed"
-        self.view.set_thinking("Stopped with an error")
-        self.view.add_notice(str(payload.get("message") or payload), "error")
-        self.view.finish_process("Stopped with an error", collapse=False)
+        apply_idle_terminal(
+            self.state, self.view, "failed", "Stopped with an error",
+            collapse=False,
+            notice=str(payload.get("message") or payload),
+            tone="error",
+        )
 
     def _on_run_cancelled(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
-        self.state.phase = "idle"
-        self.state.detail = "cancelled"
-        self.view.set_thinking("Cancelled")
         reason = payload.get("reason")
-        if reason:
-            self.view.add_notice(str(reason), "warning")
-        self.view.finish_process("Cancelled")
+        apply_idle_terminal(
+            self.state, self.view, "cancelled", "Cancelled",
+            notice=str(reason) if reason else None,
+            tone="warning",
+        )
 
     def _on_run_limit_exceeded(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
-        self.state.phase = "idle"
-        self.state.detail = "limit exceeded"
         limit = payload.get("limit") or "run limit"
-        message = str(payload.get("message") or f"Harness exceeded {limit}")
-        self.view.set_thinking("Stopped at a run limit")
-        self.view.add_notice(message, "warning")
-        self.view.finish_process("Stopped at a run limit", collapse=False)
+        apply_idle_terminal(
+            self.state, self.view, "limit exceeded", "Stopped at a run limit",
+            collapse=False,
+            notice=str(payload.get("message") or f"Harness exceeded {limit}"),
+            tone="warning",
+        )
 
     # Turns and streaming
     def _on_turn_started(self, payload: Dict[str, Any]) -> None:
@@ -524,7 +486,16 @@ class EventPresenter:
     def _on_usage(self, payload: Dict[str, Any]) -> None:
         self._usage_estimated |= bool(payload.get("estimated", False))
         self.state.update_usage(payload)
-        self.view.set_thinking(self._usage_text())
+        m = self.state.metrics
+        self.view.set_thinking(
+            usage_thinking_text(
+                turn=self.state.turn,
+                prompt_tokens=m.prompt_tokens,
+                completion_tokens=m.completion_tokens,
+                reasoning_tokens=m.reasoning_tokens,
+                estimated=m.estimated,
+            )
+        )
 
     def _on_context(self, payload: Dict[str, Any]) -> None:
         self.state.update_context(payload)
@@ -546,7 +517,7 @@ class EventPresenter:
         self.state.update_after_compaction(payload)
         if payload.get("manual"):
             self.state.detail = "ready"
-        self.view.add_notice(_compaction_notice(payload), "success")
+        self.view.add_notice(compaction_notice(payload), "success")
 
     def _on_paused(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "paused"
@@ -568,7 +539,7 @@ class EventPresenter:
     def _on_waiting_for_children(self, payload: Dict[str, Any]) -> None:
         count = len(payload.get("child_ids") or [])
         self.state.phase = "waiting"
-        self.state.detail = f"waiting for {count} subagent{'s' if count != 1 else ''}"
+        self.state.detail = f"waiting for {count_label(count, 'subagent')}"
         self.view.set_working(self.state.detail)
 
     def _on_question_asked(self, payload: Dict[str, Any]) -> None:
