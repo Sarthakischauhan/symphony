@@ -24,6 +24,7 @@ from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
 from coding_agent.approvals import ApprovalAddon
+from coding_agent.credentials import renew_oauth_credentials
 from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
     CompactionConfig,
@@ -247,7 +248,7 @@ class CodingAgent:
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
     ) -> HarnessResult:
-        """Run the agent; learning is scheduled from the after_run add-on hook."""
+        """Run the agent, renewing an OAuth token once after an auth failure."""
         mode = self.mode
         task_text = text_from_content(user_input)
         self.harness.system_prompt = self.base_system_prompt
@@ -268,12 +269,22 @@ class CodingAgent:
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
-        result = await self.harness.run(
-            user_input,
-            conversation=conversation,
-            session_id=session_id or self.session_id,
-        )
-        return result
+        try:
+            return await self.harness.run(
+                user_input,
+                conversation=conversation,
+                session_id=session_id or self.session_id,
+            )
+        except Exception as exc:
+            registry = renew_oauth_credentials(self.harness.model_id, exc)
+            if registry is None:
+                raise
+            self.harness.registry = registry
+            return await self.harness.run(
+                user_input,
+                conversation=conversation,
+                session_id=session_id or self.session_id,
+            )
 
     def set_mode(self, mode: AgentMode) -> None:
         self.mode = mode
