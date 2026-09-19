@@ -383,6 +383,62 @@ def test_make_spawn_tool_configure_merges_partial_override() -> None:
     assert any(event.event_type == "run_started" for event in child_plane.events)
 
 
+def test_spawn_uses_requested_child_max_turns() -> None:
+    registry = ScriptedRegistry([_text_turn("ok")])
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="parent",
+        config=HarnessConfig(max_turns=4, spawn_max_turns=8),
+        agent_id="parent-agent",
+        addons=[SubagentAddon()],
+    )
+    turns: list[int] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        turns.append(self.max_turns)
+
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            harness.spawn("go", child_config=ChildConfig(max_turns=3))
+        )
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    assert result.output_text == "ok"
+    assert harness.max_turns == 4
+    assert turns == [3]
+
+
+def test_spawn_defaults_to_spawn_max_turns_not_parent_budget() -> None:
+    registry = ScriptedRegistry([_text_turn("ok")])
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="parent",
+        config=HarnessConfig(max_turns=2, spawn_max_turns=8),
+        agent_id="parent-agent",
+        addons=[SubagentAddon()],
+    )
+    turns: list[int] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        turns.append(self.max_turns)
+
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(harness.spawn("go"))
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    assert result.output_text == "ok"
+    assert harness.max_turns == 2
+    assert turns == [8]
+
+
 def test_spawn_caps_child_max_turns() -> None:
     registry = ScriptedRegistry([_text_turn("ok")])
     harness = CoreHarness(

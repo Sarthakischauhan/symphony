@@ -285,8 +285,6 @@ class TranscriptSurface:
                 final=True,
             )
         self._compact_transcript()
-        if add_completion and not collapse and self._process is not None:
-            self._mount_transcript(ProcessComplete(title))
 
     def add_run_completion(self, title: str) -> None:
         """Place compact run metrics after the finalized assistant reply."""

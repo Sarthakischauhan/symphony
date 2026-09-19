@@ -29,7 +29,8 @@ failures. Default timeout 30s, max 120s, output capped at 32 KB.
 ## spawn_agent
 
 Optional `model_id` and `max_turns` apply to that child only. Children get a
-fresh conversation, `NullPersistence`, and the parent tool set minus
+fresh conversation and a fresh turn budget (`spawn_max_turns` by default,
+capped by that same setting), `NullPersistence`, and the parent tool set minus
 `spawn_agent`. Compaction forks to a new add-on instance per child. Nested
 spawns stop at `max_spawn_depth` (1 by default).
 

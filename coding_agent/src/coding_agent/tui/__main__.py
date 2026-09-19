@@ -16,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--workspace",
         default=None,
-        help="Working directory for relative paths, bash cwd, and .symphony (default: .)",
+        help="Working directory for relative paths and bash cwd (default: .)",
     )
     parser.add_argument(
         "--model",

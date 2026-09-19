@@ -79,8 +79,8 @@ class SkillsConfig(BaseModel):
 
 class PluginsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # Installed plugins are discovered from the user and workspace scopes by
-    # default. Their executable add-ons still require trusted authorization.
+    # Installed plugins are discovered from the user-wide ``~/.symphony/plugins``
+    # directory. Their executable add-ons still require trusted authorization.
     enabled: bool = True
     entries: list[PluginConfig] = Field(default_factory=list)
     authorized_roots: list[Path] = Field(default_factory=list)
@@ -211,9 +211,8 @@ def symphony_dir() -> Path:
 def spawn_settings_path(workspace: str | Path | None = None) -> Path:
     """Return the user-wide config file path.
 
-    Configuration is shared across projects, just like sessions.  ``workspace``
-    is retained as an ignored compatibility argument for callers that used the
-    old project-local API.
+    Configuration is shared across projects. ``workspace`` is ignored and kept
+    only so existing callers do not need to change.
     """
     del workspace
     return symphony_dir() / SPAWN_SETTINGS_NAME
@@ -252,11 +251,11 @@ def ensure_spawn_settings(
     config: CodingAgentConfig | None = None,
     overrides: dict[str, Any] | None = None,
 ) -> CodingAgentConfig:
-    """Create or refresh ``.symphony/config.json`` for this spawn and return it.
+    """Create or refresh ``~/.symphony/config.json`` and return it.
 
-    An existing file is the starting point. Missing keys are filled from
+    An existing global file is the starting point. Missing keys are filled from
     ``CodingAgentConfig`` field defaults, then the complete resolved settings
-    are written back so the spawn file is the source of truth.
+    are written back so the user-wide file is the source of truth.
     """
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)

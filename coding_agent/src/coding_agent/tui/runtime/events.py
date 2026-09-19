@@ -280,7 +280,6 @@ class EventPresenter:
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
-        self.view.finish_assistant()
         if self._started_ts is not None and payload.get("ts") is not None:
             self._elapsed_seconds = max(0.0, payload["ts"] - self._started_ts)
         elif self._started_at is not None:
@@ -302,21 +301,23 @@ class EventPresenter:
         completed = self._completed_text()
         elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
         final_output = str(payload.get("output_text") or "")
+        # Keep the complete metrics line together for the finished process
+        # summary. Splitting it here made the visible fold differ from the
+        # run-level summary and could hide the model/tool counts.
         detail = completed
-        if " · " in detail:
-            detail = detail.split(" · ", 1)[1]
         if final_output:
-            # The run-level output is authoritative. Intermediate text_delta
-            # widgets represent turn-by-turn narration and must not survive
-            # finalization as if they were the final answer.
-            self.view.set_assistant(final_output, new=True)
+            # Install the authoritative final response while the process is
+            # still open. finish_process() then freezes this widget as Markdown
+            # and keeps it after the folded process summary.
+            self.view.set_assistant(final_output)
+        self.view.finish_assistant()
         self.view.set_thinking(completed)
         # Fold the work that happened before the final reply into a past-tense
         # summary, then keep the assistant response as the last content.
         try:
             self.view.finish_process(
                 completed,
-                add_completion=False,
+                add_completion=True,
                 verb="Cooked",
                 duration=elapsed,
                 detail=detail,

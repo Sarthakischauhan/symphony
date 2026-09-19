@@ -231,6 +231,10 @@ class RunProcess(Container):
         self._thinking.set_visible(False)
         if collapse:
             self.fold_into_summary(verb=verb, duration=duration, detail=detail)
+            # Keep the canonical metrics line visible as its own row. The
+            # folded timeline is a tool/thought disclosure and must not replace
+            # the process summary.
+            self.add_item(ProcessComplete(title))
         elif add_completion:
             self.add_item(ProcessComplete(title))
 
@@ -242,13 +246,8 @@ class RunProcess(Container):
         from coding_agent.tui.tools.snapshots import CompletedRunSummary
         from coding_agent.tui.transcript.messages import AssistantMessage
 
-        chosen_verb = verb
-        for item in list(self.timeline_items()):
-            activity_verb = getattr(item, "activity_verb", "") or ""
-            if activity_verb:
-                chosen_verb = activity_verb
         summary = CompletedRunSummary(
-            verb=chosen_verb,
+            verb=verb,
             duration=duration,
             detail=detail,
         )
