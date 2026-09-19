@@ -301,10 +301,8 @@ class EventPresenter:
         completed = self._completed_text()
         elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
         final_output = str(payload.get("output_text") or "")
-        # Keep the complete metrics line together for the finished process
-        # summary. Splitting it here made the visible fold differ from the
-        # run-level summary and could hide the model/tool counts.
-        detail = completed
+        # The folded top summary should only identify the completed run and
+        # its duration. Keep token and call metrics in the completion row.
         if final_output:
             # Install the authoritative final response while the process is
             # still open. finish_process() then freezes this widget as Markdown
@@ -317,10 +315,10 @@ class EventPresenter:
         try:
             self.view.finish_process(
                 completed,
+                collapse=True,
                 add_completion=True,
                 verb="Cooked",
                 duration=elapsed,
-                detail=detail,
             )
         except TypeError:
             # Keep compatibility with lightweight presenter test doubles.

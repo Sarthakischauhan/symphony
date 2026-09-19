@@ -129,8 +129,9 @@ keeping executable plugin code behind an explicit trust boundary.
 conversation actually sent on each model turn, tool arguments and results, and
 compaction. It is enabled in config by default and stays silent unless both
 `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set (optional
-`LANGFUSE_BASE_URL` for self-hosted or another region). Install the optional
-extra with `uv sync --package symphony-code --extra langfuse` (or
+`LANGFUSE_BASE_URL` for self-hosted or another region). `/langfuse` in the TUI
+saves keys and installs the optional SDK if it is missing. You can also install
+the extra with `uv sync --package symphony-code --extra langfuse` (or
 `pip install 'symphony-code[langfuse]'`). Set `"langfuse": {"enabled": false}`
 to skip the add-on. Secrets in payloads are redacted; image bytes are replaced
 with filenames.

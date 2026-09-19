@@ -72,7 +72,8 @@ class LangfuseAddon(Addon):
         except ImportError:
             logger.warning(
                 "Langfuse tracing is enabled but the langfuse package is not installed. "
-                "Install it with: pip install 'symphony-code[langfuse]'"
+                "Run /langfuse in the TUI to install it, or: "
+                "uv sync --package symphony-code --extra langfuse"
             )
             return
         # Pass credentials explicitly instead of relying on the SDK to read

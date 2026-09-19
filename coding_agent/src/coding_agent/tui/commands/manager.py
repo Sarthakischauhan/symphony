@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any, Iterable
 
@@ -9,6 +10,7 @@ from core_ai import get_model, get_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
+from coding_agent.langfuse import ensure_langfuse_installed
 from coding_agent.tui.screens import (
     ContextModal,
     DiffModal,
@@ -30,12 +32,41 @@ from coding_agent.tui.commands.catalog import (
 )
 
 # --- langfuse.py ---
+def open_langfuse_setup(app: Any) -> None:
+    """Install the optional SDK if needed, then collect Langfuse credentials."""
+    app.run_worker(_open_langfuse_setup(app), exclusive=False)
+
+
+async def _open_langfuse_setup(app: Any) -> None:
+    result = await asyncio.to_thread(ensure_langfuse_installed)
+    if result.installed and not result.already_present:
+        app.add_notice("Langfuse SDK installed.", "success")
+    elif not result.installed:
+        app.add_notice(result.message, "error")
+    app.push_screen(LangfuseSetupScreen(), lambda saved: _on_langfuse_saved(app, saved))
+
+
 def _on_langfuse_saved(app: Any, saved: bool | None) -> None:
     app.query_one("#prompt").focus()
     if not saved:
         return
-    app.run_worker(reload_project(app), exclusive=False)
-    app.add_notice("Langfuse saved · reloading configuration.", "success")
+    app.run_worker(_finish_langfuse_setup(app), exclusive=False)
+
+
+async def _finish_langfuse_setup(app: Any) -> None:
+    """Re-check the optional SDK, then reload so the add-on can attach."""
+    app.add_notice("Langfuse saved · installing SDK if needed…")
+    result = await asyncio.to_thread(ensure_langfuse_installed)
+    if result.installed:
+        notice = (
+            "Langfuse saved · reloading configuration."
+            if result.already_present
+            else "Langfuse SDK installed · reloading configuration."
+        )
+        app.add_notice(notice, "success")
+    else:
+        app.add_notice(f"Langfuse keys saved, but tracing is off · {result.message}", "error")
+    await reload_project(app)
 
 
 def jev_enabled_from_argument(current: bool, argument: str) -> bool | None:
@@ -465,7 +496,7 @@ class CommandManager:
         elif command == "provider":
             open_provider_onboard(app, argument)
         elif command == "langfuse":
-            app.push_screen(LangfuseSetupScreen(), lambda saved: _on_langfuse_saved(app, saved))
+            open_langfuse_setup(app)
         elif command == "jev":
             toggle_jev(app, argument)
         elif app._agent is None:

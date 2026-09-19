@@ -98,7 +98,8 @@ can list them. They are not added to the checked-in models.dev snapshot.
 | `LANGFUSE_BASE_URL` | Cloud region or self-hosted URL (default `https://cloud.langfuse.com`) |
 
 Both keys must be set or `LangfuseAddon` stays silent. The Python SDK is an
-optional extra (`symphony-code[langfuse]`). See
+optional extra (`symphony-code[langfuse]`); `/langfuse` in the TUI installs it
+when missing. See
 [`docs/user-guide/langfuse.md`](../user-guide/langfuse.md).
 
 ## Jev critic (optional)

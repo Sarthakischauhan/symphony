@@ -29,7 +29,7 @@ replaced with `[image:filename]` so base64 never leaves the process.
 
 ## Enable it
 
-From the TUI, run `/langfuse` and enter the public key, secret key, and base URL. The command saves them to `~/.symphony/.env` with restrictive file permissions and reloads the agent. You can also set the variables manually:
+From the TUI, run `/langfuse` and enter the public key, secret key, and base URL. The command saves them to `~/.symphony/.env` with restrictive file permissions, installs the optional `langfuse` SDK into the current interpreter if it is missing, and reloads the agent. You can also set the variables manually:
 
 1. Create a Langfuse Cloud project or self-host Langfuse.
 2. Put keys in the process environment, workspace `.env`, or `~/.symphony/.env`:
@@ -40,7 +40,7 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_BASE_URL=https://cloud.langfuse.com  # or US / self-hosted URL
 ```
 
-3. Install the optional extra (not a default dependency):
+3. If you are not using the TUI, install the optional extra (not a default dependency):
 
 ```sh
 uv sync --package symphony-code --extra langfuse
@@ -48,7 +48,7 @@ uv sync --package symphony-code --extra langfuse
 ```
 
 Without keys, or without the package, the add-on mounts and does nothing.
-Missing package logs a warning once at attach.
+Missing package logs a warning once at attach. `/langfuse` retries the install.
 
 Disable it in spawn settings:
 

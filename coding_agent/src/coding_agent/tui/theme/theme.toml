@@ -104,7 +104,7 @@ Screen {
 }
 
 .run-summary {
-    margin: 1 0 0 1;
+    margin: 2 0 0 1;
     background: $background;
     border-left: solid #9b7bc3;
     padding: 1 2;
