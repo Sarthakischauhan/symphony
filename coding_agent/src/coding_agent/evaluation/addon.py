@@ -48,6 +48,10 @@ class JevAddon(Addon):
         self.last_start: Optional[EvaluationResult] = None
         self.last_finish: Optional[EvaluationResult] = None
         self.gated_action = "continue_normally"
+        self._harness: Any = None
+
+    def attach(self, harness: Any) -> None:
+        self._harness = harness
 
     def fork_for_child(self, parent_harness: Any) -> None:
         del parent_harness
@@ -81,6 +85,11 @@ class JevAddon(Addon):
             [finding.question for finding in result.findings],
             self.gated_action,
         )
+        if self._harness is not None:
+            for addon in self._harness.addons:
+                hook = getattr(addon, "on_evaluation", None)
+                if callable(hook):
+                    await hook(phase=phase, result=result, evaluator="jev")
         return result
 
     async def before_run(self, **payload: Any) -> None:

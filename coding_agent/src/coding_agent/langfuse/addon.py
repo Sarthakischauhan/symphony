@@ -363,6 +363,42 @@ class LangfuseAddon(Addon):
             metadata=self._metadata({"tool_name": getattr(tool_call, "name", None), "status": status}),
         )
 
+    async def on_evaluation(self, **payload: Any) -> None:
+        if self._client is None:
+            return
+        result = payload.get("result")
+        phase = payload.get("phase") or "evaluation"
+        # Do not pass the run observation as parent: Jev is intentionally a
+        # separate Langfuse trace. ``_apply_trace_attributes`` still attaches
+        # the harness session id to that trace.
+        observation = self._start(
+            name="evaluator",
+            as_type="span",
+            input={"phase": phase, "evaluator": payload.get("evaluator", "jev")},
+            metadata=self._metadata({"phase": phase, "evaluator": payload.get("evaluator", "jev")}),
+        )
+        self._end(
+            observation,
+            output={
+                "status": getattr(result, "status", None),
+                "findings": [
+                    {
+                        "question": finding.question,
+                        "kind": finding.kind,
+                        "label": finding.label,
+                        "rationale": finding.rationale,
+                    }
+                    for finding in (getattr(result, "findings", None) or [])
+                ],
+            },
+        )
+        flusher = getattr(self._client, "flush", None)
+        if callable(flusher):
+            try:
+                flusher()
+            except Exception:
+                logger.exception("Langfuse evaluator flush failed")
+
     async def on_compact(self, **payload: Any) -> None:
         if not self._active():
             return
