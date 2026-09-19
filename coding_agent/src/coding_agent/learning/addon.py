@@ -41,6 +41,9 @@ def _has_desired_memory(content: str, context: str) -> bool:
 class LearningAddon(Addon):
     """Inject relevant memory each turn and schedule post-run reflection.
 
+    Observe/record only through Addon hooks (`notify_addons`). There is no
+    parallel learning control plane in the harness.
+
     Review waits ``LEARNING_IDLE_DELAY_SECONDS`` (two minutes) after a run
     finishes with no further run. A new user message cancels that review
     (pending delay or in-flight) so ``run_summary`` is not shown.
@@ -86,6 +89,7 @@ class LearningAddon(Addon):
                 break
 
     def fork_for_child(self, parent_harness: Any) -> None:
+        """Skip inherit: child runs do not observe or record learning."""
         del parent_harness
         return None
 

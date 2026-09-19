@@ -222,9 +222,13 @@ persistence, telemetry, or a spawn tool. Pass `addons=[...]` or call
 `register_addon`. Duplicate `name` values raise. Subclass `Addon` for
 no-op `before_run`, `before_turn`, `before_tool`, `after_turn`, `on_tool`,
 and `on_compact` hooks.
-`fork_for_child` is the only inherit path onto a child harness; the
-default returns `None`. Skills can use this same attach path later;
-there is no directory discovery or loader.
+`fork_for_child` is the inherit path onto a child harness. Return a new
+instance to **inherit**, or `None` (the default) to **skip**. When
+`ChildConfig.addons` or `addon_factory` is set, that list replaces forks.
+Skills can use this same attach path later; there is no directory discovery
+or loader. See [Extending the harness](../docs/developer-guide/extending.md)
+for Learning as the canonical Addon example (Langfuse inherits; Jev and
+Learning skip).
 
 `coding_agent` attaches `PersistenceAddon` (JSONL), its own
 `AiCompactionAddon` (an `InferenceCompactor` built on `plan_keep_drop`), and

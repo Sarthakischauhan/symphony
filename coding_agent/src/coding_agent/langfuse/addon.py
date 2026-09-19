@@ -106,6 +106,7 @@ class LangfuseAddon(Addon):
             self._client = None
 
     def fork_for_child(self, parent_harness: Any) -> LangfuseAddon:
+        """Inherit: child runs get their own tracer sharing this client."""
         del parent_harness
         return LangfuseAddon(
             enabled=self.enabled,

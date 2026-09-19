@@ -53,9 +53,10 @@ drives, and authorizes; it does not persist, compact, or spawn.
 
 ### `core_harness` (symphony-harness)
 
-- `CoreHarness.run()` coordinates a run; `loop/` holds `TurnRunner`, tool-call
-  execution, stream handling, and the run session; `context/` holds
-  `HarnessState`, token estimates, pruning, and the keep/drop planner.
+- `CoreHarness.run()` is the public façade for a run. `turn_runner.py`
+  orchestrates one turn; `loop/` holds the session, provider stream, and
+  tool dispatch (including tool-output and run-limit checks). `context/`
+  holds `HarnessState`, token estimates, pruning, and the keep/drop planner.
 - Tool protocol: every call ends `success`, `error`, `timeout`, or
   `cancelled`; results are bounded at insert time; stale tool bodies can be
   pruned on a copy of the conversation.
@@ -100,7 +101,9 @@ and `~` paths are allowed:
 - Default add-ons (`agent.default_addons`): `PersistenceAddon` (JSONL),
   `AiCompactionAddon` (`InferenceCompactor`: harness keep/drop plan + a
   model-written summary of dropped work), `SubagentAddon`, optional
-  `LangfuseAddon` (silent without Langfuse keys / SDK).
+  `LangfuseAddon` (silent without Langfuse keys / SDK), optional `JevAddon`,
+  and `LearningAddon` when a `LearningLoop` is passed. Children skip
+  learning (`fork_for_child` returns `None`; spawn `addon_factory` omits it).
 - Approvals (`coding_agent.approvals.ApprovalPolicy` + `ApprovalConfig`):
   ask before `bash`, overwrite, or a broad patch; `always_allow` mode;
   allow-once answers. The TUI renders the question; it does not own the

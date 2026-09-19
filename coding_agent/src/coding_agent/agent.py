@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Callable, List, Literal, Optional, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -59,13 +59,17 @@ def default_addons(
     evaluation: Optional[EvaluationConfig] = None,
     plan_store: Optional[PlanStore] = None,
     plan_mode: Optional[PlanModeState] = None,
+    learning: Optional[LearningLoop] = None,
+    should_review: Optional[Callable[[], bool]] = None,
 ) -> list:
-    """Product defaults: persistence, AI compaction, spawn_agent, Langfuse, and Jev.
+    """Product defaults: persistence, AI compaction, spawn_agent, Langfuse, Jev, learning.
 
     Compaction is always ``AiCompactionAddon`` (``InferenceCompactor``); the
     harness template compactor is not mounted by coding_agent. Langfuse is
     mounted when enabled in config; the add-on stays silent without keys.
     Jev critic mode mounts only when ``evaluation.enabled`` is true.
+    Learning mounts only when a ``LearningLoop`` is passed; omit it so children
+    skip (matches ``LearningAddon.fork_for_child`` → ``None``).
     """
     compaction = compaction or CompactionConfig()
     addons: list = [
@@ -84,6 +88,8 @@ def default_addons(
     )
     if jev_addon is not None:
         addons.append(jev_addon)
+    if learning is not None:
+        addons.append(LearningAddon(learning, should_review=should_review))
     return addons
 
 
@@ -186,18 +192,13 @@ class CodingAgent:
             evaluation=self.config.evaluation,
             plan_store=self.plan_store,
             plan_mode=self.plan_mode,
+            learning=self.learning_loop,
+            should_review=lambda: self.mode != "plan",
         )
         addons.append(PlanModeAddon(self.plan_mode))
         addons.append(ApprovalAddon(self.workspace, self.sink))
         if self.config.skills.enabled:
             addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
-        if self.learning_loop is not None:
-            addons.append(
-                LearningAddon(
-                    self.learning_loop,
-                    should_review=lambda: self.mode != "plan",
-                )
-            )
         self.tools.extend([
             EnterPlanModeTool(self.workspace, self.plan_mode, self),
             ExitPlanModeTool(self.workspace, self.plan_mode),
@@ -234,6 +235,8 @@ class CodingAgent:
             model_id=mid or None,
             max_turns=turns,
             sink=self.sink,
+            # addon_factory replaces fork_for_child. Omit learning (and Jev):
+            # LearningAddon.fork_for_child returns None — children skip observe.
             addon_factory=lambda parent: default_addons(
                 persistence=self.persistence, harness_config=parent.config,
                 compaction=self.config.compaction, include_subagent=False,

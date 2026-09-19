@@ -9,7 +9,9 @@ when the limit is exceeded. Procedures belong in skills, not memory. The legacy
 `<workspace>/.symphony/learning/lessons.jsonl` remains an unused migration archive.
 
 Learning is enabled by default. Reflection may propose durable memory updates
-and a two-line recap, but plan mode skips reflection.
+and a two-line recap, but plan mode skips reflection. The harness sees learning
+only as `LearningAddon` hooks (`notify_addons`); there is no parallel learning
+control plane. Children do not inherit the add-on.
 
 ## Disable it
 
@@ -17,7 +19,8 @@ and a two-line recap, but plan mode skips reflection.
 - `enable_learning=False` on the agent.
 - `symphony --no-learning` on the TUI (this also omits the `memory` tool).
 
-Children do not inherit the learning add-on or memory tool.
+Children do not inherit the learning add-on or memory tool (`fork_for_child`
+returns `None`).
 
 ## Shutdown
 

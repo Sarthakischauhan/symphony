@@ -57,7 +57,9 @@ flowchart TD
 The harness is a library loop: tools, model, compaction, and an event sink
 for UIs. It does not authorize tools or cancel runs. Product approval lives
 in `coding_agent.approvals.ApprovalAddon` (`before_tool`). Cancel a run by
-cancelling the `asyncio.Task` awaiting `CoreHarness.run`.
+cancelling the `asyncio.Task` awaiting `CoreHarness.run`. To attach product
+behavior (Learning, Langfuse, Jev), see
+[Extending the harness](./extending.md).
 
 ## A turn
 
@@ -112,14 +114,15 @@ core_ai/src/core_ai/
     defaults.py       # credential-aware default registry
 
 core_harness/src/core_harness/
-  harness.py          # CoreHarness: tools, limits, run loop, attach add-ons, spawn
+  harness.py          # CoreHarness façade: tools, limits, add-ons, spawn, run
+  turn_runner.py      # one-turn orchestration
   tools.py            # Tool adapter
   events.py           # EventSink event sink (default records in memory)
   models.py           # ControlPlaneEventType, ToolCall, HarnessResult
   config.py           # HarnessConfig, load_harness_config
   errors.py           # HarnessCancelled, HarnessLimitExceeded
   context/            # token estimates, result bounds, HarnessState, keep/drop planner
-  loop/               # TurnRunner, tool calls, run session, stream handling
+  loop/               # session, stream, tool dispatch + tool/run limits
   addons/             # Addon base, persistence, compaction, subagent
 
 coding_agent/src/coding_agent/

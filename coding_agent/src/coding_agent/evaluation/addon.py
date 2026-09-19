@@ -64,6 +64,7 @@ class JevAddon(Addon):
         self._harness = harness
 
     def fork_for_child(self, parent_harness: Any) -> None:
+        """Skip inherit: child runs are not evaluated by Jev."""
         del parent_harness
         return None
 
