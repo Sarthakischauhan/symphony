@@ -37,7 +37,7 @@ from coding_agent.evaluation import (
     decide_next_step,
     jev_from_config,
 )
-from coding_agent.evaluation.protocol import EvaluationDecision, EvaluationFinding, EvaluationResult
+from coding_agent.evaluation.protocol import EvaluationFinding, EvaluationResult
 from coding_agent.plan import PlanStore
 from coding_agent.tui.__main__ import build_parser
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS
