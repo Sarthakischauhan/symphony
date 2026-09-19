@@ -91,7 +91,7 @@ class SubagentAddon(Addon):
         return None
 
     def child_addons(self, parent: CoreHarness, child_config: ChildConfig) -> List[Addon]:
-        """Resolve child add-ons. Forks are the only inherit path from the parent."""
+        """Resolve child add-ons. ``fork_for_child`` inherits; ``addons`` / ``addon_factory`` replace."""
         del self
         if child_config.addons is not None:
             return list(child_config.addons)

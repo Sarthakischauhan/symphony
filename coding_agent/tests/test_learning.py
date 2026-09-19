@@ -13,6 +13,7 @@ from core_harness import HarnessResult, EventSink
 from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
+from coding_agent.agent import default_addons
 from coding_agent.config import CodingAgentConfig, LearningConfig
 from coding_agent.learning import (
     MEMORY_CONTEXT_PREFIX,
@@ -455,3 +456,80 @@ def test_remove_operation_allows_match_without_text(tmp_path: Path) -> None:
     store.memory_operation("add", text="Do not edit generated files")
     store.memory_operation("remove", match="generated files")
     assert "generated files" not in store.memory_path.read_text(encoding="utf-8")
+
+
+def test_learning_does_not_import_loop_internals() -> None:
+    import ast
+
+    import coding_agent.learning as learning_pkg
+
+    banned = {"core_harness.loop", "core_harness.turn_runner"}
+    root = Path(learning_pkg.__file__).resolve().parent
+    offenders: list[str] = []
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: list[str] = []
+            if isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+            for module in modules:
+                if module in banned or module.startswith("core_harness.loop."):
+                    offenders.append(f"{path.name}: {module}")
+    assert offenders == []
+
+
+def test_default_addons_register_learning_when_loop_provided(tmp_path: Path) -> None:
+    from core_harness import HarnessConfig
+    from coding_agent.persistence import JsonlPersistence
+
+    store = LearningStore(tmp_path)
+    loop = LearningLoop(store, registry=ReviewRegistry(), model_id="test:model")
+    addons = default_addons(
+        persistence=JsonlPersistence(tmp_path / "sessions"),
+        harness_config=HarnessConfig(),
+        include_subagent=False,
+        learning=loop,
+    )
+    learning = [addon for addon in addons if addon.name == "learning"]
+    assert len(learning) == 1
+    assert isinstance(learning[0], LearningAddon)
+    assert learning[0].fork_for_child(None) is None
+
+
+def test_default_addons_omit_learning_unless_loop_passed(tmp_path: Path) -> None:
+    from core_harness import HarnessConfig
+    from coding_agent.persistence import JsonlPersistence
+
+    addons = default_addons(
+        persistence=JsonlPersistence(tmp_path / "sessions"),
+        harness_config=HarnessConfig(),
+        include_subagent=False,
+    )
+    assert [addon.name for addon in addons if addon.name == "learning"] == []
+
+
+def test_spawn_child_factory_skips_learning(tmp_path: Path) -> None:
+    agent = CodingAgent(
+        registry=SplitRegistry(),  # type: ignore[arg-type]
+        model_id="test:model",
+        workspace=tmp_path,
+        tools=[],
+    )
+    assert any(addon.name == "learning" for addon in agent.harness.addons)
+    assert agent.learning_loop is not None
+    cfg = agent._spawn_child_config()
+    assert cfg.addon_factory is not None
+    child_addons = list(cfg.addon_factory(agent.harness))
+    assert "learning" not in [addon.name for addon in child_addons]
+    assert LearningAddon(agent.learning_loop).fork_for_child(agent.harness) is None
+
+
+def test_agent_run_does_not_schedule_learning_outside_addon_hooks() -> None:
+    from coding_agent import agent as agent_mod
+
+    source = Path(agent_mod.__file__).read_text(encoding="utf-8")
+    assert "learning_loop.schedule" not in source
+    assert "LearningAddon(" in source
+    assert "learning=self.learning_loop" in source

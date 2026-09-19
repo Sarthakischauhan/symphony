@@ -34,6 +34,7 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [Learning](./user-guide/learning.md) | Post-run reflection |
 | [Sessions](./user-guide/sessions.md) | JSONL resume |
 | [Architecture](./developer-guide/architecture.md) | How the four packages fit |
+| [Extending the harness](./developer-guide/extending.md) | Addon hooks; Learning as the canonical example |
 | [Changelog](../CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./developer-guide/events.md) | Control-plane catalog |
 | [CLI](./reference/cli.md) | Flags for `symphony` and `core-server` |
