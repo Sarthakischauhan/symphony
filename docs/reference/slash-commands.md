@@ -12,6 +12,7 @@ menu.
 | `/plans [name]` | Pick or open a saved workspace plan |
 | `/provider [name]` | Sign in with a ChatGPT / Claude / xAI subscription, or paste an API key |
 | `/langfuse` | Save Langfuse telemetry keys to `~/.symphony/.env` |
+| `/jev [on\|off]` | Toggle Jev critic mode (findings only; not a model switch) |
 | `/new` | Start a fresh persisted session |
 | `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |
 | `/compact` | Summarize older turns with the model; keep system prompt, original task, and recent turns |

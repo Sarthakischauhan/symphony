@@ -105,7 +105,8 @@ class TurnRunner:
             {"turn": turn, "message_count": len(messages)},
         )
 
-        from core_harness.loop import build_tool_calls, run_tool_calls, stream_model_turn
+        from core_harness.loop.stream import stream_model_turn
+        from core_harness.loop.tools import build_tool_calls, run_tool_calls
 
         streamed = await stream_model_turn(
             self,

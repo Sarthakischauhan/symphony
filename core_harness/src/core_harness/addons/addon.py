@@ -11,8 +11,10 @@ from typing import Any, Optional
 class Addon:
     """Harness extension. Hooks are no-ops until overridden.
 
-    Inherit on spawn by implementing :meth:`fork_for_child`. The default
-    returns ``None``, so children do not receive this instance.
+    Public seams (override to opt in): ``before_run``, ``before_turn``,
+    ``before_tool``, ``after_turn``, ``after_run``, ``on_tool``,
+    ``on_compact``. ``before_tool`` may return a deny reason; the others
+    observe. Inherit on spawn by implementing :meth:`fork_for_child`.
     """
 
     name: str = ""
@@ -23,7 +25,11 @@ class Addon:
         return None
 
     def fork_for_child(self, parent_harness: Any) -> Optional[Addon]:
-        """Return a child-specific instance, or ``None`` to skip inherit."""
+        """Child inherit policy: return an instance to inherit, or ``None`` to skip.
+
+        The default skips, so children do not receive this instance.
+        ``ChildConfig.addons`` / ``addon_factory`` replace this path when set.
+        """
         del parent_harness
         return None
 

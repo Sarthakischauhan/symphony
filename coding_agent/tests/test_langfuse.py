@@ -13,6 +13,8 @@ from core_harness.models import HarnessResult, ToolCall, ToolResult, UsageTotals
 from coding_agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LangfuseConfig, LearningConfig
 from coding_agent.langfuse import LangfuseAddon, langfuse_from_config
+from coding_agent.langfuse.install import ensure_langfuse_installed
+from coding_agent.tui.commands.manager import _finish_langfuse_setup, open_langfuse_setup
 from coding_agent.langfuse.serialize import (
     serialize_messages,
     serialize_run_output,
@@ -187,6 +189,31 @@ def test_addon_redacts_secrets_on_every_observation_payload() -> None:
     assert "[REDACTED]" in json.dumps(tool.kwargs["input"], default=str)
     run_output = next(update["output"] for update in run.updates if "output" in update)
     assert "[REDACTED]" in run_output
+
+
+def test_evaluator_is_a_separate_trace_with_session_id() -> None:
+    client = FakeLangfuse()
+    addon = _addon(client)
+
+    class Finding:
+        question = "task_complete"
+        kind = "boolean"
+        label = "yes"
+        rationale = "done"
+
+    class Result:
+        status = "ok"
+        findings = [Finding()]
+
+    asyncio.run(addon.on_evaluation(phase="finish", result=Result(), evaluator="jev"))
+
+    assert len(client.observations) == 1
+    evaluator = client.observations[0]
+    assert evaluator.name == "evaluator"
+    assert evaluator.ended is True
+    assert evaluator.kwargs["input"] == {"phase": "finish", "evaluator": "jev"}
+    assert any(update.get("trace", {}).get("session_id") == "session-1" for update in evaluator.updates)
+    assert client.flushed == 1
 
 
 def test_serialize_helpers_redact_task_tool_args_and_outputs() -> None:
@@ -412,6 +439,93 @@ def test_coding_agent_can_disable_langfuse(tmp_path: Path) -> None:
         ),
     )
     assert not any(addon.name == "langfuse" for addon in agent.harness.addons)
+
+
+def test_ensure_langfuse_installed_skips_when_present(monkeypatch) -> None:
+    monkeypatch.setattr("coding_agent.langfuse.install.langfuse_available", lambda: True)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "coding_agent.langfuse.install.subprocess.run",
+        lambda *args, **kwargs: calls.append(list(args[0])),
+    )
+    result = ensure_langfuse_installed()
+    assert result.installed is True
+    assert result.already_present is True
+    assert calls == []
+
+
+def test_ensure_langfuse_installed_uses_uv_then_import_succeeds(monkeypatch) -> None:
+    available = {"value": False}
+
+    def _available() -> bool:
+        return available["value"]
+
+    def _run(command, **kwargs):
+        del kwargs
+        available["value"] = True
+        return type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+
+    monkeypatch.setattr("coding_agent.langfuse.install.langfuse_available", _available)
+    monkeypatch.setattr("coding_agent.langfuse.install.shutil.which", lambda _name: "/usr/bin/uv")
+    monkeypatch.setattr("coding_agent.langfuse.install.subprocess.run", _run)
+    result = ensure_langfuse_installed()
+    assert result.installed is True
+    assert result.already_present is False
+    assert "Installed Langfuse SDK" in result.message
+
+
+def test_ensure_langfuse_installed_reports_failure(monkeypatch) -> None:
+    monkeypatch.setattr("coding_agent.langfuse.install.langfuse_available", lambda: False)
+    monkeypatch.setattr("coding_agent.langfuse.install.shutil.which", lambda _name: None)
+
+    def _run(command, **kwargs):
+        del command, kwargs
+        return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "pip missing"})()
+
+    monkeypatch.setattr("coding_agent.langfuse.install.subprocess.run", _run)
+    result = ensure_langfuse_installed()
+    assert result.installed is False
+    assert "Could not install" in result.message
+    assert "pip missing" in result.message
+
+
+def test_open_langfuse_setup_installs_then_opens_screen(monkeypatch) -> None:
+    notices: list[tuple[str, str | None]] = []
+    screens: list[Any] = []
+    workers: list[Any] = []
+    app = type("App", (), {})()
+    app.add_notice = lambda message, kind=None: notices.append((message, kind))
+    app.push_screen = lambda screen, callback=None: screens.append((screen, callback))
+    app.run_worker = lambda work, exclusive=False: workers.append(work)
+
+    monkeypatch.setattr(
+        "coding_agent.tui.commands.manager.ensure_langfuse_installed",
+        lambda: type("Result", (), {"installed": True, "already_present": False, "message": "Installed"})(),
+    )
+    open_langfuse_setup(app)
+    assert workers
+    asyncio.run(workers[0])
+    assert any("SDK installed" in message for message, _kind in notices)
+    assert screens and screens[0][0].__class__.__name__ == "LangfuseSetupScreen"
+
+
+def test_finish_langfuse_setup_installs_then_reloads(monkeypatch) -> None:
+    notices: list[tuple[str, str | None]] = []
+    reloaded: list[bool] = []
+    app = type("App", (), {})()
+    app.add_notice = lambda message, kind=None: notices.append((message, kind))
+
+    async def _reload(_app: Any) -> None:
+        reloaded.append(True)
+
+    monkeypatch.setattr(
+        "coding_agent.tui.commands.manager.ensure_langfuse_installed",
+        lambda: type("Result", (), {"installed": True, "already_present": False, "message": "Installed"})(),
+    )
+    monkeypatch.setattr("coding_agent.tui.commands.manager.reload_project", _reload)
+    asyncio.run(_finish_langfuse_setup(app))
+    assert reloaded == [True]
+    assert any("SDK installed" in message for message, _kind in notices)
 
 
 def test_child_inherits_langfuse_addon(tmp_path: Path) -> None:

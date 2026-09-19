@@ -78,16 +78,22 @@ class CodingAgentApp(
         model_id: Optional[str] = None,
         session_id: Optional[str] = None,
         enable_learning: Optional[bool] = None,
+        enable_jev: Optional[bool] = None,
     ) -> None:
         super().__init__()
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
         self.enable_learning = enable_learning
-        overrides = None
+        self.enable_jev = enable_jev
+        overrides: dict = {}
         if enable_learning is not None:
-            overrides = {"learning": {"enabled": enable_learning}}
-        self.config = ensure_spawn_settings(self.workspace, overrides=overrides)
+            overrides["learning"] = {"enabled": enable_learning}
+        if enable_jev is not None:
+            overrides["evaluation"] = {"enabled": enable_jev}
+        self.config = ensure_spawn_settings(
+            self.workspace, overrides=overrides or None
+        )
         self.mode: AgentMode = "build"
         self.sink = TextualEventSink(
             workspace=self.workspace,
@@ -166,6 +172,7 @@ class CodingAgentApp(
                 model_id=self.model_id,
                 session_id=self.session_id,
                 enable_learning=self.enable_learning,
+                enable_jev=self.enable_jev,
                 config=self.config,
             )
             self._agent.set_mode(self.mode)
@@ -252,6 +259,7 @@ def run_tui(
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
     enable_learning: Optional[bool] = None,
+    enable_jev: Optional[bool] = None,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
     workspace = Path(workspace).resolve()
@@ -264,4 +272,5 @@ def run_tui(
         model_id=model_id,
         session_id=session_id,
         enable_learning=enable_learning,
+        enable_jev=enable_jev,
     ).run()

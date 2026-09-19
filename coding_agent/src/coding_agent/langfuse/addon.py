@@ -72,14 +72,24 @@ class LangfuseAddon(Addon):
         except ImportError:
             logger.warning(
                 "Langfuse tracing is enabled but the langfuse package is not installed. "
-                "Install it with: pip install 'symphony-code[langfuse]'"
+                "Run /langfuse in the TUI to install it, or: "
+                "uv sync --package symphony-code --extra langfuse"
             )
             return
-        kwargs: dict[str, Any] = {}
-        base_url = os.environ.get("LANGFUSE_BASE_URL", "").strip()
+        # Pass credentials explicitly instead of relying on the SDK to read
+        # them from its own environment.  This matters when the TUI has just
+        # written ~/.symphony/.env (or when the addon is used as a library).
+        kwargs: dict[str, Any] = {
+            "public_key": os.environ["LANGFUSE_PUBLIC_KEY"].strip(),
+            "secret_key": os.environ["LANGFUSE_SECRET_KEY"].strip(),
+        }
+        # LANGFUSE_HOST is the name used by the Langfuse SDK/documentation;
+        # BASE_URL is retained for Symphony's existing setup screen.
+        base_url = (
+            os.environ.get("LANGFUSE_BASE_URL", "").strip()
+            or os.environ.get("LANGFUSE_HOST", "").strip()
+        )
         if base_url:
-            # Langfuse v3 used ``host``; v4 accepts ``base_url`` (and still
-            # aliases ``host``). Pass both so either SDK version works.
             kwargs["base_url"] = base_url
             kwargs["host"] = base_url
         try:
@@ -96,6 +106,7 @@ class LangfuseAddon(Addon):
             self._client = None
 
     def fork_for_child(self, parent_harness: Any) -> LangfuseAddon:
+        """Inherit: child runs get their own tracer sharing this client."""
         del parent_harness
         return LangfuseAddon(
             enabled=self.enabled,
@@ -353,6 +364,42 @@ class LangfuseAddon(Addon):
             level=level,
             metadata=self._metadata({"tool_name": getattr(tool_call, "name", None), "status": status}),
         )
+
+    async def on_evaluation(self, **payload: Any) -> None:
+        if self._client is None:
+            return
+        result = payload.get("result")
+        phase = payload.get("phase") or "evaluation"
+        # Do not pass the run observation as parent: Jev is intentionally a
+        # separate Langfuse trace. ``_apply_trace_attributes`` still attaches
+        # the harness session id to that trace.
+        observation = self._start(
+            name="evaluator",
+            as_type="span",
+            input={"phase": phase, "evaluator": payload.get("evaluator", "jev")},
+            metadata=self._metadata({"phase": phase, "evaluator": payload.get("evaluator", "jev")}),
+        )
+        self._end(
+            observation,
+            output={
+                "status": getattr(result, "status", None),
+                "findings": [
+                    {
+                        "question": finding.question,
+                        "kind": finding.kind,
+                        "label": finding.label,
+                        "rationale": finding.rationale,
+                    }
+                    for finding in (getattr(result, "findings", None) or [])
+                ],
+            },
+        )
+        flusher = getattr(self._client, "flush", None)
+        if callable(flusher):
+            try:
+                flusher()
+            except Exception:
+                logger.exception("Langfuse evaluator flush failed")
 
     async def on_compact(self, **payload: Any) -> None:
         if not self._active():

@@ -7,11 +7,47 @@ import re
 from pathlib import Path
 from typing import Mapping
 
+import httpx
 from dotenv import dotenv_values
+
+from core_ai.oauth.store import load_token, refresh_stored_token, save_token
+from core_ai.providers.defaults import build_default_registry
 
 from core_ai.providers.catalog import ProviderSpec, get_provider
 
 OFFLINE_HINT = "Agent is offline. Run /provider to sign in or add an API key."
+
+
+def renew_oauth_credentials(model_id: str, exc: BaseException):
+    """Refresh OAuth credentials and return a rebuilt registry after auth failure."""
+    if not _is_auth_failure(exc) or ":" not in model_id:
+        return None
+    provider_id = model_id.split(":", 1)[0]
+    token = load_token(provider_id)
+    if token is None or not token.refresh_token:
+        return None
+    try:
+        save_token(provider_id, refresh_stored_token(provider_id, token))
+        return build_default_registry()
+    except Exception:
+        return None
+
+
+def _is_auth_failure(exc: BaseException) -> bool:
+    """Recognize HTTP and provider errors that indicate rejected credentials."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, httpx.HTTPStatusError) and current.response.status_code in {401, 403}:
+            return True
+        message = str(current).lower()
+        if "invalid or expired credentials" in message:
+            return True
+        if any(marker in message for marker in ("invalid api key", "invalid token", "token expired")):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 _ENV_ASSIGN = re.compile(
     r"^(?P<prefix>\s*(?:export\s+)?)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<eq>\s*=\s*)(?P<value>.*)$"

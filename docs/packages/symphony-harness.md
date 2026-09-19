@@ -125,6 +125,10 @@ version on every event. `EventSink` is an alias of `EventSink`.
 
 The full catalog is on [Control-plane events](../developer-guide/events.md).
 
+Product extensions attach as add-ons. See
+[Extending the harness](../developer-guide/extending.md) (Learning is the
+canonical example; Langfuse and Jev are siblings).
+
 ## Context
 
 Compaction is an add-on. Attach `CompactionAddon` / `KeepSystemRecentCompactor`

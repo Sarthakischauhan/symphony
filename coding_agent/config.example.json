@@ -42,5 +42,18 @@
     "enabled": true,
     "sample_rate": 1.0,
     "max_payload_chars": 32000
+  },
+  "evaluation": {
+    "enabled": false,
+    "provider": "vercel",
+    "model": "typesafe-ai/jev",
+    "on_error": "fail-open",
+    "request_max_chars": 2000,
+    "brief_max_chars": 2000,
+    "plan_max_chars": 2000,
+    "observations_max_chars": 2000,
+    "last_tool_results_max_chars": 2000,
+    "final_max_chars": 4000,
+    "files_modified_max": 40
   }
 }

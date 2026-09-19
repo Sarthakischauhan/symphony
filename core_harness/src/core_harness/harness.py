@@ -29,7 +29,7 @@ from core_harness.tools import Tool
 
 
 class CoreHarness:
-    """Configured harness: tools, limits, run loop, and attached add-ons."""
+    """Public façade: tools, limits, attached add-ons, and ``run``."""
 
     def __init__(
         self,
@@ -319,7 +319,12 @@ class CoreHarness:
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
     ) -> HarnessResult:
-        """Run turns until the model stops calling tools or a limit is hit."""
+        """Run turns until the model stops calling tools or a limit is hit.
+
+        Public seam. Returns ``HarnessResult`` with ``output_text``,
+        ``messages``, ``tool_calls``, ``usage``, and context fields.
+        Product behavior attaches through Addon hooks via ``notify_addons``.
+        """
         from core_harness.loop import run_session
 
         return await run_session(

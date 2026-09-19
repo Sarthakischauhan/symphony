@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Callable, List, Literal, Optional, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -24,14 +24,17 @@ from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
 from coding_agent.approvals import ApprovalAddon
+from coding_agent.credentials import renew_oauth_credentials
 from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
     CompactionConfig,
+    EvaluationConfig,
     LangfuseConfig,
     SettingsSource,
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
+from coding_agent.evaluation import jev_from_config
 from coding_agent.langfuse import langfuse_from_config
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
@@ -53,12 +56,20 @@ def default_addons(
     spawn_configure: Any = None,
     include_subagent: bool = True,
     langfuse: Optional[LangfuseConfig] = None,
+    evaluation: Optional[EvaluationConfig] = None,
+    plan_store: Optional[PlanStore] = None,
+    plan_mode: Optional[PlanModeState] = None,
+    learning: Optional[LearningLoop] = None,
+    should_review: Optional[Callable[[], bool]] = None,
 ) -> list:
-    """Product defaults: persistence, AI compaction, spawn_agent, and Langfuse.
+    """Product defaults: persistence, AI compaction, spawn_agent, Langfuse, Jev, learning.
 
     Compaction is always ``AiCompactionAddon`` (``InferenceCompactor``); the
     harness template compactor is not mounted by coding_agent. Langfuse is
     mounted when enabled in config; the add-on stays silent without keys.
+    Jev critic mode mounts only when ``evaluation.enabled`` is true.
+    Learning mounts only when a ``LearningLoop`` is passed; omit it so children
+    skip (matches ``LearningAddon.fork_for_child`` → ``None``).
     """
     compaction = compaction or CompactionConfig()
     addons: list = [
@@ -70,6 +81,15 @@ def default_addons(
     langfuse_addon = langfuse_from_config(langfuse or LangfuseConfig())
     if langfuse_addon is not None:
         addons.append(langfuse_addon)
+    jev_addon = jev_from_config(
+        evaluation or EvaluationConfig(),
+        plan_store=plan_store,
+        plan_mode=plan_mode,
+    )
+    if jev_addon is not None:
+        addons.append(jev_addon)
+    if learning is not None:
+        addons.append(LearningAddon(learning, should_review=should_review))
     return addons
 
 
@@ -120,16 +140,15 @@ class CodingAgent:
         )
         skill_roots = [
             ("user", Path.home() / ".symphony" / "skills"),
-            ("workspace", self.workspace / ".symphony" / "skills"),
             *[("configured", root) for root in self.config.skills.roots],
         ]
         plugin_addons = []
         plugin_skill_roots = []
         self.plugin_diagnostics = ()
         if self.config.plugins.enabled:
-            # Repository config must not be able to authorize executable code.
+            # Global config must not be able to authorize executable code.
             # Authorization is supplied by the trusted process environment;
-            # workspace config may only select already-authorized plugins.
+            # config may only select already-authorized plugins.
             trusted_roots = [
                 Path(value)
                 for value in os.environ.get("SYMPHONY_PLUGIN_AUTHORIZED_ROOTS", "").split(os.pathsep)
@@ -170,18 +189,16 @@ class CodingAgent:
             spawn_configure=self._spawn_child_config if include_subagent else None,
             include_subagent=include_subagent,
             langfuse=self.config.langfuse,
+            evaluation=self.config.evaluation,
+            plan_store=self.plan_store,
+            plan_mode=self.plan_mode,
+            learning=self.learning_loop,
+            should_review=lambda: self.mode != "plan",
         )
         addons.append(PlanModeAddon(self.plan_mode))
         addons.append(ApprovalAddon(self.workspace, self.sink))
         if self.config.skills.enabled:
             addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
-        if self.learning_loop is not None:
-            addons.append(
-                LearningAddon(
-                    self.learning_loop,
-                    should_review=lambda: self.mode != "plan",
-                )
-            )
         self.tools.extend([
             EnterPlanModeTool(self.workspace, self.plan_mode, self),
             ExitPlanModeTool(self.workspace, self.plan_mode),
@@ -218,6 +235,8 @@ class CodingAgent:
             model_id=mid or None,
             max_turns=turns,
             sink=self.sink,
+            # addon_factory replaces fork_for_child. Omit learning (and Jev):
+            # LearningAddon.fork_for_child returns None — children skip observe.
             addon_factory=lambda parent: default_addons(
                 persistence=self.persistence, harness_config=parent.config,
                 compaction=self.config.compaction, include_subagent=False,
@@ -232,7 +251,7 @@ class CodingAgent:
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
     ) -> HarnessResult:
-        """Run the agent; learning is scheduled from the after_run add-on hook."""
+        """Run the agent, renewing an OAuth token once after an auth failure."""
         mode = self.mode
         task_text = text_from_content(user_input)
         self.harness.system_prompt = self.base_system_prompt
@@ -253,12 +272,39 @@ class CodingAgent:
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
-        result = await self.harness.run(
-            user_input,
-            conversation=conversation,
-            session_id=session_id or self.session_id,
-        )
+        try:
+            result = await self.harness.run(
+                user_input,
+                conversation=conversation,
+                session_id=session_id or self.session_id,
+            )
+        except Exception as exc:
+            registry = renew_oauth_credentials(self.harness.model_id, exc)
+            if registry is None:
+                raise
+            self.harness.registry = registry
+            result = await self.harness.run(
+                user_input,
+                conversation=conversation,
+                session_id=session_id or self.session_id,
+            )
+        follow_up = self._jev_follow_up()
+        if follow_up:
+            if self.mode != "plan" and "replan" in follow_up.lower():
+                self.set_mode("plan")
+            result = await self.harness.run(
+                follow_up,
+                session_id=session_id or self.session_id,
+            )
         return result
+
+    def _jev_follow_up(self) -> Optional[str]:
+        addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)
+        consume = getattr(addon, "consume_follow_up", None)
+        if not callable(consume):
+            return None
+        prompt = consume()
+        return prompt if isinstance(prompt, str) and prompt.strip() else None
 
     def set_mode(self, mode: AgentMode) -> None:
         self.mode = mode
@@ -337,6 +383,7 @@ def build_agent(
     model_id: Optional[str] = None,
     session_id: Optional[str] = None,
     enable_learning: Optional[bool] = None,
+    enable_jev: Optional[bool] = None,
     config: Optional[SettingsSource] = None,
 ) -> CodingAgent:
     """Build a coding agent from whatever provider credentials are available."""
@@ -344,10 +391,16 @@ def build_agent(
 
     registry = build_default_registry()
     loaded = None if config is None else resolve_coding_agent_config(config)
-    overrides = None
+    overrides: dict[str, Any] = {}
     if enable_learning is not None:
-        overrides = {"learning": {"enabled": enable_learning}}
-    resolved = ensure_spawn_settings(workspace, config=loaded, overrides=overrides)
+        overrides["learning"] = {"enabled": enable_learning}
+    if enable_jev is not None:
+        overrides["evaluation"] = {"enabled": enable_jev}
+    resolved = ensure_spawn_settings(
+        workspace,
+        config=loaded,
+        overrides=overrides or None,
+    )
     return CodingAgent(
         registry=registry,
         model_id=default_model_id(registry, model_id),

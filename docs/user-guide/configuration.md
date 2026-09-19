@@ -66,6 +66,15 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
     "enabled": true,
     "sample_rate": 1.0,
     "max_payload_chars": 32000
+  },
+  "evaluation": {
+    "enabled": false,
+    "provider": "vercel",
+    "model": "typesafe-ai/jev",
+    "on_error": "fail-open",
+    "brief_max_chars": 2000,
+    "plan_max_chars": 2000,
+    "final_max_chars": 4000
   }
 }
 ```
@@ -104,15 +113,14 @@ The TUI reads colors and CSS from `~/.symphony/theme.toml` when that file
 exists. If it is missing, the packaged default dark theme is used. Copy
 `coding_agent/tui/theme/theme.toml` to `~/.symphony/theme.toml` to edit.
 
-Skills are discovered from `~/.symphony/skills/` and the workspace's
-`.symphony/skills/` directory, followed by any configured skill roots. Plugins
-are discovered from `~/.symphony/plugins/<name>/` and the workspace's
-`.symphony/plugins/<name>/` directory when plugins are enabled. Each plugin
-must contain a `plugin.json` manifest; its `skills` entries are loaded without
-executing code. Plugin add-ons remain disabled unless their root is explicitly
-listed in `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS`.
+Skills are discovered from `~/.symphony/skills/`, followed by any configured
+skill roots. Plugins are discovered from `~/.symphony/plugins/<name>/` when
+plugins are enabled. Each plugin must contain a `plugin.json` manifest; its
+`skills` entries are loaded without executing code. Plugin add-ons remain
+disabled unless their root is explicitly listed in
+`SYMPHONY_PLUGIN_AUTHORIZED_ROOTS`.
 
-This gives installed extensions predictable user/repository scopes while
+This keeps installed extensions in the user-wide Symphony directory while
 keeping executable plugin code behind an explicit trust boundary.
 
 ## Langfuse telemetry
@@ -121,13 +129,20 @@ keeping executable plugin code behind an explicit trust boundary.
 conversation actually sent on each model turn, tool arguments and results, and
 compaction. It is enabled in config by default and stays silent unless both
 `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set (optional
-`LANGFUSE_BASE_URL` for self-hosted or another region). Install the optional
-extra with `uv sync --package symphony-code --extra langfuse` (or
+`LANGFUSE_BASE_URL` for self-hosted or another region). `/langfuse` in the TUI
+saves keys and installs the optional SDK if it is missing. You can also install
+the extra with `uv sync --package symphony-code --extra langfuse` (or
 `pip install 'symphony-code[langfuse]'`). Set `"langfuse": {"enabled": false}`
 to skip the add-on. Secrets in payloads are redacted; image bytes are replaced
 with filenames.
 
 See [`docs/user-guide/langfuse.md`](langfuse.md).
+
+## Jev critic mode
+
+`evaluation` is off by default. `--jev` or `/jev` enables a findings-only
+critic (`typesafe-ai/jev` via Vercel). It does not switch the chat model and
+does not rewrite plans. See [`docs/user-guide/jev.md`](jev.md).
 
 
 ## Harness-only config

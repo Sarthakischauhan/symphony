@@ -98,8 +98,16 @@ can list them. They are not added to the checked-in models.dev snapshot.
 | `LANGFUSE_BASE_URL` | Cloud region or self-hosted URL (default `https://cloud.langfuse.com`) |
 
 Both keys must be set or `LangfuseAddon` stays silent. The Python SDK is an
-optional extra (`symphony-code[langfuse]`). See
+optional extra (`symphony-code[langfuse]`); `/langfuse` in the TUI installs it
+when missing. See
 [`docs/user-guide/langfuse.md`](../user-guide/langfuse.md).
+
+## Jev critic (optional)
+
+`--jev` / `/jev` enables findings-only critic mode on `symphony-code`. The
+evaluator uses the same Vercel AI Gateway key as chat (`AI_GATEWAY_API_KEY` or
+`VERCEL_AI_GATEWAY_API_KEY`) and `POST /v4/ai/evaluation-model`. Missing keys
+fail open. See [`docs/user-guide/jev.md`](../user-guide/jev.md).
 
 ## Catalog generation (maintainers)
 

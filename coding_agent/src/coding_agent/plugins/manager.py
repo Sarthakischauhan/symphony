@@ -17,8 +17,7 @@ class PluginManager:
     def discover(self) -> tuple[PluginConfig, ...]:
         """Discover installed plugins without executing any plugin code.
 
-        Plugins use the same two scopes as skills: a repository-local
-        ``.symphony/plugins/<id>`` directory and a user-wide
+        Plugins are discovered from the user-wide
         ``~/.symphony/plugins/<id>`` directory.  The manifest is read later by
         ``load``; discovery only returns directories containing ``plugin.json``.
         """
@@ -26,7 +25,6 @@ class PluginManager:
         seen: set[Path] = set()
         for root in (
             Path.home() / ".symphony" / "plugins",
-            self.workspace / ".symphony" / "plugins",
         ):
             root = root.expanduser().resolve()
             if not root.is_dir():
@@ -48,13 +46,11 @@ class PluginManager:
         seen: set[str] = set()
         addon_names: set[str] = set()
         for entry in entries:
-            # Relative plugin paths are project-local; absolute paths (including
-            # ``~/.symphony/plugins/...``) remain usable for user-wide plugins.
+            # Relative plugin paths resolve against the user-wide plugin
+            # directory. Absolute paths remain usable as-is.
             root = entry.path.expanduser()
             if not root.is_absolute():
                 candidates = (
-                    self.workspace / root,
-                    self.workspace / ".symphony" / "plugins" / root,
                     Path.home() / ".symphony" / "plugins" / root,
                     Path.home() / ".symphony" / root,
                 )

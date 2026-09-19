@@ -1598,7 +1598,12 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert not list(app.query(ReadFileWidget))
             assert not list(app.query(ReasoningWidget))
             process = app.query_one(RunProcess)
-            assert not list(process.query(".process-complete"))
+            completions = list(process.query(".process-complete"))
+            assert len(completions) == 1
+            rendered_complete = str(completions[0].render())
+            assert "(↑120 ↓30)" in rendered_complete
+            assert "1 model call" in rendered_complete
+            assert "1 tool call" in rendered_complete
             summaries = list(process.query(CompletedRunSummary))
             assert len(summaries) == 1
             summary = summaries[0]
@@ -2097,7 +2102,8 @@ def test_reasoning_title_uses_only_a_standalone_markdown_heading(
 
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
-    assert "provider" in [command.name for command in SLASH_COMMANDS]
+    assert "langfuse" in [command.name for command in SLASH_COMMANDS]
+    assert "jev" in [command.name for command in SLASH_COMMANDS]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
     assert "plan" in [command.name for command in SLASH_COMMANDS]
@@ -3382,7 +3388,8 @@ def test_final_output_folds_remaining_tools(
                 app.update_tool(str(index), status="done", result="content")
             app.set_assistant("Finished the requested changes.")
             app.finish_assistant()
-            app.finish_process("Completed")
+            metrics = "3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls"
+            app.finish_process(metrics)
             await pilot.pause()
 
             assert not list(app.query(ToolCallWidget))
@@ -3395,6 +3402,9 @@ def test_final_output_folds_remaining_tools(
             rendered = summary.render().plain
             assert rendered.startswith("[ Cooked")
             assert rendered.endswith("]")
+            completions = list(app.query(".process-complete"))
+            assert len(completions) == 1
+            assert metrics in str(completions[0].render())
             assert app._assistant is not None
             assert "Finished the requested changes." in app._assistant.message_text
             assert "SYMPHONY" not in str(app._assistant.render())

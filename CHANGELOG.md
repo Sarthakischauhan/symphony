@@ -10,12 +10,16 @@
   `/v1` base. Chat completions stay on `/v1/chat/completions`.
 - Optional `LangfuseAddon` on `symphony-code` records the conversation sent
   each model turn, plus tools and compaction, when `LANGFUSE_PUBLIC_KEY` and
-  `LANGFUSE_SECRET_KEY` are set. Install `symphony-code[langfuse]`. Disable
-  with `"langfuse": {"enabled": false}`. Observation input/output (run task,
-  turn text and tool calls, tool arguments, and final `output_text`) is
-  redacted before it leaves the process. Root spans no longer pass
-  `session_id` into Langfuse v4 `start_observation` (that TypeError was
+  `LANGFUSE_SECRET_KEY` are set. `/langfuse` saves keys and installs the
+  optional SDK if it is missing. You can still install `symphony-code[langfuse]`
+  yourself. Disable with `"langfuse": {"enabled": false}`. Observation
+  input/output (run task, turn text and tool calls, tool arguments, and final
+  `output_text`) is redacted before it leaves the process. Root spans no longer
+  pass `session_id` into Langfuse v4 `start_observation` (that TypeError was
   swallowed and produced zero traces).
+- Optional Jev critic mode on `symphony-code` (`--jev` / `/jev`). Findings
+  only: the chat model is unchanged, scores do not rewrite the plan, and
+  provider errors fail open. Off by default.
 - `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),
   Claude (`claude setup-token` or browser code), or xAI (device code)
   subscription. Tokens live in `~/.symphony/oauth/` and are used when no

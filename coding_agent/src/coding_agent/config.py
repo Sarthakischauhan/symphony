@@ -79,8 +79,8 @@ class SkillsConfig(BaseModel):
 
 class PluginsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # Installed plugins are discovered from the user and workspace scopes by
-    # default. Their executable add-ons still require trusted authorization.
+    # Installed plugins are discovered from the user-wide ``~/.symphony/plugins``
+    # directory. Their executable add-ons still require trusted authorization.
     enabled: bool = True
     entries: list[PluginConfig] = Field(default_factory=list)
     authorized_roots: list[Path] = Field(default_factory=list)
@@ -103,6 +103,24 @@ class LangfuseConfig(BaseModel):
     enabled: bool = True
     sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
     max_payload_chars: int = Field(default=32_000, ge=1)
+
+
+class EvaluationConfig(BaseModel):
+    """Optional Jev critic mode. Off by default; never switches the chat model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    provider: str = "vercel"
+    model: str = "typesafe-ai/jev"
+    on_error: Literal["fail-open"] = "fail-open"
+    request_max_chars: int = Field(default=2_000, ge=1)
+    brief_max_chars: int = Field(default=2_000, ge=1)
+    plan_max_chars: int = Field(default=2_000, ge=1)
+    observations_max_chars: int = Field(default=2_000, ge=1)
+    last_tool_results_max_chars: int = Field(default=2_000, ge=1)
+    final_max_chars: int = Field(default=4_000, ge=1)
+    files_modified_max: int = Field(default=40, ge=1)
 
 
 def default_coding_agent_harness() -> HarnessConfig:
@@ -128,6 +146,7 @@ class CodingAgentConfig(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -192,9 +211,8 @@ def symphony_dir() -> Path:
 def spawn_settings_path(workspace: str | Path | None = None) -> Path:
     """Return the user-wide config file path.
 
-    Configuration is shared across projects, just like sessions.  ``workspace``
-    is retained as an ignored compatibility argument for callers that used the
-    old project-local API.
+    Configuration is shared across projects. ``workspace`` is ignored and kept
+    only so existing callers do not need to change.
     """
     del workspace
     return symphony_dir() / SPAWN_SETTINGS_NAME
@@ -233,11 +251,11 @@ def ensure_spawn_settings(
     config: CodingAgentConfig | None = None,
     overrides: dict[str, Any] | None = None,
 ) -> CodingAgentConfig:
-    """Create or refresh ``.symphony/config.json`` for this spawn and return it.
+    """Create or refresh ``~/.symphony/config.json`` and return it.
 
-    An existing file is the starting point. Missing keys are filled from
+    An existing global file is the starting point. Missing keys are filled from
     ``CodingAgentConfig`` field defaults, then the complete resolved settings
-    are written back so the spawn file is the source of truth.
+    are written back so the user-wide file is the source of truth.
     """
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -269,6 +287,7 @@ __all__ = [
     "BashConfig",
     "CodingAgentConfig",
     "CompactionConfig",
+    "EvaluationConfig",
     "LangfuseConfig",
     "LearningConfig",
     "PluginsConfig",
