@@ -6,23 +6,29 @@ docs, and agent examples such as Foreman all keep this split:
     typed answers + probabilities  ->  code-owned policy  ->  one allowed action
 
 This module is that policy. It never calls the evaluator, never rewrites the
-plan file, and never grants extra tools. It only maps structured findings onto
-a small set of harness actions the add-on can honour.
+plan file, and never grants extra tools. Default behaviour is a message-only
+nudge. Honour/follow-up (a second ``harness.run``) is opt-in and off by default.
 
 Fail-open: skipped/error results, missing answers, and low-confidence booleans
-all become ``continue_normally``. High-impact actions require an explicit
-boolean/choice from the current question set.
+all become ``continue_normally``. Actuation requires an explicit probability
+that clears the threshold; a bare ``True`` / label is a weak signal only.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from coding_agent.evaluation.protocol import (
     CONTINUE_NORMALLY,
     EvaluationFinding,
     EvaluationResult,
+)
+
+NUDGE_MARKER = "Jev critic note:"
+_NUDGE_NEXT_ACTIONS = frozenset({"continue", "retry", "replan", "review"})
+_FINISH_QUESTIONS = frozenset(
+    {"task_complete", "remaining_work", "unsupported_claims"}
 )
 
 # Actions the add-on is allowed to honour. Anything else is treated as continue.
@@ -85,6 +91,78 @@ def decide_next_step(result: EvaluationResult) -> PolicyDecision:
     if result.phase == "finish":
         return _decide_finish(findings)
     return PolicyDecision(reason="unknown evaluation phase")
+
+
+def should_nudge(findings: Any) -> bool:
+    """True when the next model turn should see one critic note.
+
+    Missing probabilities still count as a weak signal. They never clear the
+    actuation threshold used by ``decide_next_step``.
+    """
+    if isinstance(findings, EvaluationResult) and findings.status != "ok":
+        return False
+    items = _findings_map(findings)
+    if _weak_true(items.get("needs_replan")):
+        return True
+    if _weak_true(items.get("unsupported_claims")):
+        return True
+    if _weak_true(items.get("task_complete")) and _weak_true(items.get("remaining_work")):
+        return True
+    action = _choice_label(items.get("next_action"))
+    if action not in _NUDGE_NEXT_ACTIONS:
+        return False
+    if action == "continue":
+        return _is_finish_findings(items, findings)
+    return True
+
+
+def format_nudge(findings: Any) -> str:
+    """Short template string for one user-role critic note. Not an LLM call."""
+    items = _findings_map(findings)
+    flagged: list[str] = []
+    for name in (
+        "needs_replan",
+        "unsupported_claims",
+        "task_complete",
+        "remaining_work",
+    ):
+        finding = items.get(name)
+        if not _weak_true(finding):
+            continue
+        detail = ((finding.rationale or finding.label) if finding else "").strip()
+        flagged.append(f"{name} ({detail})" if detail else name)
+    action = _choice_label(items.get("next_action"))
+    if action:
+        flagged.append(f"next_action={action}")
+    flagged_text = ", ".join(flagged) if flagged else "review the latest findings"
+    lines = [
+        f"{NUDGE_MARKER} plan or outcome looks incomplete.",
+        f"Flagged: {flagged_text}.",
+    ]
+    if action:
+        lines.append(f"Suggested next_action: {action}.")
+    lines.append("Plan mode was not opened.")
+    return "\n".join(lines)
+
+
+def is_jev_nudge(message: Any) -> bool:
+    """True when ``message`` is a previously injected Jev critic note."""
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                parts.append(str(part.get("text") or ""))
+            else:
+                parts.append(str(getattr(part, "text", "") or part))
+        text = "".join(parts)
+    else:
+        text = str(content or "")
+    return NUDGE_MARKER in text
 
 
 def critic_message(decision: PolicyDecision) -> str:
@@ -175,19 +253,69 @@ def _boolean_false(finding: Optional[EvaluationFinding]) -> bool:
 
 
 def _boolean_probability(finding: Optional[EvaluationFinding]) -> float:
-    """Return P(true), or -1 when the finding is missing/unusable."""
+    """Return P(true), or -1 when the finding is missing/unusable.
+
+    A bare bool or label is not p=1.0. Actuation needs an explicit probability.
+    """
     if finding is None or finding.kind != "boolean":
         return -1.0
-    if isinstance(finding.value, bool):
-        return 1.0 if finding.value else 0.0
-    if isinstance(finding.value, (int, float)):
-        return float(finding.value)
-    label = str(finding.label or "").strip().lower()
-    if label in {"true", "yes"}:
-        return 1.0
-    if label in {"false", "no"}:
-        return 0.0
+    probs = getattr(finding, "probs", None)
+    if isinstance(probs, dict) and "true" in probs:
+        try:
+            return float(probs["true"])
+        except (TypeError, ValueError):
+            return -1.0
+    value = finding.value
+    if isinstance(value, bool):
+        return -1.0
+    if isinstance(value, (int, float)):
+        return float(value)
     return -1.0
+
+
+def _findings_map(findings: Any) -> dict[str, EvaluationFinding]:
+    if findings is None:
+        return {}
+    if isinstance(findings, EvaluationResult):
+        items = findings.findings
+    elif isinstance(findings, dict):
+        return {
+            str(key): value
+            for key, value in findings.items()
+            if isinstance(value, EvaluationFinding)
+        }
+    else:
+        items = findings
+    return {
+        finding.question: finding
+        for finding in items
+        if isinstance(finding, EvaluationFinding)
+    }
+
+
+def _is_finish_findings(items: dict[str, EvaluationFinding], findings: Any) -> bool:
+    if isinstance(findings, EvaluationResult):
+        return findings.phase == "finish"
+    return any(name in items for name in _FINISH_QUESTIONS)
+
+
+def _choice_label(finding: Optional[EvaluationFinding]) -> str:
+    if finding is None:
+        return ""
+    return str(finding.value or finding.label or "").strip().lower()
+
+
+def _weak_true(finding: Optional[EvaluationFinding]) -> bool:
+    """Label/bool without probs still counts as a weak yes for nudging."""
+    if finding is None or finding.kind != "boolean":
+        return False
+    probability = _boolean_probability(finding)
+    if probability >= 0.0:
+        return probability >= 0.5
+    if isinstance(finding.value, bool):
+        return finding.value
+    label = str(finding.label or "").strip().lower()
+    return label in {"true", "yes"}
 
 
 def _rationale(decision: PolicyDecision) -> str:
@@ -204,9 +332,13 @@ def _rationale_from(finding: Optional[EvaluationFinding], fallback: str) -> str:
 __all__ = [
     "BOOLEAN_ACT_THRESHOLD",
     "MAX_HONOURED_FOLLOW_UPS",
+    "NUDGE_MARKER",
     "PolicyAction",
     "PolicyDecision",
     "apply_findings_gate",
     "critic_message",
     "decide_next_step",
+    "format_nudge",
+    "is_jev_nudge",
+    "should_nudge",
 ]

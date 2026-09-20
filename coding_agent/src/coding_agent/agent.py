@@ -290,8 +290,6 @@ class CodingAgent:
             )
         follow_up = self._jev_follow_up()
         if follow_up:
-            if self.mode != "plan" and "replan" in follow_up.lower():
-                self.set_mode("plan")
             result = await self.harness.run(
                 follow_up,
                 session_id=session_id or self.session_id,

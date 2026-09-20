@@ -15,7 +15,7 @@ uv run --package symphony-code symphony [options]
 | `--model ID` | `SYMPHONY_MODEL` or first available provider | `provider:model` id |
 | `--resume` | off | Pick a saved session interactively |
 | `--no-learning` | learning on | Disable post-run reflection |
-| `--jev` | off | Enable Jev critic mode (findings only; does not switch the chat model) |
+| `--jev` | off | Enable Jev critic mode (findings + optional message; does not switch the chat model) |
 
 ## core-server
 

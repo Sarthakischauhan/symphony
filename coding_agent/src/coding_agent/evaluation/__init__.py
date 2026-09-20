@@ -8,10 +8,13 @@ from coding_agent.evaluation.evaluators import (
     VercelJevEvaluator,
 )
 from coding_agent.evaluation.policy import (
+    NUDGE_MARKER,
     PolicyDecision,
     apply_findings_gate,
     critic_message,
     decide_next_step,
+    format_nudge,
+    should_nudge,
 )
 from coding_agent.evaluation.protocol import (
     CONTINUE_NORMALLY,
@@ -33,6 +36,7 @@ __all__ = [
     "FINISH_QUESTIONS",
     "JevAddon",
     "LLMEvaluator",
+    "NUDGE_MARKER",
     "PolicyDecision",
     "MockEvaluator",
     "RunState",
@@ -44,5 +48,7 @@ __all__ = [
     "clip_text",
     "critic_message",
     "decide_next_step",
+    "format_nudge",
     "jev_from_config",
+    "should_nudge",
 ]

@@ -9,7 +9,8 @@ mistaken for missing harness hooks. The add-on maps them onto the existing
 | ``on_start`` | ``before_run`` |
 | ``on_finish`` | ``after_run`` |
 
-Findings are advisory. v1 does not map scores onto plan edits or control flow.
+Findings are advisory. v1 may inject one user-role critic note into messages.
+It does not map scores onto plan edits, plan mode, or a second harness run.
 """
 
 from __future__ import annotations
@@ -96,6 +97,7 @@ class EvaluationFinding:
     question: str
     kind: DecisionKind
     value: Any = None
+    probs: Optional[dict[str, float]] = None
     label: str = ""
     rationale: str = ""
 
@@ -126,6 +128,7 @@ def findings_from_decisions(decisions: list[EvaluationDecision]) -> list[Evaluat
             question=decision.name,
             kind=decision.kind,
             value=decision.value,
+            probs=decision.probs,
             label=decision.label,
             rationale=decision.rationale,
         )
@@ -167,7 +170,7 @@ def apply_findings_gate(result: EvaluationResult) -> str:
     """Return the code-owned next-step action for this result.
 
     The mapping lives in ``evaluation.policy`` so thresholds and honour rules
-    stay out of the protocol types.
+    stay out of the protocol types. Honour/follow-up is off unless configured.
     """
     from coding_agent.evaluation.policy import apply_findings_gate as decide
 

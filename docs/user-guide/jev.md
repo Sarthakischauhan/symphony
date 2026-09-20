@@ -10,17 +10,35 @@ harness.
 
 ## What Jev decides vs what it does not
 
-v1 is **findings-only**. The evaluator answers a fixed question set and the
-add-on stores structured findings (`decision` kind, value, probs, label, short
-rationale). Symphony does **not**:
+v1 is **findings plus an optional in-thread note**. The evaluator answers a
+fixed question set and the add-on stores structured findings (`decision` kind,
+value, probs, label, short rationale). When `should_nudge` is true, `JevAddon`
+injects **one** user-role critic note (`format_nudge`) into messages for the
+next model turn. Prior Jev nudge markers are stripped so notes do not stack.
+
+Symphony does **not**:
 
 - auto-REPLAN or rewrite the todo/plan
-- map a score onto control flow
-- evaluate every turn (no hot loop)
+- enter plan mode (`EnterPlanMode`)
+- start a silent second `harness.run` (honour / follow-up defaults **off**)
+- treat a bare boolean `True` / label as p=1.0 for actuation thresholds
 - replace the chat/completions model with `typesafe-ai/jev`
 
-High-confidence gates are stubbed to `continue_normally`. Provider errors
-fail open (`skipped` / `error`); the run still finishes.
+Missing probabilities are a **weak signal**: enough to nudge, never enough to
+honour or auto-run. Provider errors fail open (`skipped` / `error`); the run
+still finishes.
+
+`should_nudge` is true when findings show:
+
+- conflicting `task_complete` + `remaining_work`
+- `unsupported_claims`
+- `next_action` in `continue` / `retry` / `replan` / `review` (`continue` on
+  finish only)
+- pre-task `needs_replan`
+
+The note is a short template (plan or outcome incomplete, what Jev flagged,
+suggested `next_action`, and that plan mode was not opened). Cap: at most one
+nudge per phase.
 
 ### Start (`on_start`)
 
@@ -46,8 +64,8 @@ The add-on implements only the existing `Addon` pair:
 
 | Evaluator protocol | Addon hook | When |
 | --- | --- | --- |
-| `on_start` | `before_run` | Once at the start of `CoreHarness.run` |
-| `on_finish` | `after_run` | Once after a successful run |
+| `on_start` | `before_run` | Once at the start of `CoreHarness.run`; injects a note if `needs_replan` (or other start `should_nudge`) |
+| `on_finish` | `after_run` | Once after a successful run; injects a note if `should_nudge` |
 
 `before_turn` and `on_tool` are not overridden. Semantic state is rebuilt from
 the run payload (request, plan items + status, observations, files modified,
@@ -72,6 +90,7 @@ toggle, not `/model typesafe-ai/jev`. The setting is stored on
 {
   "evaluation": {
     "enabled": false,
+    "honour_follow_up": false,
     "provider": "vercel",
     "model": "typesafe-ai/jev",
     "on_error": "fail-open",
@@ -81,6 +100,10 @@ toggle, not `/model typesafe-ai/jev`. The setting is stored on
   }
 }
 ```
+
+`honour_follow_up` defaults to `false`. Leave it off: Jev will not consume a
+follow-up or start a second harness run. `evaluation.enabled` also defaults
+to `false`.
 
 Calls go to Vercel AI Gateway `POST /v4/ai/evaluation-model` using the existing
 helpers in `core_ai.providers.vercel` (`is_evaluation_model`,

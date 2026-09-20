@@ -1,4 +1,4 @@
-"""Tests for optional Jev critic mode (findings only)."""
+"""Tests for optional Jev critic mode (findings + optional message)."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from coding_agent.evaluation import (
     FINISH_QUESTIONS,
     JevAddon,
     MockEvaluator,
+    NUDGE_MARKER,
     START_QUESTIONS,
     StubEvaluator,
     VercelJevEvaluator,
@@ -35,7 +36,9 @@ from coding_agent.evaluation import (
     clip_text,
     critic_message,
     decide_next_step,
+    format_nudge,
     jev_from_config,
+    should_nudge,
 )
 from coding_agent.evaluation.protocol import EvaluationFinding, EvaluationResult
 from coding_agent.plan import PlanStore
@@ -343,13 +346,21 @@ def test_findings_do_not_rewrite_plan(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8") == original
     assert apply_findings_gate(addon.last_finish) == "retry"
     assert addon.gated_action == "retry"
+    assert addon.plan_mode is None or not addon.plan_mode.active
+    assert addon.consume_follow_up() is None
 
 
 def test_policy_maps_start_replan_and_finish_retry() -> None:
     replan = EvaluationResult(
         phase="start",
         findings=[
-            EvaluationFinding(question="needs_replan", kind="boolean", value=True, rationale="plan is stale"),
+            EvaluationFinding(
+                question="needs_replan",
+                kind="boolean",
+                value=True,
+                probs={"true": 0.91, "false": 0.09},
+                rationale="plan is stale",
+            ),
         ],
     )
     decision = decide_next_step(replan)
@@ -365,6 +376,50 @@ def test_policy_maps_start_replan_and_finish_retry() -> None:
     assert decide_next_step(retry).action == "retry"
     skipped = EvaluationResult(phase="start", status="error")
     assert decide_next_step(skipped).action == CONTINUE_NORMALLY
+
+
+def test_bare_label_does_not_clear_actuation_threshold() -> None:
+    bare = EvaluationResult(
+        phase="start",
+        findings=[
+            EvaluationFinding(
+                question="needs_replan",
+                kind="boolean",
+                value=True,
+                label="true",
+                rationale="plan looks stale",
+            ),
+        ],
+    )
+    assert decide_next_step(bare).action == CONTINUE_NORMALLY
+    assert should_nudge(bare) is True
+
+    label_only = EvaluationResult(
+        phase="finish",
+        findings=[
+            EvaluationFinding(
+                question="unsupported_claims",
+                kind="boolean",
+                label="true",
+            ),
+        ],
+    )
+    assert decide_next_step(label_only).action == CONTINUE_NORMALLY
+    assert should_nudge(label_only) is True
+
+    confident = EvaluationResult(
+        phase="start",
+        findings=[
+            EvaluationFinding(
+                question="needs_replan",
+                kind="boolean",
+                value=True,
+                label="true",
+                probs={"true": 0.88, "false": 0.12},
+            ),
+        ],
+    )
+    assert decide_next_step(confident).action == "replan"
 
 
 def test_start_replan_is_injected_for_the_model(tmp_path: Path) -> None:
@@ -386,10 +441,149 @@ def test_start_replan_is_injected_for_the_model(tmp_path: Path) -> None:
     addon.evaluator = mock
     messages: list[Message] = [Message(role="user", content="implement the feature")]
     asyncio.run(addon.before_run(task="implement the feature", messages=messages))
-    assert addon.gated_action == "replan"
-    assert addon.plan_mode is not None and addon.plan_mode.active
+    assert addon.gated_action == CONTINUE_NORMALLY
+    assert addon.plan_mode is None or not addon.plan_mode.active
     assert messages[-1].role == "user"
-    assert "Jev requested a replan" in str(messages[-1].content)
+    assert NUDGE_MARKER in str(messages[-1].content)
+    assert "Plan mode was not opened." in str(messages[-1].content)
+    assert addon.consume_follow_up() is None
+    assert sum(1 for item in messages if NUDGE_MARKER in str(item.content)) == 1
+
+
+def test_conflicting_bools_inject_one_message_no_second_run(tmp_path: Path) -> None:
+    class CountingRegistry:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def stream(self, model_id, messages, tools=None, **kwargs):
+            del model_id, messages, tools, kwargs
+            self.calls += 1
+            yield StreamEvent(type="text_delta", delta="done")
+            yield StreamEvent(type="done")
+
+    registry = CountingRegistry()
+    agent = _agent(tmp_path, enabled=True, registry=registry)
+    mock = MockEvaluator(
+        finish=EvaluationResult(
+            phase="finish",
+            findings=[
+                EvaluationFinding(
+                    question="task_complete",
+                    kind="boolean",
+                    value=True,
+                    label="true",
+                ),
+                EvaluationFinding(
+                    question="remaining_work",
+                    kind="boolean",
+                    value=True,
+                    label="true",
+                    rationale="tests still fail",
+                ),
+            ],
+        )
+    )
+    addon = _jev(agent)
+    addon.evaluator = mock
+    result = asyncio.run(agent.run("ship it"))
+    notes = [
+        item
+        for item in result.messages
+        if item.role == "user" and NUDGE_MARKER in str(item.content)
+    ]
+    assert len(notes) == 1
+    assert "task_complete" in str(notes[0].content)
+    assert "remaining_work" in str(notes[0].content)
+    assert "Plan mode was not opened." in str(notes[0].content)
+    assert agent.plan_mode.active is False
+    assert agent.mode != "plan"
+    assert registry.calls == 1
+    assert addon.follow_ups == 0
+    assert addon.consume_follow_up() is None
+    assert CodingAgentConfig().evaluation.honour_follow_up is False
+
+
+def test_honour_follow_up_stays_off_by_default() -> None:
+    mock = MockEvaluator(
+        finish=EvaluationResult(
+            phase="finish",
+            findings=[
+                EvaluationFinding(
+                    question="next_action",
+                    kind="choice",
+                    value="retry",
+                    label="retry",
+                ),
+            ],
+        )
+    )
+    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock)
+    asyncio.run(
+        addon.after_run(
+            task="ship it",
+            result=HarnessResult(
+                output_text="done",
+                messages=[],
+                tool_calls=[],
+                usage=UsageTotals(),
+            ),
+            messages=[],
+        )
+    )
+    assert addon.gated_action == "retry"
+    assert addon.config.honour_follow_up is False
+    assert addon.consume_follow_up() is None
+    assert addon.follow_ups == 0
+
+
+def test_nudge_replaces_prior_marker_instead_of_stacking() -> None:
+    mock = MockEvaluator(
+        start=EvaluationResult(
+            phase="start",
+            findings=[
+                EvaluationFinding(
+                    question="needs_replan",
+                    kind="boolean",
+                    value=True,
+                    label="true",
+                )
+            ],
+        )
+    )
+    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock)
+    messages = [
+        Message(role="user", content="task"),
+        Message(role="user", content=f"{NUDGE_MARKER} leftover from last phase."),
+    ]
+    asyncio.run(addon.before_run(task="task", messages=messages))
+    notes = [item for item in messages if NUDGE_MARKER in str(item.content)]
+    assert len(notes) == 1
+    assert "needs_replan" in str(notes[0].content)
+    assert "leftover from last phase" not in str(notes[0].content)
+
+
+def test_format_nudge_is_a_template_not_an_llm_call() -> None:
+    findings = [
+        EvaluationFinding(
+            question="unsupported_claims",
+            kind="boolean",
+            value=True,
+            label="true",
+            rationale="claimed tests passed",
+        ),
+        EvaluationFinding(
+            question="next_action",
+            kind="choice",
+            value="review",
+            label="review",
+        ),
+    ]
+    note = format_nudge(findings)
+    assert note.startswith(NUDGE_MARKER)
+    assert "unsupported_claims" in note
+    assert "Suggested next_action: review." in note
+    assert "Plan mode was not opened." in note
+    assert should_nudge(findings) is True
 
 
 def test_jev_flag_parses_into_evaluation_config(tmp_path: Path) -> None:
@@ -406,7 +600,9 @@ def test_jev_flag_parses_into_evaluation_config(tmp_path: Path) -> None:
     assert config.evaluation.provider == "vercel"
     assert config.evaluation.model == "typesafe-ai/jev"
     assert config.evaluation.on_error == "fail-open"
+    assert config.evaluation.honour_follow_up is False
     assert CodingAgentConfig().evaluation.enabled is False
+    assert CodingAgentConfig().evaluation.honour_follow_up is False
 
 
 def test_slash_jev_is_mode_toggle_not_model_switch() -> None:

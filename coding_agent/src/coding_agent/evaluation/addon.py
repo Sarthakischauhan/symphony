@@ -1,4 +1,4 @@
-"""Jev critic add-on. Evaluates at run start/finish, then honours policy actions."""
+"""Jev critic add-on. Evaluates at run start/finish, then optionally nudges."""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ from coding_agent.evaluation.policy import (
     PolicyDecision,
     critic_message,
     decide_next_step,
+    format_nudge,
+    is_jev_nudge,
+    should_nudge,
 )
 from coding_agent.evaluation.protocol import (
     CONTINUE_NORMALLY,
@@ -32,11 +35,12 @@ logger = logging.getLogger(__name__)
 
 
 class JevAddon(Addon):
-    """Call the evaluator at run start and finish, then apply the policy.
+    """Call the evaluator at run start and finish.
 
-    Does not override ``before_turn`` or ``on_tool``. The policy never rewrites
-    the plan file; a replan is honoured by switching into plan mode and telling
-    the chat model to revise the plan.
+    Does not override ``before_turn`` or ``on_tool``. Default behaviour injects
+    at most one user-role critic note per phase. It never rewrites the plan
+    file, never enters plan mode, and never starts a second ``harness.run``
+    unless ``evaluation.honour_follow_up`` is on.
     """
 
     name = "jev"
@@ -58,6 +62,7 @@ class JevAddon(Addon):
         self.last_decision: Optional[PolicyDecision] = None
         self.gated_action = CONTINUE_NORMALLY
         self.follow_ups = 0
+        self._queued_nudge: Optional[str] = None
         self._harness: Any = None
 
     def attach(self, harness: Any) -> None:
@@ -90,7 +95,8 @@ class JevAddon(Addon):
             result = error_result(phase, str(exc)[:280])
         decision = decide_next_step(result)
         if (
-            decision.should_act
+            self.config.honour_follow_up
+            and decision.should_act
             and self.follow_ups >= MAX_HONOURED_FOLLOW_UPS
             and decision.action in {"replan", "retry"}
         ):
@@ -125,7 +131,12 @@ class JevAddon(Addon):
             messages=messages,
             plan_text=self._plan_markdown(),
         )
-        self._honour_start(messages)
+        if should_nudge(self.last_start):
+            self._inject_nudge(messages, format_nudge(self.last_start))
+            self._queued_nudge = None
+        elif self._queued_nudge:
+            self._inject_nudge(messages, self._queued_nudge)
+            self._queued_nudge = None
 
     async def after_run(self, **payload: Any) -> None:
         result = payload.get("result")
@@ -141,40 +152,33 @@ class JevAddon(Addon):
             final=final,
             tool_calls=tool_calls,
         )
+        if should_nudge(self.last_finish):
+            note = format_nudge(self.last_finish)
+            self._inject_nudge(messages, note)
+            self._queued_nudge = note
+        else:
+            self._queued_nudge = None
 
     def consume_follow_up(self) -> Optional[str]:
-        """Return a follow-up user prompt once, or ``None`` to stop."""
+        """Return a follow-up user prompt once, or ``None`` to stop.
+
+        Off unless ``evaluation.honour_follow_up`` is explicitly true.
+        """
+        if not self.config.honour_follow_up:
+            return None
         decision = self.last_decision
         if decision is None or decision.action not in {"retry", "replan"}:
             return None
         if self.follow_ups >= MAX_HONOURED_FOLLOW_UPS:
             return None
         self.follow_ups += 1
-        if decision.action == "replan":
-            self._enter_plan_mode()
         return critic_message(decision)
 
-    def _honour_start(self, messages: list[Any]) -> None:
-        decision = self.last_decision
-        if decision is None or not decision.should_act:
+    def _inject_nudge(self, messages: list[Any], note: str) -> None:
+        if not isinstance(messages, list):
             return
-        if decision.action == "replan":
-            self._enter_plan_mode()
-        if isinstance(messages, list):
-            messages.append(Message(role="user", content=critic_message(decision)))
-
-    def _enter_plan_mode(self) -> None:
-        if self.plan_mode is None:
-            return
-        if not self.plan_mode.active:
-            self.plan_mode.begin(self.plan_mode.plan_path)
-        if self._harness is not None and hasattr(self._harness, "system_prompt"):
-            prompt = str(self._harness.system_prompt or "")
-            marker = "Do not continue coding against the current plan"
-            if marker not in prompt:
-                self._harness.system_prompt = prompt.rstrip() + "\n\n" + critic_message(
-                    self.last_decision or PolicyDecision(action="replan")
-                ) + "\n"
+        messages[:] = [item for item in messages if not is_jev_nudge(item)]
+        messages.append(Message(role="user", content=note))
 
 
 def jev_from_config(

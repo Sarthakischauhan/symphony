@@ -45,6 +45,7 @@
   },
   "evaluation": {
     "enabled": false,
+    "honour_follow_up": false,
     "provider": "vercel",
     "model": "typesafe-ai/jev",
     "on_error": "fail-open",

@@ -18,8 +18,9 @@
   pass `session_id` into Langfuse v4 `start_observation` (that TypeError was
   swallowed and produced zero traces).
 - Optional Jev critic mode on `symphony-code` (`--jev` / `/jev`). Findings
-  only: the chat model is unchanged, scores do not rewrite the plan, and
-  provider errors fail open. Off by default.
+  plus an optional in-thread critic note: the chat model is unchanged, scores
+  do not rewrite the plan or enter plan mode, honour / auto-follow-up stays
+  off, and provider errors fail open. Off by default.
 - `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),
   Claude (`claude setup-token` or browser code), or xAI (device code)
   subscription. Tokens live in `~/.symphony/oauth/` and are used when no

@@ -107,7 +107,8 @@ when missing. See
 `--jev` / `/jev` enables findings-only critic mode on `symphony-code`. The
 evaluator uses the same Vercel AI Gateway key as chat (`AI_GATEWAY_API_KEY` or
 `VERCEL_AI_GATEWAY_API_KEY`) and `POST /v4/ai/evaluation-model`. Missing keys
-fail open. See [`docs/user-guide/jev.md`](../user-guide/jev.md).
+fail open. Honour / auto-follow-up stays off; Jev may inject one critic note
+into messages. See [`docs/user-guide/jev.md`](../user-guide/jev.md).
 
 ## Catalog generation (maintainers)
 

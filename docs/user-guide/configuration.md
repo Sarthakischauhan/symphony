@@ -67,8 +67,9 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
     "sample_rate": 1.0,
     "max_payload_chars": 32000
   },
-  "evaluation": {
+    "evaluation": {
     "enabled": false,
+    "honour_follow_up": false,
     "provider": "vercel",
     "model": "typesafe-ai/jev",
     "on_error": "fail-open",
@@ -142,7 +143,9 @@ See [`docs/user-guide/langfuse.md`](langfuse.md).
 
 `evaluation` is off by default. `--jev` or `/jev` enables a findings-only
 critic (`typesafe-ai/jev` via Vercel). It does not switch the chat model and
-does not rewrite plans. See [`docs/user-guide/jev.md`](jev.md).
+does not rewrite plans. High-confidence honour / auto-follow-up stays off
+(`honour_follow_up` defaults false). When findings warrant it, Jev may inject
+one user-role critic note into messages. See [`docs/user-guide/jev.md`](jev.md).
 
 
 ## Harness-only config
