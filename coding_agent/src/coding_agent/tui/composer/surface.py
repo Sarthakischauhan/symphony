@@ -13,6 +13,7 @@ from coding_agent.tui.commands import (
     mode_matches,
     model_matches,
     model_supports_effort,
+    personality_matches,
     toggle_mode,
 )
 from coding_agent.tui.composer.input import Composer, PromptInput, mode_label
@@ -137,6 +138,12 @@ class ComposerSurface:
                     event.text_area.text.removeprefix("/model "),
                     self._model_options,
                 ),
+                current,
+            )
+        elif event.text_area.text.startswith("/personality "):
+            current = getattr(getattr(self, "config", None), "personality", None) or ""
+            menu.set_personalities(
+                personality_matches(event.text_area.text.removeprefix("/personality ")),
                 current,
             )
         elif event.text_area.text.startswith("/effort "):

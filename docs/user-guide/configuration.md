@@ -67,7 +67,8 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
     "sample_rate": 1.0,
     "max_payload_chars": 32000
   },
-    "evaluation": {
+  "personality": "direct",
+  "evaluation": {
     "enabled": false,
     "honour_follow_up": false,
     "provider": "vercel",
@@ -138,6 +139,15 @@ to skip the add-on. Secrets in payloads are redacted; image bytes are replaced
 with filenames.
 
 See [`docs/user-guide/langfuse.md`](langfuse.md).
+
+## Personality
+
+`personality` selects one named segment from repo-root
+`personalities.json` (`direct`, `bad_boy`, `caveman`, `precise`, `warm`).
+The default is `"direct"`. Set it to `null` for the stock system prompt
+with no personality segment; unknown ids fail soft to the same stock
+prompt. `/personality` switches the segment immediately (config +
+`harness.system_prompt`) without restarting the app.
 
 ## Jev critic mode
 

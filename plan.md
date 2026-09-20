@@ -121,9 +121,9 @@ and `~` paths are allowed:
 - Plan mode (`plan.py`): `Tab` toggles build / plan; plans are saved under
   `.symphony/plans/`.
 - Textual TUI (`tui/`): streamed transcript with reasoning and tool panels,
-  `@path` completion, slash commands (`/model`, `/mode`, `/effort`, `/plan`,
-  `/provider`, `/new`, `/reload`, `/compact`, `/status`, `/context`,
-  `/learning`, `/diff`, `/clear`, `/help`, `/quit`), context footer, image
+  `@path` completion, slash commands (`/model`, `/personality`, `/mode`,
+  `/effort`, `/plan`, `/provider`, `/new`, `/reload`, `/compact`, `/status`,
+  `/context`, `/learning`, `/diff`, `/clear`, `/help`, `/quit`), context footer, image
   rendering, subagent cards and nested screens, session resume (`--resume`),
   `Esc` / `Ctrl+X` cancel. See `coding_agent/TUI_ARCHITECTURE.md`.
 

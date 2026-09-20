@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Agent personalities (`direct` default, plus `bad_boy`, `caveman`,
+  `precise`, `warm`) live in repo-root `personalities.json`. `/personality`
+  swaps that system-prompt segment immediately. `null` or an unknown id
+  keeps the stock prompt with no personality segment.
 - Session updates such as model, effort, provider, and compaction now appear
   in a transient composer overlay with a `ctrl+q` quit hint, matching the
   interrupt confirmation card instead of a transcript notice.

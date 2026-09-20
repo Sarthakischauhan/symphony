@@ -6,6 +6,7 @@ menu.
 | Command | What it does |
 | --- | --- |
 | `/model [id]` | Show the credential-filtered catalog, or switch model |
+| `/personality [id]` | Show the personality catalog, or switch (`direct`, `bad_boy`, `caveman`, `precise`, `warm`) |
 | `/mode [mode]` | View or switch **build** / **plan** |
 | `/effort [level]` | Set reasoning effort (`none` … `max`) |
 | `/plan [text]` | Enter plan mode; with text, submit it as the next planning turn |
