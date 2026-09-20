@@ -80,6 +80,7 @@ from coding_agent.tui.tools import (
     diff_stats,
     make_tool_widget,
 )
+from coding_agent.tui.tools.activity import COMPLETION_VERBS
 from coding_agent.tui.tools.snapshots import ThoughtSnapshot
 from coding_agent.tui.chrome import (
     ComposerOverlay,
@@ -3412,8 +3413,10 @@ def test_final_output_folds_remaining_tools(
             assert summary.count == 12
             assert not summary.is_expanded
             rendered = summary.render().plain
-            assert rendered.startswith("[ Cooked")
-            assert rendered.endswith("]")
+            verb = rendered.split(" for ", 1)[0]
+            assert verb in COMPLETION_VERBS
+            assert "[" not in rendered
+            assert "]" not in rendered
             completions = list(app.query(".process-complete"))
             assert len(completions) == 1
             assert metrics in str(completions[0].render())

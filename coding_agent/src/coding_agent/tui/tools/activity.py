@@ -8,6 +8,7 @@ partition key.
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -138,36 +139,35 @@ def _clip_title(title: str) -> str:
     return f"{text[:96].rstrip()}…"
 
 
-_IRREGULAR_PAST_TENSE = {
-    "build": "Built",
-    "check": "Checked",
-    "consider": "Considered",
-    "cook": "Cooked",
-    "explore": "Explored",
-    "inspect": "Inspected",
-    "plan": "Planned",
-    "read": "Read",
-    "run": "Ran",
-    "search": "Searched",
-    "think": "Thought",
-    "write": "Wrote",
-}
+# Playful past-tense completion verbs in the spirit of Claude Code's spinner
+# words. Shown as-is on the folded run collection: "Stargazed for 2m 2s".
+COMPLETION_VERBS = (
+    "Stargazed",
+    "Cooked",
+    "Pondered",
+    "Noodled",
+    "Wandered",
+    "Tinkered",
+    "Mused",
+    "Orbited",
+    "Whisked",
+    "Grooved",
+    "Spelunked",
+    "Percolated",
+    "Ruminated",
+    "Concocted",
+    "Meandered",
+    "Incubated",
+    "Harmonized",
+    "Forged",
+    "Sketched",
+    "Vibed",
+)
 
 
-def past_tense_verb(verb: str, *, fallback: str = "Cooked") -> str:
-    """Convert a present-participle or infinitive activity verb into past tense."""
-    text = verb.strip()
-    if not text:
-        return fallback
-    lowered = text.lower()
-    stem = lowered[:-3] if lowered.endswith("ing") else lowered
-    if stem in _IRREGULAR_PAST_TENSE:
-        return _IRREGULAR_PAST_TENSE[stem]
-    if stem.endswith("e"):
-        return stem.capitalize() + "d"
-    if stem.endswith("y") and len(stem) > 1 and stem[-2] not in "aeiou":
-        return stem[:-1].capitalize() + "ied"
-    return (stem + "ed").capitalize()
+def choose_completion_verb() -> str:
+    """Pick a Claude-style verb for the completed-run collection."""
+    return random.choice(COMPLETION_VERBS)
 
 
 def _activity_text(value: Any) -> str:

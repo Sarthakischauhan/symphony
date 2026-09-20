@@ -5,6 +5,10 @@
 - Session updates such as model, effort, provider, and compaction now appear
   in a transient composer overlay with a `ctrl+q` quit hint, matching the
   interrupt confirmation card instead of a transcript notice.
+- The completed-run collection in the TUI is now an unbracketed past-tense
+  Claude-style verb plus duration, for example `Stargazed for 2m 2s`, instead
+  of `[ Cooked … ]`. Live churning status uses matching spinner words such as
+  `Stargazing` and `Noodling`.
 - `symphony-core` registers OpenRouter (`OPENROUTER_API_KEY`) and Vercel AI
   Gateway (`AI_GATEWAY_API_KEY`) as OpenAI-compatible Chat Completions
   providers. Model slugs like `openai/gpt-4o` are discovered from `/models`

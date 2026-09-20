@@ -270,7 +270,7 @@ class TranscriptSurface:
         *,
         collapse: bool = True,
         add_completion: bool = True,
-        verb: str = "Cooked",
+        verb: str = "",
         duration: str = "",
         detail: str = "",
     ) -> None:

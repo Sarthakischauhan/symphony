@@ -312,14 +312,13 @@ class EventPresenter:
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
         self.view.set_thinking(completed)
-        # Fold the work that happened before the final reply into a past-tense
-        # summary, then keep the assistant response as the last content.
+        # Fold the work that happened before the final reply into a verb-plus-
+        # duration collection, then keep the assistant response as the last content.
         try:
             self.view.finish_process(
                 completed,
                 collapse=True,
                 add_completion=True,
-                verb="Cooked",
                 duration=elapsed,
             )
         except TypeError:

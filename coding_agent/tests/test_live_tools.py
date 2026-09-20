@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from coding_agent.tui.motion import enter_row, settle_row
 from coding_agent.tui.tools.activity import (
+    COMPLETION_VERBS,
     format_explored_duration,
-    past_tense_verb,
     same_activity_group,
 )
 from coding_agent.tui.tools.calls import (
@@ -597,19 +597,19 @@ def test_same_activity_group_keys_on_group_then_bool_reason() -> None:
     assert same_activity_group(plain, ToolCallSnapshot("f"))
 
 
-def test_past_tense_verb_converts_present_participles() -> None:
-    assert past_tense_verb("Cooking") == "Cooked"
-    assert past_tense_verb("Exploring") == "Explored"
-    assert past_tense_verb("Thinking") == "Thought"
-    assert past_tense_verb("Plan") == "Planned"
-    assert past_tense_verb("") == "Cooked"
-
-
-def test_completed_run_summary_renders_past_tense_header() -> None:
-    summary = CompletedRunSummary(verb="Cooking", duration="10s")
+def test_completed_run_summary_renders_unbracketed_verb_and_duration() -> None:
+    summary = CompletedRunSummary(verb="Stargazed", duration="2m 2s")
     rendered = summary.render().plain
-    assert rendered.startswith("[ Cooked for 10s")
-    assert rendered.endswith("]")
+    assert rendered == "Stargazed for 2m 2s"
+    assert "[" not in rendered
+    assert "]" not in rendered
+
+
+def test_completed_run_summary_picks_a_claude_style_verb() -> None:
+    summary = CompletedRunSummary(duration="10s")
+    rendered = summary.render().plain
+    assert rendered.endswith(" for 10s")
+    assert rendered[: -len(" for 10s")] in COMPLETION_VERBS
 
 
 def test_explored_title_appends_duration_only_when_verb_is_set() -> None:
