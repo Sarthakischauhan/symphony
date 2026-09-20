@@ -115,7 +115,7 @@ def select_model(app: Any, argument: str) -> None:
     app._ui_state.set_context_limit(agent.harness.state.context_limit(selected.id))
     app.query_one("#topbar").set_context(app.workspace, selected.id)
     app._set_status("")
-    app.add_notice(f"Model switched to {selected.label} · {selected.id}", "success")
+    app.add_update(f"Model switched to {selected.label} · {selected.id}")
 
 
 def show_model_picker(app: Any) -> None:
@@ -178,7 +178,7 @@ def select_effort(app: Any, argument: str) -> None:
         return
     app._agent.harness.reasoning_effort = None if value == "default" else value
     label = next(option.label for option in efforts if option.id == value)
-    app.add_notice(f"Reasoning effort set to {label}", "success")
+    app.add_update(f"Reasoning effort set to {label}")
 
 
 def show_effort_picker(app: Any) -> None:
@@ -220,7 +220,7 @@ def select_mode(app: Any, argument: str) -> None:
         app.add_notice(f"Unknown mode: {argument}. Run /mode to see available modes.", "warning")
         return
     sync_app_mode(app, selected.id)
-    app.add_notice(f"Switched to {selected.label} mode", "success")
+    app.add_update(f"Switched to {selected.label} mode")
 
 
 def show_mode_picker(app: Any) -> None:
@@ -348,7 +348,7 @@ async def reload_project(app: Any) -> None:
         invalidate = getattr(app, "invalidate_workspace_caches", None)
         if callable(invalidate):
             invalidate()
-        app.add_notice("Configuration reloaded.", "success")
+        app.add_update("Configuration reloaded.")
         app.query_one("#prompt").focus()
     except Exception as exc:  # noqa: BLE001
         app._agent = previous_agent

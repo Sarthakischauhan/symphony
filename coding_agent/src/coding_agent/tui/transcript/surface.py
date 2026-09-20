@@ -9,6 +9,7 @@ from textual.widget import Widget
 
 from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT, reconcile_live_tools
 from coding_agent.tui.transcript.archive import TranscriptTurn
+from coding_agent.tui.chrome.overlay import ComposerOverlay
 from coding_agent.tui.transcript.messages import (
     AssistantMessage,
     Notice,
@@ -245,6 +246,10 @@ class TranscriptSurface:
             self._mount_process_item(notice)
         else:
             self._mount_transcript(notice)
+
+    def add_update(self, text: str, hint: str = "") -> None:
+        overlay = self.query_one("#composer-overlay", ComposerOverlay)
+        overlay.show(text, hint or "Press ctrl+q to quit the app")
 
     def add_run_summary(
         self,

@@ -94,6 +94,8 @@ class TranscriptView(Protocol):
 
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
+    def add_update(self, text: str, hint: str = "") -> None: ...
+
     def add_run_summary(
         self,
         summary: str,
@@ -544,7 +546,12 @@ class EventPresenter:
         self.state.update_after_compaction(payload)
         if payload.get("manual"):
             self.state.detail = "ready"
-        self.view.add_notice(_compaction_notice(payload), "success")
+        add_update = getattr(self.view, "add_update", None)
+        if callable(add_update):
+            add_update(_compaction_notice(payload))
+        else:
+            # Keep lightweight presenter test doubles and older integrations working.
+            self.view.add_notice(_compaction_notice(payload), "success")
 
     def _on_paused(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "paused"

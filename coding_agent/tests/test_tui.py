@@ -82,6 +82,7 @@ from coding_agent.tui.tools import (
 )
 from coding_agent.tui.tools.snapshots import ThoughtSnapshot
 from coding_agent.tui.chrome import (
+    ComposerOverlay,
     TopBar,
     context_percent,
     display_workspace_path,
@@ -2632,6 +2633,10 @@ def test_slash_menu_and_commands(
             await pilot.pause()
             assert fake.harness.model_id == "openai:gpt-5.6-luna"
             assert app._ui_state.model_id == "openai:gpt-5.6-luna"
+            overlay = app.query_one("#composer-overlay", ComposerOverlay)
+            assert overlay.display
+            assert "Model switched to gpt-5.6-luna" in overlay.title
+            assert "ctrl+q" in overlay.hint
 
             prompt.value = "/mode "  # type: ignore[attr-defined]
             await pilot.pause()
@@ -2666,6 +2671,9 @@ def test_slash_menu_and_commands(
 
             await app._run_slash_command("/effort default")
             assert fake.harness.reasoning_effort is None
+            overlay = app.query_one("#composer-overlay", ComposerOverlay)
+            assert "Reasoning effort set to Default" in overlay.title
+            assert "ctrl+q" in overlay.hint
 
             await app._run_slash_command("/compact")
             assert fake.compacted
@@ -2756,6 +2764,10 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
             assert metrics.utilization == 0.25
             footer = _footer_text(app)
             assert "25% context" in footer
+            overlay = app.query_one("#composer-overlay", ComposerOverlay)
+            assert overlay.display
+            assert "Compacted context · 40 → 12 messages" in overlay.title
+            assert "ctrl+q" in overlay.hint
             assert "75% context" not in footer
             assert "████░░░░░░░░░░░░░░" in footer
 

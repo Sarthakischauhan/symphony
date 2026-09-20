@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Session updates such as model, effort, provider, and compaction now appear
+  in a transient composer overlay with a `ctrl+q` quit hint, matching the
+  interrupt confirmation card instead of a transcript notice.
 - `symphony-core` registers OpenRouter (`OPENROUTER_API_KEY`) and Vercel AI
   Gateway (`AI_GATEWAY_API_KEY`) as OpenAI-compatible Chat Completions
   providers. Model slugs like `openai/gpt-4o` are discovered from `/models`

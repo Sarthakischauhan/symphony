@@ -16,7 +16,7 @@ from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.plan import PlanStore
-from coding_agent.tui.chrome import TopBar
+from coding_agent.tui.chrome import ComposerOverlay, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import Composer, PromptInput, QueuedPrompt, SlashMenu
 from coding_agent.tui.composer.surface import ComposerSurface
@@ -63,6 +63,7 @@ class CodingAgentApp(
     BINDINGS = [
         Binding("ctrl+g", "subagents", "Subagents", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
+        Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear", show=False),
         Binding("ctrl+y", "copy_selection", "Copy selection", show=False),
         Binding("escape", "cancel_run", "Cancel", show=True, priority=True),
@@ -148,6 +149,7 @@ class CodingAgentApp(
         with VerticalScroll(id="transcript"):
             yield Welcome(self.workspace)
         yield SlashMenu(id="slash-menu")
+        yield ComposerOverlay()
         yield Composer(id="composer")
         yield Static(id="status")
 
@@ -228,6 +230,8 @@ class CodingAgentApp(
         self._cancel_active_run("user_cancel")
         if not already:
             self.add_notice("Cancelling…", "warning")
+        overlay = self.query_one("#composer-overlay", ComposerOverlay)
+        overlay.hide()
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = True
         prompt.disabled = False
