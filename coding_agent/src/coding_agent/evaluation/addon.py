@@ -123,7 +123,7 @@ class JevAddon(Addon):
         return result
 
     async def before_run(self, **payload: Any) -> None:
-        messages = payload.get("messages") or []
+        messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
         self.last_start = await self._call(
             "on_start",
             "start",
@@ -132,15 +132,17 @@ class JevAddon(Addon):
             plan_text=self._plan_markdown(),
         )
         if should_nudge(self.last_start):
-            self._inject_nudge(messages, format_nudge(self.last_start))
+            self._apply_nudge(payload, format_nudge(self.last_start))
             self._queued_nudge = None
         elif self._queued_nudge:
-            self._inject_nudge(messages, self._queued_nudge)
+            self._apply_nudge(payload, self._queued_nudge)
             self._queued_nudge = None
 
     async def after_run(self, **payload: Any) -> None:
         result = payload.get("result")
-        messages = payload.get("messages") or getattr(result, "messages", None) or []
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            messages = getattr(result, "messages", None) or []
         tool_calls = getattr(result, "tool_calls", None) or ()
         final = getattr(result, "output_text", None) or ""
         self.last_finish = await self._call(
@@ -154,7 +156,7 @@ class JevAddon(Addon):
         )
         if should_nudge(self.last_finish):
             note = format_nudge(self.last_finish)
-            self._inject_nudge(messages, note)
+            self._apply_nudge(payload, note)
             self._queued_nudge = note
         else:
             self._queued_nudge = None
@@ -174,9 +176,21 @@ class JevAddon(Addon):
         self.follow_ups += 1
         return critic_message(decision)
 
+    def _apply_nudge(self, payload: dict[str, Any], note: str) -> None:
+        """Write the note onto live messages and ``HarnessResult.messages``.
+
+        Pydantic copies the list when building ``HarnessResult``, so mutating
+        only the session list would hide the note from ``agent.run`` callers.
+        """
+        result = payload.get("result")
+        seen: set[int] = set()
+        for target in (payload.get("messages"), getattr(result, "messages", None)):
+            if not isinstance(target, list) or id(target) in seen:
+                continue
+            seen.add(id(target))
+            self._inject_nudge(target, note)
+
     def _inject_nudge(self, messages: list[Any], note: str) -> None:
-        if not isinstance(messages, list):
-            return
         messages[:] = [item for item in messages if not is_jev_nudge(item)]
         messages.append(Message(role="user", content=note))
 
