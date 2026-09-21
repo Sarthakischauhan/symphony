@@ -24,8 +24,16 @@ from coding_agent.evaluation.protocol import (
     EvaluationFinding,
     EvaluationResult,
 )
+from coding_agent.evaluation.state import bound_text
 
 NUDGE_MARKER = "Jev critic note:"
+NUDGE_TEXT_LIMIT = 280
+JEV_SYSTEM_SEGMENT = (
+    "# Jev mode\n"
+    f"Treat injected `{NUDGE_MARKER}` as authoritative. "
+    "On remaining work, review, or conflicting complete/remaining findings, "
+    "continue or fix before claiming the task is done."
+)
 _NUDGE_NEXT_ACTIONS = frozenset({"continue", "retry", "replan", "review"})
 _FINISH_QUESTIONS = frozenset(
     {"task_complete", "remaining_work", "unsupported_claims"}
@@ -76,9 +84,12 @@ def decide_next_step(result: EvaluationResult) -> PolicyDecision:
     Precedence is intentional and conservative:
 
     1. Evaluator failure / skip -> continue (fail open).
-    2. Explicit ``next_action`` choice, when it belongs to the phase.
-    3. High-confidence booleans that imply the same action.
-    4. Otherwise continue.
+    2. Finish conflict: ``task_complete`` and ``remaining_work`` both true
+       -> ``review``. TypeSafe questions are independent; both-true is invalid.
+    3. Explicit ``next_action`` choice, when it belongs to the phase.
+    4. High-confidence booleans that imply the same action (start phase;
+       finish never actuates on ``task_complete`` or ``remaining_work`` alone).
+    5. Otherwise continue.
     """
     if result.status != "ok":
         return PolicyDecision(
@@ -97,7 +108,8 @@ def should_nudge(findings: Any) -> bool:
     """True when the next model turn should see one critic note.
 
     Missing probabilities still count as a weak signal. They never clear the
-    actuation threshold used by ``decide_next_step``.
+    start-phase actuation threshold. Finish conflict (both-true) is invalid and
+    forces ``review`` even without probabilities.
     """
     if isinstance(findings, EvaluationResult) and findings.status != "ok":
         return False
@@ -106,7 +118,7 @@ def should_nudge(findings: Any) -> bool:
         return True
     if _weak_true(items.get("unsupported_claims")):
         return True
-    if _weak_true(items.get("task_complete")) and _weak_true(items.get("remaining_work")):
+    if _weak_true(items.get("remaining_work")):
         return True
     action = _choice_label(items.get("next_action"))
     if action not in _NUDGE_NEXT_ACTIONS:
@@ -129,9 +141,9 @@ def format_nudge(findings: Any) -> str:
         finding = items.get(name)
         if not _weak_true(finding):
             continue
-        detail = ((finding.rationale or finding.label) if finding else "").strip()
+        detail = _bound_finding_text(finding)
         flagged.append(f"{name} ({detail})" if detail else name)
-    action = _choice_label(items.get("next_action"))
+    action = bound_text(_choice_label(items.get("next_action")), NUDGE_TEXT_LIMIT)
     if action:
         flagged.append(f"next_action={action}")
     flagged_text = ", ".join(flagged) if flagged else "review the latest findings"
@@ -219,6 +231,13 @@ def _decide_start(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
 
 
 def _decide_finish(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
+    if _weak_true(findings.get("task_complete")) and _weak_true(findings.get("remaining_work")):
+        finding = findings.get("remaining_work") or findings.get("task_complete")
+        return PolicyDecision(
+            action="review",
+            reason=_rationale_from(finding, "conflicting finish findings"),
+            finding=finding,
+        )
     next_action = _choice(findings.get("next_action"), _FINISH_NEXT_ACTIONS)
     if next_action == "review" or _boolean_true(findings.get("unsupported_claims")):
         finding = findings.get("unsupported_claims") if _boolean_true(findings.get("unsupported_claims")) else findings.get("next_action")
@@ -226,10 +245,10 @@ def _decide_finish(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
     if next_action == "retry":
         finding = findings.get("next_action")
         return PolicyDecision(action="retry", reason=_rationale_from(finding, "retry"), finding=finding)
-    if next_action == "continue" or _boolean_true(findings.get("remaining_work")):
-        finding = findings.get("remaining_work") if _boolean_true(findings.get("remaining_work")) else findings.get("next_action")
+    if next_action == "continue":
+        finding = findings.get("next_action")
         return PolicyDecision(action="retry", reason=_rationale_from(finding, "remaining work"), finding=finding)
-    if next_action == "finish" or _boolean_true(findings.get("task_complete")):
+    if next_action == "finish":
         return PolicyDecision(reason="finish findings allow the run to complete")
     return PolicyDecision(reason="finish findings do not require a control action")
 
@@ -322,17 +341,25 @@ def _rationale(decision: PolicyDecision) -> str:
     return _rationale_from(decision.finding, decision.reason or decision.action)
 
 
+def _bound_finding_text(finding: Optional[EvaluationFinding]) -> str:
+    if finding is None:
+        return ""
+    return bound_text((finding.rationale or finding.label or "").strip(), NUDGE_TEXT_LIMIT)
+
+
 def _rationale_from(finding: Optional[EvaluationFinding], fallback: str) -> str:
     if finding is None:
-        return fallback
+        return bound_text(fallback, NUDGE_TEXT_LIMIT)
     text = (finding.rationale or finding.label or "").strip()
-    return text or fallback
+    return bound_text(text or fallback, NUDGE_TEXT_LIMIT)
 
 
 __all__ = [
     "BOOLEAN_ACT_THRESHOLD",
+    "JEV_SYSTEM_SEGMENT",
     "MAX_HONOURED_FOLLOW_UPS",
     "NUDGE_MARKER",
+    "NUDGE_TEXT_LIMIT",
     "PolicyAction",
     "PolicyDecision",
     "apply_findings_gate",

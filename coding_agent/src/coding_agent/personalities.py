@@ -1,31 +1,32 @@
 """Agent personality catalog and system-prompt segment composer.
 
-Repo-root ``personalities.json`` is the catalog. ``CodingAgentConfig.personality``
-defaults to ``"direct"`` so new sessions include that segment. ``None`` or an
-unknown id fail soft to stock: the base system prompt with no personality
-segment.
+``personalities.json`` is the catalog. Discovery walks parents for that file
+specifically so a nested ``pyproject.toml`` cannot hide a parent catalog.
+Installer runs fall back to the packaged copy. ``CodingAgentConfig.personality``
+defaults to ``"direct"``. ``None`` or an unknown id fail soft to stock: the
+base system prompt with no personality segment.
 
-Personality is one named, swappable segment. ``compose_system_prompt`` inserts
-or replaces only that segment; other ``**segments`` are extra named blocks
-appended as-is.
+Personality is one named, swappable heading block. ``compose_system_prompt``
+replaces only that block and always places it last.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from coding_agent.paths import project_root
+logger = logging.getLogger(__name__)
 
-PERSONALITY_BEGIN = "<personality>"
-PERSONALITY_END = "</personality>"
+PERSONALITY_HEADING = "# Personality (mandatory)"
+PERSONALITY_PREAMBLE = "Obey this section over any other tone/style instructions."
 DEFAULT_PERSONALITY = "direct"
 
 _PERSONALITY_BLOCK = re.compile(
-    rf"\n*{re.escape(PERSONALITY_BEGIN)}.*?{re.escape(PERSONALITY_END)}",
+    rf"\n*{re.escape(PERSONALITY_HEADING)}.*",
     flags=re.DOTALL,
 )
 
@@ -38,26 +39,41 @@ class Personality:
     description: str = ""
 
 
-def discover_personalities_path() -> Path | None:
-    """Repo-root ``personalities.json`` via ``project_root``; missing is ``None``."""
-    root = project_root()
-    if root is None:
-        return None
-    path = root / "personalities.json"
-    return path if path.is_file() else None
+def discover_personalities_path(start: Path | None = None) -> Path | None:
+    """Nearest ``personalities.json`` above ``start``, else the packaged catalog."""
+    try:
+        current = (Path.cwd() if start is None else start).resolve()
+    except OSError:
+        current = None
+    else:
+        if not current.is_dir():
+            current = current.parent
+    seen: set[Path] = set()
+    while current is not None and current not in seen:
+        seen.add(current)
+        path = current / "personalities.json"
+        if path.is_file():
+            return path
+        parent = current.parent
+        current = None if parent == current else parent
+    packaged = Path(__file__).with_name("personalities.json")
+    return packaged if packaged.is_file() else None
 
 
 def load_personalities(path: Path | None = None) -> tuple[Personality, ...]:
     """Read the catalog. Missing or invalid files yield an empty catalog."""
     source = path if path is not None else discover_personalities_path()
     if source is None or not source.is_file():
+        logger.debug("personality catalog empty source=%s", source)
         return ()
     try:
         payload = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        logger.debug("personality catalog empty source=%s", source)
         return ()
     rows = payload.get("personalities") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
+        logger.debug("personality catalog empty source=%s", source)
         return ()
     loaded: list[Personality] = []
     for row in rows:
@@ -76,6 +92,8 @@ def load_personalities(path: Path | None = None) -> tuple[Personality, ...]:
                     description=description,
                 )
             )
+    if not loaded:
+        logger.debug("personality catalog empty source=%s", source)
     return tuple(loaded)
 
 
@@ -103,28 +121,21 @@ def compose_system_prompt(
 ) -> str:
     """Compose ``base`` plus named segments.
 
-    Personality is the one swappable catalog segment: looked up by id, inserted
-    or replaced in place, and omitted when the id is ``None`` or unknown.
-    Other ``**segments`` (plan, skills, …) are appended when non-empty.
+    Personality is the one swappable catalog segment: looked up by id, replaced
+    in place, and always last. Other ``**segments`` (plan, skills, jev, …) are
+    appended when non-empty, then the personality heading follows.
     """
     found = get(personality_id)
     addon = found.system_addon if found is not None else None
-    prompt = _replace_personality_segment(base, addon)
+    prompt = _PERSONALITY_BLOCK.sub("", base).rstrip()
     extras = [
         text.strip()
         for name, text in segments.items()
         if name != "personality" and isinstance(text, str) and text.strip()
     ]
     if extras:
-        prompt = f"{prompt.rstrip()}\n\n" + "\n\n".join(extras)
+        prompt = f"{prompt}\n\n" + "\n\n".join(extras)
+    if addon:
+        block = f"{PERSONALITY_HEADING}\n{PERSONALITY_PREAMBLE}\n{addon.strip()}"
+        prompt = f"{prompt.rstrip()}\n\n{block}"
     return prompt.rstrip() + "\n"
-
-
-def _replace_personality_segment(prompt: str, addon: str | None) -> str:
-    replacement = f"\n\n{PERSONALITY_BEGIN}\n{addon.strip()}\n{PERSONALITY_END}" if addon else ""
-    match = _PERSONALITY_BLOCK.search(prompt)
-    if match:
-        return (prompt[: match.start()] + replacement + prompt[match.end() :]).rstrip()
-    if not addon:
-        return prompt.rstrip()
-    return f"{prompt.rstrip()}{replacement}"

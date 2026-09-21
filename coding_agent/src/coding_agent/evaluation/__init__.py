@@ -8,6 +8,7 @@ from coding_agent.evaluation.evaluators import (
     VercelJevEvaluator,
 )
 from coding_agent.evaluation.policy import (
+    JEV_SYSTEM_SEGMENT,
     NUDGE_MARKER,
     PolicyDecision,
     apply_findings_gate,
@@ -34,6 +35,7 @@ __all__ = [
     "EvaluationResult",
     "Evaluator",
     "FINISH_QUESTIONS",
+    "JEV_SYSTEM_SEGMENT",
     "JevAddon",
     "LLMEvaluator",
     "NUDGE_MARKER",

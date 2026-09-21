@@ -15,6 +15,10 @@ fixed question set and the add-on stores structured findings (`decision` kind,
 value, probs, label, short rationale). When `should_nudge` is true, `JevAddon`
 injects **one** user-role critic note (`format_nudge`) into messages for the
 next model turn. Prior Jev nudge markers are stripped so notes do not stack.
+When critic mode is on, the system prompt also includes a **Jev mode**
+segment: treat injected `Jev critic note:` as authoritative, and on remaining
+work, review, or conflicting complete/remaining findings, continue or fix
+before claiming done.
 
 Symphony does **not**:
 
@@ -30,11 +34,18 @@ still finishes.
 
 `should_nudge` is true when findings show:
 
-- conflicting `task_complete` + `remaining_work`
+- conflicting `task_complete` + `remaining_work` (also forces `review`;
+  TypeSafe questions are independent, so both-true is invalid)
+- `remaining_work` (nudge only; never actuates on that bool alone)
 - `unsupported_claims`
 - `next_action` in `continue` / `retry` / `replan` / `review` (`continue` on
   finish only)
 - pre-task `needs_replan`
+
+Finish actuation prefers `next_action` (`finish` / `continue` / `retry` /
+`review`). `task_complete` or `remaining_work` alone never decide the gate.
+Rationale and label text in `format_nudge` / `critic_message` is run through
+`bound_text` (~280).
 
 The note is a short template (plan or outcome incomplete, what Jev flagged,
 suggested `next_action`, and that plan mode was not opened). Cap: at most one

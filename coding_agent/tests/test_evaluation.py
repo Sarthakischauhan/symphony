@@ -25,12 +25,14 @@ from coding_agent.config import (
 from coding_agent.evaluation import (
     CONTINUE_NORMALLY,
     FINISH_QUESTIONS,
+    JEV_SYSTEM_SEGMENT,
     JevAddon,
     MockEvaluator,
     NUDGE_MARKER,
     START_QUESTIONS,
     StubEvaluator,
     VercelJevEvaluator,
+    PolicyDecision,
     apply_findings_gate,
     build_run_state,
     clip_text,
@@ -499,8 +501,74 @@ def test_conflicting_bools_inject_one_message_no_second_run(tmp_path: Path) -> N
     assert agent.mode != "plan"
     assert registry.calls == 1
     assert addon.follow_ups == 0
+    assert addon.gated_action == "review"
     assert addon.consume_follow_up() is None
     assert CodingAgentConfig().evaluation.honour_follow_up is False
+
+
+def test_finish_policy_conflict_finish_only_and_remaining_only() -> None:
+    both = EvaluationResult(
+        phase="finish",
+        findings=[
+            EvaluationFinding(
+                question="task_complete",
+                kind="boolean",
+                value=True,
+                label="true",
+            ),
+            EvaluationFinding(
+                question="remaining_work",
+                kind="boolean",
+                value=True,
+                label="true",
+                rationale="tests still fail",
+            ),
+        ],
+    )
+    conflict = decide_next_step(both)
+    assert conflict.action == "review"
+    assert should_nudge(both) is True
+    note = format_nudge(both)
+    assert "task_complete" in note
+    assert "remaining_work" in note
+
+    finish_only = EvaluationResult(
+        phase="finish",
+        findings=[
+            EvaluationFinding(
+                question="next_action",
+                kind="choice",
+                value="finish",
+                label="finish",
+            ),
+            EvaluationFinding(
+                question="task_complete",
+                kind="boolean",
+                value=True,
+                label="true",
+                probs={"true": 0.95, "false": 0.05},
+            ),
+        ],
+    )
+    assert decide_next_step(finish_only).action == CONTINUE_NORMALLY
+    assert should_nudge(finish_only) is False
+
+    remaining_only = EvaluationResult(
+        phase="finish",
+        findings=[
+            EvaluationFinding(
+                question="remaining_work",
+                kind="boolean",
+                value=True,
+                label="true",
+                rationale="still shipping",
+                probs={"true": 0.94, "false": 0.06},
+            ),
+        ],
+    )
+    assert decide_next_step(remaining_only).action == CONTINUE_NORMALLY
+    assert should_nudge(remaining_only) is True
+    assert "remaining_work" in format_nudge(remaining_only)
 
 
 def test_honour_follow_up_stays_off_by_default() -> None:
@@ -584,6 +652,48 @@ def test_format_nudge_is_a_template_not_an_llm_call() -> None:
     assert "Suggested next_action: review." in note
     assert "Plan mode was not opened." in note
     assert should_nudge(findings) is True
+
+
+def test_nudge_and_critic_run_rationale_through_bound_text() -> None:
+    leaked = "OPENAI_API_KEY=sk-leakedkey99999 " + ("x" * 400)
+    finding = EvaluationFinding(
+        question="unsupported_claims",
+        kind="boolean",
+        value=True,
+        label="true",
+        rationale=leaked,
+    )
+    note = format_nudge(
+        [
+            finding,
+            EvaluationFinding(
+                question="next_action",
+                kind="choice",
+                value="review",
+                label="review",
+            ),
+        ]
+    )
+    assert "sk-leakedkey99999" not in note
+    assert "…" in note
+    message = critic_message(
+        PolicyDecision(action="review", reason="review", finding=finding)
+    )
+    assert "sk-leakedkey99999" not in message
+    assert "…" in message
+
+
+def test_jev_mode_segment_precedes_personality_when_enabled(tmp_path: Path) -> None:
+    from coding_agent.personalities import PERSONALITY_HEADING
+
+    enabled = _agent(tmp_path, enabled=True)
+    prompt = enabled.harness.system_prompt
+    assert JEV_SYSTEM_SEGMENT in prompt
+    assert NUDGE_MARKER in prompt
+    assert PERSONALITY_HEADING in prompt
+    assert prompt.index("# Jev mode") < prompt.index(PERSONALITY_HEADING)
+    disabled = _agent(tmp_path, enabled=False)
+    assert JEV_SYSTEM_SEGMENT not in disabled.harness.system_prompt
 
 
 def test_jev_flag_parses_into_evaluation_config(tmp_path: Path) -> None:
