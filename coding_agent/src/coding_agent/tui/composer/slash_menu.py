@@ -15,6 +15,7 @@ from coding_agent.tui.commands.catalog import (
     EffortOption,
     ModeOption,
     ModelOption,
+    PersonalityOption,
     PlanOption,
     SlashCommand,
 )
@@ -42,6 +43,7 @@ class SlashMenu(OptionList):
         self._option_offset = 0
         self._commands: tuple[SlashCommand, ...] = ()
         self._models: tuple[ModelOption, ...] = ()
+        self._personalities: tuple[PersonalityOption, ...] = ()
         self._efforts: tuple[EffortOption, ...] = ()
         self._modes: tuple[ModeOption, ...] = ()
         self._plans: tuple[PlanOption, ...] = ()
@@ -50,6 +52,7 @@ class SlashMenu(OptionList):
         self._question_text = ""
         self._question_kind = ""
         self._current_model = ""
+        self._current_personality = ""
         self._current_effort = ""
         self._current_mode = ""
         self._current_plan = ""
@@ -60,6 +63,8 @@ class SlashMenu(OptionList):
             return f"@{self._files[self.selected_index].path}"
         if self._models:
             return f"/model {self._models[self.selected_index].id}"
+        if self._personalities:
+            return f"/personality {self._personalities[self.selected_index].id}"
         if self._efforts:
             return f"/effort {self._efforts[self.selected_index].id}"
         if self._modes:
@@ -81,6 +86,7 @@ class SlashMenu(OptionList):
         return (
             len(self._files)
             or len(self._models)
+            or len(self._personalities)
             or len(self._efforts)
             or len(self._modes)
             or len(self._plans)
@@ -138,6 +144,7 @@ class SlashMenu(OptionList):
         *,
         commands: tuple[SlashCommand, ...] = (),
         models: tuple[ModelOption, ...] = (),
+        personalities: tuple[PersonalityOption, ...] = (),
         efforts: tuple[EffortOption, ...] = (),
         modes: tuple[ModeOption, ...] = (),
         plans: tuple[PlanOption, ...] = (),
@@ -149,6 +156,7 @@ class SlashMenu(OptionList):
     ) -> None:
         self._commands = commands
         self._models = models
+        self._personalities = personalities
         self._efforts = efforts
         self._modes = modes
         self._plans = plans
@@ -180,6 +188,12 @@ class SlashMenu(OptionList):
     def set_models(self, models: tuple[ModelOption, ...], current: str = "") -> None:
         self._current_model = current
         self._replace_choices(models=models)
+
+    def set_personalities(
+        self, personalities: tuple[PersonalityOption, ...], current: str = ""
+    ) -> None:
+        self._current_personality = current
+        self._replace_choices(personalities=personalities)
 
     def set_efforts(self, efforts: tuple[EffortOption, ...], current: str = "") -> None:
         self._current_effort = current
@@ -280,6 +294,14 @@ class SlashMenu(OptionList):
                     model.description,
                 )
                 for model in self._models
+            ]
+        if self._personalities:
+            return [
+                self._described_row(
+                    f"{'●' if item.id == self._current_personality else '○'} {item.id:<27}",
+                    item.description,
+                )
+                for item in self._personalities
             ]
         if self._efforts:
             return [

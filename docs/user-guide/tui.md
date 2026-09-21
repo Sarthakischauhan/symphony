@@ -8,7 +8,8 @@ On first launch with no credentials, a provider screen asks which API to use.
 OpenAI, Anthropic, and Grok can sign in with a subscription, or you can paste
 a key. Keys are saved to `~/.symphony/.env`; subscription tokens to
 `~/.symphony/oauth/`. Add more providers later with `/provider`; `/model`
-then lists every credentialed catalog.
+then lists every credentialed catalog. `/personality` switches the agent
+voice (`direct` by default) without restarting.
 Colors and CSS come from `~/.symphony/theme.toml` when present; otherwise
 the packaged default dark theme is used.
 

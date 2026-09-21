@@ -28,7 +28,9 @@ from coding_agent.tui.commands.catalog import (
     PlanOption,
     find_mode,
     find_model,
+    find_personality,
     model_options,
+    personality_options,
 )
 
 # --- langfuse.py ---
@@ -123,6 +125,33 @@ def show_model_picker(app: Any) -> None:
     prompt.value = "/model "
     prompt.cursor_position = len(prompt.value)
     app.query_one("#slash-menu").set_models(app._model_options, app._agent.harness.model_id)
+
+
+def select_personality(app: Any, argument: str) -> None:
+    selected = find_personality(argument, personality_options())
+    if selected is None:
+        app.add_notice(
+            f"Unknown personality: {argument}. Run /personality to see the catalog.",
+            "warning",
+        )
+        return
+    resolved = ensure_spawn_settings(app.workspace, overrides={"personality": selected.id})
+    app.config = resolved
+    agent = getattr(app, "_agent", None)
+    if agent is not None:
+        agent.config = resolved
+        apply = getattr(agent, "apply_system_prompt", None)
+        if callable(apply):
+            apply()
+    app.add_update(f"Personality set to {selected.label}")
+
+
+def show_personality_picker(app: Any) -> None:
+    prompt = app.query_one("#prompt")
+    prompt.value = "/personality "
+    prompt.cursor_position = len(prompt.value)
+    current = getattr(getattr(app, "config", None), "personality", None) or ""
+    app.query_one("#slash-menu").set_personalities(personality_options(), current)
 
 # --- mode_switcher.py ---
 def effort_matches(
@@ -388,6 +417,7 @@ def show_status(app: Any) -> None:
     lines.extend(
         [
             f"mode      {app.mode}",
+            f"personality {getattr(getattr(app, 'config', None), 'personality', None) or 'stock'}",
             f"approval  {app.sink.approvals.mode}",
             f"session   {app._agent.session_id}",
             f"context   {context}",
@@ -505,6 +535,8 @@ class CommandManager:
             start_new_session(app)
         elif command == "model":
             select_model(app, argument) if argument else show_model_picker(app)
+        elif command == "personality":
+            select_personality(app, argument) if argument else show_personality_picker(app)
         elif command == "compact":
             await compact_context(app)
         elif command == "diff":

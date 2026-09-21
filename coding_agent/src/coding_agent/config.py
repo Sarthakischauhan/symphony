@@ -148,6 +148,8 @@ class CodingAgentConfig(BaseModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    # Default "direct" inserts that catalog segment. null = stock prompt only.
+    personality: str | None = "direct"
 
 
 def _read_json(path: Path) -> dict[str, Any]:

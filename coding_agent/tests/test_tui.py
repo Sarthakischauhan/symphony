@@ -39,9 +39,11 @@ from coding_agent.tui.commands import (
     effort_options_for_model,
     find_mode,
     find_model,
+    find_personality,
     mode_matches,
     model_matches,
     model_supports_effort,
+    personality_matches,
 )
 from coding_agent.tui.runtime import ControlPlaneEvent, TextualEventSink
 from coding_agent.tui.screens.file_selector import (
@@ -2105,6 +2107,7 @@ def test_reasoning_title_uses_only_a_standalone_markdown_heading(
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
     assert "langfuse" in [command.name for command in SLASH_COMMANDS]
+    assert "personality" in [command.name for command in SLASH_COMMANDS]
     assert "jev" in [command.name for command in SLASH_COMMANDS]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
@@ -2121,6 +2124,8 @@ def test_slash_command_discovery_and_model_resolution() -> None:
         "openai:gpt-5.6-luna"
     ]
     assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
+    assert find_personality("warm").id == "warm"  # type: ignore[union-attr]
+    assert [item.id for item in personality_matches("prec")] == ["precise"]
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
     assert [effort.id for effort in effort_matches("xh")] == ["xhigh"]
     assert [effort.id for effort in EFFORT_CATALOG] == [
@@ -2562,9 +2567,13 @@ def test_slash_menu_and_commands(
             self.learning_loop = None
             self.mode = "build"
             self.compacted = False
+            self.config = SimpleNamespace(personality="direct")
 
         def set_mode(self, mode: str) -> None:
             self.mode = mode
+
+        def apply_system_prompt(self) -> None:
+            return None
 
         async def compact_conversation(self) -> tuple[int, int]:
             self.compacted = True
@@ -2638,6 +2647,16 @@ def test_slash_menu_and_commands(
             assert overlay.display
             assert "Model switched to gpt-5.6-luna" in overlay.title
             assert "ctrl+q" in overlay.hint
+
+            prompt.value = "/personality "  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.display
+            await pilot.press("down")
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert fake.config.personality == "caveman"
+            assert "Personality set to Caveman" in overlay.title
 
             prompt.value = "/mode "  # type: ignore[attr-defined]
             await pilot.pause()

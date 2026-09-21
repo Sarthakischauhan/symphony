@@ -38,6 +38,7 @@ from coding_agent.evaluation import jev_from_config
 from coding_agent.langfuse import langfuse_from_config
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
+from coding_agent.personalities import compose_system_prompt
 from coding_agent.plan import PlanStore
 from coding_agent.plan_mode import PlanModeAddon, PlanModeState
 from coding_agent.plugins import PluginManager
@@ -214,6 +215,7 @@ class CodingAgent:
             agent_id=self.session_id,
             addons=addons + plugin_addons,
         )
+        self.apply_system_prompt()
 
     def _spawn_child_config(
         self,
@@ -254,20 +256,7 @@ class CodingAgent:
         """Run the agent, renewing an OAuth token once after an auth failure."""
         mode = self.mode
         task_text = text_from_content(user_input)
-        self.harness.system_prompt = self.base_system_prompt
-        if mode == "plan":
-            self.harness.system_prompt += f"\n\n{PLAN_MODE_PROMPT}"
-        if self.config.skills.enabled and self.skill_registry.skills:
-            catalog = [
-                "\nAvailable skills (read the listed SKILL.md with read_file when relevant):"
-            ]
-            for skill in self.skill_registry.skills:
-                catalog.append(
-                    f"- {skill.skill_id}: {skill.description} "
-                    f"(SKILL.md: {skill.root / 'SKILL.md'})"
-                )
-            self.harness.system_prompt += "\n" + "\n".join(catalog)
-        self.harness.system_prompt += "\n"
+        self.apply_system_prompt()
 
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
@@ -304,12 +293,33 @@ class CodingAgent:
         prompt = consume()
         return prompt if isinstance(prompt, str) and prompt.strip() else None
 
+    def apply_system_prompt(self) -> None:
+        """Recompose ``harness.system_prompt`` from base, personality, and mode."""
+        skills = ""
+        if self.config.skills.enabled and self.skill_registry.skills:
+            lines = [
+                "Available skills (read the listed SKILL.md with read_file when relevant):"
+            ]
+            lines.extend(
+                f"- {skill.skill_id}: {skill.description} "
+                f"(SKILL.md: {skill.root / 'SKILL.md'})"
+                for skill in self.skill_registry.skills
+            )
+            skills = "\n".join(lines)
+        self.harness.system_prompt = compose_system_prompt(
+            self.base_system_prompt,
+            self.config.personality,
+            plan=PLAN_MODE_PROMPT if self.mode == "plan" else "",
+            skills=skills,
+        )
+
     def set_mode(self, mode: AgentMode) -> None:
         self.mode = mode
         if mode == "plan":
             self.plan_mode.begin()
         else:
             self.plan_mode.reset()
+        self.apply_system_prompt()
 
     async def wait_for_learning(self) -> None:
         """Optionally drain pending reflections before application shutdown."""
