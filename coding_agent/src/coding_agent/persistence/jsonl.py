@@ -15,12 +15,18 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from core_ai.content import text_from_content
 from core_ai.types import Message
 from core_harness import Checkpoint
 from core_harness.context import COMPACTED_CONTEXT_MARK
+from coding_agent.persistence.collection import (
+    TERMINAL_EVENT_TYPES,
+    apply_collection,
+    collectable_from_events,
+    collected_keys,
+)
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _SKIP_EVENTS = frozenset({"text_delta", "reasoning_delta", "tool_call_delta"})
@@ -279,10 +285,16 @@ class JsonlPersistence:
             self._append_entries(session_id, outgoing)
             if run_id and isinstance(seq, int):
                 keys.add((str(run_id), seq))
+            if event_type in TERMINAL_EVENT_TYPES:
+                self._append_collection_overlays(
+                    session_id,
+                    entries,
+                    run_id=str(run_id) if run_id else None,
+                )
 
-    async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
-        with self._lock:
-            entries = self._read_entries(session_id)
+    def _journal_events(
+        self, entries: List[Dict[str, Any]]
+    ) -> list[tuple[str, dict[str, Any]]]:
         events: list[tuple[str, dict[str, Any]]] = []
         for entry in entries:
             if not entry.get("event_type") or entry.get("type") == "message":
@@ -292,6 +304,66 @@ class JsonlPersistence:
             if event_type and isinstance(payload, dict):
                 events.append((event_type, dict(payload)))
         return events
+
+    async def collect_run_events(
+        self,
+        *,
+        session_id: str,
+        run_id: str | None = None,
+        keys: Sequence[tuple[str, int]] | None = None,
+    ) -> list[tuple[str, int]]:
+        """Tag mid-run events as collected without rewriting historical lines.
+
+        Appends one ``collected`` overlay per untagged event. The original
+        journal entry stays as-is; ``load_events`` overlays ``collected: true``.
+        """
+        if not session_id:
+            return []
+        with self._lock:
+            entries = self._read_entries(session_id)
+            return self._append_collection_overlays(
+                session_id, entries, run_id=run_id, keys=keys
+            )
+
+    def _append_collection_overlays(
+        self,
+        session_id: str,
+        entries: List[Dict[str, Any]],
+        *,
+        run_id: str | None = None,
+        keys: Sequence[tuple[str, int]] | None = None,
+    ) -> list[tuple[str, int]]:
+        events = self._journal_events(entries)
+        already = collected_keys(events)
+        targets = list(keys) if keys is not None else collectable_from_events(
+            events, run_id=run_id
+        )
+        pending = [key for key in targets if key not in already]
+        if not pending:
+            return []
+        next_seq = self._next_seq(entries)
+        overlays: List[Dict[str, Any]] = []
+        for offset, (event_run_id, event_seq) in enumerate(pending):
+            overlays.append(
+                {
+                    "type": "collected",
+                    "event_type": "collected",
+                    "seq": next_seq + offset,
+                    "payload": {
+                        "run_id": event_run_id,
+                        "session_id": session_id,
+                        "seq": event_seq,
+                        "collected": True,
+                    },
+                }
+            )
+        self._append_entries(session_id, overlays)
+        return pending
+
+    async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
+        with self._lock:
+            entries = self._read_entries(session_id)
+        return apply_collection(self._journal_events(entries))
 
     async def load_children(self, *, parent_session_id: str) -> list[dict[str, Any]]:
         with self._lock:

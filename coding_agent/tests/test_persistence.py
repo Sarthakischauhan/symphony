@@ -217,6 +217,58 @@ def test_jsonl_skips_token_deltas(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_jsonl_collects_mid_run_events_without_rewriting(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    path = tmp_path / "sessions" / "s1.jsonl"
+
+    async def _run() -> None:
+        await store.append_event(event_type="run_started", payload={
+            "session_id": "s1", "run_id": "run", "seq": 1, "model_id": "fake",
+        })
+        await store.append_event(event_type="turn_started", payload={
+            "session_id": "s1", "run_id": "run", "seq": 2, "turn": 0,
+        })
+        await store.append_event(event_type="tool_execution_started", payload={
+            "session_id": "s1", "run_id": "run", "seq": 3, "tool_call_id": "t1",
+            "tool_name": "read_file",
+        })
+        await store.append_event(event_type="tool_execution_completed", payload={
+            "session_id": "s1", "run_id": "run", "seq": 4, "tool_call_id": "t1",
+            "tool_name": "read_file", "result": "ok",
+        })
+        await store.append_event(event_type="run_completed", payload={
+            "session_id": "s1", "run_id": "run", "seq": 5, "output_text": "done",
+        })
+        events = await store.load_events(session_id="s1")
+        by_type = {event: payload for event, payload in events}
+        assert [event for event, _ in events] == [
+            "run_started",
+            "turn_started",
+            "tool_execution_started",
+            "tool_execution_completed",
+            "run_completed",
+        ]
+        assert by_type["run_started"].get("collected") is not True
+        assert by_type["run_completed"].get("collected") is not True
+        assert by_type["turn_started"]["collected"] is True
+        assert by_type["tool_execution_started"]["collected"] is True
+        assert by_type["tool_execution_completed"]["collected"] is True
+        kinds = [entry["type"] for entry in _message_lines(path)]
+        assert kinds.count("turn_started") == 1
+        assert kinds.count("collected") == 3
+        originals = [
+            entry for entry in _message_lines(path)
+            if entry.get("event_type") == "turn_started"
+        ]
+        assert originals[0]["payload"].get("collected") is not True
+        tagged = await store.collect_run_events(session_id="s1", run_id="run")
+        assert tagged == []
+        kinds_again = [entry["type"] for entry in _message_lines(path)]
+        assert kinds_again.count("collected") == 3
+
+    asyncio.run(_run())
+
+
 def test_compaction_is_append_only_and_latest_projection_is_resumed(tmp_path: Path) -> None:
     store = JsonlPersistence(tmp_path / "sessions")
     session_id = "append-only"
