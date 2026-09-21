@@ -58,6 +58,10 @@ following before deploying it:
 - `core-server` denies browser origins by default and enforces request-size
   limits, but it has no authentication of its own. Put it behind your own
   auth layer before exposing it.
+- `symphony bench` is non-interactive: approvals are `always_allow`, there is
+  no TUI, and credentials must already be in the environment. Isolation is
+  whatever container you run it in (the `symphony-bench` image mounts the
+  workspace at `/testbed`); the CLI itself is not a sandbox.
 
 Plan mode is a gated planning phase, not a sandbox: `bash` is allowed and shell
 writes are not scanned. Its tool gate blocks `write_file` and `patch` except for
