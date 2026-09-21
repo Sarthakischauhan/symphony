@@ -165,8 +165,9 @@ critic (`typesafe-ai/jev` via Vercel). It does not switch the chat model and
 does not rewrite plans. High-confidence honour / auto-follow-up stays off
 (`honour_follow_up` defaults false). When enabled, a **Jev mode** system
 segment tells the chat model to treat injected `Jev critic note:` messages
-as authoritative. When findings warrant it, Jev may inject one user-role
-critic note into the same thread. See [`docs/user-guide/jev.md`](jev.md).
+as authoritative. Policy maps findings onto one action; `JevAddon` dispatches
+a named handler that may inject one user-role critic note and optionally
+gate implement tools. See [`docs/user-guide/jev.md`](jev.md).
 
 
 ## Harness-only config

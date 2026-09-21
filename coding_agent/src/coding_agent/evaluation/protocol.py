@@ -9,8 +9,9 @@ mistaken for missing harness hooks. The add-on maps them onto the existing
 | ``on_start`` | ``before_run`` |
 | ``on_finish`` | ``after_run`` |
 
-Findings are advisory. v1 may inject one user-role critic note into messages.
-It does not map scores onto plan edits, plan mode, or a second harness run.
+Findings are advisory. v1 may inject one user-role critic note into messages
+and optionally gate implement tools. It does not map scores onto plan edits,
+plan mode, or a second harness run.
 """
 
 from __future__ import annotations
