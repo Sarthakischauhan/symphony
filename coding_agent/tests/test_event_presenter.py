@@ -166,6 +166,20 @@ def test_completed_output_is_replaced_before_process_is_finished() -> None:
     assert view.finished_process[-1].endswith("1 model call · 0 tool calls")
 
 
+def test_collected_events_are_ignored_by_the_presenter() -> None:
+    presenter, view, _ = _presenter()
+    presenter.handle("run_started", {"ts": 100.0})
+    presenter.handle(
+        "tool_call_started",
+        {"tool_call_id": "read-1", "tool_name": "read_file", "collected": True},
+    )
+    presenter.handle("collected", {"run_id": "run", "seq": 3, "collected": True})
+    presenter.handle("text_delta", {"delta": "final", "collected": True})
+    presenter.handle("run_completed", {"ts": 101.0, "output_text": "final"})
+    assert view.tools == []
+    assert view.assistant[-1] == ("final", False)
+
+
 def test_text_deltas_coalesce_to_one_scheduled_paint() -> None:
     scheduled: list = []
     presenter, view, chrome = _presenter(schedule=scheduled)

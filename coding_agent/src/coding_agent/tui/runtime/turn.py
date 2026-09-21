@@ -67,6 +67,25 @@ class TurnSurface:
         await load_session_history(self._agent, self)
         await self.restore_subagents()
 
+    def _collect_run_events(self, payload: dict) -> None:
+        """Tag mid-run journal events as collected after the final output."""
+        agent = getattr(self, "_agent", None)
+        store = getattr(agent, "persistence", None)
+        collect = getattr(store, "collect_run_events", None)
+        if not callable(collect):
+            return
+        session_id = str(
+            payload.get("session_id") or getattr(agent, "session_id", "") or ""
+        )
+        run_id = str(payload.get("run_id") or "")
+        if not session_id:
+            return
+
+        async def _persist() -> None:
+            await collect(session_id=session_id, run_id=run_id or None)
+
+        self.run_worker(_persist, exclusive=False, group="collect_run_events")
+
     def on_harness_event(self, message: HarnessEvent) -> None:
         payload = message.payload or {}
         if message.event_type == "agent_spawned":
@@ -85,6 +104,13 @@ class TurnSurface:
             return
         if self._presenter is not None:
             self._presenter.handle(message.event_type, payload)
+        if message.event_type in {
+            "run_completed",
+            "run_failed",
+            "run_cancelled",
+            "run_limit_exceeded",
+        }:
+            self._collect_run_events(payload)
         if self._plan_run_active and message.event_type in {
             "run_completed",
             "run_failed",

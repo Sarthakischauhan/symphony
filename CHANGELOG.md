@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- Agent personalities (`direct` default, plus `bad_boy`, `caveman`,
-  `precise`, `warm`) live in repo-root `personalities.json`. `/personality`
-  swaps that system-prompt segment immediately. `null` or an unknown id
-  keeps the stock prompt with no personality segment.
+- Mid-run control-plane events (after the user message, before the final
+  output) are tagged `collected: true` in the JSONL journal when a run
+  finishes. The TUI honours the sticky flag on resume by folding that work
+  into the completed-run collection instead of replaying live cards.
 - Session updates such as model, effort, provider, and compaction now appear
   in a transient composer overlay with a `ctrl+q` quit hint, matching the
   interrupt confirmation card instead of a transcript notice.

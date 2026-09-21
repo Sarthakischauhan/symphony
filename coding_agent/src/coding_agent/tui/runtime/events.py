@@ -7,6 +7,7 @@ import re
 import time
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 
+from coding_agent.persistence.collection import is_collected
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.transcript.messages import preview_text
 
@@ -169,6 +170,10 @@ class EventPresenter:
 
     def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         payload = payload or {}
+        if event_type == "collected" or is_collected(payload):
+            # Mid-run work already folded into the completed-run collection.
+            # Honour the sticky tag so resume cannot resurrect live cards.
+            return
         before = self._chrome_snapshot()
         if event_type not in _BUFFERED_PAINT_EVENT_TYPES:
             self.flush_stream_paints()

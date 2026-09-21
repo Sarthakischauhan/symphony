@@ -1211,6 +1211,91 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
     ]
 
 
+def test_history_resume_honours_collected_mid_run_events() -> None:
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            return [
+                Message(role="user", content="Inspect the files"),
+                Message(
+                    role="assistant",
+                    content="Reading them.",
+                    tool_calls=[
+                        {
+                            "id": "read-1",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": json.dumps({"path": "src/app.py"}),
+                            },
+                        }
+                    ],
+                ),
+                Message(role="tool", content="ok", tool_call_id="read-1"),
+                Message(role="assistant", content="Done."),
+            ]
+
+        async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
+            return [
+                ("run_started", {"run_id": "run", "seq": 1}),
+                (
+                    "tool_execution_started",
+                    {
+                        "run_id": "run",
+                        "seq": 2,
+                        "tool_call_id": "read-1",
+                        "collected": True,
+                    },
+                ),
+                (
+                    "tool_execution_completed",
+                    {
+                        "run_id": "run",
+                        "seq": 3,
+                        "tool_call_id": "read-1",
+                        "collected": True,
+                    },
+                ),
+                ("run_completed", {"run_id": "run", "seq": 4, "output_text": "Done."}),
+            ]
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+
+    kinds = [type(widget).__name__ for widget in view.mounted]
+    assert kinds == ["UserMessage", "CompletedRunSummary", "AssistantMessage"]
+    summary = next(
+        widget for widget in view.mounted if isinstance(widget, CompletedRunSummary)
+    )
+    assert summary.call_ids == ["read-1"]
+    assistant = next(
+        widget for widget in view.mounted if isinstance(widget, AssistantMessage)
+    )
+    assert assistant.message_text == "Done."
+
+
 def test_text_then_tools_then_text_keeps_stream_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

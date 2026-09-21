@@ -13,6 +13,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 
+from coding_agent.persistence.collection import is_collected
 from coding_agent.tui.chrome import TopBar, render_footer, display_workspace_path
 from coding_agent.tui.runtime.events import EventPresenter
 from coding_agent.tui.runtime.state import UiRunState
@@ -67,6 +68,8 @@ class SubagentRecord:
         return tool
 
     def ingest(self, event_type: str, payload: dict[str, Any]) -> None:
+        if event_type == "collected" or is_collected(payload):
+            return
         if payload.get("parent_id") and (
             payload.get("agent_id") != self.agent_id
             or payload.get("parent_id") != self.parent_id
