@@ -55,15 +55,6 @@ class PersonalityOption:
     description: str
 
 
-PERSONALITY_BLURBS = {
-    "direct": "Terse 10x engineer · no bluff",
-    "bad_boy": "Roast energy · still ships the work",
-    "caveman": "Few words · explore then act",
-    "precise": "Literal · spec-faithful",
-    "warm": "Brief and human",
-}
-
-
 def model_options(providers: Iterable[str] | None = None) -> tuple[ModelOption, ...]:
     """Build TUI choices from the core_ai catalog, optionally by provider."""
     source = list_models() if providers is None else tuple(
@@ -172,7 +163,7 @@ def personality_options() -> tuple[PersonalityOption, ...]:
         PersonalityOption(
             item.id,
             item.name,
-            PERSONALITY_BLURBS.get(item.id, item.system_addon.split(".", 1)[0]),
+            item.description or item.system_addon.split(".", 1)[0],
         )
         for item in load_personalities()
     )

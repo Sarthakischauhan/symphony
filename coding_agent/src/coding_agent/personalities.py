@@ -35,6 +35,7 @@ class Personality:
     id: str
     name: str
     system_addon: str
+    description: str = ""
 
 
 def discover_personalities_path() -> Path | None:
@@ -65,9 +66,15 @@ def load_personalities(path: Path | None = None) -> tuple[Personality, ...]:
         personality_id = str(row.get("id") or "").strip()
         name = str(row.get("name") or "").strip()
         addon = str(row.get("system_addon") or "").strip()
+        description = str(row.get("description") or "").strip()
         if personality_id and name and addon:
             loaded.append(
-                Personality(id=personality_id, name=name, system_addon=addon)
+                Personality(
+                    id=personality_id,
+                    name=name,
+                    system_addon=addon,
+                    description=description,
+                )
             )
     return tuple(loaded)
 
