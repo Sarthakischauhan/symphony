@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from coding_agent.paths import project_root
+
 PERSONALITY_BEGIN = "<personality>"
 PERSONALITY_END = "</personality>"
 DEFAULT_PERSONALITY = "direct"
@@ -36,18 +38,12 @@ class Personality:
 
 
 def discover_personalities_path() -> Path | None:
-    """Walk from this module and cwd toward filesystem root for the catalog."""
-    starts = (Path(__file__).resolve().parent, Path.cwd().resolve())
-    seen: set[Path] = set()
-    for start in starts:
-        for directory in (start, *start.parents):
-            if directory in seen:
-                continue
-            seen.add(directory)
-            path = directory / "personalities.json"
-            if path.is_file():
-                return path
-    return None
+    """Repo-root ``personalities.json`` via ``project_root``; missing is ``None``."""
+    root = project_root()
+    if root is None:
+        return None
+    path = root / "personalities.json"
+    return path if path.is_file() else None
 
 
 def load_personalities(path: Path | None = None) -> tuple[Personality, ...]:

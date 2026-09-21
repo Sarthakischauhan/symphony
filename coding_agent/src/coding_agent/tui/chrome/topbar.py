@@ -17,6 +17,7 @@ from core_ai.providers.catalog import (
     provider_auth_preference,
     provider_has_oauth,
 )
+from coding_agent.paths import project_root
 
 CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3
@@ -51,19 +52,21 @@ def read_git_branch(workspace: Path) -> str:
 
 
 def _locate_git_dir(start: Path) -> Optional[Path]:
-    for candidate in (start, *start.parents):
-        marker = candidate / ".git"
-        if marker.is_dir():
-            return marker
-        if marker.is_file():
-            try:
-                pointer = marker.read_text(encoding="utf-8").strip()
-            except OSError:
-                return None
-            if pointer.startswith("gitdir:"):
-                target = Path(pointer.removeprefix("gitdir:").strip())
-                return target if target.is_absolute() else candidate / target
-            return None
+    root = project_root(start)
+    if root is None:
+        return None
+    marker = root / ".git"
+    if marker.is_dir():
+        return marker
+    if not marker.is_file():
+        return None
+    try:
+        pointer = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if pointer.startswith("gitdir:"):
+        target = Path(pointer.removeprefix("gitdir:").strip())
+        return target if target.is_absolute() else root / target
     return None
 
 
