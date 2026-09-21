@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
 
 from coding_agent.persistence import JsonlPersistence, sessions_dir
@@ -53,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "bench":
+        from coding_agent.bench.cli import main as bench_main
+
+        raise SystemExit(bench_main(sys.argv[2:]))
     parser = build_parser()
     args = parser.parse_args()
     workspace = Path(args.workspace or ".").resolve()

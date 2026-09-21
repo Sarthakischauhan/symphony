@@ -37,7 +37,8 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [Extending the harness](./developer-guide/extending.md) | Addon hooks; Learning as the canonical example |
 | [Changelog](../CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./developer-guide/events.md) | Control-plane catalog |
-| [CLI](./reference/cli.md) | Flags for `symphony` and `core-server` |
+| [CLI](./reference/cli.md) | Flags for `symphony`, `symphony bench`, and `core-server` |
+| [Bench](../bench/README.md) | Headless CLI, `symphony-bench` image, Harbor smoke |
 | [Environment](./reference/environment.md) | Keys, models, base URLs |
 | [Slash commands](./reference/slash-commands.md) | Every TUI command |
 

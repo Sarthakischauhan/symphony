@@ -17,6 +17,28 @@ uv run --package symphony-code symphony [options]
 | `--no-learning` | learning on | Disable post-run reflection |
 | `--jev` | off | Enable Jev critic mode (findings + optional message; does not switch the chat model) |
 
+## symphony bench
+
+Headless, non-interactive run. Same `CodingAgent` / harness `run()` as the TUI.
+Keys come from the environment. Writes `workspace.patch` and `result.json` in
+the workspace. Exit 0 means the agent finished; a grader owns pass/fail.
+
+```sh
+uv run --package symphony-code symphony bench --workspace /testbed --instruction instruction.md
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--workspace PATH` | `/testbed` if present, else `.` | Working directory |
+| `--instruction PATH` | stdin (`-`) | Instruction file, or `-` for stdin |
+| `--model ID` | `bench/config.toml` / env | `provider:model` id |
+| `--max-turns N` | pinned in `bench/config.toml` | Harness turn cap |
+| `--timeout SEC` | pinned in `bench/config.toml` | `max_runtime_seconds` |
+| `--personality` | `direct` | `direct` or `precise` only (no picker) |
+| `--jev` | off | Enable Jev critic mode |
+
+Harbor adapter and image: [`bench/README.md`](../../bench/README.md).
+
 ## core-server
 
 ```sh

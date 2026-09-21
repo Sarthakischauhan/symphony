@@ -1,0 +1,7 @@
+# Pinned Sanity-pack defaults. Harbor's grader owns pass/fail.
+model = "anthropic:claude-sonnet-5"
+max_turns = 24
+timeout_sec = 900
+personality = "direct"
+image = "symphony-bench:latest"
+testbed = "/testbed"

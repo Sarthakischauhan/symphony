@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Headless `symphony bench` CLI plus `symphony-bench:latest` Docker image and
+  a thin Harbor adapter (`bench.agent:SymphonyAgent`). Writes `workspace.patch`
+  and `result.json`; Harbor's grader owns pass/fail.
 - Mid-run control-plane events (after the user message, before the final
   output) are tagged `collected: true` in the JSONL journal when a run
   finishes. The TUI honours the sticky flag on resume by folding that work
