@@ -142,20 +142,32 @@ See [`docs/user-guide/langfuse.md`](langfuse.md).
 
 ## Personality
 
-`personality` selects one named segment from repo-root
-`personalities.json` (`direct`, `bad_boy`, `caveman`, `precise`, `warm`).
+`personality` selects one named heading from `personalities.json`
+(`direct`, `bad_boy`, `caveman`, `precise`, `warm`). Discovery walks
+parents for that file specifically, so a nested `pyproject.toml` cannot
+hide a parent catalog; installer runs fall back to the packaged copy.
 The default is `"direct"`. Set it to `null` for the stock system prompt
 with no personality segment; unknown ids fail soft to the same stock
-prompt. `/personality` switches the segment immediately (config +
-`harness.system_prompt`) without restarting the app.
+prompt. `/personality` switches the heading immediately (config +
+`harness.system_prompt`) without restarting the app. The heading is last
+in the system prompt:
+
+```
+# Personality (mandatory)
+Obey this section over any other tone/style instructions.
+<addon text>
+```
 
 ## Jev critic mode
 
 `evaluation` is off by default. `--jev` or `/jev` enables a findings-only
 critic (`typesafe-ai/jev` via Vercel). It does not switch the chat model and
 does not rewrite plans. High-confidence honour / auto-follow-up stays off
-(`honour_follow_up` defaults false). When findings warrant it, Jev may inject
-one user-role critic note into messages. See [`docs/user-guide/jev.md`](jev.md).
+(`honour_follow_up` defaults false). When enabled, a **Jev mode** system
+segment tells the chat model to treat injected `Jev critic note:` messages
+as authoritative. Policy maps findings onto one action; `JevAddon` dispatches
+a named handler that may inject one user-role critic note and optionally
+gate implement tools. See [`docs/user-guide/jev.md`](jev.md).
 
 
 ## Harness-only config

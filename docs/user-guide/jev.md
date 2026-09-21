@@ -10,11 +10,16 @@ harness.
 
 ## What Jev decides vs what it does not
 
-v1 is **findings plus an optional in-thread note**. The evaluator answers a
+v1 is **findings plus a per-action handler**. The evaluator answers a
 fixed question set and the add-on stores structured findings (`decision` kind,
-value, probs, label, short rationale). When `should_nudge` is true, `JevAddon`
-injects **one** user-role critic note (`format_nudge`) into messages for the
-next model turn. Prior Jev nudge markers are stripped so notes do not stack.
+value, probs, label, short rationale). Policy maps those onto one
+`last_decision.action`. `JevAddon` then dispatches a named handler that
+injects **one** user-role critic note (`critic_message`) and may set a
+read-only tool allowlist. Prior Jev nudge markers are stripped so notes do
+not stack. When critic mode is on, the system prompt also includes a **Jev
+mode** segment: treat injected `Jev critic note:` as authoritative, and on
+remaining work, review, or conflicting complete/remaining findings, continue
+or fix before claiming done.
 
 Symphony does **not**:
 
@@ -24,21 +29,25 @@ Symphony does **not**:
 - treat a bare boolean `True` / label as p=1.0 for actuation thresholds
 - replace the chat/completions model with `typesafe-ai/jev`
 
-Missing probabilities are a **weak signal**: enough to nudge, never enough to
-honour or auto-run. Provider errors fail open (`skipped` / `error`); the run
-still finishes.
+Missing probabilities are a **weak signal**: they never clear the actuation
+threshold, so handlers stay no-op (`continue_normally`). Provider errors fail
+open (`skipped` / `error`); the run still finishes.
 
-`should_nudge` is true when findings show:
+Handlers (from `last_decision.action`):
 
-- conflicting `task_complete` + `remaining_work`
-- `unsupported_claims`
-- `next_action` in `continue` / `retry` / `replan` / `review` (`continue` on
-  finish only)
-- pre-task `needs_replan`
+| Action | Handler |
+| --- | --- |
+| `replan` | Replan critic; gate write/edit/bash (read-only tools OK). No EnterPlanMode. |
+| `retry` (`continue` / remaining) | Finish-remaining critic; honour hook may continue once **only if** `honour_follow_up` is on (default **false**). |
+| `review` / conflict | Review note; block "done" claims; no auto-continue; no tool gate. |
+| `gather` / `ask` | Gather/ask critic; soft-gate implement tools (read-only allowlist). |
+| `finish` / `continue_normally` | Clear prior Jev notes; no-op. |
+| `unsupported_claims` | Same path as review, with a verify-before-claim note. |
 
-The note is a short template (plan or outcome incomplete, what Jev flagged,
-suggested `next_action`, and that plan mode was not opened). Cap: at most one
-nudge per phase.
+Finish actuation prefers `next_action` (`finish` / `continue` / `retry` /
+`review`). `task_complete` or `remaining_work` alone never decide the gate;
+both-true is invalid and forces `review`. Injected strings go through
+`bound_text` (~280). Cap: at most one critic note per phase.
 
 ### Start (`on_start`)
 
@@ -64,15 +73,16 @@ The add-on implements only the existing `Addon` pair:
 
 | Evaluator protocol | Addon hook | When |
 | --- | --- | --- |
-| `on_start` | `before_run` | Once at the start of `CoreHarness.run`; injects a note if `needs_replan` (or other start `should_nudge`) |
-| `on_finish` | `after_run` | Once after a successful run; injects a note if `should_nudge` |
+| `on_start` | `before_run` | Once at the start of `CoreHarness.run`; dispatches the start action handler |
+| `on_finish` | `after_run` | Once after a successful run; dispatches the finish action handler |
 
-`before_turn` and `on_tool` are not overridden. Semantic state is rebuilt from
-the run payload (request, plan items + status, observations, files modified,
-last tool results, final text) with hard character caps. Every outbound text
-field is run through `redact_secrets` (the same helper Langfuse uses) inside
-the state builder before the gateway call. Raw transcripts and JSONL are
-never dumped into the evaluator.
+`before_turn` and `on_tool` are not overridden. `before_tool` may deny
+implement tools while a replan/gather/ask allowlist is active. Semantic state
+is rebuilt from the run payload (request, plan items + status, observations,
+files modified, last tool results, final text) with hard character caps.
+Every outbound text field is run through `redact_secrets` (the same helper
+Langfuse uses) inside the state builder before the gateway call. Raw
+transcripts and JSONL are never dumped into the evaluator.
 
 ## Enable it
 

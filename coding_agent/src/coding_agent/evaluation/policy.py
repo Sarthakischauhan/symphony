@@ -6,8 +6,9 @@ docs, and agent examples such as Foreman all keep this split:
     typed answers + probabilities  ->  code-owned policy  ->  one allowed action
 
 This module is that policy. It never calls the evaluator, never rewrites the
-plan file, and never grants extra tools. Default behaviour is a message-only
-nudge. Honour/follow-up (a second ``harness.run``) is opt-in and off by default.
+plan file, and never grants extra tools. ``JevAddon`` dispatches named
+handlers from ``last_decision.action``. Honour/follow-up (a second
+``harness.run``) is opt-in and off by default.
 
 Fail-open: skipped/error results, missing answers, and low-confidence booleans
 all become ``continue_normally``. Actuation requires an explicit probability
@@ -17,18 +18,22 @@ that clears the threshold; a bare ``True`` / label is a weak signal only.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from coding_agent.evaluation.protocol import (
     CONTINUE_NORMALLY,
     EvaluationFinding,
     EvaluationResult,
 )
+from coding_agent.evaluation.state import bound_text
 
 NUDGE_MARKER = "Jev critic note:"
-_NUDGE_NEXT_ACTIONS = frozenset({"continue", "retry", "replan", "review"})
-_FINISH_QUESTIONS = frozenset(
-    {"task_complete", "remaining_work", "unsupported_claims"}
+NUDGE_TEXT_LIMIT = 280
+JEV_SYSTEM_SEGMENT = (
+    "# Jev mode\n"
+    f"Treat injected `{NUDGE_MARKER}` as authoritative. "
+    "On remaining work, review, or conflicting complete/remaining findings, "
+    "continue or fix before claiming the task is done."
 )
 
 # Actions the add-on is allowed to honour. Anything else is treated as continue.
@@ -76,9 +81,12 @@ def decide_next_step(result: EvaluationResult) -> PolicyDecision:
     Precedence is intentional and conservative:
 
     1. Evaluator failure / skip -> continue (fail open).
-    2. Explicit ``next_action`` choice, when it belongs to the phase.
-    3. High-confidence booleans that imply the same action.
-    4. Otherwise continue.
+    2. Finish conflict: ``task_complete`` and ``remaining_work`` both true
+       -> ``review``. TypeSafe questions are independent; both-true is invalid.
+    3. Explicit ``next_action`` choice, when it belongs to the phase.
+    4. High-confidence booleans that imply the same action (start phase;
+       finish never actuates on ``task_complete`` or ``remaining_work`` alone).
+    5. Otherwise continue.
     """
     if result.status != "ok":
         return PolicyDecision(
@@ -93,59 +101,7 @@ def decide_next_step(result: EvaluationResult) -> PolicyDecision:
     return PolicyDecision(reason="unknown evaluation phase")
 
 
-def should_nudge(findings: Any) -> bool:
-    """True when the next model turn should see one critic note.
-
-    Missing probabilities still count as a weak signal. They never clear the
-    actuation threshold used by ``decide_next_step``.
-    """
-    if isinstance(findings, EvaluationResult) and findings.status != "ok":
-        return False
-    items = _findings_map(findings)
-    if _weak_true(items.get("needs_replan")):
-        return True
-    if _weak_true(items.get("unsupported_claims")):
-        return True
-    if _weak_true(items.get("task_complete")) and _weak_true(items.get("remaining_work")):
-        return True
-    action = _choice_label(items.get("next_action"))
-    if action not in _NUDGE_NEXT_ACTIONS:
-        return False
-    if action == "continue":
-        return _is_finish_findings(items, findings)
-    return True
-
-
-def format_nudge(findings: Any) -> str:
-    """Short template string for one user-role critic note. Not an LLM call."""
-    items = _findings_map(findings)
-    flagged: list[str] = []
-    for name in (
-        "needs_replan",
-        "unsupported_claims",
-        "task_complete",
-        "remaining_work",
-    ):
-        finding = items.get(name)
-        if not _weak_true(finding):
-            continue
-        detail = ((finding.rationale or finding.label) if finding else "").strip()
-        flagged.append(f"{name} ({detail})" if detail else name)
-    action = _choice_label(items.get("next_action"))
-    if action:
-        flagged.append(f"next_action={action}")
-    flagged_text = ", ".join(flagged) if flagged else "review the latest findings"
-    lines = [
-        f"{NUDGE_MARKER} plan or outcome looks incomplete.",
-        f"Flagged: {flagged_text}.",
-    ]
-    if action:
-        lines.append(f"Suggested next_action: {action}.")
-    lines.append("Plan mode was not opened.")
-    return "\n".join(lines)
-
-
-def is_jev_nudge(message: Any) -> bool:
+def is_jev_nudge(message: object) -> bool:
     """True when ``message`` is a previously injected Jev critic note."""
     content = getattr(message, "content", message)
     if isinstance(content, str):
@@ -168,37 +124,36 @@ def is_jev_nudge(message: Any) -> bool:
 def critic_message(decision: PolicyDecision) -> str:
     """Instruction injected into the conversation so the chat model can act."""
     rationale = _rationale(decision)
+    question = decision.finding.question if decision.finding is not None else ""
     if decision.action == "replan":
-        return (
-            "Jev requested a replan before further implementation.\n"
-            f"Reason: {rationale}\n"
-            "Do not continue coding against the current plan. Revise the plan "
-            "first, then wait for approval."
+        body = (
+            f"Revise the plan before further implementation. Reason: {rationale} "
+            "Do not use write/edit/bash until the plan is revised. Plan mode was not opened."
         )
-    if decision.action == "gather":
-        return (
-            "Jev requested more information before acting.\n"
-            f"Reason: {rationale}\n"
+    elif decision.action == "gather":
+        body = (
+            f"Gather more information before acting. Reason: {rationale} "
             "Inspect the workspace with read-only tools before making changes."
         )
-    if decision.action == "ask":
-        return (
-            "Jev requested a clarifying question before continuing.\n"
-            f"Reason: {rationale}\n"
-            "Ask the user one concrete question with ask_user instead of guessing."
+    elif decision.action == "ask":
+        body = (
+            f"Ask the user one concrete question with ask_user. Reason: {rationale}"
         )
-    if decision.action == "retry":
-        return (
-            "Jev requested another pass on this task.\n"
-            f"Reason: {rationale}\n"
-            "Continue from the current workspace and finish the remaining work."
+    elif decision.action == "retry":
+        body = (
+            f"Finish remaining work from the current workspace. Reason: {rationale}"
         )
-    if decision.action == "review":
-        return (
-            "Jev requested human review before treating this run as complete.\n"
-            f"Reason: {rationale}"
-        )
-    return rationale
+    elif decision.action == "review" or question == "unsupported_claims":
+        if question == "unsupported_claims":
+            body = f"Verify before claiming the task is done. Reason: {rationale}"
+        else:
+            body = (
+                f"Human review is required. Do not claim the task is done. "
+                f"Reason: {rationale}"
+            )
+    else:
+        body = rationale
+    return bound_text(f"{NUDGE_MARKER} {body}", NUDGE_TEXT_LIMIT) if body else ""
 
 
 def _decide_start(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
@@ -219,6 +174,13 @@ def _decide_start(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
 
 
 def _decide_finish(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
+    if _weak_true(findings.get("task_complete")) and _weak_true(findings.get("remaining_work")):
+        finding = findings.get("remaining_work") or findings.get("task_complete")
+        return PolicyDecision(
+            action="review",
+            reason=_rationale_from(finding, "conflicting finish findings"),
+            finding=finding,
+        )
     next_action = _choice(findings.get("next_action"), _FINISH_NEXT_ACTIONS)
     if next_action == "review" or _boolean_true(findings.get("unsupported_claims")):
         finding = findings.get("unsupported_claims") if _boolean_true(findings.get("unsupported_claims")) else findings.get("next_action")
@@ -226,10 +188,10 @@ def _decide_finish(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
     if next_action == "retry":
         finding = findings.get("next_action")
         return PolicyDecision(action="retry", reason=_rationale_from(finding, "retry"), finding=finding)
-    if next_action == "continue" or _boolean_true(findings.get("remaining_work")):
-        finding = findings.get("remaining_work") if _boolean_true(findings.get("remaining_work")) else findings.get("next_action")
+    if next_action == "continue":
+        finding = findings.get("next_action")
         return PolicyDecision(action="retry", reason=_rationale_from(finding, "remaining work"), finding=finding)
-    if next_action == "finish" or _boolean_true(findings.get("task_complete")):
+    if next_action == "finish":
         return PolicyDecision(reason="finish findings allow the run to complete")
     return PolicyDecision(reason="finish findings do not require a control action")
 
@@ -273,40 +235,8 @@ def _boolean_probability(finding: Optional[EvaluationFinding]) -> float:
     return -1.0
 
 
-def _findings_map(findings: Any) -> dict[str, EvaluationFinding]:
-    if findings is None:
-        return {}
-    if isinstance(findings, EvaluationResult):
-        items = findings.findings
-    elif isinstance(findings, dict):
-        return {
-            str(key): value
-            for key, value in findings.items()
-            if isinstance(value, EvaluationFinding)
-        }
-    else:
-        items = findings
-    return {
-        finding.question: finding
-        for finding in items
-        if isinstance(finding, EvaluationFinding)
-    }
-
-
-def _is_finish_findings(items: dict[str, EvaluationFinding], findings: Any) -> bool:
-    if isinstance(findings, EvaluationResult):
-        return findings.phase == "finish"
-    return any(name in items for name in _FINISH_QUESTIONS)
-
-
-def _choice_label(finding: Optional[EvaluationFinding]) -> str:
-    if finding is None:
-        return ""
-    return str(finding.value or finding.label or "").strip().lower()
-
-
 def _weak_true(finding: Optional[EvaluationFinding]) -> bool:
-    """Label/bool without probs still counts as a weak yes for nudging."""
+    """Label/bool without probs still counts as a weak yes for conflict."""
     if finding is None or finding.kind != "boolean":
         return False
     probability = _boolean_probability(finding)
@@ -324,21 +254,21 @@ def _rationale(decision: PolicyDecision) -> str:
 
 def _rationale_from(finding: Optional[EvaluationFinding], fallback: str) -> str:
     if finding is None:
-        return fallback
+        return bound_text(fallback, NUDGE_TEXT_LIMIT)
     text = (finding.rationale or finding.label or "").strip()
-    return text or fallback
+    return bound_text(text or fallback, NUDGE_TEXT_LIMIT)
 
 
 __all__ = [
     "BOOLEAN_ACT_THRESHOLD",
+    "JEV_SYSTEM_SEGMENT",
     "MAX_HONOURED_FOLLOW_UPS",
     "NUDGE_MARKER",
+    "NUDGE_TEXT_LIMIT",
     "PolicyAction",
     "PolicyDecision",
     "apply_findings_gate",
     "critic_message",
     "decide_next_step",
-    "format_nudge",
     "is_jev_nudge",
-    "should_nudge",
 ]

@@ -7,14 +7,14 @@ from coding_agent.evaluation.evaluators import (
     StubEvaluator,
     VercelJevEvaluator,
 )
+from coding_agent.evaluation.handlers import HandlerResult, dispatch
 from coding_agent.evaluation.policy import (
+    JEV_SYSTEM_SEGMENT,
     NUDGE_MARKER,
     PolicyDecision,
     apply_findings_gate,
     critic_message,
     decide_next_step,
-    format_nudge,
-    should_nudge,
 )
 from coding_agent.evaluation.protocol import (
     CONTINUE_NORMALLY,
@@ -34,6 +34,8 @@ __all__ = [
     "EvaluationResult",
     "Evaluator",
     "FINISH_QUESTIONS",
+    "HandlerResult",
+    "JEV_SYSTEM_SEGMENT",
     "JevAddon",
     "LLMEvaluator",
     "NUDGE_MARKER",
@@ -48,7 +50,6 @@ __all__ = [
     "clip_text",
     "critic_message",
     "decide_next_step",
-    "format_nudge",
+    "dispatch",
     "jev_from_config",
-    "should_nudge",
 ]

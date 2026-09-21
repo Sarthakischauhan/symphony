@@ -34,7 +34,7 @@ from coding_agent.config import (
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
-from coding_agent.evaluation import jev_from_config
+from coding_agent.evaluation import JEV_SYSTEM_SEGMENT, jev_from_config
 from coding_agent.langfuse import langfuse_from_config
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.persistence import JsonlPersistence, sessions_dir
@@ -294,7 +294,7 @@ class CodingAgent:
         return prompt if isinstance(prompt, str) and prompt.strip() else None
 
     def apply_system_prompt(self) -> None:
-        """Recompose ``harness.system_prompt`` from base, personality, and mode."""
+        """Recompose ``harness.system_prompt`` from base, mode, Jev, and personality."""
         skills = ""
         if self.config.skills.enabled and self.skill_registry.skills:
             lines = [
@@ -311,6 +311,7 @@ class CodingAgent:
             self.config.personality,
             plan=PLAN_MODE_PROMPT if self.mode == "plan" else "",
             skills=skills,
+            jev=JEV_SYSTEM_SEGMENT if self.config.evaluation.enabled else "",
         )
 
     def set_mode(self, mode: AgentMode) -> None:

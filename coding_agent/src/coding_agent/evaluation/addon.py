@@ -1,4 +1,4 @@
-"""Jev critic add-on. Evaluates at run start/finish, then optionally nudges."""
+"""Jev critic add-on. Evaluates at run start/finish, then dispatches handlers."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from core_harness.addons.addon import Addon
 
 from coding_agent.config import EvaluationConfig
 from coding_agent.evaluation.evaluators import VercelJevEvaluator
+from coding_agent.evaluation.handlers import dispatch
 from coding_agent.evaluation.policy import (
     MAX_HONOURED_FOLLOW_UPS,
+    NUDGE_TEXT_LIMIT,
     PolicyDecision,
     critic_message,
     decide_next_step,
-    format_nudge,
     is_jev_nudge,
-    should_nudge,
 )
 from coding_agent.evaluation.protocol import (
     CONTINUE_NORMALLY,
@@ -27,7 +27,7 @@ from coding_agent.evaluation.protocol import (
     Evaluator,
     error_result,
 )
-from coding_agent.evaluation.state import build_run_state
+from coding_agent.evaluation.state import bound_text, build_run_state
 from coding_agent.plan import PlanStore
 from coding_agent.plan_mode import PlanModeState
 
@@ -37,10 +37,11 @@ logger = logging.getLogger(__name__)
 class JevAddon(Addon):
     """Call the evaluator at run start and finish.
 
-    Does not override ``before_turn`` or ``on_tool``. Default behaviour injects
-    at most one user-role critic note per phase. It never rewrites the plan
-    file, never enters plan mode, and never starts a second ``harness.run``
-    unless ``evaluation.honour_follow_up`` is on.
+    Dispatches named handlers from ``last_decision.action``. Does not override
+    ``before_turn`` or ``on_tool``. Default behaviour injects at most one
+    user-role critic note per phase. It never rewrites the plan file, never
+    enters plan mode, and never starts a second ``harness.run`` unless
+    ``evaluation.honour_follow_up`` is on.
     """
 
     name = "jev"
@@ -63,6 +64,7 @@ class JevAddon(Addon):
         self.gated_action = CONTINUE_NORMALLY
         self.follow_ups = 0
         self._queued_nudge: Optional[str] = None
+        self._allowed_tools: Optional[frozenset[str]] = None
         self._harness: Any = None
 
     def attach(self, harness: Any) -> None:
@@ -98,7 +100,7 @@ class JevAddon(Addon):
             self.config.honour_follow_up
             and decision.should_act
             and self.follow_ups >= MAX_HONOURED_FOLLOW_UPS
-            and decision.action in {"replan", "retry"}
+            and decision.action == "retry"
         ):
             decision = PolicyDecision(
                 action=CONTINUE_NORMALLY,
@@ -131,12 +133,8 @@ class JevAddon(Addon):
             messages=messages,
             plan_text=self._plan_markdown(),
         )
-        if should_nudge(self.last_start):
-            self._apply_nudge(payload, format_nudge(self.last_start))
-            self._queued_nudge = None
-        elif self._queued_nudge:
-            self._apply_nudge(payload, self._queued_nudge)
-            self._queued_nudge = None
+        self._dispatch(payload, self.last_decision, queued=self._queued_nudge)
+        self._queued_nudge = None
 
     async def after_run(self, **payload: Any) -> None:
         result = payload.get("result")
@@ -154,45 +152,74 @@ class JevAddon(Addon):
             final=final,
             tool_calls=tool_calls,
         )
-        if should_nudge(self.last_finish):
-            note = format_nudge(self.last_finish)
-            self._apply_nudge(payload, note)
-            self._queued_nudge = note
-        else:
-            self._queued_nudge = None
+        self._queued_nudge = self._dispatch(payload, self.last_decision)
+
+    async def before_tool(self, **payload: Any) -> Optional[str]:
+        allowed = self._allowed_tools
+        if allowed is None:
+            return None
+        name = str(payload.get("tool_name") or "")
+        if name in allowed:
+            return None
+        return bound_text(
+            f"{self.gated_action} gates {name} until the critic action is cleared.",
+            NUDGE_TEXT_LIMIT,
+        )
 
     def consume_follow_up(self) -> Optional[str]:
         """Return a follow-up user prompt once, or ``None`` to stop.
 
         Off unless ``evaluation.honour_follow_up`` is explicitly true.
+        Honour is retry-only (remaining work); replan/review never auto-continue.
         """
         if not self.config.honour_follow_up:
             return None
         decision = self.last_decision
-        if decision is None or decision.action not in {"retry", "replan"}:
+        if decision is None or decision.action != "retry":
             return None
         if self.follow_ups >= MAX_HONOURED_FOLLOW_UPS:
             return None
         self.follow_ups += 1
         return critic_message(decision)
 
-    def _apply_nudge(self, payload: dict[str, Any], note: str) -> None:
-        """Write the note onto live messages and ``HarnessResult.messages``.
+    def _dispatch(
+        self,
+        payload: dict[str, Any],
+        decision: Optional[PolicyDecision],
+        *,
+        queued: Optional[str] = None,
+    ) -> Optional[str]:
+        effect = dispatch(decision or PolicyDecision())
+        self._allowed_tools = effect.allow
+        if effect.note:
+            self._apply_nudge(payload, effect.note)
+            return effect.note
+        if queued:
+            self._apply_nudge(payload, queued)
+            return queued
+        self._clear_nudge(payload)
+        return None
 
-        Pydantic copies the list when building ``HarnessResult``, so mutating
-        only the session list would hide the note from ``agent.run`` callers.
-        """
+    def _message_lists(self, payload: dict[str, Any]) -> list[list[Any]]:
         result = payload.get("result")
         seen: set[int] = set()
+        lists: list[list[Any]] = []
         for target in (payload.get("messages"), getattr(result, "messages", None)):
             if not isinstance(target, list) or id(target) in seen:
                 continue
             seen.add(id(target))
-            self._inject_nudge(target, note)
+            lists.append(target)
+        return lists
 
-    def _inject_nudge(self, messages: list[Any], note: str) -> None:
-        messages[:] = [item for item in messages if not is_jev_nudge(item)]
-        messages.append(Message(role="user", content=note))
+    def _apply_nudge(self, payload: dict[str, Any], note: str) -> None:
+        """Write the note onto live messages and ``HarnessResult.messages``."""
+        for target in self._message_lists(payload):
+            target[:] = [item for item in target if not is_jev_nudge(item)]
+            target.append(Message(role="user", content=note))
+
+    def _clear_nudge(self, payload: dict[str, Any]) -> None:
+        for target in self._message_lists(payload):
+            target[:] = [item for item in target if not is_jev_nudge(item)]
 
 
 def jev_from_config(

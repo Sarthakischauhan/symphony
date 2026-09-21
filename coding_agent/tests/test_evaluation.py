@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -25,21 +25,23 @@ from coding_agent.config import (
 from coding_agent.evaluation import (
     CONTINUE_NORMALLY,
     FINISH_QUESTIONS,
+    JEV_SYSTEM_SEGMENT,
     JevAddon,
     MockEvaluator,
     NUDGE_MARKER,
     START_QUESTIONS,
     StubEvaluator,
     VercelJevEvaluator,
+    PolicyDecision,
     apply_findings_gate,
     build_run_state,
     clip_text,
     critic_message,
     decide_next_step,
-    format_nudge,
+    dispatch,
     jev_from_config,
-    should_nudge,
 )
+from coding_agent.evaluation.handlers import READ_ONLY_TOOLS
 from coding_agent.evaluation.protocol import EvaluationFinding, EvaluationResult
 from coding_agent.plan import PlanStore
 from coding_agent.tui.__main__ import build_parser
@@ -139,12 +141,30 @@ def test_enabled_multi_turn_still_two_eval_calls(tmp_path: Path) -> None:
     assert len(mock.finishes) == 1
 
 
+def _deny(addon: JevAddon, tool_name: str) -> Optional[str]:
+    return asyncio.run(addon.before_tool(tool_name=tool_name, arguments={}))
+
+
+def _assert_gate(addon: JevAddon, *, on: bool) -> None:
+    for name in ("write_file", "patch", "bash"):
+        denied = _deny(addon, name)
+        if on:
+            assert denied
+        else:
+            assert denied is None
+    assert _deny(addon, "read_file") is None
+    if on:
+        assert addon._allowed_tools == READ_ONLY_TOOLS
+        assert _deny(addon, "enter_plan_mode")
+    else:
+        assert addon._allowed_tools is None
+
+
 def test_evaluator_not_invoked_from_before_turn_or_on_tool(tmp_path: Path) -> None:
     mock = MockEvaluator()
     addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock)
     assert JevAddon.before_turn is Addon.before_turn
     assert JevAddon.on_tool is Addon.on_tool
-    assert JevAddon.before_tool is Addon.before_tool
     assert JevAddon.after_turn is Addon.after_turn
 
     async def scenario() -> None:
@@ -378,6 +398,65 @@ def test_policy_maps_start_replan_and_finish_retry() -> None:
     assert decide_next_step(skipped).action == CONTINUE_NORMALLY
 
 
+def _start_findings(action: str) -> list[EvaluationFinding]:
+    if action == "replan":
+        return [
+            EvaluationFinding(
+                question="needs_replan",
+                kind="boolean",
+                value=True,
+                probs={"true": 0.91, "false": 0.09},
+                rationale="plan is stale",
+            )
+        ]
+    return [EvaluationFinding(question="next_action", kind="choice", value=action, label=action)]
+
+
+def _finish_findings(action: str) -> list[EvaluationFinding]:
+    if action == "unsupported_claims":
+        return [
+            EvaluationFinding(
+                question="unsupported_claims",
+                kind="boolean",
+                value=True,
+                probs={"true": 0.93, "false": 0.07},
+                rationale="claimed tests passed",
+            )
+        ]
+    if action == "conflict":
+        return [
+            EvaluationFinding(question="task_complete", kind="boolean", value=True, label="true"),
+            EvaluationFinding(
+                question="remaining_work",
+                kind="boolean",
+                value=True,
+                label="true",
+                rationale="tests still fail",
+            ),
+        ]
+    return [EvaluationFinding(question="next_action", kind="choice", value=action, label=action)]
+
+
+def _run_start(addon: JevAddon, findings: list[EvaluationFinding]) -> list[Message]:
+    addon.evaluator = MockEvaluator(start=EvaluationResult(phase="start", findings=findings))
+    messages = [Message(role="user", content="task")]
+    asyncio.run(addon.before_run(task="task", messages=messages))
+    return messages
+
+
+def _run_finish(addon: JevAddon, findings: list[EvaluationFinding]) -> list[Message]:
+    addon.evaluator = MockEvaluator(finish=EvaluationResult(phase="finish", findings=findings))
+    messages: list[Message] = []
+    asyncio.run(
+        addon.after_run(
+            task="ship it",
+            result=HarnessResult(output_text="done", messages=messages, tool_calls=[], usage=UsageTotals()),
+            messages=messages,
+        )
+    )
+    return messages
+
+
 def test_bare_label_does_not_clear_actuation_threshold() -> None:
     bare = EvaluationResult(
         phase="start",
@@ -392,7 +471,7 @@ def test_bare_label_does_not_clear_actuation_threshold() -> None:
         ],
     )
     assert decide_next_step(bare).action == CONTINUE_NORMALLY
-    assert should_nudge(bare) is True
+    assert dispatch(decide_next_step(bare)).note is None
 
     label_only = EvaluationResult(
         phase="finish",
@@ -405,7 +484,7 @@ def test_bare_label_does_not_clear_actuation_threshold() -> None:
         ],
     )
     assert decide_next_step(label_only).action == CONTINUE_NORMALLY
-    assert should_nudge(label_only) is True
+    assert dispatch(decide_next_step(label_only)).note is None
 
     confident = EvaluationResult(
         phase="start",
@@ -422,35 +501,35 @@ def test_bare_label_does_not_clear_actuation_threshold() -> None:
     assert decide_next_step(confident).action == "replan"
 
 
-def test_start_replan_is_injected_for_the_model(tmp_path: Path) -> None:
-    mock = MockEvaluator(
-        start=EvaluationResult(
-            phase="start",
-            findings=[
-                EvaluationFinding(
-                    question="needs_replan",
-                    kind="boolean",
-                    value=True,
-                    rationale="current plan cannot ship the request",
-                )
-            ],
-        )
-    )
-    agent = _agent(tmp_path, enabled=True)
-    addon = _jev(agent)
-    addon.evaluator = mock
-    messages: list[Message] = [Message(role="user", content="implement the feature")]
-    asyncio.run(addon.before_run(task="implement the feature", messages=messages))
-    assert addon.gated_action == CONTINUE_NORMALLY
-    assert addon.plan_mode is None or not addon.plan_mode.active
-    assert messages[-1].role == "user"
-    assert NUDGE_MARKER in str(messages[-1].content)
-    assert "Plan mode was not opened." in str(messages[-1].content)
-    assert addon.consume_follow_up() is None
-    assert sum(1 for item in messages if NUDGE_MARKER in str(item.content)) == 1
+def test_handlers_inject_marker_and_set_tool_gate() -> None:
+    cases = [
+        ("replan", True, "start", "Revise the plan", True),
+        ("gather", True, "start", "Gather more information", True),
+        ("ask", True, "start", "ask_user", True),
+        ("retry", True, "finish", "Finish remaining", False),
+        ("continue", True, "finish", "Finish remaining", False),
+        ("review", True, "finish", "Do not claim the task is done", False),
+        ("finish", False, "finish", None, False),
+        ("unsupported_claims", True, "finish", "Verify before claiming", False),
+        ("conflict", True, "finish", "Do not claim the task is done", False),
+    ]
+    for action, expect_note, phase, marker, gate in cases:
+        addon = JevAddon(EvaluationConfig(enabled=True), evaluator=MockEvaluator())
+        findings = _start_findings(action) if phase == "start" else _finish_findings(action)
+        messages = _run_start(addon, findings) if phase == "start" else _run_finish(addon, findings)
+        notes = [item for item in messages if NUDGE_MARKER in str(item.content)]
+        if expect_note:
+            assert len(notes) == 1, action
+            assert marker in str(notes[0].content), action
+        else:
+            assert notes == [], action
+        _assert_gate(addon, on=gate)
+        if action == "replan":
+            assert addon.plan_mode is None or not addon.plan_mode.active
+            assert addon.consume_follow_up() is None
 
 
-def test_conflicting_bools_inject_one_message_no_second_run(tmp_path: Path) -> None:
+def test_conflict_uses_review_handler_no_second_run(tmp_path: Path) -> None:
     class CountingRegistry:
         def __init__(self) -> None:
             self.calls = 0
@@ -463,26 +542,7 @@ def test_conflicting_bools_inject_one_message_no_second_run(tmp_path: Path) -> N
 
     registry = CountingRegistry()
     agent = _agent(tmp_path, enabled=True, registry=registry)
-    mock = MockEvaluator(
-        finish=EvaluationResult(
-            phase="finish",
-            findings=[
-                EvaluationFinding(
-                    question="task_complete",
-                    kind="boolean",
-                    value=True,
-                    label="true",
-                ),
-                EvaluationFinding(
-                    question="remaining_work",
-                    kind="boolean",
-                    value=True,
-                    label="true",
-                    rationale="tests still fail",
-                ),
-            ],
-        )
-    )
+    mock = MockEvaluator(finish=EvaluationResult(phase="finish", findings=_finish_findings("conflict")))
     addon = _jev(agent)
     addon.evaluator = mock
     result = asyncio.run(agent.run("ship it"))
@@ -492,98 +552,170 @@ def test_conflicting_bools_inject_one_message_no_second_run(tmp_path: Path) -> N
         if item.role == "user" and NUDGE_MARKER in str(item.content)
     ]
     assert len(notes) == 1
-    assert "task_complete" in str(notes[0].content)
-    assert "remaining_work" in str(notes[0].content)
-    assert "Plan mode was not opened." in str(notes[0].content)
+    assert "Do not claim the task is done" in str(notes[0].content)
     assert agent.plan_mode.active is False
     assert agent.mode != "plan"
     assert registry.calls == 1
     assert addon.follow_ups == 0
+    assert addon.gated_action == "review"
     assert addon.consume_follow_up() is None
+    _assert_gate(addon, on=False)
     assert CodingAgentConfig().evaluation.honour_follow_up is False
 
 
-def test_honour_follow_up_stays_off_by_default() -> None:
-    mock = MockEvaluator(
-        finish=EvaluationResult(
-            phase="finish",
-            findings=[
-                EvaluationFinding(
-                    question="next_action",
-                    kind="choice",
-                    value="retry",
-                    label="retry",
-                ),
-            ],
-        )
-    )
-    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock)
-    asyncio.run(
-        addon.after_run(
-            task="ship it",
-            result=HarnessResult(
-                output_text="done",
-                messages=[],
-                tool_calls=[],
-                usage=UsageTotals(),
+def test_finish_policy_conflict_finish_only_and_remaining_only() -> None:
+    both = EvaluationResult(phase="finish", findings=_finish_findings("conflict"))
+    conflict = decide_next_step(both)
+    assert conflict.action == "review"
+    assert "Do not claim the task is done" in critic_message(conflict)
+    assert dispatch(conflict).allow is None
+
+    finish_only = EvaluationResult(phase="finish", findings=_finish_findings("finish") + [
+        EvaluationFinding(
+            question="task_complete",
+            kind="boolean",
+            value=True,
+            label="true",
+            probs={"true": 0.95, "false": 0.05},
+        ),
+    ])
+    finish_decision = decide_next_step(finish_only)
+    assert finish_decision.action == CONTINUE_NORMALLY
+    assert dispatch(finish_decision).note is None
+
+    remaining_only = EvaluationResult(
+        phase="finish",
+        findings=[
+            EvaluationFinding(
+                question="remaining_work",
+                kind="boolean",
+                value=True,
+                label="true",
+                rationale="still shipping",
+                probs={"true": 0.94, "false": 0.06},
             ),
-            messages=[],
-        )
+        ],
     )
+    remaining = decide_next_step(remaining_only)
+    assert remaining.action == CONTINUE_NORMALLY
+    assert dispatch(remaining).note is None
+
+    retry_remaining = decide_next_step(
+        EvaluationResult(phase="finish", findings=_finish_findings("continue"))
+    )
+    assert retry_remaining.action == "retry"
+    assert "Finish remaining" in critic_message(retry_remaining)
+
+
+def test_honour_follow_up_stays_off_by_default() -> None:
+    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=MockEvaluator())
+    messages = _run_finish(addon, _finish_findings("retry"))
+    assert "Finish remaining" in str(messages[-1].content)
     assert addon.gated_action == "retry"
     assert addon.config.honour_follow_up is False
     assert addon.consume_follow_up() is None
     assert addon.follow_ups == 0
+    _assert_gate(addon, on=False)
+
+
+def test_honour_follow_up_retry_only_when_enabled() -> None:
+    retry = JevAddon(
+        EvaluationConfig(enabled=True, honour_follow_up=True),
+        evaluator=MockEvaluator(),
+    )
+    _run_finish(retry, _finish_findings("retry"))
+    first = retry.consume_follow_up()
+    assert first is not None
+    assert "Finish remaining" in first
+    assert retry.follow_ups == 1
+    assert retry.consume_follow_up() is None
+
+    review = JevAddon(
+        EvaluationConfig(enabled=True, honour_follow_up=True),
+        evaluator=MockEvaluator(),
+    )
+    _run_finish(review, _finish_findings("review"))
+    assert review.consume_follow_up() is None
+
+    replan = JevAddon(
+        EvaluationConfig(enabled=True, honour_follow_up=True),
+        evaluator=MockEvaluator(),
+    )
+    _run_start(replan, _start_findings("replan"))
+    assert replan.consume_follow_up() is None
+
+
+def test_finish_clears_prior_jev_notes() -> None:
+    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=MockEvaluator())
+    leftover = Message(role="user", content=f"{NUDGE_MARKER} leftover from last phase.")
+    addon.evaluator = MockEvaluator(finish=EvaluationResult(phase="finish", findings=_finish_findings("finish")))
+    messages = [leftover]
+    asyncio.run(
+        addon.after_run(
+            task="ship it",
+            result=HarnessResult(output_text="done", messages=messages, tool_calls=[], usage=UsageTotals()),
+            messages=messages,
+        )
+    )
+    assert all(NUDGE_MARKER not in str(item.content) for item in messages)
+    _assert_gate(addon, on=False)
 
 
 def test_nudge_replaces_prior_marker_instead_of_stacking() -> None:
-    mock = MockEvaluator(
-        start=EvaluationResult(
-            phase="start",
-            findings=[
-                EvaluationFinding(
-                    question="needs_replan",
-                    kind="boolean",
-                    value=True,
-                    label="true",
-                )
-            ],
-        )
-    )
-    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock)
+    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=MockEvaluator())
+    leftover = f"{NUDGE_MARKER} leftover from last phase."
+    addon.evaluator = MockEvaluator(start=EvaluationResult(phase="start", findings=_start_findings("replan")))
     messages = [
         Message(role="user", content="task"),
-        Message(role="user", content=f"{NUDGE_MARKER} leftover from last phase."),
+        Message(role="user", content=leftover),
     ]
     asyncio.run(addon.before_run(task="task", messages=messages))
     notes = [item for item in messages if NUDGE_MARKER in str(item.content)]
     assert len(notes) == 1
-    assert "needs_replan" in str(notes[0].content)
+    assert "Revise the plan" in str(notes[0].content)
     assert "leftover from last phase" not in str(notes[0].content)
 
 
-def test_format_nudge_is_a_template_not_an_llm_call() -> None:
-    findings = [
-        EvaluationFinding(
-            question="unsupported_claims",
-            kind="boolean",
-            value=True,
-            label="true",
-            rationale="claimed tests passed",
-        ),
-        EvaluationFinding(
-            question="next_action",
-            kind="choice",
-            value="review",
-            label="review",
-        ),
-    ]
-    note = format_nudge(findings)
+def test_critic_message_is_a_template_not_an_llm_call() -> None:
+    decision = decide_next_step(
+        EvaluationResult(phase="finish", findings=_finish_findings("unsupported_claims"))
+    )
+    assert decision.action == "review"
+    note = critic_message(decision)
     assert note.startswith(NUDGE_MARKER)
-    assert "unsupported_claims" in note
-    assert "Suggested next_action: review." in note
-    assert "Plan mode was not opened." in note
-    assert should_nudge(findings) is True
+    assert "Verify before claiming" in note
+    assert dispatch(decision).allow is None
+
+
+def test_nudge_and_critic_run_rationale_through_bound_text() -> None:
+    leaked = "OPENAI_API_KEY=sk-leakedkey99999 " + ("x" * 400)
+    finding = EvaluationFinding(
+        question="unsupported_claims",
+        kind="boolean",
+        value=True,
+        label="true",
+        rationale=leaked,
+        probs={"true": 0.9, "false": 0.1},
+    )
+    message = critic_message(
+        PolicyDecision(action="review", reason="review", finding=finding)
+    )
+    assert "sk-leakedkey99999" not in message
+    assert "…" in message
+    assert message.startswith(NUDGE_MARKER)
+
+
+def test_jev_mode_segment_precedes_personality_when_enabled(tmp_path: Path) -> None:
+    from coding_agent.personalities import PERSONALITY_HEADING
+
+    enabled = _agent(tmp_path, enabled=True)
+    prompt = enabled.harness.system_prompt
+    assert JEV_SYSTEM_SEGMENT in prompt
+    assert NUDGE_MARKER in prompt
+    assert PERSONALITY_HEADING in prompt
+    assert prompt.index("# Jev mode") < prompt.index(PERSONALITY_HEADING)
+    disabled = _agent(tmp_path, enabled=False)
+    assert JEV_SYSTEM_SEGMENT not in disabled.harness.system_prompt
 
 
 def test_jev_flag_parses_into_evaluation_config(tmp_path: Path) -> None:

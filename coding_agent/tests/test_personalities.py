@@ -14,7 +14,8 @@ from coding_agent.config import (
     load_coding_agent_config,
 )
 from coding_agent.personalities import (
-    PERSONALITY_BEGIN,
+    PERSONALITY_HEADING,
+    PERSONALITY_PREAMBLE,
     compose_system_prompt,
     get,
     load_personalities,
@@ -51,13 +52,19 @@ def test_load_personalities_missing_or_invalid_is_empty(tmp_path: Path) -> None:
     assert load_personalities(broken) == ()
 
 
-def test_compose_inserts_personality_segment() -> None:
+def test_compose_inserts_personality_heading_last() -> None:
     addon = get("direct").system_addon  # type: ignore[union-attr]
     prompt = compose_system_prompt("BASE", "direct")
     assert prompt.startswith("BASE")
     assert addon in prompt
-    assert PERSONALITY_BEGIN in prompt
+    assert PERSONALITY_HEADING in prompt
+    assert PERSONALITY_PREAMBLE in prompt
+    assert "<personality>" not in prompt
+    assert prompt.rstrip().endswith(addon)
     assert prompt.endswith("\n")
+    heading_at = prompt.index(PERSONALITY_HEADING)
+    assert prompt.index(PERSONALITY_PREAMBLE) > heading_at
+    assert prompt.index(addon) > prompt.index(PERSONALITY_PREAMBLE)
 
 
 def test_compose_replaces_personality_segment_only() -> None:
@@ -65,15 +72,17 @@ def test_compose_replaces_personality_segment_only() -> None:
     second = compose_system_prompt(first, "warm")
     assert get("direct").system_addon not in second  # type: ignore[union-attr]
     assert get("warm").system_addon in second  # type: ignore[union-attr]
-    assert second.count(PERSONALITY_BEGIN) == 1
+    assert second.count(PERSONALITY_HEADING) == 1
     assert "PLAN MODE" in second
     assert "BASE" in second
+    assert second.index("PLAN MODE") < second.index(PERSONALITY_HEADING)
+    assert second.rstrip().endswith(get("warm").system_addon)  # type: ignore[union-attr]
 
 
 def test_compose_unknown_or_null_id_is_stock() -> None:
     assert compose_system_prompt("BASE", None).strip() == "BASE"
     assert compose_system_prompt("BASE", "not-a-personality").strip() == "BASE"
-    assert PERSONALITY_BEGIN not in compose_system_prompt("BASE", "")
+    assert PERSONALITY_HEADING not in compose_system_prompt("BASE", "")
 
 
 def test_config_personality_defaults_and_round_trip(tmp_path: Path) -> None:
@@ -97,11 +106,17 @@ def test_apply_system_prompt_updates_harness_immediately(tmp_path: Path) -> None
     assert get("direct").system_addon in agent.harness.system_prompt  # type: ignore[union-attr]
     agent.config.personality = "caveman"
     agent.apply_system_prompt()
-    assert get("caveman").system_addon in agent.harness.system_prompt  # type: ignore[union-attr]
-    assert get("direct").system_addon not in agent.harness.system_prompt  # type: ignore[union-attr]
+    prompt = agent.harness.system_prompt
+    assert get("caveman").system_addon in prompt  # type: ignore[union-attr]
+    assert get("direct").system_addon not in prompt  # type: ignore[union-attr]
+    assert PERSONALITY_HEADING in prompt
+    assert prompt.rstrip().endswith(get("caveman").system_addon)  # type: ignore[union-attr]
     agent.set_mode("plan")
     assert "You are in plan mode." in agent.harness.system_prompt
     assert get("caveman").system_addon in agent.harness.system_prompt  # type: ignore[union-attr]
+    assert agent.harness.system_prompt.index("You are in plan mode.") < agent.harness.system_prompt.index(
+        PERSONALITY_HEADING
+    )
 
 
 def test_personality_picker_matching() -> None:
