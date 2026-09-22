@@ -133,6 +133,7 @@ class TranscriptView(Protocol):
         self,
         call_id: str,
         *,
+        tool_name: str = "tool",
         arguments: Optional[Mapping[str, Any]] = None,
         raw_arguments: str = "",
         status: str = "preparing",
@@ -256,12 +257,22 @@ class EventPresenter:
             text, new = pending_assistant
             self.view.set_assistant(text, new=new)
         for call_id in pending_tools:
-            raw = "".join(self._tool_argument_chunks.get(call_id, ()))
-            self.view.update_tool(
-                call_id,
-                arguments=_tool_arguments_from_protocol(raw),
-                raw_arguments=raw,
-            )
+            self._paint_pending_tool(call_id)
+
+    def _paint_pending_tool(self, call_id: str) -> None:
+        """Mount/update a buffered tool paint only when the real name is known."""
+        tool_name = self._tool_names.get(call_id)
+        if tool_name is None:
+            # Hold rather than flash a nameless "Tool" title.
+            self._pending_tool_paints[call_id] = None
+            return
+        raw = "".join(self._tool_argument_chunks.get(call_id, ()))
+        self.view.update_tool(
+            call_id,
+            tool_name=tool_name,
+            arguments=_tool_arguments_from_protocol(raw),
+            raw_arguments=raw,
+        )
 
     def _request_stream_flush(self) -> None:
         """Schedule one paint for all deltas received during this interval."""
@@ -568,9 +579,9 @@ class EventPresenter:
         call_id = str(payload.get("tool_call_id") or "tool")
         self._tool_executions.add(call_id)
         name = str(payload.get("tool_name") or self._tool_names.get(call_id, "tool"))
-        if call_id not in self._tool_names:
-            self._tool_names[call_id] = name
-            self.view.add_tool(call_id, name)
+        # Always stamp and mount with the real name. `_tool_names` means
+        # "name known", not "widget already mounted".
+        self._tool_names[call_id] = name
         self.state.phase = "tool"
         self.state.detail = f"running {name}"
         self.view.update_tool(
