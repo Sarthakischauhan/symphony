@@ -15,16 +15,22 @@ event live in [`core_harness/docs/events.md`](../../core_harness/docs/events.md)
 
 | Enum member | `event_type` | When |
 | --- | --- | --- |
-| `RUN_STARTED` | `run_started` | A run begins (`model_id`, `tool_names`, `session_id`) |
-| `TURN_STARTED` | `turn_started` | Each model turn (`turn`, `message_count`) |
-| `TURN_COMPLETED` | `turn_completed` | Turn finished (`had_tool_calls`) |
+| `RUN_STARTED` | `run_started` | A run begins (`model_id`, `tool_names`, `session_id`, `started_at`) |
+| `TURN_STARTED` | `turn_started` | Each model turn (`turn`, `message_count`, `started_at`) |
+| `TURN_COMPLETED` | `turn_completed` | Turn finished (`had_tool_calls`, `ended_at`, `duration_ms`) |
 | `RUN_COMPLETED` | `run_completed` | Final text, usage, context, session |
 | `RUN_CANCELLED` | `run_cancelled` | The run task was cancelled (conditional; `reason`) |
 | `RUN_LIMIT_EXCEEDED` | `run_limit_exceeded` | A `HarnessConfig` cap was hit (conditional; `limit`, `value`, `max`, `message`) |
 | `RUN_FAILED` | `run_failed` | Unhandled error (conditional; `error_type`, `message`) |
+| `RUN_SUMMARY` | `run_summary` | After every terminal run (`status`, `duration_ms`, …); learning may emit a richer follow-up |
 
 A run ends with exactly one of `run_completed`, `run_cancelled`,
 `run_limit_exceeded`, or `run_failed`.
+
+`run_started` includes `started_at`. Every terminal run event includes
+`ended_at` and `duration_ms` (optional `duration_human`) so a TUI can show
+"worked for Xm" from `duration_ms` alone. The harness also emits
+`run_summary` after every terminal run with the same duration stamps.
 
 ## Stream
 
@@ -61,8 +67,8 @@ A run ends with exactly one of `run_completed`, `run_cancelled`,
 | --- | --- | --- |
 | `TOOL_CALL_STARTED` | `tool_call_started` | `turn`, `tool_call_id`, `tool_name` |
 | `TOOL_CALL_DELTA` | `tool_call_delta` | Argument JSON `delta` |
-| `TOOL_EXECUTION_STARTED` | `tool_execution_started` | `tool_call_id`, `tool_name`, `arguments` |
-| `TOOL_EXECUTION_COMPLETED` | `tool_execution_completed` | `result`, `truncated`, `original_chars`. A denied or unknown tool still produces both events; the denial is the `result`. |
+| `TOOL_EXECUTION_STARTED` | `tool_execution_started` | `tool_call_id`, `tool_name`, `arguments`, `started_at` |
+| `TOOL_EXECUTION_COMPLETED` | `tool_execution_completed` | `result`, `truncated`, `original_chars`, `ended_at`, `duration_ms`. A denied or unknown tool still produces both events; the denial is the `result`. |
 
 ## Context
 
@@ -80,7 +86,7 @@ compaction events.
 
 | Enum member | `event_type` | Payload notes |
 | --- | --- | --- |
-| `MESSAGE_INJECTED` | `message_injected` | Child result delivered between turns (`role`, `content`, `source: "subagent"`; conditional) |
+| `MESSAGE_INJECTED` | `message_injected` | Child result delivered between turns (`role`, `content`, `source`, `kind`, `injected_at`; conditional) |
 
 ## Subagents
 
@@ -102,6 +108,15 @@ Background results arrive between model turns as `message_injected` with
 `source: "subagent"`. The runtime waits for outstanding children before emitting
 the parent's final `run_completed`; no model-facing polling tool is required.
 
+## Reserved / future harness events
+
+Members of `ControlPlaneEventType` that exist for upcoming surfaces (optional
+to emit today): `run_phase`, `assistant_message_started`,
+`assistant_message_completed`, `reasoning_completed`, `tool_execution_failed`,
+`tool_denied`, `approval_required`, `approval_resolved`,
+`user_input_requested`, `user_input_received`, `run_progress`, `run_metrics`,
+`config_changed`, `jev_decision`, `child_progress`.
+
 ## Product events (not in the harness enum)
 
 Add-ons and products may emit their own events through the same plane. These
@@ -110,7 +125,6 @@ are **not** members of `ControlPlaneEventType`; consumers should treat unknown
 
 | `event_type` | Emitted by | Payload notes |
 | --- | --- | --- |
-| `run_summary` | `symphony-code` learning add-on, after `run_completed` | `label`, `summary` — the two-line **summary so far** shown in the TUI (conditional) |
 | `collected` | `symphony-code` JSONL persistence, after a terminal run event | Overlay keyed by the original event's `run_id` and `seq`. `load_events` stamps `collected: true` onto that mid-run event and keeps the flag sticky. The TUI folds collected work into the completed-run collection and does not resurrect live cards on resume. |
 
 ## Transport

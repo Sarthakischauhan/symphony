@@ -178,7 +178,8 @@ def test_direct_spawn_uses_shared_control_plane() -> None:
     child_events = [event for event in plane.events if event.payload.get("agent_id") == child_id]
     assert child_events[0].event_type == "run_started"
     assert child_events[0].payload["parent_id"] == "parent-agent"
-    assert child_events[-1].event_type == "run_completed"
+    assert any(e.event_type == "run_completed" for e in child_events)
+    assert child_events[-1].event_type == "run_summary"
 
 
 def test_multiple_spawn_agent_calls_run_in_parallel() -> None:

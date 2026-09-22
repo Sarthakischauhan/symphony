@@ -15,6 +15,7 @@ from core_harness.context import HarnessState, estimate_prompt_tokens, message_s
 from core_harness.events import EventSink
 from core_harness.errors import HarnessLimitExceeded
 from core_harness.tools import Tool
+from core_harness.timing import mono_now, with_started
 
 
 async def _ignore_addon_hook(_hook: str, **_payload: Any) -> None:
@@ -102,9 +103,10 @@ class TurnRunner:
             turn=turn,
             context_left=context_left,
         )
+        self._turn_started_mono = mono_now()
         await self.emit(
             "turn_started",
-            {"turn": turn, "message_count": len(messages)},
+            with_started({"turn": turn, "message_count": len(messages)}),
         )
 
         from core_harness.loop.stream import stream_model_turn

@@ -219,8 +219,11 @@ def test_after_run_hook_emits_summary_on_the_control_plane(
     summaries = [event for event in events if event.event_type == "run_summary"]
     assert result.output_text == "fixed and tests passed"
     assert summaries
-    assert summaries[0].payload["label"] == "summary so far"
-    assert "Patched the failing helper" in summaries[0].payload["summary"]
+    # Harness emits a stamped baseline summary; learning may follow with text.
+    rich = [e for e in summaries if (e.payload.get("summary") or "").strip()]
+    assert rich
+    assert rich[0].payload["label"] == "summary so far"
+    assert "Patched the failing helper" in rich[0].payload["summary"]
     assert lessons
     assert "focused tests" in lessons[0].summary
 

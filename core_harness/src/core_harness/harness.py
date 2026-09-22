@@ -16,6 +16,7 @@ from core_harness.addons.persistence import Checkpoint, NullPersistence
 from core_harness.addons.subagent import ChildConfig, ChildIdentity
 from core_harness.config import SettingsSource, resolve_harness_config
 from core_harness.events import EventSink, normalize_event_type
+from core_harness.timing import TERMINAL_RUN_EVENTS
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import (
     EVENT_SCHEMA_VERSION,
@@ -161,10 +162,19 @@ class CoreHarness:
         }
         if event_name == "run_started":
             self._active_run_started_ts = stamped["ts"]
-        elif event_name == "run_completed" and "elapsed_seconds" not in stamped:
+            stamped.setdefault("started_at", stamped["ts"])
+        elif event_name in TERMINAL_RUN_EVENTS:
+            stamped.setdefault("ended_at", stamped["ts"])
             started = self._active_run_started_ts
             if isinstance(started, (int, float)):
-                stamped["elapsed_seconds"] = max(0.0, stamped["ts"] - float(started))
+                # Prefer loop-provided duration_ms; only fill gaps from emit ts.
+                if "duration_ms" not in stamped:
+                    stamped["duration_ms"] = max(
+                        0, int(round((float(stamped["ts"]) - float(started)) * 1000.0))
+                    )
+                stamped.setdefault(
+                    "elapsed_seconds", float(stamped["duration_ms"]) / 1000.0
+                )
         await self.persistence.append_event(event_type=event_name, payload=stamped)
         await self.sink.emit(event_name, stamped)
 
