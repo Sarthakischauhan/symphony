@@ -1263,6 +1263,7 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
                         "ts": 12.4,
                         "elapsed_seconds": 12.4,
                         "duration": "12s",
+                        "completion_verb": "Percolated",
                     },
                 ),
             ]
@@ -1300,11 +1301,114 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
         widget for widget in view.mounted if isinstance(widget, CompletedRunSummary)
     )
     assert summary.call_ids == ["read-1"]
-    assert summary.render().plain.endswith(" for 12s")
+    assert summary.render().plain == "Percolated for 12s"
     assistant = next(
         widget for widget in view.mounted if isinstance(widget, AssistantMessage)
     )
     assert assistant.message_text == "Done."
+
+
+def test_history_resume_uses_persisted_protocol_arguments() -> None:
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            return [
+                Message(role="user", content="Inspect the files"),
+                Message(
+                    role="assistant",
+                    content="Reading them.",
+                    tool_calls=[
+                        {
+                            "id": "read-1",
+                            "function": {"name": "read_file", "arguments": "{}"},
+                        },
+                        {
+                            "id": "patch-1",
+                            "function": {"name": "patch", "arguments": "{}"},
+                        },
+                    ],
+                ),
+                Message(role="tool", content="ok", tool_call_id="read-1"),
+                Message(
+                    role="tool",
+                    content="patched history.py (1 replacement(s), +4 bytes)",
+                    tool_call_id="patch-1",
+                ),
+                Message(role="assistant", content="Done."),
+            ]
+
+        async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
+            return [
+                ("run_started", {"run_id": "run", "seq": 1, "ts": 1.0}),
+                (
+                    "tool_execution_started",
+                    {
+                        "run_id": "run",
+                        "seq": 2,
+                        "tool_call_id": "read-1",
+                        "tool_name": "read_file",
+                        "arguments": {"path": "history.py"},
+                        "collected": True,
+                    },
+                ),
+                (
+                    "tool_execution_started",
+                    {
+                        "run_id": "run",
+                        "seq": 3,
+                        "tool_call_id": "patch-1",
+                        "tool_name": "patch",
+                        "arguments": {"path": "labels.py", "old_str": "a", "new_str": "b"},
+                        "collected": True,
+                    },
+                ),
+                (
+                    "run_completed",
+                    {
+                        "run_id": "run",
+                        "seq": 4,
+                        "output_text": "Done.",
+                        "ts": 13.0,
+                        "elapsed_seconds": 12.0,
+                        "duration": "12s",
+                        "completion_verb": "Percolated",
+                    },
+                ),
+            ]
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+    summary = next(widget for widget in view.mounted if isinstance(widget, CompletedRunSummary))
+    summary.toggle()
+    rendered = summary.render().plain
+    assert rendered.startswith("Percolated for 12s")
+    assert "Read history.py" in rendered
+    assert "Update labels.py" in rendered
+    assert rendered.count("\n  Read") == 1
+    assert rendered.count("\n  Update") == 1
 
 
 def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:

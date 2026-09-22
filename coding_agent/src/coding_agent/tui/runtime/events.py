@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 from coding_agent.evaluation.state import bound_text
 from coding_agent.persistence.collection import is_collected
 from coding_agent.tui.runtime.state import UiRunState
+from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
@@ -215,7 +216,7 @@ class EventPresenter:
 
     def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         payload = payload or {}
-        if event_type == "collected" or is_collected(payload):
+        if event_type in {"collected", "run_completed_meta"} or is_collected(payload):
             # Mid-run work already folded into the completed-run collection.
             # Honour the sticky tag so resume cannot resurrect live cards.
             return
@@ -337,8 +338,9 @@ class EventPresenter:
         elif self._started_at is not None:
             self._elapsed_seconds = max(0.0, time.monotonic() - self._started_at)
         if self._elapsed_seconds is not None:
-            payload["elapsed_seconds"] = self._elapsed_seconds
-            payload["duration"] = _duration(self._elapsed_seconds)
+            payload.setdefault("elapsed_seconds", self._elapsed_seconds)
+            payload.setdefault("duration", _duration(self._elapsed_seconds))
+        payload.setdefault("completion_verb", choose_completion_verb())
         usage = payload.get("usage") or {}
         context = payload.get("context") or {}
         if usage:
@@ -354,7 +356,10 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "ready"
         completed = self._completed_text()
-        elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
+        elapsed = str(payload.get("duration") or "") or (
+            _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
+        )
+        verb = str(payload.get("completion_verb") or choose_completion_verb())
         final_output = str(payload.get("output_text") or "")
         # The folded top summary should only identify the completed run and
         # its duration. Keep token and call metrics in the completion row.
@@ -372,6 +377,7 @@ class EventPresenter:
                 completed,
                 collapse=True,
                 add_completion=True,
+                verb=verb,
                 duration=elapsed,
             )
         except TypeError:
