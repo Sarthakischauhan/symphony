@@ -76,7 +76,7 @@ class ToolCallWidget(Collapsible):
         self._styled_status: str | None = None
         super().__init__(
             self._body,
-            title="Tool",
+            title=tool_label(tool_name)[0],
             collapsed=True,
             collapsed_symbol="",
             expanded_symbol="",
