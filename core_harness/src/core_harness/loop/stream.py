@@ -71,24 +71,42 @@ async def dispatch_stream_event(
             },
         )
     elif event.type == "toolcall_start":
-        streamed.pending_calls[event.content_index] = PendingToolCall(
-            id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}",
-            name=event.tool_name,
-            metadata=dict(event.tool_call_metadata or {}),
-        )
+        # Some OpenAI-compatible streams split the id/name over multiple
+        # deltas.  Do not replace a call created by an earlier argument delta:
+        # doing so loses the accumulated arguments and the eventual tool
+        # output is associated with a different id than the model's call.
+        pending = streamed.pending_calls.get(event.content_index)
+        if pending is None:
+            pending = PendingToolCall(
+                id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}",
+                name=event.tool_name,
+                metadata=dict(event.tool_call_metadata or {}),
+            )
+            streamed.pending_calls[event.content_index] = pending
+        else:
+            if event.tool_call_id:
+                pending.id = event.tool_call_id
+            if event.tool_name:
+                pending.name = event.tool_name
+            if event.tool_call_metadata:
+                pending.metadata.update(event.tool_call_metadata)
         await emit(
             "tool_call_started",
             {
                 "turn": turn,
-                "tool_call_id": streamed.pending_calls[event.content_index].id,
-                "tool_name": event.tool_name,
+                "tool_call_id": pending.id,
+                "tool_name": pending.name,
             },
         )
     elif event.type == "toolcall_delta" and event.delta:
         pending = streamed.pending_calls.setdefault(
             event.content_index,
-            PendingToolCall(id=f"toolcall-{turn}-{event.content_index}"),
+            PendingToolCall(
+                id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}"
+            ),
         )
+        if event.tool_call_id and pending.id.startswith("toolcall-"):
+            pending.id = event.tool_call_id
         pending.arguments_json += event.delta
         await emit(
             "tool_call_delta",
