@@ -551,7 +551,8 @@ class EventPresenter:
         self._tool_argument_tails[call_id] = ""
         self.state.phase = "tool"
         self.state.detail = f"preparing {name}"
-        self.view.add_tool(call_id, name)
+        # Do not mount an empty widget yet. The authoritative tool name and
+        # complete arguments arrive with tool_execution_started.
 
     def _on_tool_call_delta(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
@@ -572,14 +573,24 @@ class EventPresenter:
             self.view.add_tool(call_id, name)
         self.state.phase = "tool"
         self.state.detail = f"running {name}"
-        self.view.update_tool(call_id, arguments=payload.get("arguments") or {}, status="running")
+        self.view.update_tool(
+            call_id,
+            tool_name=name,
+            arguments=payload.get("arguments") or {},
+            status="running",
+        )
 
     def _on_tool_execution_completed(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
         self.state.phase = "thinking"
         self.state.detail = f"finished {payload.get('tool_name') or 'tool'}"
         status = "failed" if payload.get("status") in {"error", "cancelled", "timeout"} else "done"
-        self.view.update_tool(call_id, status=status, result=payload.get("result", ""))
+        self.view.update_tool(
+            call_id,
+            tool_name=str(payload.get("tool_name") or self._tool_names.get(call_id, "tool")),
+            status=status,
+            result=payload.get("result", ""),
+        )
         self._tool_argument_chunks.pop(call_id, None)
         self._tool_argument_tails.pop(call_id, None)
 

@@ -58,12 +58,13 @@ class RecordingView:
         self,
         call_id: str,
         *,
+        tool_name: str = "tool",
         arguments: Optional[Mapping[str, Any]] = None,
         raw_arguments: str = "",
         status: str = "preparing",
         result: Any = None,
     ) -> None:
-        del result
+        del result, tool_name
         self.tool_updates.append(f"{call_id}:{status}")
         self.tool_payloads.append((call_id, arguments, raw_arguments))
 
@@ -320,7 +321,7 @@ def test_tool_start_flushes_buffered_assistant_before_add_tool() -> None:
         {"tool_call_id": "read-1", "tool_name": "read_file"},
     )
     assert view.assistant == [("Hello world", True)]
-    assert view.tools == [("read-1", "read_file")]
+    assert view.tools == []
     assert view.finished_reasoning == 0
 
     # The deferred paint is now a no-op: the buffer was drained before add_tool.

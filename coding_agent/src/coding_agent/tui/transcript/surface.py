@@ -203,6 +203,7 @@ class TranscriptSurface:
         self,
         call_id: str,
         *,
+        tool_name: str = "tool",
         arguments: Optional[Mapping[str, Any]] = None,
         raw_arguments: str = "",
         status: str = "preparing",
@@ -214,7 +215,7 @@ class TranscriptSurface:
         was_at_end = transcript.is_vertical_scroll_end
         widget = self._tools.get(call_id)
         if widget is None:
-            self.add_tool(call_id, "tool")
+            self.add_tool(call_id, tool_name)
             widget = self._tools[call_id]
         if isinstance(widget, ToolCallSummary):
             self._follow_transcript_tail(transcript, was_at_end=was_at_end)
