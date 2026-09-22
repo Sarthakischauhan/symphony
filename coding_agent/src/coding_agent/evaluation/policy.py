@@ -174,6 +174,9 @@ def _decide_start(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
 
 
 def _decide_finish(findings: dict[str, EvaluationFinding]) -> PolicyDecision:
+    if _boolean_false(findings.get("rule_satisfied")):
+        finding = findings["rule_satisfied"]
+        return PolicyDecision(action="retry", reason=_rationale_from(finding, "user rule not satisfied"), finding=finding)
     if _weak_true(findings.get("task_complete")) and _weak_true(findings.get("remaining_work")):
         finding = findings.get("remaining_work") or findings.get("task_complete")
         return PolicyDecision(

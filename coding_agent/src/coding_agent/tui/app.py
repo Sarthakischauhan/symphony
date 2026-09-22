@@ -87,6 +87,7 @@ class CodingAgentApp(
         self.session_id = session_id
         self.enable_learning = enable_learning
         self.enable_jev = enable_jev
+        self.jev_rule = ""
         overrides: dict = {}
         if enable_learning is not None:
             overrides["learning"] = {"enabled": enable_learning}

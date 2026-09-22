@@ -109,16 +109,14 @@ def test_disabled_run_makes_zero_eval_calls(tmp_path: Path) -> None:
     assert not any(addon.name == "jev" for addon in agent.harness.addons)
 
 
-def test_enabled_calls_on_start_and_on_finish_once(tmp_path: Path) -> None:
+def test_enabled_calls_on_finish_once(tmp_path: Path) -> None:
     agent = _agent(tmp_path, enabled=True)
     mock = MockEvaluator()
     _jev(agent).evaluator = mock
     asyncio.run(agent.run("implement the feature"))
-    assert len(mock.starts) == 1
+    assert len(mock.starts) == 0
     assert len(mock.finishes) == 1
-    assert mock.starts[0].phase == "start"
     assert mock.finishes[0].phase == "finish"
-    assert mock.starts[0].request == "implement the feature"
     assert "implement the feature" in mock.finishes[0].request or mock.finishes[0].request == "implement the feature"
 
 
@@ -137,8 +135,82 @@ def test_enabled_multi_turn_still_two_eval_calls(tmp_path: Path) -> None:
     _jev(agent).evaluator = mock
     asyncio.run(agent.run("call echo then finish"))
     assert registry.turns == 2
-    assert len(mock.starts) == 1
+    assert len(mock.starts) == 0
     assert len(mock.finishes) == 1
+
+
+def test_finish_rule_violation_requests_one_revision(tmp_path: Path) -> None:
+    violation = EvaluationResult(
+        phase="finish",
+        findings=[EvaluationFinding(
+            question="rule_satisfied",
+            kind="boolean",
+            value=False,
+            probs={"true": 0.05, "false": 0.95},
+            rationale="The new function is too verbose.",
+        )],
+    )
+    agent = CodingAgent(
+        registry=QuietRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        tools=[],
+        config=CodingAgentConfig(
+            learning=LearningConfig(enabled=False),
+            langfuse=LangfuseConfig(enabled=False),
+            evaluation=EvaluationConfig(enabled=True, rule="Keep generated code concise."),
+        ),
+        sink=EventSink(),
+    )
+    mock = MockEvaluator(finish=violation)
+    addon = _jev(agent)
+    addon.evaluator = mock
+    asyncio.run(agent.run("implement the feature"))
+    assert mock.starts == []
+    assert len(mock.finishes) == 2
+    assert all(state.rule == "Keep generated code concise." for state in mock.finishes)
+    assert addon.follow_ups == 1
+    assert _deny(addon, "bash") is None
+
+
+def test_jev_revision_preserves_tool_call_outputs(tmp_path: Path) -> None:
+    class CapturingRegistry(ToolThenDoneRegistry):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inputs: list[list[Message]] = []
+
+        async def stream(self, model_id, messages, tools=None, **kwargs):
+            self.inputs.append(list(messages))
+            async for event in super().stream(model_id, messages, tools=tools, **kwargs):
+                yield event
+
+    registry = CapturingRegistry()
+    agent = CodingAgent(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        tools=[Tool(lambda text="": text, name="echo", description="Echo text")],
+        config=CodingAgentConfig(
+            learning=LearningConfig(enabled=False),
+            langfuse=LangfuseConfig(enabled=False),
+            evaluation=EvaluationConfig(enabled=True, rule="Keep the answer concise."),
+        ),
+        sink=EventSink(),
+    )
+    _jev(agent).evaluator = MockEvaluator(finish=EvaluationResult(
+        phase="finish",
+        findings=[EvaluationFinding(
+            question="rule_satisfied", kind="boolean", value=False,
+            probs={"true": 0.1, "false": 0.9}, rationale="Too verbose",
+        )],
+    ))
+    asyncio.run(agent.run("call echo, then finish"))
+    assert len(registry.inputs) == 3
+    revision_input = registry.inputs[-1]
+    calls = [call for message in revision_input for call in (message.tool_calls or [])]
+    outputs = {message.tool_call_id for message in revision_input if message.role == "tool"}
+    assert calls
+    assert all(call["id"] in outputs for call in calls)
 
 
 def _deny(addon: JevAddon, tool_name: str) -> Optional[str]:
@@ -334,9 +406,8 @@ def test_fail_open_on_evaluator_error(tmp_path: Path) -> None:
         )
 
     asyncio.run(scenario())
-    assert addon.last_start is not None
+    assert addon.last_start is None
     assert addon.last_finish is not None
-    assert addon.last_start.status == "error"
     assert addon.last_finish.status == "error"
     assert addon.gated_action == CONTINUE_NORMALLY
     assert store.path.read_text(encoding="utf-8") == original
@@ -503,9 +574,6 @@ def test_bare_label_does_not_clear_actuation_threshold() -> None:
 
 def test_handlers_inject_marker_and_set_tool_gate() -> None:
     cases = [
-        ("replan", True, "start", "Revise the plan", True),
-        ("gather", True, "start", "Gather more information", True),
-        ("ask", True, "start", "ask_user", True),
         ("retry", True, "finish", "Finish remaining", False),
         ("continue", True, "finish", "Finish remaining", False),
         ("review", True, "finish", "Do not claim the task is done", False),
@@ -671,9 +739,8 @@ def test_nudge_replaces_prior_marker_instead_of_stacking() -> None:
     ]
     asyncio.run(addon.before_run(task="task", messages=messages))
     notes = [item for item in messages if NUDGE_MARKER in str(item.content)]
-    assert len(notes) == 1
-    assert "Revise the plan" in str(notes[0].content)
-    assert "leftover from last phase" not in str(notes[0].content)
+    assert notes == []
+    assert all("leftover from last phase" not in str(item.content) for item in messages)
 
 
 def test_critic_message_is_a_template_not_an_llm_call() -> None:

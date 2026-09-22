@@ -15,7 +15,7 @@ uv run --package symphony-code symphony [options]
 | `--model ID` | `SYMPHONY_MODEL` or first available provider | `provider:model` id |
 | `--resume` | off | Pick a saved session interactively |
 | `--no-learning` | learning on | Disable post-run reflection |
-| `--jev` | off | Enable Jev critic mode (findings + optional message; does not switch the chat model) |
+| `--jev` | off | Enable the Jev finish check (does not switch the chat model) |
 
 ## symphony bench
 
@@ -35,7 +35,7 @@ uv run --package symphony-code symphony bench --workspace /testbed --instruction
 | `--max-turns N` | pinned in `bench/config.toml` | Harness turn cap |
 | `--timeout SEC` | pinned in `bench/config.toml` | `max_runtime_seconds` |
 | `--personality` | `direct` | `direct` or `precise` only (no picker) |
-| `--jev` | off | Enable Jev critic mode |
+| `--jev` | off | Enable the Jev finish check |
 
 Harbor adapter and image: [`bench/README.md`](../../bench/README.md).
 

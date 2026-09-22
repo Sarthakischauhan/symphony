@@ -1,4 +1,4 @@
-"""Jev critic add-on. Evaluates at run start/finish, then dispatches handlers."""
+"""Jev critic add-on. Evaluates completed runs and suggests revisions."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from coding_agent.evaluation.evaluators import VercelJevEvaluator
 from coding_agent.evaluation.handlers import dispatch
 from coding_agent.evaluation.policy import (
     MAX_HONOURED_FOLLOW_UPS,
-    NUDGE_TEXT_LIMIT,
     PolicyDecision,
     critic_message,
     decide_next_step,
@@ -35,13 +34,12 @@ logger = logging.getLogger(__name__)
 
 
 class JevAddon(Addon):
-    """Call the evaluator at run start and finish.
+    """Evaluate completed runs against the user's rule and task.
 
     Dispatches named handlers from ``last_decision.action``. Does not override
-    ``before_turn`` or ``on_tool``. Default behaviour injects at most one
-    user-role critic note per phase. It never rewrites the plan file, never
-    enters plan mode, and never starts a second ``harness.run`` unless
-    ``evaluation.honour_follow_up`` is on.
+    ``before_turn`` or ``on_tool`` and never gates tools. A violated user rule
+    can trigger one automatic follow-up. It never rewrites the plan file or
+    enters plan mode.
     """
 
     name = "jev"
@@ -97,7 +95,7 @@ class JevAddon(Addon):
             result = error_result(phase, str(exc)[:280])
         decision = decide_next_step(result)
         if (
-            self.config.honour_follow_up
+            (self.config.honour_follow_up or self.config.rule.strip())
             and decision.should_act
             and self.follow_ups >= MAX_HONOURED_FOLLOW_UPS
             and decision.action == "retry"
@@ -125,16 +123,9 @@ class JevAddon(Addon):
         return result
 
     async def before_run(self, **payload: Any) -> None:
-        messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
-        self.last_start = await self._call(
-            "on_start",
-            "start",
-            request=payload.get("task") or "",
-            messages=messages,
-            plan_text=self._plan_markdown(),
-        )
-        self._dispatch(payload, self.last_decision, queued=self._queued_nudge)
+        self._clear_nudge(payload)
         self._queued_nudge = None
+        self._allowed_tools = None
 
     async def after_run(self, **payload: Any) -> None:
         result = payload.get("result")
@@ -154,32 +145,26 @@ class JevAddon(Addon):
         )
         self._queued_nudge = self._dispatch(payload, self.last_decision)
 
-    async def before_tool(self, **payload: Any) -> Optional[str]:
-        allowed = self._allowed_tools
-        if allowed is None:
-            return None
-        name = str(payload.get("tool_name") or "")
-        if name in allowed:
-            return None
-        return bound_text(
-            f"{self.gated_action} gates {name} until the critic action is cleared.",
-            NUDGE_TEXT_LIMIT,
-        )
-
     def consume_follow_up(self) -> Optional[str]:
-        """Return a follow-up user prompt once, or ``None`` to stop.
-
-        Off unless ``evaluation.honour_follow_up`` is explicitly true.
-        Honour is retry-only (remaining work); replan/review never auto-continue.
-        """
-        if not self.config.honour_follow_up:
+        """Return one revision prompt for a violated rule or opt-in retry."""
+        if not (self.config.honour_follow_up or self.config.rule.strip()):
             return None
         decision = self.last_decision
         if decision is None or decision.action != "retry":
             return None
+        if not self.config.honour_follow_up and (
+            decision.finding is None or decision.finding.question != "rule_satisfied"
+        ):
+            return None
         if self.follow_ups >= MAX_HONOURED_FOLLOW_UPS:
             return None
         self.follow_ups += 1
+        if decision.finding is not None and decision.finding.question == "rule_satisfied":
+            return bound_text(
+                f"Revise the completed work to satisfy this user rule: {self.config.rule}. "
+                f"Jev found: {decision.reason}",
+                self.config.request_max_chars,
+            )
         return critic_message(decision)
 
     def _dispatch(

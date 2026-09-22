@@ -88,13 +88,18 @@ def toggle_jev(app: Any, argument: str = "") -> None:
     current = bool(getattr(getattr(app, "config", None), "evaluation", None) and app.config.evaluation.enabled)
     enabled = jev_enabled_from_argument(current, argument)
     if enabled is None:
-        app.add_notice("Usage: /jev [on|off] · critic mode toggle, not a model switch.", "warning")
-        return
+        rule = argument.strip()
+        enabled = True
+    else:
+        rule = None
     app.enable_jev = enabled
-    app.config = ensure_spawn_settings(app.workspace, overrides={"evaluation": {"enabled": enabled}})
+    settings = {"enabled": enabled}
+    if rule is not None:
+        app.jev_rule = rule
+    app.config = ensure_spawn_settings(app.workspace, overrides={"evaluation": settings})
     app.run_worker(reload_project(app), exclusive=False)
     if enabled:
-        app.add_notice("Jev critic mode on · findings only; chat model unchanged.", "success")
+        app.add_notice("Jev finish check on" + (f" · rule: {rule}" if rule else "") + ".", "success")
     else:
         app.add_notice("Jev critic mode off.", "success")
 
@@ -351,6 +356,10 @@ async def reload_project(app: Any) -> None:
             enable_jev=getattr(app, "enable_jev", None),
             config=reloaded_config,
         )
+        session_rule = getattr(app, "jev_rule", "")
+        for addon in getattr(reloaded_agent.harness, "addons", ()):
+            if getattr(addon, "name", "") == "jev":
+                addon.config.rule = session_rule
         reloaded_agent.set_mode(app.mode)
         reloaded_model = reloaded_agent.harness.model_id
         reloaded_info = _model_info(reloaded_model)

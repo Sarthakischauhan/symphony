@@ -53,7 +53,7 @@ print((await agent.run("Fix the failing test")).output_text)
 | [Tools](../user-guide/tools.md) | `read_file`, `write_file`, `patch`, `search`, `bash`, `spawn_agent` |
 | [Configuration](../user-guide/configuration.md) | `.symphony/config.json`, approvals |
 | [Langfuse](../user-guide/langfuse.md) | Optional traces of sent prompts and tools |
-| [Jev](../user-guide/jev.md) | Optional findings-only critic (`--jev` / `/jev`) |
+| [Jev](../user-guide/jev.md) | Optional finish check with session rules (`--jev` / `/jev`) |
 | [Sessions](../user-guide/sessions.md) | JSONL, `--resume` |
 | [Slash commands](../reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
 

@@ -70,6 +70,7 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
   "personality": "direct",
   "evaluation": {
     "enabled": false,
+    "rule": "",
     "honour_follow_up": false,
     "provider": "vercel",
     "model": "typesafe-ai/jev",
@@ -160,14 +161,12 @@ Obey this section over any other tone/style instructions.
 
 ## Jev critic mode
 
-`evaluation` is off by default. `--jev` or `/jev` enables a findings-only
-critic (`typesafe-ai/jev` via Vercel). It does not switch the chat model and
-does not rewrite plans. High-confidence honour / auto-follow-up stays off
-(`honour_follow_up` defaults false). When enabled, a **Jev mode** system
-segment tells the chat model to treat injected `Jev critic note:` messages
-as authoritative. Policy maps findings onto one action; `JevAddon` dispatches
-a named handler that may inject one user-role critic note and optionally
-gate implement tools. See [`docs/user-guide/jev.md`](jev.md).
+`evaluation` is off by default. `--jev` or `/jev` enables a finish-only
+critic (`typesafe-ai/jev` via Vercel). `/jev <rule>` sets a rule for the
+current TUI session. Jev does not switch the chat model or gate tools. A
+confident rule violation triggers one automatic revision. Without a rule,
+automatic follow-up stays off unless `honour_follow_up` is enabled. See
+[`docs/user-guide/jev.md`](jev.md).
 
 
 ## Harness-only config

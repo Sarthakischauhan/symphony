@@ -72,3 +72,8 @@ as policy or executable instructions.
 
 Reports about the trust model itself (for example, ways to bypass approval
 prompts) are in scope and welcome.
+
+Jev evaluates completed runs only. It does not deny tool calls or change the
+approval policy. A session rule set with `/jev <rule>` may trigger one extra
+agent run to revise work after a confident rule violation; normal approval
+prompts still apply to that run.

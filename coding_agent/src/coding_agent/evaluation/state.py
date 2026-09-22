@@ -30,6 +30,7 @@ class RunState:
     """Bounded snapshot sent to the evaluator."""
 
     phase: EvaluationPhase
+    rule: str = ""
     request: str = ""
     brief: str = ""
     plan: str = ""
@@ -44,6 +45,7 @@ class RunState:
         return redact_eval_value(
             {
                 "request": self.request,
+                "rule": self.rule,
                 "brief": self.brief,
                 "plan": self.plan,
                 "plan_items": [
@@ -244,6 +246,7 @@ def build_run_state(
         files = files_modified_from_messages(message_list, limit=config.files_modified_max)
     return RunState(
         phase=phase,
+        rule=bound_text(config.rule, config.request_max_chars),
         request=bound_text(request_text, config.request_max_chars),
         brief=bound_text(first_line(request_text), config.brief_max_chars),
         plan=bound_text(plan_text, config.plan_max_chars),

@@ -257,6 +257,9 @@ class CodingAgent:
         mode = self.mode
         task_text = text_from_content(user_input)
         self.apply_system_prompt()
+        jev_addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)
+        if jev_addon is not None:
+            jev_addon.follow_ups = 0
 
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
@@ -281,6 +284,7 @@ class CodingAgent:
         if follow_up:
             result = await self.harness.run(
                 follow_up,
+                conversation=result.messages,
                 session_id=session_id or self.session_id,
             )
         return result

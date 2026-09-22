@@ -111,6 +111,7 @@ class EvaluationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
+    rule: str = ""
     honour_follow_up: bool = False
     provider: str = "vercel"
     model: str = "typesafe-ai/jev"
