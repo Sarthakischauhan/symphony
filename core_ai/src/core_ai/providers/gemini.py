@@ -33,8 +33,9 @@ class GeminiProvider(BaseProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        del reasoning_effort
+        del reasoning_effort, extra_headers
         async for event in stream_with_retries(
             lambda: self._stream_once(
                 model_name,

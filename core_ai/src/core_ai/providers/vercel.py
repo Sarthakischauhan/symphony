@@ -71,6 +71,7 @@ class VercelProvider(OpenAIProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        extra_headers: Optional[dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         if is_evaluation_model(model_name):
             async for event in stream_with_retries(
@@ -88,7 +89,12 @@ class VercelProvider(OpenAIProvider):
                 yield event
             return
         async for event in super().stream(
-            model_name, messages, tools, max_output_tokens, reasoning_effort
+            model_name,
+            messages,
+            tools,
+            max_output_tokens,
+            reasoning_effort,
+            extra_headers,
         ):
             yield event
 

@@ -104,6 +104,34 @@ def test_grok_skips_reasoning_effort_for_non_reasoning_models() -> None:
     assert events[-1].type == "done"
 
 
+def test_grok_sends_conversation_header() -> None:
+    captured: dict[str, str] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["conversation"] = request.headers["x-grok-conv-id"]
+        return httpx.Response(
+            200,
+            text="\n\n".join(
+                (
+                    'data: {"choices":[{"index":0,"delta":{"content":"Hi"}}]}',
+                    "data: [DONE]",
+                )
+            ),
+        )
+
+    async def collect() -> None:
+        provider = GrokProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "grok-4.6",
+            [Message(role="user", content="Hi")],
+            extra_headers={"x-grok-conv-id": "session-123"},
+        ):
+            pass
+
+    asyncio.run(collect())
+    assert captured["conversation"] == "session-123"
+
+
 def test_grok_unknown_models_use_chat_completions() -> None:
     assert GrokProvider._uses_chat_completions("grok-future") is True
     assert GrokProvider._is_reasoning_model("grok-future") is True

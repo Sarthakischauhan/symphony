@@ -45,6 +45,7 @@ class TurnRunner:
         max_runtime_seconds: Optional[float] = None,
         max_parallel_tool_calls: int = 1,
         notify_addons: Optional[Callable[..., Awaitable[Any]]] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         self.registry = registry
         self.model_id = model_id
@@ -64,6 +65,7 @@ class TurnRunner:
         self.max_runtime_seconds = max_runtime_seconds
         self.max_parallel_tool_calls = max_parallel_tool_calls
         self.notify_addons = notify_addons or _ignore_addon_hook
+        self.session_id = session_id
 
     def _remaining_runtime(self) -> Optional[float]:
         if self.deadline is not None:
