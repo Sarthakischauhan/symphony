@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Headless `symphony bench` CLI plus `symphony-bench:latest` Docker image and
+  a thin Harbor adapter (`bench.agent:SymphonyAgent`). Writes `workspace.patch`
+  and `result.json`; Harbor's grader owns pass/fail.
+- Mid-run control-plane events (after the user message, before the final
+  output) are tagged `collected: true` in the JSONL journal when a run
+  finishes. The TUI honours the sticky flag on resume by folding that work
+  into the completed-run collection instead of replaying live cards.
+- Session updates such as model, effort, provider, and compaction now appear
+  in a transient composer overlay with a `ctrl+q` quit hint, matching the
+  interrupt confirmation card instead of a transcript notice.
+- The completed-run collection in the TUI is now an unbracketed past-tense
+  Claude-style verb plus duration, for example `Stargazed for 2m 2s`, instead
+  of `[ Cooked … ]`. Live churning status uses matching spinner words such as
+  `Stargazing` and `Noodling`.
 - `symphony-core` registers OpenRouter (`OPENROUTER_API_KEY`) and Vercel AI
   Gateway (`AI_GATEWAY_API_KEY`) as OpenAI-compatible Chat Completions
   providers. Model slugs like `openai/gpt-4o` are discovered from `/models`
@@ -18,8 +32,9 @@
   pass `session_id` into Langfuse v4 `start_observation` (that TypeError was
   swallowed and produced zero traces).
 - Optional Jev critic mode on `symphony-code` (`--jev` / `/jev`). Findings
-  only: the chat model is unchanged, scores do not rewrite the plan, and
-  provider errors fail open. Off by default.
+  plus a per-action in-thread critic note: the chat model is unchanged, scores
+  do not rewrite the plan or enter plan mode, honour / auto-follow-up stays
+  off, and provider errors fail open. Off by default.
 - `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),
   Claude (`claude setup-token` or browser code), or xAI (device code)
   subscription. Tokens live in `~/.symphony/oauth/` and are used when no

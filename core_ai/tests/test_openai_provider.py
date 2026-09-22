@@ -491,6 +491,36 @@ def test_openai_forwards_tool_images_as_followup_user_content() -> None:
     assert items[-1]["content"][0]["type"] == "input_image"
 
 
+def test_openai_injects_missing_tool_output() -> None:
+    messages = [
+        Message(role="user", content="look"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        ),
+    ]
+
+    chat = OpenAIProvider._chat_messages(messages)
+    assert chat[-1] == {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": "No tool output was recorded for this function call.",
+    }
+    responses, _instructions = OpenAIProvider._responses_input(messages)
+    assert responses[-1] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": "No tool output was recorded for this function call.",
+    }
+
+
 def test_openai_generate_image_uses_images_api() -> None:
     captured: dict[str, object] = {}
     png = "iVBORw0KGgo="

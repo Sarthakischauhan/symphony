@@ -698,6 +698,28 @@ def test_compactor_keeps_complete_tool_group_even_above_message_budget() -> None
     assert compacted[1].content == "old"
 
 
+def test_tool_protocol_normalization_matches_stringified_tool_ids() -> None:
+    messages = [
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": "1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        ),
+        # JSON persistence can contain a numeric id in legacy transcripts.
+        Message.model_construct(role="tool", content="contents", tool_call_id=1),
+    ]
+
+    normalized = normalize_tool_protocol(messages)
+
+    assert [message.role for message in normalized] == ["assistant", "tool"]
+
+
 def test_compactor_pins_original_task_and_summarizes_dropped_turns() -> None:
     messages = [Message(role="system", content="system")]
     messages.append(Message(role="user", content="original task"))

@@ -43,8 +43,10 @@
     "sample_rate": 1.0,
     "max_payload_chars": 32000
   },
+  "personality": "direct",
   "evaluation": {
     "enabled": false,
+    "honour_follow_up": false,
     "provider": "vercel",
     "model": "typesafe-ai/jev",
     "on_error": "fail-open",

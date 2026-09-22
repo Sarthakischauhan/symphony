@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from core_ai import list_models
+from coding_agent.personalities import load_personalities
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,13 @@ class EffortOption:
 
 @dataclass(frozen=True)
 class PlanOption:
+    id: str
+    label: str
+    description: str
+
+
+@dataclass(frozen=True)
+class PersonalityOption:
     id: str
     label: str
     description: str
@@ -104,13 +112,14 @@ MODE_CATALOG = (
 
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
+    SlashCommand("personality", "View or switch the agent personality", "[id]"),
     SlashCommand("mode", "View or switch between build and plan", "[mode]"),
     SlashCommand("effort", "Set model reasoning effort", "[level]"),
     SlashCommand("plan", "Enter plan mode", ""),
     SlashCommand("plans", "Choose and open a workspace plan", "[plan]"),
     SlashCommand("provider", "Sign in or add a model provider", "[name]"),
     SlashCommand("langfuse", "Configure Langfuse telemetry and install the SDK", ""),
-    SlashCommand("jev", "Toggle Jev critic mode (findings only)", "[on|off]"),
+    SlashCommand("jev", "Set a Jev finish rule or toggle it", "[on|off|rule]"),
     SlashCommand("new", "Start a fresh conversation"),
     SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
@@ -147,3 +156,46 @@ def find_mode(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> Optiona
 def mode_matches(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> tuple[ModeOption, ...]:
     needle = value.strip().lower()
     return tuple(mode for mode in modes if not needle or needle in mode.id.lower() or needle in mode.label.lower())
+
+
+def personality_options() -> tuple[PersonalityOption, ...]:
+    return tuple(
+        PersonalityOption(
+            item.id,
+            item.name,
+            item.description or item.system_addon.split(".", 1)[0],
+        )
+        for item in load_personalities()
+    )
+
+
+def find_personality(
+    value: str,
+    personalities: Iterable[PersonalityOption] | None = None,
+) -> Optional[PersonalityOption]:
+    options = personality_options() if personalities is None else personalities
+    needle = value.strip().lower()
+    if not needle:
+        return None
+    matches = [
+        item
+        for item in options
+        if needle in {item.id.lower(), item.label.lower(), item.id.replace("_", " ").lower()}
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def personality_matches(
+    value: str,
+    personalities: Iterable[PersonalityOption] | None = None,
+) -> tuple[PersonalityOption, ...]:
+    options = personality_options() if personalities is None else personalities
+    needle = value.strip().lower()
+    return tuple(
+        item
+        for item in options
+        if not needle
+        or needle in item.id.lower()
+        or needle in item.label.lower()
+        or needle in item.id.replace("_", " ").lower()
+    )

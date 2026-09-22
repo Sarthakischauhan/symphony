@@ -28,7 +28,9 @@ from coding_agent.tui.commands.catalog import (
     PlanOption,
     find_mode,
     find_model,
+    find_personality,
     model_options,
+    personality_options,
 )
 
 # --- langfuse.py ---
@@ -86,13 +88,18 @@ def toggle_jev(app: Any, argument: str = "") -> None:
     current = bool(getattr(getattr(app, "config", None), "evaluation", None) and app.config.evaluation.enabled)
     enabled = jev_enabled_from_argument(current, argument)
     if enabled is None:
-        app.add_notice("Usage: /jev [on|off] · critic mode toggle, not a model switch.", "warning")
-        return
+        rule = argument.strip()
+        enabled = True
+    else:
+        rule = None
     app.enable_jev = enabled
-    app.config = ensure_spawn_settings(app.workspace, overrides={"evaluation": {"enabled": enabled}})
+    settings = {"enabled": enabled}
+    if rule is not None:
+        app.jev_rule = rule
+    app.config = ensure_spawn_settings(app.workspace, overrides={"evaluation": settings})
     app.run_worker(reload_project(app), exclusive=False)
     if enabled:
-        app.add_notice("Jev critic mode on · findings only; chat model unchanged.", "success")
+        app.add_notice("Jev finish check on" + (f" · rule: {rule}" if rule else "") + ".", "success")
     else:
         app.add_notice("Jev critic mode off.", "success")
 
@@ -115,7 +122,7 @@ def select_model(app: Any, argument: str) -> None:
     app._ui_state.set_context_limit(agent.harness.state.context_limit(selected.id))
     app.query_one("#topbar").set_context(app.workspace, selected.id)
     app._set_status("")
-    app.add_notice(f"Model switched to {selected.label} · {selected.id}", "success")
+    app.add_update(f"Model switched to {selected.label} · {selected.id}")
 
 
 def show_model_picker(app: Any) -> None:
@@ -123,6 +130,33 @@ def show_model_picker(app: Any) -> None:
     prompt.value = "/model "
     prompt.cursor_position = len(prompt.value)
     app.query_one("#slash-menu").set_models(app._model_options, app._agent.harness.model_id)
+
+
+def select_personality(app: Any, argument: str) -> None:
+    selected = find_personality(argument, personality_options())
+    if selected is None:
+        app.add_notice(
+            f"Unknown personality: {argument}. Run /personality to see the catalog.",
+            "warning",
+        )
+        return
+    resolved = ensure_spawn_settings(app.workspace, overrides={"personality": selected.id})
+    app.config = resolved
+    agent = getattr(app, "_agent", None)
+    if agent is not None:
+        agent.config = resolved
+        apply = getattr(agent, "apply_system_prompt", None)
+        if callable(apply):
+            apply()
+    app.add_update(f"Personality set to {selected.label}")
+
+
+def show_personality_picker(app: Any) -> None:
+    prompt = app.query_one("#prompt")
+    prompt.value = "/personality "
+    prompt.cursor_position = len(prompt.value)
+    current = getattr(getattr(app, "config", None), "personality", None) or ""
+    app.query_one("#slash-menu").set_personalities(personality_options(), current)
 
 # --- mode_switcher.py ---
 def effort_matches(
@@ -178,7 +212,7 @@ def select_effort(app: Any, argument: str) -> None:
         return
     app._agent.harness.reasoning_effort = None if value == "default" else value
     label = next(option.label for option in efforts if option.id == value)
-    app.add_notice(f"Reasoning effort set to {label}", "success")
+    app.add_update(f"Reasoning effort set to {label}")
 
 
 def show_effort_picker(app: Any) -> None:
@@ -220,7 +254,7 @@ def select_mode(app: Any, argument: str) -> None:
         app.add_notice(f"Unknown mode: {argument}. Run /mode to see available modes.", "warning")
         return
     sync_app_mode(app, selected.id)
-    app.add_notice(f"Switched to {selected.label} mode", "success")
+    app.add_update(f"Switched to {selected.label} mode")
 
 
 def show_mode_picker(app: Any) -> None:
@@ -322,6 +356,10 @@ async def reload_project(app: Any) -> None:
             enable_jev=getattr(app, "enable_jev", None),
             config=reloaded_config,
         )
+        session_rule = getattr(app, "jev_rule", "")
+        for addon in getattr(reloaded_agent.harness, "addons", ()):
+            if getattr(addon, "name", "") == "jev":
+                addon.config.rule = session_rule
         reloaded_agent.set_mode(app.mode)
         reloaded_model = reloaded_agent.harness.model_id
         reloaded_info = _model_info(reloaded_model)
@@ -348,7 +386,7 @@ async def reload_project(app: Any) -> None:
         invalidate = getattr(app, "invalidate_workspace_caches", None)
         if callable(invalidate):
             invalidate()
-        app.add_notice("Configuration reloaded.", "success")
+        app.add_update("Configuration reloaded.")
         app.query_one("#prompt").focus()
     except Exception as exc:  # noqa: BLE001
         app._agent = previous_agent
@@ -388,6 +426,7 @@ def show_status(app: Any) -> None:
     lines.extend(
         [
             f"mode      {app.mode}",
+            f"personality {getattr(getattr(app, 'config', None), 'personality', None) or 'stock'}",
             f"approval  {app.sink.approvals.mode}",
             f"session   {app._agent.session_id}",
             f"context   {context}",
@@ -505,6 +544,8 @@ class CommandManager:
             start_new_session(app)
         elif command == "model":
             select_model(app, argument) if argument else show_model_picker(app)
+        elif command == "personality":
+            select_personality(app, argument) if argument else show_personality_picker(app)
         elif command == "compact":
             await compact_context(app)
         elif command == "diff":

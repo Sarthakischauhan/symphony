@@ -35,6 +35,8 @@ def test_ensure_spawn_settings_writes_complete_file(tmp_path: Path) -> None:
     assert payload["harness"]["context_compact_ratio"] == 0.8
     assert payload["harness"]["compaction_keep_recent_tools"] == 32
     assert payload["learning"]["enabled"] is True
+    assert payload["personality"] == "direct"
+    assert config.personality == "direct"
     assert config.harness.max_turns is None
 
 

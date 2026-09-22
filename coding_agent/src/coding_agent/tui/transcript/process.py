@@ -22,22 +22,38 @@ class ThinkingStatus(Static):
     """Muted run/usage metadata displayed directly beneath the user prompt."""
 
     # Short, present-participle activity verbs in the style of Claude Code's
-    # transient status messages. Keep these provider-neutral and readable.
+    # spinner words. These rotate while a model turn is in flight.
     _CHURNING_VERBS = (
         "Thinking",
-        "Reasoning",
-        "Planning",
-        "Exploring",
-        "Analyzing",
-        "Considering",
-        "Working",
-        "Reflecting",
-        "Inspecting",
-        "Connecting",
-        "Organizing",
-        "Synthesizing",
-        "Checking",
-        "Preparing",
+        "Cooking",
+        "Noodling",
+        "Pondering",
+        "Wandering",
+        "Tinkering",
+        "Musing",
+        "Orbiting",
+        "Whisking",
+        "Grooving",
+        "Spelunking",
+        "Percolating",
+        "Ruminating",
+        "Concocting",
+        "Meandering",
+        "Incubating",
+        "Harmonizing",
+        "Forging",
+        "Sketching",
+        "Vibing",
+        "Stargazing",
+        "Brewing",
+        "Marinating",
+        "Gallivanting",
+        "Pontificating",
+        "Combobulating",
+        "Enchanting",
+        "Moonwalking",
+        "Reticulating",
+        "Wrangling",
     )
 
     _WORKING_COLORS = (
@@ -220,7 +236,7 @@ class RunProcess(Container):
         *,
         collapse: bool = True,
         add_completion: bool = True,
-        verb: str = "Cooked",
+        verb: str = "",
         duration: str = "",
         detail: str = "",
     ) -> None:
@@ -239,9 +255,9 @@ class RunProcess(Container):
             self.add_item(ProcessComplete(title))
 
     def fold_into_summary(
-        self, *, verb: str = "Cooked", duration: str = "", detail: str = ""
+        self, *, verb: str = "", duration: str = "", detail: str = ""
     ) -> None:
-        """Replace remaining live timeline cards with a past-tense fold."""
+        """Replace remaining live timeline cards with a completed-run fold."""
         from coding_agent.tui.tools.calls import ToolCallWidget
         from coding_agent.tui.tools.snapshots import CompletedRunSummary
         from coding_agent.tui.transcript.messages import AssistantMessage

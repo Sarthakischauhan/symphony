@@ -14,6 +14,7 @@ from core_ai.types import Message, StreamEvent
 load_dotenv(override=True)
 
 _FORMAT_MEDIA = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
+_MISSING_TOOL_OUTPUT = "No tool output was recorded for this function call."
 
 
 def openai_compat_base_url(value: str, *, default: str = "") -> str:
@@ -54,7 +55,9 @@ class OpenAIProvider(BaseProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
+        self._request_headers = dict(extra_headers or {})
         once = (
             self._stream_responses
             if self._uses_codex_responses() or not self._uses_chat_completions(model_name)
@@ -297,6 +300,7 @@ class OpenAIProvider(BaseProvider):
             "Content-Type": "application/json",
         }
         headers.update(self.extra_headers)
+        headers.update(getattr(self, "_request_headers", {}))
         return headers
 
     def _uses_codex_responses(self) -> bool:
@@ -354,6 +358,7 @@ class OpenAIProvider(BaseProvider):
             if message.tool_calls:
                 formatted["tool_calls"] = message.tool_calls
             items.append(formatted)
+            items.extend(OpenAIProvider._missing_chat_tool_messages(messages, message))
         flush_images()
         return items
 
@@ -414,8 +419,53 @@ class OpenAIProvider(BaseProvider):
                         "arguments": function.get("arguments", "{}"),
                     }
                 )
+                missing = OpenAIProvider._missing_responses_output(messages, tool_call.get("id"))
+                if missing is not None:
+                    items.append(missing)
         flush_images()
         return items, "\n\n".join(instructions_parts)
+
+    @staticmethod
+    def _missing_chat_tool_messages(
+        messages: List[Message],
+        message: Message,
+    ) -> List[Dict[str, Any]]:
+        missing: List[Dict[str, Any]] = []
+        for tool_call in message.tool_calls or []:
+            call_id = tool_call.get("id")
+            if call_id is None or OpenAIProvider._has_tool_result(messages, call_id):
+                continue
+            missing.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": str(call_id),
+                    "content": _MISSING_TOOL_OUTPUT,
+                }
+            )
+        return missing
+
+    @staticmethod
+    def _missing_responses_output(
+        messages: List[Message],
+        call_id: Any,
+    ) -> Optional[Dict[str, Any]]:
+        if call_id is None or OpenAIProvider._has_tool_result(messages, call_id):
+            return None
+        return {
+            "type": "function_call_output",
+            "call_id": str(call_id),
+            "output": _MISSING_TOOL_OUTPUT,
+        }
+
+    @staticmethod
+    def _has_tool_result(messages: List[Message], call_id: Any) -> bool:
+        expected = str(call_id)
+        return any(
+            message.role == "tool"
+            and message.tool_call_id is not None
+            and str(message.tool_call_id) == expected
+            for message in messages
+        )
 
 
 def _http_error(response: httpx.Response) -> str:

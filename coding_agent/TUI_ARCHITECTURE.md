@@ -139,10 +139,14 @@ the interruption start a new stretch. Activity-labeled rows partition on
 `activity.group`; without a group, different reasons still fold together
 via `bool(reason)`. Interactive cards (generated images,
 subagents) stay mounted until the run finalizes. Completed thoughts fold
-into their own Explored row, retaining only titles. Completed turns
-beyond the budget are removed from the widget tree and accumulated into one
-`Archived` row. Opening the archive creates its detail modal on demand; restored
-session history goes through the same compaction path.
+into their own Explored row, retaining only titles. When a run finishes,
+mid-run journal events are tagged `collected: true` (append-only overlay).
+The presenter and history loader honour that sticky flag: collected work
+stays in the completed-run collection and is not remounted as live cards
+on resume. Completed turns beyond the budget are removed from the widget
+tree and accumulated into one `Archived` row. Opening the archive creates
+its detail modal on demand; restored session history goes through the same
+compaction path.
 
 In plan mode, plan storage has two layers: the TUI initializes the selected plan before
 the worker starts and appends root `text_delta` events as they arrive; `CodingAgent.run()`

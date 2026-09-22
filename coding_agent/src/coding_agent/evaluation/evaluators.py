@@ -10,7 +10,7 @@ from typing import Any, Optional
 import httpx
 
 from core_ai.providers.catalog import find_provider, provider_api_key
-from core_ai.providers.vercel import (
+from core_ai.providers.vercel_evaluation import (
     evaluation_model_url,
     evaluation_request_body,
     evaluation_request_headers,
@@ -168,7 +168,7 @@ class LLMEvaluator:
 
 
 class VercelJevEvaluator:
-    """POST ``/v4/ai/evaluation-model`` using core_ai Vercel helpers."""
+    """POST ``/v4/ai/evaluation-model`` using ``core_ai.providers.vercel_evaluation``."""
 
     def __init__(
         self,
@@ -188,7 +188,16 @@ class VercelJevEvaluator:
         return await self._evaluate("start", state, START_QUESTIONS)
 
     async def on_finish(self, state: RunState) -> EvaluationResult:
-        return await self._evaluate("finish", state, FINISH_QUESTIONS)
+        questions = dict(FINISH_QUESTIONS)
+        if state.rule:
+            questions["rule_satisfied"] = {
+                "type": "boolean",
+                "instructions": (
+                    "Did the work across this run satisfy the user's rule in state.rule? "
+                    "Judge the observed work and final result. Explain any concrete violation."
+                ),
+            }
+        return await self._evaluate("finish", state, questions)
 
     async def _evaluate(
         self,

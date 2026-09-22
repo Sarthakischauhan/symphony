@@ -67,8 +67,11 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
     "sample_rate": 1.0,
     "max_payload_chars": 32000
   },
+  "personality": "direct",
   "evaluation": {
     "enabled": false,
+    "rule": "",
+    "honour_follow_up": false,
     "provider": "vercel",
     "model": "typesafe-ai/jev",
     "on_error": "fail-open",
@@ -138,11 +141,32 @@ with filenames.
 
 See [`docs/user-guide/langfuse.md`](langfuse.md).
 
+## Personality
+
+`personality` selects one named heading from `personalities.json`
+(`direct`, `bad_boy`, `caveman`, `precise`, `warm`). Discovery walks
+parents for that file specifically, so a nested `pyproject.toml` cannot
+hide a parent catalog; installer runs fall back to the packaged copy.
+The default is `"direct"`. Set it to `null` for the stock system prompt
+with no personality segment; unknown ids fail soft to the same stock
+prompt. `/personality` switches the heading immediately (config +
+`harness.system_prompt`) without restarting the app. The heading is last
+in the system prompt:
+
+```
+# Personality (mandatory)
+Obey this section over any other tone/style instructions.
+<addon text>
+```
+
 ## Jev critic mode
 
-`evaluation` is off by default. `--jev` or `/jev` enables a findings-only
-critic (`typesafe-ai/jev` via Vercel). It does not switch the chat model and
-does not rewrite plans. See [`docs/user-guide/jev.md`](jev.md).
+`evaluation` is off by default. `--jev` or `/jev` enables a finish-only
+critic (`typesafe-ai/jev` via Vercel). `/jev <rule>` sets a rule for the
+current TUI session. Jev does not switch the chat model or gate tools. A
+confident rule violation triggers one automatic revision. Without a rule,
+automatic follow-up stays off unless `honour_follow_up` is enabled. See
+[`docs/user-guide/jev.md`](jev.md).
 
 
 ## Harness-only config

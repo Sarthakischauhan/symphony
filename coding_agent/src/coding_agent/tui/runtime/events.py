@@ -7,6 +7,8 @@ import re
 import time
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 
+from coding_agent.evaluation.state import bound_text
+from coding_agent.persistence.collection import is_collected
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.transcript.messages import preview_text
 
@@ -18,6 +20,32 @@ ChromeSnapshot = Tuple[Any, ...]
 _BUFFERED_PAINT_EVENT_TYPES = frozenset(
     {"text_delta", "reasoning_delta", "tool_call_delta"}
 )
+_TOASTABLE_JEV_ACTIONS = frozenset({"replan", "retry", "review", "gather", "ask"})
+_JEV_TOAST_REASON_LIMIT = 120
+
+
+def jev_recommendation_update(decision: Any) -> Optional[str]:
+    """ComposerOverlay text for a user-facing Jev decision, else None."""
+    if decision is None:
+        return None
+    action = getattr(decision, "action", None)
+    if action not in _TOASTABLE_JEV_ACTIONS:
+        return None
+    reason = bound_text(str(getattr(decision, "reason", "") or ""), _JEV_TOAST_REASON_LIMIT)
+    return f"Jev → {action}: {reason}" if reason else f"Jev → {action}"
+
+
+def _jev_last_decision(view: Any) -> Any:
+    """Fail-open lookup of mounted JevAddon.last_decision via the app view."""
+    agent = getattr(view, "_agent", None)
+    harness = getattr(agent, "harness", None) if agent is not None else None
+    if harness is None:
+        return None
+    addon = next(
+        (item for item in getattr(harness, "addons", ()) if getattr(item, "name", "") == "jev"),
+        None,
+    )
+    return getattr(addon, "last_decision", None) if addon is not None else None
 
 
 def _clean_reasoning(text: str) -> str:
@@ -94,6 +122,8 @@ class TranscriptView(Protocol):
 
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
+    def add_update(self, text: str, hint: str = "") -> None: ...
+
     def add_run_summary(
         self,
         summary: str,
@@ -167,6 +197,10 @@ class EventPresenter:
 
     def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         payload = payload or {}
+        if event_type == "collected" or is_collected(payload):
+            # Mid-run work already folded into the completed-run collection.
+            # Honour the sticky tag so resume cannot resurrect live cards.
+            return
         before = self._chrome_snapshot()
         if event_type not in _BUFFERED_PAINT_EVENT_TYPES:
             self.flush_stream_paints()
@@ -310,20 +344,24 @@ class EventPresenter:
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
         self.view.set_thinking(completed)
-        # Fold the work that happened before the final reply into a past-tense
-        # summary, then keep the assistant response as the last content.
+        # Fold the work that happened before the final reply into a verb-plus-
+        # duration collection, then keep the assistant response as the last content.
         try:
             self.view.finish_process(
                 completed,
                 collapse=True,
                 add_completion=True,
-                verb="Cooked",
                 duration=elapsed,
             )
         except TypeError:
             # Keep compatibility with lightweight presenter test doubles.
             self.view.finish_process(completed)
         self._assistant_open = False
+        toast = jev_recommendation_update(_jev_last_decision(self.view))
+        if toast:
+            add_update = getattr(self.view, "add_update", None)
+            if callable(add_update):
+                add_update(toast)
 
     def _on_run_summary(self, payload: Dict[str, Any]) -> None:
         summary = str(payload.get("summary") or "").strip()
@@ -544,7 +582,12 @@ class EventPresenter:
         self.state.update_after_compaction(payload)
         if payload.get("manual"):
             self.state.detail = "ready"
-        self.view.add_notice(_compaction_notice(payload), "success")
+        add_update = getattr(self.view, "add_update", None)
+        if callable(add_update):
+            add_update(_compaction_notice(payload))
+        else:
+            # Keep lightweight presenter test doubles and older integrations working.
+            self.view.add_notice(_compaction_notice(payload), "success")
 
     def _on_paused(self, payload: Dict[str, Any]) -> None:
         self.state.phase = "paused"

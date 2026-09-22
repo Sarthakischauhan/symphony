@@ -6,8 +6,12 @@ import json
 from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
+from coding_agent.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
+from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.tools.snapshots import (
+    CompletedRunSummary,
+    ThoughtSnapshot,
     ToolCallSnapshot,
     ToolCallSummary,
     snapshot_from_call,
@@ -39,7 +43,9 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     view.set_context_metrics(estimate_prompt_tokens(context_messages), context_limit)
     view.add_notice(f"Resumed session · {agent.session_id}")
 
-    restored = _history_widgets(messages)
+    load_events = getattr(agent.persistence, "load_events", None)
+    events = await load_events(session_id=agent.session_id) if callable(load_events) else []
+    restored = _history_widgets(messages, events)
     mount_batch = getattr(view, "mount_transcript_batch", None)
     if callable(mount_batch):
         mount_batch(restored)
@@ -49,35 +55,60 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     view.finalize_transcript_history()
 
 
-def _history_widgets(messages: list[Any]) -> list[Any]:
+def _history_widgets(
+    messages: list[Any],
+    events: list[tuple[str, dict[str, Any]]] | None = None,
+) -> list[Any]:
     from coding_agent.tui.transcript import AssistantMessage
 
     restored: list[Any] = []
     pending: dict[str, dict[str, Any]] = {}
     batch: list[ToolCallSnapshot] = []
+    collect_mid_run = _has_collected_mid_run(events or [])
+    current_run: list[Any] = []
+    collecting = False
 
     def flush_batch() -> None:
         if not batch:
             return
-        restored.append(ToolCallSummary(tuple(batch)))
+        summary = ToolCallSummary(tuple(batch))
+        if collecting:
+            current_run.append(summary)
+        else:
+            restored.append(summary)
         batch.clear()
 
     def add_snapshot(snapshot: ToolCallSnapshot) -> None:
         batch.append(snapshot)
 
+    def flush_run() -> None:
+        nonlocal collecting
+        flush_batch()
+        if current_run:
+            restored.extend(_fold_collected_run(current_run))
+            current_run.clear()
+        collecting = False
+
+    def add_visible(widget: Any) -> None:
+        if collecting:
+            current_run.append(widget)
+        else:
+            restored.append(widget)
+
     for message in messages:
         if message.role == "user":
             if text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK):
                 continue
-            flush_batch()
+            flush_run()
             pending.clear()
             text, images = display_from_content(message.content)
             restored.append(UserMessage(text, images=images, enter=False))
+            collecting = collect_mid_run
         elif message.role == "assistant":
             content = text_from_content(message.content)
             if content:
                 flush_batch()
-                restored.append(AssistantMessage(content, enter=False))
+                add_visible(AssistantMessage(content, enter=False))
             for call in message.tool_calls or []:
                 fields = _call_fields(call)
                 pending[str(fields["call_id"])] = fields
@@ -100,8 +131,41 @@ def _history_widgets(messages: list[Any]) -> list[Any]:
 
     for fields in pending.values():
         add_snapshot(snapshot_from_call(**fields, status="done"))
-    flush_batch()
+    flush_run()
     return restored
+
+
+def _has_collected_mid_run(events: list[tuple[str, dict[str, Any]]]) -> bool:
+    return any(
+        event_type in COLLECTABLE_EVENT_TYPES and is_collected(payload)
+        for event_type, payload in events
+    )
+
+
+def _fold_collected_run(items: list[Any]) -> list[Any]:
+    """Fold mid-run history into a completed-run collection, keep the final reply."""
+    from coding_agent.tui.transcript import AssistantMessage
+
+    summary = CompletedRunSummary(verb=choose_completion_verb())
+    assistants: list[Any] = []
+    for item in items:
+        if isinstance(item, AssistantMessage):
+            assistants.append(item)
+            continue
+        if isinstance(item, ToolCallSummary):
+            for entry in item.entries:
+                if isinstance(entry, ThoughtSnapshot):
+                    summary.add_thought(entry.title, entry.content, layout=False)
+                else:
+                    summary.add_call(entry, layout=False)
+    folded: list[Any] = []
+    if summary.entries:
+        folded.append(summary)
+    if assistants:
+        folded.append(assistants[-1])
+    elif not folded:
+        folded.extend(items)
+    return folded
 
 
 def _call_fields(call: Any) -> dict[str, Any]:

@@ -11,12 +11,12 @@ from textual.widgets import Static
 
 from coding_agent.tui.motion import settle_row
 from coding_agent.tui.tools.activity import (
+    choose_completion_verb,
     explored_activity,
     explored_count_label,
     explored_title,
     format_explored_duration,
     parse_activity,
-    past_tense_verb,
     same_activity_group,
 )
 from coding_agent.tui.tools.labels import tool_detail, tool_label
@@ -223,17 +223,17 @@ class ToolCallSummary(Static, can_focus=True):
 
 
 class CompletedRunSummary(ToolCallSummary):
-    """A past-tense fold covering the work that happened before the final reply."""
+    """A folded collection covering the work that happened before the final reply."""
 
     def __init__(
         self,
         calls: Sequence[ToolCallSnapshot] | None = None,
         *,
-        verb: str = "Cooked",
+        verb: str = "",
         duration: str = "",
         detail: str = "",
     ) -> None:
-        self._verb = past_tense_verb(verb)
+        self._verb = verb.strip() or choose_completion_verb()
         self._duration = duration
         self._detail = detail
         super().__init__(calls)
@@ -245,15 +245,11 @@ class CompletedRunSummary(ToolCallSummary):
 
     def render(self) -> Text:
         text = Text()
-        text.append("[ ", style="#7395ab")
         text.append(self._verb, style="bold #8ab4cf")
         if self._duration:
             text.append(f" for {self._duration}", style="#a2adb8")
         if self._detail:
             text.append(f" · {self._detail}", style="#a2adb8")
-        header_length = len(text.plain)
-        gap = max(1, self.content_size.width - header_length - 1)
-        text.append(f"{' ' * gap}]", style="#7395ab")
         if not self.is_expanded:
             return text
         for call in self.entries:

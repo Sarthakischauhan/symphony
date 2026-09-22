@@ -72,6 +72,7 @@ def test_composed_surfaces_include_section_markers() -> None:
     assert "Screen {" in theme.chrome_css
     assert ".tool-call {" in theme.tools_css
     assert "#composer {" in theme.composer_css
+    assert "#composer-overlay {" in theme.composer_css
     assert "ResumeApp {" in theme.resume_css
     assert "OnboardApp {" in theme.onboard_css
     assert theme.onboard_css.startswith(theme.resume_css)

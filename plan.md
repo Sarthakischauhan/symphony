@@ -120,10 +120,16 @@ and `~` paths are allowed:
   historical notes. Disable with `--no-learning` / `learning.enabled=false`.
 - Plan mode (`plan.py`): `Tab` toggles build / plan; plans are saved under
   `.symphony/plans/`.
+- Headless bench (`coding_agent.bench`, `symphony bench`): non-interactive
+  `CodingAgent.run` with `--workspace`, `--instruction` (file or stdin),
+  `--model`, `--max-turns`, `--timeout`, `--personality direct|precise`,
+  optional `--jev` (off by default). Writes `workspace.patch` and
+  `result.json`. Docker image `symphony-bench:latest` (`bench/Dockerfile`)
+  mounts the workspace at `/testbed`. Harbor adapter: `bench.agent:SymphonyAgent`.
 - Textual TUI (`tui/`): streamed transcript with reasoning and tool panels,
-  `@path` completion, slash commands (`/model`, `/mode`, `/effort`, `/plan`,
-  `/provider`, `/new`, `/reload`, `/compact`, `/status`, `/context`,
-  `/learning`, `/diff`, `/clear`, `/help`, `/quit`), context footer, image
+  `@path` completion, slash commands (`/model`, `/personality`, `/mode`,
+  `/effort`, `/plan`, `/provider`, `/new`, `/reload`, `/compact`, `/status`,
+  `/context`, `/learning`, `/diff`, `/clear`, `/help`, `/quit`), context footer, image
   rendering, subagent cards and nested screens, session resume (`--resume`),
   `Esc` / `Ctrl+X` cancel. See `coding_agent/TUI_ARCHITECTURE.md`.
 

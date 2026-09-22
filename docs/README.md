@@ -29,7 +29,7 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [TUI](./user-guide/tui.md) | Composer, modes, keybindings, images |
 | [Configuration](./user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
 | [Langfuse](./user-guide/langfuse.md) | Optional traces of sent prompts and tools |
-| [Jev](./user-guide/jev.md) | Optional findings-only critic (`--jev` / `/jev`) |
+| [Jev](./user-guide/jev.md) | Optional finish check with session rules (`--jev` / `/jev`) |
 | [Tools](./user-guide/tools.md) | Workspace tool surface |
 | [Learning](./user-guide/learning.md) | Post-run reflection |
 | [Sessions](./user-guide/sessions.md) | JSONL resume |
@@ -37,7 +37,8 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [Extending the harness](./developer-guide/extending.md) | Addon hooks; Learning as the canonical example |
 | [Changelog](../CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./developer-guide/events.md) | Control-plane catalog |
-| [CLI](./reference/cli.md) | Flags for `symphony` and `core-server` |
+| [CLI](./reference/cli.md) | Flags for `symphony`, `symphony bench`, and `core-server` |
+| [Bench](../bench/README.md) | Headless CLI, `symphony-bench` image, Harbor smoke |
 | [Environment](./reference/environment.md) | Keys, models, base URLs |
 | [Slash commands](./reference/slash-commands.md) | Every TUI command |
 

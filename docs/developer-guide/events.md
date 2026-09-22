@@ -111,6 +111,7 @@ are **not** members of `ControlPlaneEventType`; consumers should treat unknown
 | `event_type` | Emitted by | Payload notes |
 | --- | --- | --- |
 | `run_summary` | `symphony-code` learning add-on, after `run_completed` | `label`, `summary` — the two-line **summary so far** shown in the TUI (conditional) |
+| `collected` | `symphony-code` JSONL persistence, after a terminal run event | Overlay keyed by the original event's `run_id` and `seq`. `load_events` stamps `collected: true` onto that mid-run event and keeps the flag sticky. The TUI folds collected work into the completed-run collection and does not resurrect live cards on resume. |
 
 ## Transport
 

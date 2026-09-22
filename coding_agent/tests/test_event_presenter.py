@@ -18,10 +18,12 @@ class RecordingView:
         self.tool_updates: list[str] = []
         self.tool_payloads: list[tuple[str, Optional[Mapping[str, Any]], str]] = []
         self.notices: list[str] = []
+        self.updates: list[str] = []
         self.run_summaries: list[tuple[str, str, str]] = []
         self.thinking: list[str] = []
         self.working: list[str] = []
         self.finished_process: list[str] = []
+        self._agent = None
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         self.assistant.append((text, new))
@@ -68,6 +70,10 @@ class RecordingView:
     def add_notice(self, text: str, tone: str = "info") -> None:
         del tone
         self.notices.append(text)
+
+    def add_update(self, text: str, hint: str = "") -> None:
+        del hint
+        self.updates.append(text)
 
     def add_run_summary(
         self,
@@ -164,6 +170,20 @@ def test_completed_output_is_replaced_before_process_is_finished() -> None:
     assert view.assistant[-1] == ("**final**\n\n- formatted", False)
     assert view.finished_assistant == 1
     assert view.finished_process[-1].endswith("1 model call · 0 tool calls")
+
+
+def test_collected_events_are_ignored_by_the_presenter() -> None:
+    presenter, view, _ = _presenter()
+    presenter.handle("run_started", {"ts": 100.0})
+    presenter.handle(
+        "tool_call_started",
+        {"tool_call_id": "read-1", "tool_name": "read_file", "collected": True},
+    )
+    presenter.handle("collected", {"run_id": "run", "seq": 3, "collected": True})
+    presenter.handle("text_delta", {"delta": "final", "collected": True})
+    presenter.handle("run_completed", {"ts": 101.0, "output_text": "final"})
+    assert view.tools == []
+    assert view.assistant[-1] == ("final", False)
 
 
 def test_text_deltas_coalesce_to_one_scheduled_paint() -> None:
@@ -381,7 +401,7 @@ def test_compaction_completed_updates_context_metrics_and_repaints_chrome() -> N
     assert presenter.state.detail == "ready"
     assert chrome and "tokens=25000" in chrome[-1]
     assert "context_left=75000/100000" in chrome[-1]
-    assert view.notices[-1] == (
+    assert view.updates[-1] == (
         "Compacted context · 30 → 12 messages · ~90,000 → ~25,000 tokens"
     )
 
@@ -398,4 +418,76 @@ def test_compaction_completed_without_estimate_keeps_metrics() -> None:
 
     assert presenter.state.metrics.tokens_used == 400
     assert presenter.state.metrics.context_left == 600
-    assert view.notices[-1] == "Compacted context · 9 → 4 messages"
+    assert view.updates[-1] == "Compacted context · 9 → 4 messages"
+
+
+def test_jev_recommendation_update_toastable_vs_silent() -> None:
+    from types import SimpleNamespace
+
+    from coding_agent.tui.runtime.events import jev_recommendation_update
+
+    assert jev_recommendation_update(None) is None
+    for action in ("replan", "retry", "review", "gather", "ask"):
+        text = jev_recommendation_update(SimpleNamespace(action=action, reason="need more context"))
+        assert text == f"Jev → {action}: need more context"
+    for action in ("continue_normally", "finish", "continue", None):
+        assert jev_recommendation_update(SimpleNamespace(action=action, reason="done")) is None
+
+
+def test_jev_recommendation_update_clips_reason() -> None:
+    from types import SimpleNamespace
+
+    from coding_agent.tui.runtime.events import (
+        _JEV_TOAST_REASON_LIMIT,
+        jev_recommendation_update,
+    )
+
+    long_reason = "x" * (_JEV_TOAST_REASON_LIMIT + 40)
+    text = jev_recommendation_update(SimpleNamespace(action="retry", reason=long_reason))
+    assert text is not None
+    assert text.startswith("Jev → retry: ")
+    clipped = text.removeprefix("Jev → retry: ")
+    assert len(clipped) == _JEV_TOAST_REASON_LIMIT
+    assert clipped.endswith("…")
+
+
+def test_run_completed_shows_jev_toast_for_user_facing_decision() -> None:
+    from types import SimpleNamespace
+
+    presenter, view, _ = _presenter()
+    view._agent = SimpleNamespace(
+        harness=SimpleNamespace(
+            addons=[
+                SimpleNamespace(
+                    name="jev",
+                    last_decision=SimpleNamespace(action="review", reason="claims look unsupported"),
+                )
+            ]
+        )
+    )
+    presenter.handle("run_started", {"ts": 1.0})
+    presenter.handle("run_completed", {"ts": 2.0, "output_text": "done"})
+    assert view.updates == ["Jev → review: claims look unsupported"]
+
+
+def test_run_completed_skips_toast_when_jev_silent_or_missing() -> None:
+    from types import SimpleNamespace
+
+    presenter, view, _ = _presenter()
+    presenter.handle("run_started", {"ts": 1.0})
+    presenter.handle("run_completed", {"ts": 2.0})
+    assert view.updates == []
+
+    view._agent = SimpleNamespace(
+        harness=SimpleNamespace(
+            addons=[
+                SimpleNamespace(
+                    name="jev",
+                    last_decision=SimpleNamespace(action="continue_normally", reason="ok"),
+                )
+            ]
+        )
+    )
+    presenter.handle("run_started", {"ts": 3.0})
+    presenter.handle("run_completed", {"ts": 4.0})
+    assert view.updates == []

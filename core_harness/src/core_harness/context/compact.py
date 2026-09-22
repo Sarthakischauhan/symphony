@@ -122,9 +122,16 @@ def normalize_tool_protocol(messages: List[Message]) -> List[Message]:
         cursor = index + 1
         while cursor < len(messages) and messages[cursor].role == "tool":
             tool_message = messages[cursor]
-            if tool_message.tool_call_id in expected:
+            # Persisted conversations and third-party callers may deserialize
+            # an id as a non-string (for example, an integer).  Tool-call ids
+            # are protocol identifiers, so compare their string form on both
+            # sides.  Comparing the raw value here can silently discard a
+            # valid result and makes providers report that no output exists
+            # for the function call.
+            result_id = str(tool_message.tool_call_id) if tool_message.tool_call_id is not None else ""
+            if result_id in expected:
                 group.append(tool_message)
-                results.add(str(tool_message.tool_call_id))
+                results.add(result_id)
             cursor += 1
         if expected and results == expected:
             normalized.extend(group)

@@ -39,9 +39,11 @@ from coding_agent.tui.commands import (
     effort_options_for_model,
     find_mode,
     find_model,
+    find_personality,
     mode_matches,
     model_matches,
     model_supports_effort,
+    personality_matches,
 )
 from coding_agent.tui.runtime import ControlPlaneEvent, TextualEventSink
 from coding_agent.tui.screens.file_selector import (
@@ -80,8 +82,10 @@ from coding_agent.tui.tools import (
     diff_stats,
     make_tool_widget,
 )
+from coding_agent.tui.tools.activity import COMPLETION_VERBS
 from coding_agent.tui.tools.snapshots import ThoughtSnapshot
 from coding_agent.tui.chrome import (
+    ComposerOverlay,
     TopBar,
     context_percent,
     display_workspace_path,
@@ -1207,6 +1211,91 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
     ]
 
 
+def test_history_resume_honours_collected_mid_run_events() -> None:
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            return [
+                Message(role="user", content="Inspect the files"),
+                Message(
+                    role="assistant",
+                    content="Reading them.",
+                    tool_calls=[
+                        {
+                            "id": "read-1",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": json.dumps({"path": "src/app.py"}),
+                            },
+                        }
+                    ],
+                ),
+                Message(role="tool", content="ok", tool_call_id="read-1"),
+                Message(role="assistant", content="Done."),
+            ]
+
+        async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
+            return [
+                ("run_started", {"run_id": "run", "seq": 1}),
+                (
+                    "tool_execution_started",
+                    {
+                        "run_id": "run",
+                        "seq": 2,
+                        "tool_call_id": "read-1",
+                        "collected": True,
+                    },
+                ),
+                (
+                    "tool_execution_completed",
+                    {
+                        "run_id": "run",
+                        "seq": 3,
+                        "tool_call_id": "read-1",
+                        "collected": True,
+                    },
+                ),
+                ("run_completed", {"run_id": "run", "seq": 4, "output_text": "Done."}),
+            ]
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+
+    kinds = [type(widget).__name__ for widget in view.mounted]
+    assert kinds == ["UserMessage", "CompletedRunSummary", "AssistantMessage"]
+    summary = next(
+        widget for widget in view.mounted if isinstance(widget, CompletedRunSummary)
+    )
+    assert summary.call_ids == ["read-1"]
+    assistant = next(
+        widget for widget in view.mounted if isinstance(widget, AssistantMessage)
+    )
+    assert assistant.message_text == "Done."
+
+
 def test_text_then_tools_then_text_keeps_stream_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2103,6 +2192,7 @@ def test_reasoning_title_uses_only_a_standalone_markdown_heading(
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
     assert "langfuse" in [command.name for command in SLASH_COMMANDS]
+    assert "personality" in [command.name for command in SLASH_COMMANDS]
     assert "jev" in [command.name for command in SLASH_COMMANDS]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
@@ -2119,6 +2209,8 @@ def test_slash_command_discovery_and_model_resolution() -> None:
         "openai:gpt-5.6-luna"
     ]
     assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
+    assert find_personality("warm").id == "warm"  # type: ignore[union-attr]
+    assert [item.id for item in personality_matches("prec")] == ["precise"]
     assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
     assert [effort.id for effort in effort_matches("xh")] == ["xhigh"]
     assert [effort.id for effort in EFFORT_CATALOG] == [
@@ -2560,9 +2652,13 @@ def test_slash_menu_and_commands(
             self.learning_loop = None
             self.mode = "build"
             self.compacted = False
+            self.config = SimpleNamespace(personality="direct")
 
         def set_mode(self, mode: str) -> None:
             self.mode = mode
+
+        def apply_system_prompt(self) -> None:
+            return None
 
         async def compact_conversation(self) -> tuple[int, int]:
             self.compacted = True
@@ -2632,6 +2728,20 @@ def test_slash_menu_and_commands(
             await pilot.pause()
             assert fake.harness.model_id == "openai:gpt-5.6-luna"
             assert app._ui_state.model_id == "openai:gpt-5.6-luna"
+            overlay = app.query_one("#composer-overlay", ComposerOverlay)
+            assert overlay.display
+            assert "Model switched to gpt-5.6-luna" in overlay.title
+            assert "ctrl+q" in overlay.hint
+
+            prompt.value = "/personality "  # type: ignore[attr-defined]
+            await pilot.pause()
+            assert menu.display
+            await pilot.press("down")
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert fake.config.personality == "caveman"
+            assert "Personality set to Caveman" in overlay.title
 
             prompt.value = "/mode "  # type: ignore[attr-defined]
             await pilot.pause()
@@ -2666,6 +2776,9 @@ def test_slash_menu_and_commands(
 
             await app._run_slash_command("/effort default")
             assert fake.harness.reasoning_effort is None
+            overlay = app.query_one("#composer-overlay", ComposerOverlay)
+            assert "Reasoning effort set to Default" in overlay.title
+            assert "ctrl+q" in overlay.hint
 
             await app._run_slash_command("/compact")
             assert fake.compacted
@@ -2756,6 +2869,10 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
             assert metrics.utilization == 0.25
             footer = _footer_text(app)
             assert "25% context" in footer
+            overlay = app.query_one("#composer-overlay", ComposerOverlay)
+            assert overlay.display
+            assert "Compacted context · 40 → 12 messages" in overlay.title
+            assert "ctrl+q" in overlay.hint
             assert "75% context" not in footer
             assert "████░░░░░░░░░░░░░░" in footer
 
@@ -3400,8 +3517,10 @@ def test_final_output_folds_remaining_tools(
             assert summary.count == 12
             assert not summary.is_expanded
             rendered = summary.render().plain
-            assert rendered.startswith("[ Cooked")
-            assert rendered.endswith("]")
+            verb = rendered.split(" for ", 1)[0]
+            assert verb in COMPLETION_VERBS
+            assert "[" not in rendered
+            assert "]" not in rendered
             completions = list(app.query(".process-complete"))
             assert len(completions) == 1
             assert metrics in str(completions[0].render())

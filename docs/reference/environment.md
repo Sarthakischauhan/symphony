@@ -104,10 +104,13 @@ when missing. See
 
 ## Jev critic (optional)
 
-`--jev` / `/jev` enables findings-only critic mode on `symphony-code`. The
+`--jev` / `/jev` enables a finish check on `symphony-code`. `/jev <rule>` sets
+a rule for the current TUI session. The
 evaluator uses the same Vercel AI Gateway key as chat (`AI_GATEWAY_API_KEY` or
 `VERCEL_AI_GATEWAY_API_KEY`) and `POST /v4/ai/evaluation-model`. Missing keys
-fail open. See [`docs/user-guide/jev.md`](../user-guide/jev.md).
+fail open. A confident rule violation triggers one automatic revision. Without
+a rule, auto-follow-up remains off by default. See
+[`docs/user-guide/jev.md`](../user-guide/jev.md).
 
 ## Catalog generation (maintainers)
 

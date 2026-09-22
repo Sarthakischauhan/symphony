@@ -7,6 +7,7 @@ from coding_agent.tui.chrome.footer import (
     phase_label,
     render_footer,
 )
+from coding_agent.tui.chrome.overlay import ComposerOverlay
 from coding_agent.tui.chrome.topbar import (
     TopBar,
     display_workspace_path,
@@ -15,6 +16,7 @@ from coding_agent.tui.chrome.topbar import (
 )
 
 __all__ = [
+    "ComposerOverlay",
     "TopBar",
     "context_percent",
     "display_workspace_path",

@@ -6,13 +6,14 @@ menu.
 | Command | What it does |
 | --- | --- |
 | `/model [id]` | Show the credential-filtered catalog, or switch model |
+| `/personality [id]` | Show the personality catalog, or switch (`direct`, `bad_boy`, `caveman`, `precise`, `warm`) |
 | `/mode [mode]` | View or switch **build** / **plan** |
 | `/effort [level]` | Set reasoning effort (`none` … `max`) |
 | `/plan [text]` | Enter plan mode; with text, submit it as the next planning turn |
 | `/plans [name]` | Pick or open a saved workspace plan |
 | `/provider [name]` | Sign in with a ChatGPT / Claude / xAI subscription, or paste an API key |
 | `/langfuse` | Save Langfuse telemetry keys to `~/.symphony/.env` |
-| `/jev [on\|off]` | Toggle Jev critic mode (findings only; not a model switch) |
+| `/jev [on\|off\|rule]` | Toggle the Jev finish check or set a rule for this TUI session |
 | `/new` | Start a fresh persisted session |
 | `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |
 | `/compact` | Summarize older turns with the model; keep system prompt, original task, and recent turns |

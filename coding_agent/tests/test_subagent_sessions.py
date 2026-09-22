@@ -9,6 +9,7 @@ from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.runtime.subagent import SubagentScreen, SubagentTasksScreen
 from coding_agent.tui.tools import CompletedRunSummary, ToolCallSummary, ToolCallWidget
+from coding_agent.tui.tools.activity import COMPLETION_VERBS
 from coding_agent.tui.transcript import AssistantMessage, UserMessage
 
 
@@ -62,8 +63,10 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             summary = summaries[0]
             assert summary.count == 11
             rendered = summary.render().plain
-            assert rendered.startswith("[ Cooked")
-            assert rendered.endswith("]")
+            verb = rendered.split(" for ", 1)[0]
+            assert verb in COMPLETION_VERBS
+            assert "[" not in rendered
+            assert "]" not in rendered
             assert [item.message_text for item in screen.query(AssistantMessage)] == ["Child answer"]
             screen.refresh_record()
             await pilot.press("escape")

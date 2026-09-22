@@ -36,6 +36,7 @@ class ModelRegistry:
         tools: List[Dict[str, Any]] = [],
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
 
         if ":" not in model_id:
@@ -52,6 +53,8 @@ class ModelRegistry:
         stream_options: Dict[str, Any] = {"max_output_tokens": max_output_tokens}
         if reasoning_effort is not None:
             stream_options["reasoning_effort"] = reasoning_effort
+        if extra_headers:
+            stream_options["extra_headers"] = extra_headers
         async for event in provider.stream(
             model_name,
             messages,

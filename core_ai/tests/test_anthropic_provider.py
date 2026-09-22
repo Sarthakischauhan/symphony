@@ -212,6 +212,48 @@ def test_anthropic_translates_tool_history() -> None:
     assert messages[2]["content"][0]["tool_use_id"] == "toolu_1"
 
 
+def test_anthropic_injects_missing_tool_result() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}'
+            ),
+        )
+
+    async def collect() -> None:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "claude-sonnet-5",
+            [
+                Message(role="user", content="edit it"),
+                Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "toolu_1",
+                            "type": "function",
+                            "function": {"name": "read_file", "arguments": "{}"},
+                        }
+                    ],
+                ),
+            ],
+        ):
+            pass
+
+    asyncio.run(collect())
+    messages = captured["payload"]["messages"]  # type: ignore[index]
+    assert messages[-1]["role"] == "user"
+    result = messages[-1]["content"][0]
+    assert result["type"] == "tool_result"
+    assert result["tool_use_id"] == "toolu_1"
+    assert result["is_error"] is True
+
+
 def test_anthropic_puts_tool_images_in_tool_result_blocks() -> None:
     captured: dict[str, object] = {}
 

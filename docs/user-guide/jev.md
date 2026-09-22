@@ -1,92 +1,33 @@
-# Jev critic mode
+# Jev finish check
 
-Optional evaluator on `symphony-code`. `--jev` / `/jev` turns on **critic
-mode**. It is not a model switch: the main LLM stays the chat model, and Jev
-never becomes primary.
+Jev is an optional evaluator for `symphony-code`. It checks a completed run;
+it does not replace the chat model or restrict tools while the agent works.
 
-The add-on is first-party (`coding_agent.evaluation.JevAddon`). It lives in
-`coding_agent`, not `core_harness`. TypeSafe/Jev are not imported from the
-harness.
+Enable it with `--jev`, `/jev on`, or set a rule for the current TUI session:
 
-## What Jev decides vs what it does not
-
-v1 is **findings-only**. The evaluator answers a fixed question set and the
-add-on stores structured findings (`decision` kind, value, probs, label, short
-rationale). Symphony does **not**:
-
-- auto-REPLAN or rewrite the todo/plan
-- map a score onto control flow
-- evaluate every turn (no hot loop)
-- replace the chat/completions model with `typesafe-ai/jev`
-
-High-confidence gates are stubbed to `continue_normally`. Provider errors
-fail open (`skipped` / `error`); the run still finishes.
-
-### Start (`on_start`)
-
-| Question | Kind |
-| --- | --- |
-| `plan_sufficient` | boolean |
-| `needs_replan` | boolean |
-| `next_action` | choice |
-
-### Finish (`on_finish`)
-
-| Question | Kind |
-| --- | --- |
-| `task_complete` | boolean |
-| `remaining_work` | boolean |
-| `unsupported_claims` | boolean |
-| `next_action` | choice (`finish` / `continue` / `retry` / `review`) |
-
-## Hook mapping
-
-Evaluator methods are named so they are not mistaken for missing harness hooks.
-The add-on implements only the existing `Addon` pair:
-
-| Evaluator protocol | Addon hook | When |
-| --- | --- | --- |
-| `on_start` | `before_run` | Once at the start of `CoreHarness.run` |
-| `on_finish` | `after_run` | Once after a successful run |
-
-`before_turn` and `on_tool` are not overridden. Semantic state is rebuilt from
-the run payload (request, plan items + status, observations, files modified,
-last tool results, final text) with hard character caps. Every outbound text
-field is run through `redact_secrets` (the same helper Langfuse uses) inside
-the state builder before the gateway call. Raw transcripts and JSONL are
-never dumped into the evaluator.
-
-## Enable it
-
-Off by default.
-
-```sh
-uv run --package symphony-code symphony --jev
+```text
+/jev make sure the code being generated is not verbose and easy to follow
 ```
 
-In the TUI, `/jev` toggles critic mode (optional `on` / `off`). That is a mode
-toggle, not `/model typesafe-ai/jev`. The setting is stored on
-`evaluation.enabled` in `~/.symphony/config.json` and the agent reloads.
+The rule remains active in that TUI session until you replace it or turn Jev
+off with `/jev off`. It is not saved to `~/.symphony/config.json`. `/jev` with
+no argument toggles the mode. `--jev` enables the finish check without a
+session rule.
 
-```json
-{
-  "evaluation": {
-    "enabled": false,
-    "provider": "vercel",
-    "model": "typesafe-ai/jev",
-    "on_error": "fail-open",
-    "brief_max_chars": 2000,
-    "plan_max_chars": 2000,
-    "final_max_chars": 4000
-  }
-}
-```
+After each completed run, Jev sees a bounded, redacted summary of the request,
+plan, tool observations, modified files, final answer, and the active rule.
+It answers whether the task is complete, whether work remains, whether claims
+need review, and whether the rule was satisfied. A rule violation requires an
+explicit probability of at least 0.8; a bare boolean or label is not enough.
 
-Calls go to Vercel AI Gateway `POST /v4/ai/evaluation-model` using the existing
-helpers in `core_ai.providers.vercel` (`is_evaluation_model`,
-`evaluation_request_body`, `evaluation_model_url`, headers). The chat base URL
-is unchanged.
+If Jev confidently finds a rule violation, Symphony asks the chat model to
+revise the work to meet the rule. It permits **one automatic revision per user
+task**, then stops to avoid a loop. Other finish findings may add a critic note
+or request review. Without a rule, automatic follow-up remains off unless
+`evaluation.honour_follow_up` is enabled explicitly.
 
-Without `AI_GATEWAY_API_KEY` / `VERCEL_AI_GATEWAY_API_KEY`, the evaluator
-fail-opens (`skipped`). Tests use `MockEvaluator` / `StubEvaluator` and never
-call a live API.
+Jev runs after the agent's work, so it does not block `bash`, edits, or other
+tools. Evaluator errors and missing Vercel credentials fail open. The evaluator
+uses `typesafe-ai/jev` through Vercel AI Gateway
+`POST /v4/ai/evaluation-model` with `AI_GATEWAY_API_KEY` or
+`VERCEL_AI_GATEWAY_API_KEY`.

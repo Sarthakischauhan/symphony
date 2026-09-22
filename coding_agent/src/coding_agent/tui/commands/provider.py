@@ -47,4 +47,4 @@ async def reload_after_provider(app: Any) -> None:
     if not current:
         return
     labels = ", ".join(get_provider(provider_id).label for provider_id in current)
-    app.add_notice(f"Providers ready · {labels}. Use /model to switch.", "success")
+    app.add_update(f"Providers ready · {labels}. Use /model to switch.")

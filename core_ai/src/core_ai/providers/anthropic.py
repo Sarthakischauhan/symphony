@@ -41,8 +41,9 @@ class AnthropicProvider(BaseProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        del reasoning_effort
+        del reasoning_effort, extra_headers
         async for event in stream_with_retries(
             lambda: self._stream_once(
                 model_name,
@@ -180,21 +181,12 @@ class AnthropicProvider(BaseProvider):
                     system_chunks.append(message.content)
                 continue
             if message.role == "tool":
-                pending_tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": message.tool_call_id,
-                        "content": (
-                            message.content
-                            if isinstance(message.content, str)
-                            else to_anthropic_blocks(message.content)
-                        ),
-                    }
-                )
+                pending_tool_results.append(cls._tool_result_block(message))
                 continue
             flush_tool_results()
             if message.role == "assistant":
                 content: List[Dict[str, Any]] = to_anthropic_blocks(message.content)
+                tool_uses: List[Dict[str, Any]] = []
                 for tool_call in message.tool_calls or []:
                     function = tool_call.get("function") or {}
                     raw_args = function.get("arguments") or "{}"
@@ -202,7 +194,7 @@ class AnthropicProvider(BaseProvider):
                         parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     except json.JSONDecodeError:
                         parsed = {}
-                    content.append(
+                    tool_uses.append(
                         {
                             "type": "tool_use",
                             "id": tool_call.get("id"),
@@ -210,12 +202,47 @@ class AnthropicProvider(BaseProvider):
                             "input": parsed if isinstance(parsed, dict) else {},
                         }
                     )
+                content.extend(tool_uses)
                 if content:
                     cls._append_role(items, "assistant", content)
+                # Messages API requires a tool_result for every tool_use before
+                # the next model request. Inject one when history omitted it.
+                for tool_use in tool_uses:
+                    if not cls._has_tool_result(messages, tool_use["id"]):
+                        pending_tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use["id"],
+                                "content": "No tool output was recorded for this function call.",
+                                "is_error": True,
+                            }
+                        )
                 continue
             cls._append_role(items, "user", to_anthropic_blocks(message.content))
         flush_tool_results()
         return "\n\n".join(system_chunks), items
+
+    @staticmethod
+    def _tool_result_block(message: Message) -> Dict[str, Any]:
+        return {
+            "type": "tool_result",
+            "tool_use_id": message.tool_call_id,
+            "content": (
+                message.content
+                if isinstance(message.content, str)
+                else to_anthropic_blocks(message.content)
+            ),
+        }
+
+    @staticmethod
+    def _has_tool_result(messages: List[Message], tool_use_id: Any) -> bool:
+        expected = "" if tool_use_id is None else str(tool_use_id)
+        return any(
+            message.role == "tool"
+            and message.tool_call_id is not None
+            and str(message.tool_call_id) == expected
+            for message in messages
+        )
 
     @staticmethod
     def _append_role(items: List[Dict[str, Any]], role: str, content: Content) -> None:
