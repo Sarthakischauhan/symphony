@@ -135,16 +135,18 @@ def _history_widgets(
             result = text_from_content(message.content)
             add_snapshot(
                 snapshot_from_call(
-                    **fields,
-                    result=result,
-                    status="failed" if result.startswith("error:") else "done",
+                    **{
+                        **fields,
+                        "result": result,
+                        "status": "failed" if result.startswith("error:") else "done",
+                    }
                 )
             )
 
     for fields in pending.values():
-        add_snapshot(snapshot_from_call(**fields, status="done"))
+        add_snapshot(snapshot_from_call(**{"status": "done", **fields}))
     for leftover_fields in event_calls.values():
-        add_snapshot(snapshot_from_call(**leftover_fields, status="done"))
+        add_snapshot(snapshot_from_call(**{"status": "done", **leftover_fields}))
     for leftover in thoughts:
         add_snapshot(leftover)
     flush_run()
