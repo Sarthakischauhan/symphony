@@ -7,6 +7,7 @@ import re
 import time
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 
+from coding_agent.evaluation.state import bound_text
 from coding_agent.persistence.collection import is_collected
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.transcript.messages import preview_text
@@ -19,6 +20,32 @@ ChromeSnapshot = Tuple[Any, ...]
 _BUFFERED_PAINT_EVENT_TYPES = frozenset(
     {"text_delta", "reasoning_delta", "tool_call_delta"}
 )
+_TOASTABLE_JEV_ACTIONS = frozenset({"replan", "retry", "review", "gather", "ask"})
+_JEV_TOAST_REASON_LIMIT = 120
+
+
+def jev_recommendation_update(decision: Any) -> Optional[str]:
+    """ComposerOverlay text for a user-facing Jev decision, else None."""
+    if decision is None:
+        return None
+    action = getattr(decision, "action", None)
+    if action not in _TOASTABLE_JEV_ACTIONS:
+        return None
+    reason = bound_text(str(getattr(decision, "reason", "") or ""), _JEV_TOAST_REASON_LIMIT)
+    return f"Jev → {action}: {reason}" if reason else f"Jev → {action}"
+
+
+def _jev_last_decision(view: Any) -> Any:
+    """Fail-open lookup of mounted JevAddon.last_decision via the app view."""
+    agent = getattr(view, "_agent", None)
+    harness = getattr(agent, "harness", None) if agent is not None else None
+    if harness is None:
+        return None
+    addon = next(
+        (item for item in getattr(harness, "addons", ()) if getattr(item, "name", "") == "jev"),
+        None,
+    )
+    return getattr(addon, "last_decision", None) if addon is not None else None
 
 
 def _clean_reasoning(text: str) -> str:
@@ -330,6 +357,11 @@ class EventPresenter:
             # Keep compatibility with lightweight presenter test doubles.
             self.view.finish_process(completed)
         self._assistant_open = False
+        toast = jev_recommendation_update(_jev_last_decision(self.view))
+        if toast:
+            add_update = getattr(self.view, "add_update", None)
+            if callable(add_update):
+                add_update(toast)
 
     def _on_run_summary(self, payload: Dict[str, Any]) -> None:
         summary = str(payload.get("summary") or "").strip()
