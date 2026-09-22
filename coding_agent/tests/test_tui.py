@@ -1254,7 +1254,18 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
                         "collected": True,
                     },
                 ),
-                ("run_completed", {"run_id": "run", "seq": 4, "output_text": "Done."}),
+                (
+                    "run_completed",
+                    {
+                        "run_id": "run",
+                        "seq": 4,
+                        "output_text": "Done.",
+                        "ts": 12.4,
+                        "elapsed_seconds": 12.4,
+                        "duration": "12s",
+                        "completion_verb": "Percolated",
+                    },
+                ),
             ]
 
     class View:
@@ -1290,10 +1301,181 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
         widget for widget in view.mounted if isinstance(widget, CompletedRunSummary)
     )
     assert summary.call_ids == ["read-1"]
+    assert summary.render().plain == "Percolated for 12s"
     assistant = next(
         widget for widget in view.mounted if isinstance(widget, AssistantMessage)
     )
     assert assistant.message_text == "Done."
+
+
+def test_history_resume_uses_persisted_protocol_arguments() -> None:
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            return [
+                Message(role="user", content="Inspect the files"),
+                Message(
+                    role="assistant",
+                    content="Reading them.",
+                    tool_calls=[
+                        {
+                            "id": "read-1",
+                            "function": {"name": "read_file", "arguments": "{}"},
+                        },
+                        {
+                            "id": "patch-1",
+                            "function": {"name": "patch", "arguments": "{}"},
+                        },
+                    ],
+                ),
+                Message(role="tool", content="ok", tool_call_id="read-1"),
+                Message(
+                    role="tool",
+                    content="patched history.py (1 replacement(s), +4 bytes)",
+                    tool_call_id="patch-1",
+                ),
+                Message(role="assistant", content="Done."),
+            ]
+
+        async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
+            return [
+                ("run_started", {"run_id": "run", "seq": 1, "ts": 1.0}),
+                (
+                    "tool_execution_started",
+                    {
+                        "run_id": "run",
+                        "seq": 2,
+                        "tool_call_id": "read-1",
+                        "tool_name": "read_file",
+                        "arguments": {"path": "history.py"},
+                        "collected": True,
+                    },
+                ),
+                (
+                    "tool_execution_started",
+                    {
+                        "run_id": "run",
+                        "seq": 3,
+                        "tool_call_id": "patch-1",
+                        "tool_name": "patch",
+                        "arguments": {"path": "labels.py", "old_str": "a", "new_str": "b"},
+                        "collected": True,
+                    },
+                ),
+                (
+                    "run_completed",
+                    {
+                        "run_id": "run",
+                        "seq": 4,
+                        "output_text": "Done.",
+                        "ts": 13.0,
+                        "elapsed_seconds": 12.0,
+                        "duration": "12s",
+                        "completion_verb": "Percolated",
+                    },
+                ),
+            ]
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+    summary = next(widget for widget in view.mounted if isinstance(widget, CompletedRunSummary))
+    summary.toggle()
+    rendered = summary.render().plain
+    assert rendered.startswith("Percolated for 12s")
+    assert "Read history.py" in rendered
+    assert "Update labels.py" in rendered
+    assert rendered.count("\n  Read") == 1
+    assert rendered.count("\n  Update") == 1
+
+
+def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
+    class Persistence:
+        async def load_conversation(self, *, session_id: str) -> list[Message]:
+            return [
+                Message(role="user", content="Inspect the files"),
+                Message(
+                    role="assistant",
+                    content="Reading them.",
+                    tool_calls=[
+                        {
+                            "id": "read-1",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": json.dumps({"path": "src/app.py"}),
+                            },
+                        }
+                    ],
+                ),
+                Message(role="tool", content="ok", tool_call_id="read-1"),
+            ]
+
+        async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
+            return [
+                (
+                    "reasoning_completed",
+                    {"title": "Thought", "content": "I should inspect src/app.py first."},
+                )
+            ]
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        def mount_transcript(self, widget: Any) -> None:
+            self.mounted.append(widget)
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        persistence=Persistence(),
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+
+    kinds = [type(widget).__name__ for widget in view.mounted]
+    assert "ReasoningWidget" not in kinds
+    summary = next(widget for widget in view.mounted if isinstance(widget, ToolCallSummary))
+    assert any(isinstance(entry, ThoughtSnapshot) for entry in summary.entries)
+    summary.toggle()
+    rendered = summary.render().plain
+    assert "Thought" in rendered
+    assert "src/app.py" in rendered
+    assert "Read app.py" in rendered
 
 
 def test_text_then_tools_then_text_keeps_stream_order(
@@ -1707,7 +1889,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
             await pilot.click(summary)
             await pilot.pause()
             assert summary.is_expanded
-            assert "  Read  src/app.py" in summary.render().plain
+            assert "Read app.py" in summary.render().plain
             assert "Inspecting the requested file" in summary.render().plain
 
     asyncio.run(_run())
@@ -1830,16 +2012,13 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
             await pilot.pause()
 
             bash = app.query_one(BashToolWidget)
-            assert "Bash" in str(bash.query_one(".bash-tool-label").render())
-            assert "git diff --check" in str(
-                bash.query_one(".bash-tool-command").render()
-            )
-            assert str(bash.query_one(".bash-tool-status").render()) == "running"
+            assert "Bash git diff --check" in str(bash.query_one(".bash-tool-label").render())
+            assert bash.status == "running"
             assert not list(bash.query("CollapsibleTitle"))
 
             header = bash.query_one(".bash-tool-header")
-            assert str(bash.query_one(".tool-call-bracket").render()) == "["
-            assert str(bash.query_one(".tool-call-bracket-end").render()) == "]"
+            assert not list(bash.query(".tool-call-bracket"))
+            assert not list(bash.query(".bash-tool-status"))
             await pilot.click(header)
             await pilot.pause()
             assert not bash.collapsed
@@ -1920,27 +2099,14 @@ def test_tool_timeline_columns_align_across_widget_types(
                 )
                 for widget in widgets
             ]
-            commands = [
-                widget.query_one(
-                    ".bash-tool-command"
-                    if isinstance(widget, BashToolWidget)
-                    else ".tool-call-command"
-                )
-                for widget in widgets
-            ]
-            statuses = [
-                widget.query_one(
-                    ".bash-tool-status"
-                    if isinstance(widget, BashToolWidget)
-                    else ".tool-call-status"
-                )
-                for widget in widgets
-            ]
 
             assert len({header.region.x for header in headers}) == 1
             assert len({label.region.x for label in labels}) == 1
-            assert len({command.region.x for command in commands}) == 1
-            assert len({status.region.right for status in statuses}) == 1
+            rendered = [str(label.render()) for label in labels]
+            assert any(text.startswith("Search ") for text in rendered)
+            assert any(text.startswith("Read ") for text in rendered)
+            assert any(text.startswith("Update ") for text in rendered)
+            assert any(text.startswith("Bash ") for text in rendered)
 
     asyncio.run(_run())
 
@@ -2065,8 +2231,7 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
             status = thought.query_one(".reasoning-status")
             assert header.query_one(".reasoning-label") is label
             assert header.query_one(".reasoning-status") is status
-            assert header.query_one(".tool-call-bracket") is not None
-            assert header.query_one(".tool-call-bracket-end") is not None
+            assert not list(header.query(".tool-call-bracket"))
             assert "Thinking…" in str(label.render())
             assert str(status.render()).strip() == ""
             assert not thought.collapsed
@@ -2079,8 +2244,8 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
             )
             await pilot.pause()
 
-            assert thought.title.startswith("[ Thought for ")
-            assert thought.title.endswith("s ]")
+            assert thought.title.startswith("Thought ")
+            assert thought.title.endswith("s")
             assert "Thought" in str(label.render())
             assert str(status.render()).endswith("s")
             assert not thought.collapsed
@@ -2163,8 +2328,8 @@ def test_reasoning_delta_paints_visible_thought_body(
 
             thought = app.query_one(ReasoningWidget)
             completed_body = str(thought.query_one(".reasoning-text").render())
-            assert thought.title.startswith("[ Thought for ")
-            assert thought.title.endswith("s ]")
+            assert thought.title.startswith("Thought ")
+            assert thought.title.endswith("s")
             assert not thought.collapsed
             assert "The file uses a lock during writes." in completed_body
             assert "Later tools will read it." in completed_body
@@ -2175,10 +2340,10 @@ def test_reasoning_delta_paints_visible_thought_body(
 @pytest.mark.parametrize(
     ("content", "expected_title"),
     [
-        ("# Inspecting files\n\nReading the repository.", "[ Thought for 0.0s ]"),
-        ("__Planning changes__\n\nReviewing the code.", "[ Thought for 0.0s ]"),
-        ("Explaining application context\n\nThis is ordinary prose.", "[ Thought for 0.0s ]"),
-        ("**Bold opening sentence.** More prose follows.", "[ Thought for 0.0s ]"),
+        ("# Inspecting files\n\nReading the repository.", "Thought 0.0s"),
+        ("__Planning changes__\n\nReviewing the code.", "Thought 0.0s"),
+        ("Explaining application context\n\nThis is ordinary prose.", "Thought 0.0s"),
+        ("**Bold opening sentence.** More prose follows.", "Thought 0.0s"),
     ],
 )
 def test_reasoning_title_uses_only_a_standalone_markdown_heading(
@@ -3031,12 +3196,11 @@ def test_patch_events_render_a_specialized_diff_widget(
             assert diff_stats(diff) == (2, 2)
             assert '-    return "hello"' in diff
             assert '+    return f"hello {name}"' in diff
-            assert "Update" in str(widget.query_one(".tool-call-label").render())
-            assert "src/greeting.py" in str(
-                widget.query_one(".tool-call-command").render()
-            )
-            assert "+2 -2" in str(widget.query_one(".tool-call-command").render())
-            assert str(widget.query_one(".tool-call-status").render()) == "running"
+            header = str(widget.query_one(".tool-call-label").render())
+            assert header.startswith("Update greeting.py")
+            assert "+2 -2" in header
+            assert not list(widget.query(".tool-call-status"))
+            assert not list(widget.query(".tool-call-command"))
 
             widget.scroll_visible()
             await pilot.pause()
@@ -3061,7 +3225,7 @@ def test_patch_events_render_a_specialized_diff_widget(
             assert summary.call_ids == ["patch-1"]
             await pilot.click(summary)
             await pilot.pause()
-            assert "src/greeting.py" in summary.render().plain
+            assert "Update greeting.py" in summary.render().plain
 
     asyncio.run(_run())
 
@@ -3556,17 +3720,17 @@ def test_explored_renders_folded_tool_snapshots_inline(
             summary = summaries[0]
             assert summary.call_ids == ["read-0", "read-1", "read-2"]
             closed = summary.render().plain
-            assert closed.startswith("[ Explored · 3 tools")
-            assert closed.endswith("]")
-            assert len(closed) == summary.content_size.width
+            assert closed.startswith("Explored · 3 tools")
+            assert "[" not in closed
+            assert "]" not in closed
 
             assert await pilot.click(summary)
             await pilot.pause()
             rendered = summary.render().plain
-            assert rendered.startswith("[ Explored · 3 tools")
-            assert "src/f0.py" in rendered
-            assert "src/f1.py" in rendered
-            assert "src/f2.py" in rendered
+            assert rendered.startswith("Explored · 3 tools")
+            assert "Read f0.py" in rendered
+            assert "Read f1.py" in rendered
+            assert "Read f2.py" in rendered
             assert "Read 2 lines" not in rendered
 
     asyncio.run(_run())

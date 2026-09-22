@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
 from coding_agent.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
+from coding_agent.tui.runtime.events import _duration
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.tools.snapshots import (
@@ -63,8 +64,11 @@ def _history_widgets(
 
     restored: list[Any] = []
     pending: dict[str, dict[str, Any]] = {}
-    batch: list[ToolCallSnapshot] = []
+    batch: list[ToolCallSnapshot | ThoughtSnapshot] = []
+    thoughts = _thoughts_from_events(events or [])
+    event_calls = _tool_fields_from_events(events or [])
     collect_mid_run = _has_collected_mid_run(events or [])
+    run_completions = _run_completions_from_events(events or [])
     current_run: list[Any] = []
     collecting = False
 
@@ -78,14 +82,19 @@ def _history_widgets(
             restored.append(summary)
         batch.clear()
 
-    def add_snapshot(snapshot: ToolCallSnapshot) -> None:
+    def add_snapshot(snapshot: ToolCallSnapshot | ThoughtSnapshot) -> None:
         batch.append(snapshot)
 
     def flush_run() -> None:
         nonlocal collecting
         flush_batch()
         if current_run:
-            restored.extend(_fold_collected_run(current_run))
+            restored.extend(
+                _fold_collected_run(
+                    current_run,
+                    **(run_completions.pop(0) if run_completions else {}),
+                )
+            )
             current_run.clear()
         collecting = False
 
@@ -108,13 +117,16 @@ def _history_widgets(
             content = text_from_content(message.content)
             if content:
                 flush_batch()
-                add_visible(AssistantMessage(content, enter=False))
+                add_visible(AssistantMessage(content, streaming=False, enter=False))
+            if thoughts:
+                add_snapshot(thoughts.pop(0))
             for call in message.tool_calls or []:
                 fields = _call_fields(call)
-                pending[str(fields["call_id"])] = fields
+                call_id = str(fields["call_id"])
+                pending[call_id] = _merge_call_fields(event_calls.pop(call_id, {}), fields)
         elif message.role == "tool":
             call_id = str(message.tool_call_id or "")
-            fields = pending.pop(call_id, None) or {
+            fields = pending.pop(call_id, None) or event_calls.pop(call_id, None) or {
                 "call_id": call_id or "history-tool",
                 "tool_name": "tool",
                 "arguments": {},
@@ -123,16 +135,41 @@ def _history_widgets(
             result = text_from_content(message.content)
             add_snapshot(
                 snapshot_from_call(
-                    **fields,
-                    result=result,
-                    status="failed" if result.startswith("error:") else "done",
+                    **{
+                        **fields,
+                        "result": result,
+                        "status": "failed" if result.startswith("error:") else "done",
+                    }
                 )
             )
 
     for fields in pending.values():
-        add_snapshot(snapshot_from_call(**fields, status="done"))
+        add_snapshot(snapshot_from_call(**{"status": "done", **fields}))
+    for leftover_fields in event_calls.values():
+        add_snapshot(snapshot_from_call(**{"status": "done", **leftover_fields}))
+    for leftover in thoughts:
+        add_snapshot(leftover)
     flush_run()
     return restored
+
+
+def _thoughts_from_events(events: list[tuple[str, dict[str, Any]]]) -> list[ThoughtSnapshot]:
+    """Restore completed thoughts from persisted events when they exist.
+
+    Live reasoning deltas are skipped by session persistence, so this only
+    reconstructs compact snapshots from completed thought payloads. History
+    never remounts live ReasoningWidget cards.
+    """
+    thoughts: list[ThoughtSnapshot] = []
+    for event_type, payload in events:
+        if event_type not in {"reasoning_completed", "thought_completed"}:
+            continue
+        content = str(payload.get("text") or payload.get("content") or "").strip()
+        if not content:
+            continue
+        title = str(payload.get("title") or "Thought").strip() or "Thought"
+        thoughts.append(ThoughtSnapshot(title=title, content=content))
+    return thoughts
 
 
 def _has_collected_mid_run(events: list[tuple[str, dict[str, Any]]]) -> bool:
@@ -142,11 +179,107 @@ def _has_collected_mid_run(events: list[tuple[str, dict[str, Any]]]) -> bool:
     )
 
 
-def _fold_collected_run(items: list[Any]) -> list[Any]:
+def _tool_fields_from_events(
+    events: list[tuple[str, dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Use persisted protocol arguments as the source of truth for history tools."""
+    calls: dict[str, dict[str, Any]] = {}
+    for event_type, payload in events:
+        if event_type not in {"tool_call_started", "tool_execution_started", "tool_execution_completed"}:
+            continue
+        call_id = str(payload.get("tool_call_id") or "")
+        if not call_id:
+            continue
+        current = calls.setdefault(
+            call_id,
+            {
+                "call_id": call_id,
+                "tool_name": "tool",
+                "arguments": {},
+                "raw_arguments": "",
+            },
+        )
+        tool_name = str(payload.get("tool_name") or "")
+        if tool_name:
+            current["tool_name"] = tool_name
+        arguments = payload.get("arguments")
+        if isinstance(arguments, dict) and arguments:
+            current["arguments"] = dict(arguments)
+            current["raw_arguments"] = json.dumps(arguments, ensure_ascii=False)
+        if event_type == "tool_execution_completed":
+            result = payload.get("result")
+            if result:
+                current["result"] = str(result)
+            status = str(payload.get("status") or "")
+            if status in {"error", "cancelled", "timeout"}:
+                current["status"] = "failed"
+            elif status:
+                current["status"] = "done"
+    return calls
+
+
+def _merge_call_fields(preferred: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(fallback)
+    for key, value in preferred.items():
+        if value in ("", None, {}, []):
+            continue
+        merged[key] = value
+    return merged
+
+
+def _run_completions_from_events(
+    events: list[tuple[str, dict[str, Any]]],
+) -> list[dict[str, str]]:
+    """Restore completed-run verb and duration from persisted run events."""
+    completions: list[dict[str, str]] = []
+    started: dict[str, float] = {}
+    fallback_started: float | None = None
+    for event_type, payload in events:
+        run_id = str(payload.get("run_id") or "")
+        if event_type == "run_started":
+            ts = payload.get("ts")
+            if isinstance(ts, (int, float)):
+                if run_id:
+                    started[run_id] = float(ts)
+                else:
+                    fallback_started = float(ts)
+            continue
+        if event_type not in {"run_completed", "run_completed_meta"}:
+            continue
+        duration = str(payload.get("duration") or "").strip()
+        stored = payload.get("elapsed_seconds")
+        if not duration and isinstance(stored, (int, float)):
+            duration = _duration(float(stored))
+        if not duration and event_type == "run_completed":
+            start = started.get(run_id, fallback_started)
+            end = payload.get("ts")
+            if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+                duration = _duration(max(0.0, float(end) - float(start)))
+        verb = str(payload.get("completion_verb") or "").strip()
+        if event_type == "run_completed_meta" and completions:
+            current = completions[-1]
+            if verb:
+                current["verb"] = verb
+            if duration:
+                current["duration"] = duration
+            continue
+        completions.append({"verb": verb, "duration": duration})
+    return completions
+
+
+def _fold_collected_run(
+    items: list[Any],
+    *,
+    verb: str = "",
+    duration: str = "",
+) -> list[Any]:
     """Fold mid-run history into a completed-run collection, keep the final reply."""
     from coding_agent.tui.transcript import AssistantMessage
 
-    summary = CompletedRunSummary(verb=choose_completion_verb())
+    summary = CompletedRunSummary(
+        verb=verb or choose_completion_verb(),
+        duration=duration,
+    )
     assistants: list[Any] = []
     for item in items:
         if isinstance(item, AssistantMessage):

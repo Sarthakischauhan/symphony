@@ -355,7 +355,7 @@ class ProcessComplete(Static):
 
 
 class ReasoningHeader(Horizontal, can_focus=True):
-    """Focusable Thought header that matches the tool-call bracket layout."""
+    """Focusable Thought header that matches the compact tool-call line."""
 
     class Toggle(Message):
         pass
@@ -394,13 +394,11 @@ class ReasoningWidget(Collapsible):
 
     def compose(self):  # type: ignore[no-untyped-def]
         # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
-        # the visible header matches the tool-call bracket layout.
+        # the visible header matches the compact tool-call line.
         yield self._title
         with ReasoningHeader(classes="reasoning-header"):
-            yield Static("[", classes="tool-call-bracket", markup=False)
             yield self._label
             yield self._status
-            yield Static("]", classes="tool-call-bracket-end", markup=False)
         with self.Contents():
             yield self._scroll
 
@@ -418,7 +416,7 @@ class ReasoningWidget(Collapsible):
 
     def _set_visible_title(self, title: str) -> None:
         self.title = title
-        label, _, duration = title.strip("[] ").partition(" for ")
+        label, _, duration = title.partition(" ")
         self._label.update(label or "Thought")
         self._status.update(duration)
 
@@ -469,7 +467,7 @@ class ReasoningWidget(Collapsible):
             self._scroll.anchor(False)
             self._scroll.scroll_home(animate=False, force=True)
         self._duration = max(0.0, monotonic() - self._started_at)
-        completed_title = f"[ Thought for {self._format_duration(self._duration)} ]"
+        completed_title = f"Thought {self._format_duration(self._duration)}"
         body = self.reasoning_text.strip() or " "
         self._body.update(body)
         # Keep completed reasoning expanded so the provider's streamed content

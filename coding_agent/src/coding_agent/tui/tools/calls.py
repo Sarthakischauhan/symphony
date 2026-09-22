@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from time import monotonic
 from typing import Any, Mapping
 
@@ -21,11 +22,12 @@ from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.tools.labels import (
     TOOL_LABELS,
     generate_image_result,
-    header_command,
+    header_target,
     read_file_detail,
     read_file_result,
     result_preview,
     tool_detail,
+    tool_header_text,
     tool_label,
 )
 from coding_agent.tui.tools.snapshots import ToolCallSnapshot
@@ -57,9 +59,7 @@ class ToolCallWidget(Collapsible):
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._body = self._make_body()
-        self._tool_label = Static(classes="tool-call-label", markup=False)
-        self._tool_command = Static(classes="tool-call-command", markup=False)
-        self._tool_status = Static(classes="tool-call-status", markup=False)
+        self._tool_label = Static(classes="tool-call-label", markup=True)
         self.call_id = call_id
         self.tool_name = tool_name
         self.arguments: dict[str, Any] = {}
@@ -76,7 +76,7 @@ class ToolCallWidget(Collapsible):
         self._styled_status: str | None = None
         super().__init__(
             self._body,
-            title="Tool",
+            title=tool_label(tool_name)[0],
             collapsed=True,
             collapsed_symbol="",
             expanded_symbol="",
@@ -95,11 +95,7 @@ class ToolCallWidget(Collapsible):
         # the timeline header is the visible control shared by every tool.
         yield self._title
         with BashToolHeader(classes="tool-call-header"):
-            yield Static("[", classes="tool-call-bracket", markup=False)
             yield self._tool_label
-            yield self._tool_command
-            yield self._tool_status
-            yield Static("]", classes="tool-call-bracket-end", markup=False)
         with self.Contents():
             yield self._body
 
@@ -123,16 +119,23 @@ class ToolCallWidget(Collapsible):
         return "▸" if self.collapsed else "▾"
 
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
-        self.arguments = dict(arguments or {})
+        incoming = dict(arguments or {})
+        if incoming:
+            self.arguments = incoming
+        elif raw:
+            self.arguments = {}
         self._apply_activity(take_activity(self.arguments))
-        self.raw_arguments = strip_activity_json(raw) if raw else raw
+        if raw:
+            self.raw_arguments = strip_activity_json(raw)
         self._body_dirty = True
         self.refresh_content()
 
     def set_running(self, arguments: Mapping[str, Any] | None) -> None:
         self.status = "running"
-        self.arguments = dict(arguments or {})
-        self._apply_activity(take_activity(self.arguments))
+        incoming = dict(arguments or {})
+        if incoming:
+            self.arguments = incoming
+            self._apply_activity(take_activity(self.arguments))
         self._body_dirty = True
         self.refresh_content()
 
@@ -191,20 +194,11 @@ class ToolCallWidget(Collapsible):
         self._styled_status = self.status
 
     def _refresh_header(self, label: str, summary: str) -> None:
-        values = (
-            label,
-            header_command(self.activity_reason, summary, 140),
-            self.status,
-        )
+        target = header_target(summary) or summary.strip()
+        values = (label, target, self.status)
         if values == self._header_values:
             return
-        old = self._header_values
-        if old is None or old[0] != values[0]:
-            self._tool_label.update(values[0], layout=False)
-        if old is None or old[1] != values[1]:
-            self._tool_command.update(values[1], layout=False)
-        if old is None or old[2] != values[2]:
-            self._tool_status.update(values[2], layout=False)
+        self._tool_label.update(tool_header_text(label, target, self.status), layout=False)
         self._header_values = values
 
     def _refresh_body(self) -> None:
@@ -334,36 +328,21 @@ class BashToolWidget(ToolCallWidget):
     """Bash-specific row with command and lifecycle status on one line."""
 
     def __init__(self, call_id: str, tool_name: str) -> None:
-        self._bash_label = Static(classes="bash-tool-label", markup=False)
-        self._bash_command = Static(classes="bash-tool-command", markup=False)
-        self._bash_status = Static(classes="bash-tool-status", markup=False)
+        self._bash_label = Static(classes="bash-tool-label", markup=True)
         super().__init__(call_id, tool_name)
         self.add_class("bash-tool")
         self._body.add_class("bash-tool-body")
 
     def compose(self):  # type: ignore[no-untyped-def]
         with BashToolHeader(classes="bash-tool-header"):
-            yield Static("[", classes="tool-call-bracket", markup=False)
             yield self._bash_label
-            yield self._bash_command
-            yield self._bash_status
-            yield Static("]", classes="tool-call-bracket-end", markup=False)
         yield self._body
 
     def refresh_content(self) -> None:
-        values = (
-            "Bash",
-            header_command(self.activity_reason, clip_text(self._summary(), 180), 180),
-            self.status,
-        )
+        target = header_target(clip_text(self._summary(), 180))
+        values = ("Bash", target, self.status)
         if values != self._header_values:
-            old = self._header_values
-            if old is None or old[0] != values[0]:
-                self._bash_label.update(values[0], layout=False)
-            if old is None or old[1] != values[1]:
-                self._bash_command.update(values[1], layout=False)
-            if old is None or old[2] != values[2]:
-                self._bash_status.update(values[2], layout=False)
+            self._bash_label.update(tool_header_text("Bash", target, self.status), layout=False)
             self._header_values = values
         self._refresh_status_class()
         self._refresh_body()
@@ -373,6 +352,34 @@ class PatchDiffWidget(ToolCallWidget):
     """Unified diff presentation for the exact-text patch tool."""
 
     MAX_DIFF_LINES = 80
+
+    def _tool_title(self) -> tuple[str, str]:
+        return ("Update", "±")
+
+    def _patch_path(self) -> str:
+        path = str(self.arguments.get("path") or "").strip()
+        if path:
+            return path
+        raw = self.raw_arguments or ""
+        match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', raw)
+        if match:
+            return match.group(1).replace("\\/", "/").replace('\\"', '"')
+        match = re.search(
+            r"(?:patched|updated|noop:.*in|error:.*?:)\s+(\S+)",
+            self.result,
+            re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).rstrip(";")
+        return ""
+
+    def _summary(self) -> str:
+        """Keep live and collected Update rows on the same path-plus-stats line."""
+        path = self._patch_path()
+        summary = patch_summary(path, self._diff())
+        if summary:
+            return summary
+        return path or header_target(self.raw_arguments)
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._diff_key: tuple[str, str, str] | None = None
@@ -392,10 +399,9 @@ class PatchDiffWidget(ToolCallWidget):
         return self._diff_cache
 
     def refresh_content(self) -> None:
-        path = str(self.arguments.get("path") or "")
-        diff = self._diff()
-        self._refresh_header("Update", patch_summary(path, diff))
+        self._refresh_header("Update", self._summary())
         self._refresh_status_class()
+        diff = self._diff()
         if self.collapsed or not self._body_dirty:
             return
         rows: list[Any] = []

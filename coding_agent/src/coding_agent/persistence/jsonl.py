@@ -360,6 +360,29 @@ class JsonlPersistence:
         self._append_entries(session_id, overlays)
         return pending
 
+    async def annotate_run_completed(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        completion_verb: str,
+        duration: str = "",
+        elapsed_seconds: float | None = None,
+    ) -> None:
+        """Persist completed-run display fields without rewriting journal lines."""
+        if not session_id or not run_id or not completion_verb:
+            return
+        payload: dict[str, Any] = {
+            "session_id": session_id,
+            "run_id": run_id,
+            "completion_verb": completion_verb,
+        }
+        if duration:
+            payload["duration"] = duration
+        if elapsed_seconds is not None:
+            payload["elapsed_seconds"] = elapsed_seconds
+        await self.append_event(event_type="run_completed_meta", payload=payload)
+
     async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
         with self._lock:
             entries = self._read_entries(session_id)

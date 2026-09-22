@@ -118,6 +118,7 @@ Screen {
 .assistant-message {
     margin: 1 0 1 0;
     background: $background;
+    color: $foreground;
 }
 
 .thinking-status {
@@ -151,9 +152,17 @@ Screen {
     min-width: 100%;
     margin: 0;
     padding: 0;
+    padding-bottom: 0;
+    padding-left: 0;
     color: #5b9bd5;
     background: $background;
+    border: none;
+    border-top: none;
     pointer: pointer;
+}
+
+.reasoning-block:focus-within {
+    background: $background;
 }
 
 .reasoning-block > CollapsibleTitle {
@@ -165,29 +174,37 @@ Screen {
 }
 
 .reasoning-header {
-    width: 100%;
+    width: auto;
     height: 1;
     padding: 0 0 0 3;
-    background: $background;
+    background: transparent;
     pointer: pointer;
 }
 
 .reasoning-header:hover,
 .reasoning-header:focus {
-    background: $panel;
+    background: transparent;
+}
+
+.reasoning-header:hover .reasoning-label,
+.reasoning-header:hover .reasoning-status,
+.reasoning-header:focus .reasoning-label,
+.reasoning-header:focus .reasoning-status {
+    color: #8ab4cf;
+    text-style: bold;
 }
 
 .reasoning-label {
     width: auto;
     height: 1;
+    padding-right: 1;
     color: #5b9bd5;
     background: transparent;
 }
 
 .reasoning-status {
-    width: 1fr;
+    width: auto;
     height: 1;
-    padding-left: 1;
     color: #5b9bd5;
     text-align: left;
     background: transparent;
@@ -195,23 +212,18 @@ Screen {
 
 .reasoning-block.is-complete {
     opacity: 1;
+    margin-top: 1;
 }
 
 .reasoning-block.is-complete .reasoning-label,
-.reasoning-block.is-complete .reasoning-status,
-.reasoning-block.is-complete .tool-call-bracket,
-.reasoning-block.is-complete .tool-call-bracket-end {
-    opacity: 0.6;
+.reasoning-block.is-complete .reasoning-status {
+    opacity: 0.85;
 }
 
 .reasoning-block.is-complete:hover .reasoning-label,
 .reasoning-block.is-complete:hover .reasoning-status,
-.reasoning-block.is-complete:hover .tool-call-bracket,
-.reasoning-block.is-complete:hover .tool-call-bracket-end,
 .reasoning-block.is-complete:focus .reasoning-label,
-.reasoning-block.is-complete:focus .reasoning-status,
-.reasoning-block.is-complete:focus .tool-call-bracket,
-.reasoning-block.is-complete:focus .tool-call-bracket-end {
+.reasoning-block.is-complete:focus .reasoning-status {
     opacity: 1;
 }
 
@@ -251,11 +263,18 @@ tools = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    /* Terminal-cell margins add a full row, so keep timeline cards flush. */
     margin: 0;
     padding: 0;
+    padding-bottom: 0;
+    padding-left: 0;
     background: $background;
+    border: none;
+    border-top: none;
     pointer: pointer;
+}
+
+.tool-call:focus-within {
+    background: $background;
 }
 
 .tool-call > CollapsibleTitle {
@@ -271,73 +290,42 @@ tools = '''
 }
 
 .tool-call-header {
-    width: 100%;
-    height: 1;
-    padding: 0 0 0 3;
-    background: $background;
-    pointer: pointer;
-}
-
-.tool-call-bracket,
-.tool-call-bracket-end {
     width: auto;
     height: 1;
-    color: #7395ab;
+    padding: 0 0 0 3;
     background: transparent;
-}
-
-.tool-call-bracket {
-    padding-right: 1;
-}
-
-.tool-call-bracket-end {
-    padding-left: 1;
+    pointer: pointer;
 }
 
 .tool-call-header:hover,
 .tool-call-header:focus {
-    background: $panel;
-}
-
-.tool-call-label {
-    width: 13;
-    height: 1;
-    color: #666666;
     background: transparent;
 }
 
-.tool-call-command {
-    width: 1fr;
+.tool-call-header:hover .tool-call-label,
+.tool-call-header:focus .tool-call-label {
+    text-style: bold;
+}
+
+.tool-call-label {
+    width: auto;
     height: 1;
-    color: #c8c8c8;
+    color: #9aa7b2;
     background: transparent;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.tool-call-status {
-    width: 10;
-    height: 1;
-    padding-left: 2;
-    color: #666666;
-    text-align: right;
-    background: transparent;
-}
-
 .tool-call.status-preparing .tool-call-label,
-.tool-call.status-preparing .tool-call-status,
-.tool-call.status-running .tool-call-label,
-.tool-call.status-running .tool-call-status {
+.tool-call.status-running .tool-call-label {
     color: #d7a84b;
 }
 
-.tool-call.status-done .tool-call-label,
-.tool-call.status-done .tool-call-status {
+.tool-call.status-done .tool-call-label {
     color: #72a57a;
 }
 
-.tool-call.status-failed .tool-call-label,
-.tool-call.status-failed .tool-call-status {
+.tool-call.status-failed .tool-call-label {
     color: #d66b73;
 }
 
@@ -361,60 +349,48 @@ tools = '''
 
 .bash-tool {
     padding: 0;
+    padding-bottom: 0;
+    border: none;
+    border-top: none;
 }
 
 .bash-tool-header {
-    width: 100%;
+    width: auto;
     height: 1;
     padding: 0 0 0 3;
-    background: $background;
+    background: transparent;
     pointer: pointer;
 }
 
 .bash-tool-header:hover,
 .bash-tool-header:focus {
-    background: $panel;
-}
-
-.bash-tool-label {
-    width: 13;
-    height: 1;
-    color: #666666;
     background: transparent;
 }
 
-.bash-tool-command {
-    width: 1fr;
+.bash-tool-header:hover .bash-tool-label,
+.bash-tool-header:focus .bash-tool-label {
+    text-style: bold;
+}
+
+.bash-tool-label {
+    width: auto;
     height: 1;
-    color: #c8c8c8;
+    color: #9aa7b2;
     background: transparent;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.bash-tool-status {
-    width: 10;
-    height: 1;
-    padding-left: 2;
-    color: #666666;
-    text-align: right;
-    background: transparent;
-}
-
 .bash-tool.status-preparing .bash-tool-label,
-.bash-tool.status-preparing .bash-tool-status,
-.bash-tool.status-running .bash-tool-label,
-.bash-tool.status-running .bash-tool-status {
+.bash-tool.status-running .bash-tool-label {
     color: #d7a84b;
 }
 
-.bash-tool.status-done .bash-tool-label,
-.bash-tool.status-done .bash-tool-status {
+.bash-tool.status-done .bash-tool-label {
     color: #72a57a;
 }
 
-.bash-tool.status-failed .bash-tool-label,
-.bash-tool.status-failed .bash-tool-status {
+.bash-tool.status-failed .bash-tool-label {
     color: #d66b73;
 }
 
@@ -431,10 +407,12 @@ tools = '''
 }
 
 .diff-tool {
-    margin-top: 1;
-    margin-bottom: 1;
-    padding-bottom: 1;
+    margin: 0;
+    padding: 0;
+    padding-bottom: 0;
     background: $background;
+    border: none;
+    border-top: none;
 }
 
 /* Keep collapsed Update cards visually consistent with the timeline while
@@ -446,19 +424,19 @@ tools = '''
 
 .diff-tool .tool-call-header:hover,
 .diff-tool .tool-call-header:focus {
-    background: $panel;
+    background: transparent;
 }
 
 .tool-call-summary {
     width: 1fr;
     height: auto;
-    /* Separate a collected group from the preceding response by one row. */
     margin: 1 0 0 0;
     padding: 0 0 0 3;
     color: #a2adb8;
     background: transparent;
-    opacity: 0.6;
+    opacity: 0.72;
     pointer: pointer;
+    border: none;
 }
 
 .tool-call-summary:hover,
@@ -473,7 +451,7 @@ composer = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 0;
+    margin: 1 0 0 0;
     padding: 0 0 0 3;
     color: $muted;
 }

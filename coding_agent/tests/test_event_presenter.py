@@ -58,12 +58,13 @@ class RecordingView:
         self,
         call_id: str,
         *,
+        tool_name: str = "tool",
         arguments: Optional[Mapping[str, Any]] = None,
         raw_arguments: str = "",
         status: str = "preparing",
         result: Any = None,
     ) -> None:
-        del result
+        del result, tool_name
         self.tool_updates.append(f"{call_id}:{status}")
         self.tool_payloads.append((call_id, arguments, raw_arguments))
 
@@ -264,6 +265,23 @@ def test_delta_only_reasoning_fragments_are_accumulated() -> None:
     assert view.reasoning == [("Plan the change", True)]
 
 
+def test_partial_tool_argument_json_exposes_protocol_path() -> None:
+    scheduled: list = []
+    presenter, view, _chrome = _presenter(schedule=scheduled)
+    presenter.handle(
+        "tool_call_started",
+        {"tool_call_id": "read-1", "tool_name": "read_file"},
+    )
+    presenter.handle(
+        "tool_call_delta",
+        {"tool_call_id": "read-1", "delta": '{"path":"history.py"'},
+    )
+    scheduled[0]()
+    assert view.tool_payloads == [
+        ("read-1", {"path": "history.py"}, '{"path":"history.py"')
+    ]
+
+
 def test_tool_argument_deltas_coalesce_to_one_scheduled_paint() -> None:
     scheduled: list = []
     presenter, view, _chrome = _presenter(schedule=scheduled)
@@ -303,7 +321,7 @@ def test_tool_start_flushes_buffered_assistant_before_add_tool() -> None:
         {"tool_call_id": "read-1", "tool_name": "read_file"},
     )
     assert view.assistant == [("Hello world", True)]
-    assert view.tools == [("read-1", "read_file")]
+    assert view.tools == []
     assert view.finished_reasoning == 0
 
     # The deferred paint is now a no-op: the buffer was drained before add_tool.

@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 from coding_agent.evaluation.state import bound_text
 from coding_agent.persistence.collection import is_collected
 from coding_agent.tui.runtime.state import UiRunState
+from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
@@ -67,6 +68,24 @@ def _compact_tokens(value: int) -> str:
     return str(value)
 
 
+def _tool_arguments_from_protocol(raw: str) -> Optional[dict[str, Any]]:
+    """Read plain tool values from streamed protocol JSON, including partial blobs."""
+    if not raw:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, dict):
+        return decoded
+    arguments: dict[str, Any] = {}
+    for key in ("path", "command", "query", "pattern"):
+        match = re.search(rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"', raw)
+        if match:
+            arguments[key] = json.loads(f'"{match.group(1)}"')
+    return arguments or None
+
+
 def _duration(seconds: float) -> str:
     minutes, seconds = divmod(max(0, int(seconds)), 60)
     hours, minutes = divmod(minutes, 60)
@@ -114,6 +133,7 @@ class TranscriptView(Protocol):
         self,
         call_id: str,
         *,
+        tool_name: str = "tool",
         arguments: Optional[Mapping[str, Any]] = None,
         raw_arguments: str = "",
         status: str = "preparing",
@@ -197,7 +217,7 @@ class EventPresenter:
 
     def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         payload = payload or {}
-        if event_type == "collected" or is_collected(payload):
+        if event_type in {"collected", "run_completed_meta"} or is_collected(payload):
             # Mid-run work already folded into the completed-run collection.
             # Honour the sticky tag so resume cannot resurrect live cards.
             return
@@ -237,15 +257,22 @@ class EventPresenter:
             text, new = pending_assistant
             self.view.set_assistant(text, new=new)
         for call_id in pending_tools:
-            raw = "".join(self._tool_argument_chunks.get(call_id, ()))
-            arguments: Optional[dict[str, Any]] = None
-            try:
-                decoded = json.loads(raw)
-                if isinstance(decoded, dict):
-                    arguments = decoded
-            except json.JSONDecodeError:
-                pass
-            self.view.update_tool(call_id, arguments=arguments, raw_arguments=raw)
+            self._paint_pending_tool(call_id)
+
+    def _paint_pending_tool(self, call_id: str) -> None:
+        """Mount/update a buffered tool paint only when the real name is known."""
+        tool_name = self._tool_names.get(call_id)
+        if tool_name is None:
+            # Hold rather than flash a nameless "Tool" title.
+            self._pending_tool_paints[call_id] = None
+            return
+        raw = "".join(self._tool_argument_chunks.get(call_id, ()))
+        self.view.update_tool(
+            call_id,
+            tool_name=tool_name,
+            arguments=_tool_arguments_from_protocol(raw),
+            raw_arguments=raw,
+        )
 
     def _request_stream_flush(self) -> None:
         """Schedule one paint for all deltas received during this interval."""
@@ -314,10 +341,17 @@ class EventPresenter:
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
-        if self._started_ts is not None and payload.get("ts") is not None:
+        stored = payload.get("elapsed_seconds")
+        if isinstance(stored, (int, float)):
+            self._elapsed_seconds = max(0.0, float(stored))
+        elif self._started_ts is not None and payload.get("ts") is not None:
             self._elapsed_seconds = max(0.0, payload["ts"] - self._started_ts)
         elif self._started_at is not None:
             self._elapsed_seconds = max(0.0, time.monotonic() - self._started_at)
+        if self._elapsed_seconds is not None:
+            payload.setdefault("elapsed_seconds", self._elapsed_seconds)
+            payload.setdefault("duration", _duration(self._elapsed_seconds))
+        payload.setdefault("completion_verb", choose_completion_verb())
         usage = payload.get("usage") or {}
         context = payload.get("context") or {}
         if usage:
@@ -333,7 +367,10 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "ready"
         completed = self._completed_text()
-        elapsed = _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
+        elapsed = str(payload.get("duration") or "") or (
+            _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
+        )
+        verb = str(payload.get("completion_verb") or choose_completion_verb())
         final_output = str(payload.get("output_text") or "")
         # The folded top summary should only identify the completed run and
         # its duration. Keep token and call metrics in the completion row.
@@ -351,6 +388,7 @@ class EventPresenter:
                 completed,
                 collapse=True,
                 add_completion=True,
+                verb=verb,
                 duration=elapsed,
             )
         except TypeError:
@@ -524,7 +562,8 @@ class EventPresenter:
         self._tool_argument_tails[call_id] = ""
         self.state.phase = "tool"
         self.state.detail = f"preparing {name}"
-        self.view.add_tool(call_id, name)
+        # Do not mount an empty widget yet. The authoritative tool name and
+        # complete arguments arrive with tool_execution_started.
 
     def _on_tool_call_delta(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
@@ -540,19 +579,29 @@ class EventPresenter:
         call_id = str(payload.get("tool_call_id") or "tool")
         self._tool_executions.add(call_id)
         name = str(payload.get("tool_name") or self._tool_names.get(call_id, "tool"))
-        if call_id not in self._tool_names:
-            self._tool_names[call_id] = name
-            self.view.add_tool(call_id, name)
+        # Always stamp and mount with the real name. `_tool_names` means
+        # "name known", not "widget already mounted".
+        self._tool_names[call_id] = name
         self.state.phase = "tool"
         self.state.detail = f"running {name}"
-        self.view.update_tool(call_id, arguments=payload.get("arguments") or {}, status="running")
+        self.view.update_tool(
+            call_id,
+            tool_name=name,
+            arguments=payload.get("arguments") or {},
+            status="running",
+        )
 
     def _on_tool_execution_completed(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
         self.state.phase = "thinking"
         self.state.detail = f"finished {payload.get('tool_name') or 'tool'}"
         status = "failed" if payload.get("status") in {"error", "cancelled", "timeout"} else "done"
-        self.view.update_tool(call_id, status=status, result=payload.get("result", ""))
+        self.view.update_tool(
+            call_id,
+            tool_name=str(payload.get("tool_name") or self._tool_names.get(call_id, "tool")),
+            status=status,
+            result=payload.get("result", ""),
+        )
         self._tool_argument_chunks.pop(call_id, None)
         self._tool_argument_tails.pop(call_id, None)
 

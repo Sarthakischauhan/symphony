@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any, Mapping
+
+from rich.markup import escape
 
 from coding_agent.tui.transcript.messages import clip_text, compact_json
 
@@ -11,7 +15,7 @@ TOOL_LABELS = {
     "search": ("Search", "⌕"),
     "write_file": ("Write", "+"),
     "generate_image": ("Image", "└"),
-    "patch": ("Edit", "±"),
+    "patch": ("Update", "±"),
     "read_file": ("Read", "└"),
 }
 
@@ -31,13 +35,44 @@ def tool_detail(
     if tool_name == "search":
         return str(args.get("query") or args.get("pattern") or compact_json(args))
     if tool_name in {"write_file", "patch", "generate_image", "read_file"}:
-        return str(args.get("path") or compact_json(args))
+        path = str(args.get("path") or "")
+        if path:
+            return path
+        return compact_json(args) or raw_arguments
     return compact_json(args) or raw_arguments
 
 
 def header_command(reason: str, summary: str, limit: int) -> str:
-    """Live-card command column: activity reason when labeled, else the tool detail."""
-    return clip_text(reason, limit) if reason else summary
+    """Live-card detail: the file or command, not the activity reason."""
+    del reason
+    return summary
+
+
+def tool_header_text(label: str, target: str, status: str) -> str:
+    """Render markup with status color on the tool name and muted target."""
+    color = {
+        "preparing": "#d7a84b",
+        "running": "#d7a84b",
+        "done": "#72a57a",
+        "failed": "#d66b73",
+    }.get(status, "#9aa7b2")
+    head = f"[bold {color}]{escape(label)}[/bold {color}]"
+    if not target:
+        return head
+    return f"{head} [#9aa7b2]{escape(target)}[/#9aa7b2]"
+
+
+def header_target(summary: str) -> str:
+    """Show the protocol value beside the verb: path, command, or query."""
+    text = summary.strip()
+    if not text:
+        return ""
+    head, _, rest = text.partition(" ")
+    if "/" in head or head.startswith(("~", ".")):
+        leaf = head.replace("\\", "/").rstrip("/").split("/")[-1].strip()
+        if leaf:
+            return f"{leaf} {rest}".strip() if rest else leaf
+    return text
 
 
 def result_preview(tool_name: str, result: str) -> str:
@@ -51,7 +86,11 @@ def result_preview(tool_name: str, result: str) -> str:
 def read_file_detail(arguments: Mapping[str, Any], raw_arguments: str) -> str:
     path = arguments.get("path")
     if not path:
-        return raw_arguments
+        match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', raw_arguments or "")
+        if match:
+            path = json.loads(f'"{match.group(1)}"')
+        else:
+            return raw_arguments
     offset = int(arguments.get("offset") or 1)
     limit = int(arguments.get("limit") or 0)
     if offset == 1 and not limit:

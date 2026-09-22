@@ -82,6 +82,16 @@ class TurnSurface:
             return
 
         async def _persist() -> None:
+            annotate = getattr(store, "annotate_run_completed", None)
+            if callable(annotate):
+                elapsed = payload.get("elapsed_seconds")
+                await annotate(
+                    session_id=session_id,
+                    run_id=run_id,
+                    completion_verb=str(payload.get("completion_verb") or ""),
+                    duration=str(payload.get("duration") or ""),
+                    elapsed_seconds=float(elapsed) if isinstance(elapsed, (int, float)) else None,
+                )
             await collect(session_id=session_id, run_id=run_id or None)
 
         self.run_worker(_persist, exclusive=False, group="collect_run_events")

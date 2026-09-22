@@ -70,6 +70,7 @@ class CoreHarness:
         self.max_spawn_depth = self.config.max_spawn_depth
         self._active_run_id: Optional[str] = None
         self._active_session_id: Optional[str] = None
+        self._active_run_started_ts: Optional[float] = None
         self._event_seq = 0
         self.child_tasks: Dict[str, Any] = {}
         self._child_results: List[Message] = []
@@ -129,6 +130,7 @@ class CoreHarness:
     def _set_active_identity(self, run_id: str, session_id: str) -> None:
         self._active_run_id = run_id
         self._active_session_id = session_id
+        self._active_run_started_ts = None
         self._event_seq = 0
 
     def _ensure_identity(self) -> None:
@@ -157,6 +159,12 @@ class CoreHarness:
             "agent_id": self.agent_id,
             "parent_id": self.parent_id,
         }
+        if event_name == "run_started":
+            self._active_run_started_ts = stamped["ts"]
+        elif event_name == "run_completed" and "elapsed_seconds" not in stamped:
+            started = self._active_run_started_ts
+            if isinstance(started, (int, float)):
+                stamped["elapsed_seconds"] = max(0.0, stamped["ts"] - float(started))
         await self.persistence.append_event(event_type=event_name, payload=stamped)
         await self.sink.emit(event_name, stamped)
 
