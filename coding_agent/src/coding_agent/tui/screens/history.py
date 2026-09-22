@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
 from coding_agent.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
+from coding_agent.tui.runtime.events import _duration
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.tools.snapshots import (
@@ -63,8 +64,10 @@ def _history_widgets(
 
     restored: list[Any] = []
     pending: dict[str, dict[str, Any]] = {}
-    batch: list[ToolCallSnapshot] = []
+    batch: list[ToolCallSnapshot | ThoughtSnapshot] = []
+    thoughts = _thoughts_from_events(events or [])
     collect_mid_run = _has_collected_mid_run(events or [])
+    run_durations = _run_durations_from_events(events or [])
     current_run: list[Any] = []
     collecting = False
 
@@ -78,14 +81,19 @@ def _history_widgets(
             restored.append(summary)
         batch.clear()
 
-    def add_snapshot(snapshot: ToolCallSnapshot) -> None:
+    def add_snapshot(snapshot: ToolCallSnapshot | ThoughtSnapshot) -> None:
         batch.append(snapshot)
 
     def flush_run() -> None:
         nonlocal collecting
         flush_batch()
         if current_run:
-            restored.extend(_fold_collected_run(current_run))
+            restored.extend(
+                _fold_collected_run(
+                    current_run,
+                    duration=run_durations.pop(0) if run_durations else "",
+                )
+            )
             current_run.clear()
         collecting = False
 
@@ -108,7 +116,9 @@ def _history_widgets(
             content = text_from_content(message.content)
             if content:
                 flush_batch()
-                add_visible(AssistantMessage(content, enter=False))
+                add_visible(AssistantMessage(content, streaming=False, enter=False))
+            if thoughts:
+                add_snapshot(thoughts.pop(0))
             for call in message.tool_calls or []:
                 fields = _call_fields(call)
                 pending[str(fields["call_id"])] = fields
@@ -131,8 +141,29 @@ def _history_widgets(
 
     for fields in pending.values():
         add_snapshot(snapshot_from_call(**fields, status="done"))
+    for leftover in thoughts:
+        add_snapshot(leftover)
     flush_run()
     return restored
+
+
+def _thoughts_from_events(events: list[tuple[str, dict[str, Any]]]) -> list[ThoughtSnapshot]:
+    """Restore completed thoughts from persisted events when they exist.
+
+    Live reasoning deltas are skipped by session persistence, so this only
+    reconstructs compact snapshots from completed thought payloads. History
+    never remounts live ReasoningWidget cards.
+    """
+    thoughts: list[ThoughtSnapshot] = []
+    for event_type, payload in events:
+        if event_type not in {"reasoning_completed", "thought_completed"}:
+            continue
+        content = str(payload.get("text") or payload.get("content") or "").strip()
+        if not content:
+            continue
+        title = str(payload.get("title") or "Thought").strip() or "Thought"
+        thoughts.append(ThoughtSnapshot(title=title, content=content))
+    return thoughts
 
 
 def _has_collected_mid_run(events: list[tuple[str, dict[str, Any]]]) -> bool:
@@ -142,11 +173,43 @@ def _has_collected_mid_run(events: list[tuple[str, dict[str, Any]]]) -> bool:
     )
 
 
-def _fold_collected_run(items: list[Any]) -> list[Any]:
+def _run_durations_from_events(events: list[tuple[str, dict[str, Any]]]) -> list[str]:
+    """Restore completed-run durations from persisted timestamps or elapsed seconds."""
+    durations: list[str] = []
+    started: dict[str, float] = {}
+    fallback_started: float | None = None
+    for event_type, payload in events:
+        run_id = str(payload.get("run_id") or "")
+        if event_type == "run_started":
+            ts = payload.get("ts")
+            if isinstance(ts, (int, float)):
+                if run_id:
+                    started[run_id] = float(ts)
+                else:
+                    fallback_started = float(ts)
+            continue
+        if event_type != "run_completed":
+            continue
+        explicit = str(payload.get("duration") or "").strip()
+        if explicit:
+            durations.append(explicit)
+            continue
+        stored = payload.get("elapsed_seconds")
+        if isinstance(stored, (int, float)):
+            durations.append(_duration(float(stored)))
+            continue
+        start = started.get(run_id, fallback_started)
+        end = payload.get("ts")
+        if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+            durations.append(_duration(max(0.0, float(end) - float(start))))
+    return durations
+
+
+def _fold_collected_run(items: list[Any], *, duration: str = "") -> list[Any]:
     """Fold mid-run history into a completed-run collection, keep the final reply."""
     from coding_agent.tui.transcript import AssistantMessage
 
-    summary = CompletedRunSummary(verb=choose_completion_verb())
+    summary = CompletedRunSummary(verb=choose_completion_verb(), duration=duration)
     assistants: list[Any] = []
     for item in items:
         if isinstance(item, AssistantMessage):

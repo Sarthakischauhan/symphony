@@ -187,8 +187,8 @@ def test_lone_completed_thought_stays_as_thought() -> None:
 
     assert thought in timeline
     assert _summaries(timeline) == []
-    assert thought.title.startswith("[ Thought for ")
-    assert thought.title.endswith("s ]")
+    assert thought.title.startswith("Thought ")
+    assert thought.title.endswith("s")
 
 
 def test_multiple_completed_thoughts_fold_into_explored() -> None:
@@ -344,7 +344,7 @@ def test_tool_call_summary_line_uses_subtle_explored_and_muted_count() -> None:
     summary.add_call("read-0")
     summary.add_call("read-1")
     assert summary.title == "Explored · 2 tools"
-    assert summary.render().plain == "[ Explored · 2 tools ]"
+    assert summary.render().plain == "Explored · 2 tools"
 
 
 def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
@@ -358,9 +358,38 @@ def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
     summary.toggle()
 
     rendered = summary.render().plain
-    assert rendered.startswith("[ Explored · 1 tool ]")
-    assert "  Read  src/app.py" in rendered
+    assert rendered.startswith("Explored · 1 tool")
+    assert "Read app.py" in rendered
     assert "Read 2 lines (17 bytes)" not in rendered
+
+
+def test_patch_header_recovers_path_when_arguments_are_missing() -> None:
+    widget = make_tool_widget("patch-empty", "patch")
+    widget.set_arguments({})
+    widget.set_running({})
+    widget.set_result("patched src/coding_agent/tui/screens/history.py (1 replacement(s), +0 -1)")
+
+    assert "history.py" in widget._summary()
+    assert widget._header_values is not None
+    assert widget._header_values[0] == "Update"
+    assert "history.py" in widget._header_values[1]
+
+
+def test_patch_snapshot_keeps_update_target_and_stats() -> None:
+    widget = make_tool_widget("patch-1", "patch")
+    widget.set_arguments({
+        "path": "src/labels.py",
+        "old_str": "old\\n",
+        "new_str": "new\\n",
+    })
+    widget.set_result("patched src/labels.py (1 replacement(s), +4 bytes)")
+    summary = ToolCallSummary()
+    summary.add_call(widget)
+    summary.toggle()
+
+    rendered = summary.render().plain
+    assert "Update labels.py +1 -1" in rendered
+    assert "Update\\n" not in rendered
 
 
 def test_tool_call_summary_keeps_snapshots_of_folded_tools() -> None:
@@ -432,8 +461,8 @@ def test_interrupted_completed_thought_is_compacted_but_live_thought_remains() -
     assert len(summaries) == 1
     assert summaries[0].title == "Explored · 1 tool"
     assert summaries[0].call_ids == ["read"]
-    assert thought.title.startswith("[ Thought for ")
-    assert thought.title.endswith("s ]")
+    assert thought.title.startswith("Thought ")
+    assert thought.title.endswith("s")
 
 
 def test_finalization_keeps_a_lone_thought() -> None:
@@ -445,8 +474,8 @@ def test_finalization_keeps_a_lone_thought() -> None:
 
     assert thought in timeline
     assert _summaries(timeline) == []
-    assert thought.title.startswith("[ Thought for ")
-    assert thought.title.endswith("s ]")
+    assert thought.title.startswith("Thought ")
+    assert thought.title.endswith("s")
 
 
 def test_assistant_message_is_plain_text_without_agent_chrome() -> None:
@@ -507,12 +536,12 @@ def test_activity_reason_labels_live_tool_and_folded_summary() -> None:
     assert widget.arguments == {"path": "src/app.py"}
     assert widget.activity_reason == "Trace the task UI"
     assert widget.activity_group == "task-ui"
-    assert widget._header_values == ("Read", "Trace the task UI", "preparing")
+    assert widget._header_values == ("Read", "app.py", "preparing")
 
     widget.status = "done"
     summary = ToolCallSummary((widget.snapshot(),))
     assert summary.title == "Trace the task UI · 1 tool"
-    assert summary.render().plain == "[ Trace the task UI · 1 tool ]"
+    assert summary.render().plain == "Trace the task UI · 1 tool"
 
 
 def test_flattened_activity_aliases_are_accepted_and_stripped() -> None:
@@ -629,15 +658,15 @@ def test_explored_title_appends_duration_only_when_verb_is_set() -> None:
 
 def test_thought_snapshot_keeps_collapsed_preview() -> None:
     summary = ToolCallSummary()
-    summary.add_thought("[ Thought for Inspecting files ]", "Private reasoning body")
+    summary.add_thought("Thought Inspecting files", "Private reasoning body")
 
     collapsed = summary.render().plain
     assert "Private reasoning body" in collapsed
-    assert "[ Thought for Inspecting files ]" not in collapsed
+    assert "Thought Inspecting files" not in collapsed
 
     summary.toggle()
     expanded = summary.render().plain
-    assert "[ Thought for Inspecting files ]" in expanded
+    assert "Thought Inspecting files" in expanded
     assert "Private reasoning body" in expanded
 
 

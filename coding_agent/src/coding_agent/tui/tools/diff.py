@@ -33,4 +33,4 @@ def patch_summary(path: str, diff: list[str]) -> str:
         return path
     additions, deletions = diff_stats(diff)
     stats = f"+{additions} -{deletions}"
-    return f"{path}  {stats}" if path else stats
+    return f"{path} {stats}" if path else stats

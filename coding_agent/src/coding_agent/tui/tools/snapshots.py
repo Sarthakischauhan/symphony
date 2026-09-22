@@ -19,7 +19,7 @@ from coding_agent.tui.tools.activity import (
     parse_activity,
     same_activity_group,
 )
-from coding_agent.tui.tools.labels import tool_detail, tool_label
+from coding_agent.tui.tools.labels import header_target, tool_detail, tool_label
 from coding_agent.tui.transcript.messages import clip_text
 
 
@@ -87,13 +87,18 @@ def snapshot_from_call(
 class ToolCallSummary(Static, can_focus=True):
     """A compact disclosure containing non-interactive tool snapshots."""
 
-    def __init__(self, calls: Sequence[ToolCallSnapshot] | None = None) -> None:
+    def __init__(
+        self, calls: Sequence[ToolCallSnapshot | ThoughtSnapshot] | None = None
+    ) -> None:
         self.calls: list[ToolCallSnapshot] = []
         self.entries: list[ToolCallSnapshot | ThoughtSnapshot] = []
         self.is_expanded = False
         super().__init__(classes="tool-call-summary", markup=False)
         for call in calls or ():
-            self.add_call(call, layout=False)
+            if isinstance(call, ThoughtSnapshot):
+                self.add_thought(call.title, call.content, layout=False)
+            else:
+                self.add_call(call, layout=False)
         self.title = self._summary_title()
 
     def on_mount(self) -> None:
@@ -118,7 +123,6 @@ class ToolCallSummary(Static, can_focus=True):
         activity = explored_activity(self.calls)
         heading = activity.verb or activity.reason or "Explored"
         text = Text()
-        text.append("[ ", style="#7395ab")
         text.append(clip_text(heading, 96), style="bold #8ab4cf")
         duration = format_explored_duration(self.calls)
         timing = f" for {duration}" if duration else ""
@@ -129,31 +133,33 @@ class ToolCallSummary(Static, can_focus=True):
         failed = sum(call.status == "failed" for call in self.calls)
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")
-        header_length = len(text.plain)
-        gap = max(1, self.content_size.width - header_length - 1)
-        text.append(f"{' ' * gap}]", style="#7395ab")
         if not self.is_expanded:
             thought = next(
                 (entry for entry in self.entries if isinstance(entry, ThoughtSnapshot)),
                 None,
             )
             if thought is not None and thought.content:
-                preview = clip_text(" ".join(thought.content.split()), 180)
+                preview = clip_text(" ".join(thought.content.split()), 96)
                 text.append(f"\n  {preview}", style="#858585")
             return text
         for call in self.entries:
             if isinstance(call, ThoughtSnapshot):
-                text.append(f"\n  {call.title}", style="#969696")
+                text.append(f"\n  {call.title}", style="bold #8ab4cf")
                 if call.content:
-                    text.append(f"\n     {call.content}", style="#858585")
+                    preview = clip_text(" ".join(call.content.split()), 220)
+                    text.append(f"\n     {preview}", style="#858585")
                 continue
             text.append("\n")
-            color = "#d66b73" if call.status == "failed" else "#b8c7d4"
-            text.append("  ", style=color)
-            text.append(call.label, style="bold #b8c7d4")
-            if call.detail:
-                text.append(f"  {call.detail}", style="#a2adb8")
+            self._append_tool_line(text, call)
         return text
+
+    @staticmethod
+    def _append_tool_line(text: Text, call: ToolCallSnapshot) -> None:
+        color = "#d66b73" if call.status == "failed" else "#72a57a"
+        text.append(f"  {call.label}", style=f"bold {color}")
+        target = header_target(call.detail)
+        if target:
+            text.append(f" {target}", style="#9aa7b2")
 
     @property
     def call_ids(self) -> list[str]:
@@ -254,14 +260,11 @@ class CompletedRunSummary(ToolCallSummary):
             return text
         for call in self.entries:
             if isinstance(call, ThoughtSnapshot):
-                text.append(f"\n  {call.title}", style="#969696")
+                text.append(f"\n  {call.title}", style="bold #8ab4cf")
                 if call.content:
-                    text.append(f"\n     {call.content}", style="#858585")
+                    preview = clip_text(" ".join(call.content.split()), 220)
+                    text.append(f"\n     {preview}", style="#858585")
                 continue
             text.append("\n")
-            color = "#d66b73" if call.status == "failed" else "#b8c7d4"
-            text.append("  ", style=color)
-            text.append(call.label, style="bold #b8c7d4")
-            if call.detail:
-                text.append(f"  {call.detail}", style="#a2adb8")
+            self._append_tool_line(text, call)
         return text

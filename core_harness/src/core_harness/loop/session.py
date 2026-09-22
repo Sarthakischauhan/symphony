@@ -146,11 +146,13 @@ async def run_session(
                     status="completed",
                     metadata={"output_text": result.assistant_text, "run_id": run_id},
                 )
+                elapsed_seconds = max(0.0, time.monotonic() - started_at)
                 await harness.emit(
                     "run_completed",
                     {
                         "turn": turn,
                         "output_text": result.assistant_text,
+                        "elapsed_seconds": elapsed_seconds,
                         "usage": usage.model_dump(),
                         "context": {
                             "context_limit": context_limit,

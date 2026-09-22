@@ -314,10 +314,16 @@ class EventPresenter:
 
     def _on_run_completed(self, payload: Dict[str, Any]) -> None:
         self._finish_reasoning()
-        if self._started_ts is not None and payload.get("ts") is not None:
+        stored = payload.get("elapsed_seconds")
+        if isinstance(stored, (int, float)):
+            self._elapsed_seconds = max(0.0, float(stored))
+        elif self._started_ts is not None and payload.get("ts") is not None:
             self._elapsed_seconds = max(0.0, payload["ts"] - self._started_ts)
         elif self._started_at is not None:
             self._elapsed_seconds = max(0.0, time.monotonic() - self._started_at)
+        if self._elapsed_seconds is not None:
+            payload["elapsed_seconds"] = self._elapsed_seconds
+            payload["duration"] = _duration(self._elapsed_seconds)
         usage = payload.get("usage") or {}
         context = payload.get("context") or {}
         if usage:
