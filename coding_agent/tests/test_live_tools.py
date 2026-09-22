@@ -347,6 +347,18 @@ def test_tool_call_summary_line_uses_subtle_explored_and_muted_count() -> None:
     assert summary.render().plain == "Explored · 2 tools"
 
 
+def test_read_header_uses_protocol_path_without_slash() -> None:
+    widget = make_tool_widget("read-1", "read_file")
+    widget.set_arguments({"path": "history.py"})
+    widget.refresh_content()
+    assert widget._header_values == ("Read", "history.py", "preparing")
+
+    widget.set_arguments({}, '{"path":"labels.py"')
+    widget.refresh_content()
+    assert widget._header_values is not None
+    assert widget._header_values[1] == "labels.py"
+
+
 def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
     widget = make_tool_widget("read-1", "read_file")
     widget.set_arguments({"path": "src/app.py"})

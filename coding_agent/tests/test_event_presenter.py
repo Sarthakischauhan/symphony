@@ -264,6 +264,23 @@ def test_delta_only_reasoning_fragments_are_accumulated() -> None:
     assert view.reasoning == [("Plan the change", True)]
 
 
+def test_partial_tool_argument_json_exposes_protocol_path() -> None:
+    scheduled: list = []
+    presenter, view, _chrome = _presenter(schedule=scheduled)
+    presenter.handle(
+        "tool_call_started",
+        {"tool_call_id": "read-1", "tool_name": "read_file"},
+    )
+    presenter.handle(
+        "tool_call_delta",
+        {"tool_call_id": "read-1", "delta": '{"path":"history.py"'},
+    )
+    scheduled[0]()
+    assert view.tool_payloads == [
+        ("read-1", {"path": "history.py"}, '{"path":"history.py"')
+    ]
+
+
 def test_tool_argument_deltas_coalesce_to_one_scheduled_paint() -> None:
     scheduled: list = []
     presenter, view, _chrome = _presenter(schedule=scheduled)

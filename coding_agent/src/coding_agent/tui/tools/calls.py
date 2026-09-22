@@ -194,7 +194,7 @@ class ToolCallWidget(Collapsible):
         self._styled_status = self.status
 
     def _refresh_header(self, label: str, summary: str) -> None:
-        target = header_target(summary)
+        target = header_target(summary) or summary.strip()
         values = (label, target, self.status)
         if values == self._header_values:
             return

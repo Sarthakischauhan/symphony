@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any, Mapping
 
 from rich.markup import escape
@@ -61,20 +63,15 @@ def tool_header_text(label: str, target: str, status: str) -> str:
 
 
 def header_target(summary: str) -> str:
-    """Short name shown beside the verb: a file name, or the detail itself."""
+    """Show the protocol value beside the verb: path, command, or query."""
     text = summary.strip()
     if not text:
         return ""
-    # Paths stay as the leaf name so the row reads "Read file_name".
-    # Commands and queries that merely contain a slash stay intact.
     head, _, rest = text.partition(" ")
-    if head.startswith(("/", "~", "./", "../")) or (
-        "/" in head and not head.startswith("-")
-    ):
+    if "/" in head or head.startswith(("~", ".")):
         leaf = head.replace("\\", "/").rstrip("/").split("/")[-1].strip()
-        if not leaf:
-            return text
-        return f"{leaf} {rest}".strip() if rest else leaf
+        if leaf:
+            return f"{leaf} {rest}".strip() if rest else leaf
     return text
 
 
@@ -89,7 +86,11 @@ def result_preview(tool_name: str, result: str) -> str:
 def read_file_detail(arguments: Mapping[str, Any], raw_arguments: str) -> str:
     path = arguments.get("path")
     if not path:
-        return raw_arguments
+        match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', raw_arguments or "")
+        if match:
+            path = json.loads(f'"{match.group(1)}"')
+        else:
+            return raw_arguments
     offset = int(arguments.get("offset") or 1)
     limit = int(arguments.get("limit") or 0)
     if offset == 1 and not limit:

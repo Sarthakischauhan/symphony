@@ -157,7 +157,7 @@ class ToolCallSummary(Static, can_focus=True):
     def _append_tool_line(text: Text, call: ToolCallSnapshot) -> None:
         color = "#d66b73" if call.status == "failed" else "#72a57a"
         text.append(f"  {call.label}", style=f"bold {color}")
-        target = header_target(call.detail)
+        target = header_target(call.detail) or call.detail.strip()
         if target:
             text.append(f" {target}", style="#9aa7b2")
 

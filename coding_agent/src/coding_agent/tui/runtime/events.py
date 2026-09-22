@@ -67,6 +67,24 @@ def _compact_tokens(value: int) -> str:
     return str(value)
 
 
+def _tool_arguments_from_protocol(raw: str) -> Optional[dict[str, Any]]:
+    """Read plain tool values from streamed protocol JSON, including partial blobs."""
+    if not raw:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, dict):
+        return decoded
+    arguments: dict[str, Any] = {}
+    for key in ("path", "command", "query", "pattern"):
+        match = re.search(rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"', raw)
+        if match:
+            arguments[key] = json.loads(f'"{match.group(1)}"')
+    return arguments or None
+
+
 def _duration(seconds: float) -> str:
     minutes, seconds = divmod(max(0, int(seconds)), 60)
     hours, minutes = divmod(minutes, 60)
@@ -238,14 +256,11 @@ class EventPresenter:
             self.view.set_assistant(text, new=new)
         for call_id in pending_tools:
             raw = "".join(self._tool_argument_chunks.get(call_id, ()))
-            arguments: Optional[dict[str, Any]] = None
-            try:
-                decoded = json.loads(raw)
-                if isinstance(decoded, dict):
-                    arguments = decoded
-            except json.JSONDecodeError:
-                pass
-            self.view.update_tool(call_id, arguments=arguments, raw_arguments=raw)
+            self.view.update_tool(
+                call_id,
+                arguments=_tool_arguments_from_protocol(raw),
+                raw_arguments=raw,
+            )
 
     def _request_stream_flush(self) -> None:
         """Schedule one paint for all deltas received during this interval."""
