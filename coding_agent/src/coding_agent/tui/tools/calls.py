@@ -31,7 +31,7 @@ from coding_agent.tui.tools.labels import (
     tool_label,
 )
 from coding_agent.tui.tools.snapshots import ToolCallSnapshot
-from coding_agent.tui.transcript.messages import clip_text
+from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
 
 IMAGE_CHIP = "[Image 1]"
 
@@ -88,7 +88,7 @@ class ToolCallWidget(Collapsible):
         enter_row(self, duration=0.14)
 
     def _make_body(self) -> Static:
-        return Static(markup=False)
+        return SelectableStatic(markup=False)
 
     def compose(self):  # type: ignore[no-untyped-def]
         # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;

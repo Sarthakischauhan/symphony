@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from rich.align import Align
 from rich.console import Group
+from rich.segment import Segment
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
@@ -53,9 +54,8 @@ class SelectableStatic(Static):
         self._render_cache_content = super()._render_content()
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
-        # Static's default implementation cannot extract from Group/Table/Markdown.
-        # The compositor has already rendered the exact wrapped lines, so use those
-        # strips rather than re-rendering with a potentially different width.
+        # Extract from the exact rendered strips so Rich renderables (Markdown,
+        # Groups, Tables, and other non-Text visuals) are selectable too.
         if self._dirty_regions:
             self._render_content()
         lines = [line.text.rstrip() for line in self._render_cache.lines]
@@ -64,6 +64,28 @@ class SelectableStatic(Static):
     def render_line(self, y: int) -> Strip:
         """Attach Textual's selection offsets to every rendered cell."""
         line = super().render_line(y)
+        selection = self.text_selection
+        if selection is not None and (span := selection.get_span(y)) is not None:
+            # RichVisual ignores Textual's selection render options. Paint the
+            # selected characters ourselves, without modifying cached strips.
+            start, end = span
+            if end == -1:
+                end = len(line.text)
+            highlight = Style(bgcolor="#3a3a3a")
+            segments = []
+            offset = 0
+            for segment in line:
+                text, style, control = segment
+                left = max(0, min(len(text), start - offset))
+                right = max(left, min(len(text), end - offset))
+                if left:
+                    segments.append(Segment(text[:left], style, control))
+                if right > left:
+                    segments.append(Segment(text[left:right], (style or Style()) + highlight, control))
+                if right < len(text):
+                    segments.append(Segment(text[right:], style, control))
+                offset += len(text)
+            line = Strip(segments, line.cell_length)
         return line.apply_offsets(0, y)
 
 
