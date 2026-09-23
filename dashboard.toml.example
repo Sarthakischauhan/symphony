@@ -1,0 +1,9 @@
+# Copy this file to dashboard.toml in your workspace to customize the start screen.
+# Alternatively, use .symphony/dashboard.toml.
+title = "Symphony"
+agent = "Coding agent"
+art = [
+  "   ╭──────────────────╮",
+  "   │   SYMPHONY       │",
+  "   ╰──────────────────╯",
+]

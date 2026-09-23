@@ -7,7 +7,6 @@ from typing import Any, Mapping, Sequence
 
 from rich.text import Text
 from textual import events
-from textual.widgets import Static
 
 from coding_agent.tui.motion import settle_row
 from coding_agent.tui.tools.activity import (
@@ -20,7 +19,7 @@ from coding_agent.tui.tools.activity import (
     same_activity_group,
 )
 from coding_agent.tui.tools.labels import header_target, tool_detail, tool_label
-from coding_agent.tui.transcript.messages import clip_text
+from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
 
 
 @dataclass(frozen=True)
@@ -84,7 +83,7 @@ def snapshot_from_call(
     )
 
 
-class ToolCallSummary(Static, can_focus=True):
+class ToolCallSummary(SelectableStatic, can_focus=True):
     """A compact disclosure containing non-interactive tool snapshots."""
 
     def __init__(

@@ -56,10 +56,10 @@ def tool_header_text(label: str, target: str, status: str) -> str:
         "done": "#72a57a",
         "failed": "#d66b73",
     }.get(status, "#9aa7b2")
-    head = f"[bold {color}]{escape(label)}[/bold {color}]"
+    head = f"[bold {color}]{escape(label)}[/bold]"
     if not target:
         return head
-    return f"{head} [#9aa7b2]{escape(target)}[/#9aa7b2]"
+    return f"{head} [#9aa7b2]{escape(target)}[/]"
 
 
 def header_target(summary: str) -> str:

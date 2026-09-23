@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from rich.align import Align
 from rich.console import Group
 from rich.style import Style
 from rich.table import Table
@@ -24,7 +26,7 @@ USER_PROMPT_GLYPH = ">"
 USER_PROMPT_GUTTER = 3
 
 
-class _SelectableStatic(Static):
+class SelectableStatic(Static):
     """Static widget that reuses a completed render and supports text selection."""
 
     ALLOW_SELECT = True
@@ -87,25 +89,34 @@ def preview_text(value: Any, limit: int = 180) -> str:
 
 class Welcome(Static):
     def __init__(self, workspace: Path) -> None:
-        body = Group(
-            Text("Symphony", style="bold " + SYMPHONY_COLORS["foreground"]),
-            Text("Coding agent", style=SYMPHONY_COLORS["muted"]),
-            Text(""),
-            Text(f"  {workspace}", style=SYMPHONY_COLORS["muted_dim"]),
-            Text(""),
-            Text(
-                "Describe a task, ask a question, or request a code change.",
-                style=SYMPHONY_COLORS["muted"],
-            ),
-            Text(
-                "Ctrl+↵ sends  ·  Enter adds a line  ·  Tab switches mode  ·  "
-                "Esc cancels a run  ·  Ctrl+D quits  ·  Ctrl+L clears",
-                style=SYMPHONY_COLORS["muted_dim"],
-            ),
-        )
+        config = workspace / ".symphony" / "dashboard.toml"
+        if not config.is_file():
+            config = workspace / "dashboard.toml"
+        settings: dict[str, Any] = {}
+        try:
+            with config.open("rb") as stream:
+                settings = tomllib.load(stream)
+        except (OSError, tomllib.TOMLDecodeError):
+            pass
+
+        art = settings.get("art", [
+            " ███████╗██╗   ██╗███╗   ███╗██████╗ ██╗  ██╗ ██████╗ ███╗   ██╗██╗   ██╗",
+            " ██╔════╝╚██╗ ██╔╝████╗ ████║██╔══██╗██║  ██║██╔═══██╗████╗  ██║╚██╗ ██╔╝",
+            " ███████╗ ╚████╔╝ ██╔████╔██║██████╔╝███████║██║   ██║██╔██╗ ██║ ╚████╔╝ ",
+            " ╚════██║  ╚██╔╝  ██║╚██╔╝██║██╔═══╝ ██╔══██║██║   ██║██║╚██╗██║  ╚██╔╝  ",
+            " ███████║   ██║   ██║ ╚═╝ ██║██║     ██║  ██║╚██████╔╝██║ ╚████║   ██║   ",
+            " ╚══════╝   ╚═╝   ╚═╝     ╚═╝╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ",
+        ])
+        if not isinstance(art, list) or not all(isinstance(line, str) for line in art):
+            art = []
+        lines = [
+            *(Text(line, style=SYMPHONY_COLORS["accent"]) for line in art),
+            Text(str(workspace), style=SYMPHONY_COLORS["muted_dim"]),
+        ]
+        body = Align.center(Group(*lines), vertical="middle")
         super().__init__(body, classes="welcome")
 
-class UserMessage(_SelectableStatic):
+class UserMessage(SelectableStatic):
     """A user prompt with long pasted chunks and images hidden behind compact links."""
 
     COMPACT_PASTE_AFTER = 100
@@ -235,7 +246,7 @@ class UserMessage(_SelectableStatic):
             self.app.push_screen(ImageModal(image))
 
 
-class AssistantMessage(_SelectableStatic):
+class AssistantMessage(SelectableStatic):
     def __init__(
         self, content: str = "", *, streaming: bool = False, enter: bool = True
     ) -> None:
