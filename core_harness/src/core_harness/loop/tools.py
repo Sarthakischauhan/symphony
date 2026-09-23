@@ -13,6 +13,7 @@ from core_ai.types import Content, Message
 from core_harness.context import bound_tool_result
 from core_harness.errors import HarnessLimitExceeded
 from core_harness.models import PendingToolCall, ToolCall, ToolResult
+from core_harness.timing import mono_now, with_ended, with_started
 from core_harness.tools import current_tool_call_id
 
 
@@ -131,17 +132,20 @@ async def emit_tool_result(
     result: ToolResult,
 ) -> None:
     bounded = limit_tool_output(runner, result.for_model())
+    started_mono = mono_now()
     await runner.emit(
         "tool_execution_started",
-        {
-            "tool_call_id": tool_call.id,
-            "tool_name": tool_call.name,
-            "arguments": tool_call.arguments,
-        },
+        with_started(
+            {
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.name,
+                "arguments": tool_call.arguments,
+            }
+        ),
     )
     await runner.emit(
         "tool_execution_completed",
-        tool_completed_payload(tool_call, result, bounded),
+        with_ended(tool_completed_payload(tool_call, result, bounded), started_mono),
     )
 
 
@@ -177,19 +181,22 @@ async def execute_tool(runner: Any, tool_call: ToolCall) -> ToolResult:
         await emit_tool_result(runner, tool_call, result)
         return result
 
+    started_mono = mono_now()
     await runner.emit(
         "tool_execution_started",
-        {
-            "tool_call_id": tool_call.id,
-            "tool_name": tool_call.name,
-            "arguments": tool_call.arguments,
-        },
+        with_started(
+            {
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.name,
+                "arguments": tool_call.arguments,
+            }
+        ),
     )
     result = await invoke_tool(runner, tool_call)
     bounded = limit_tool_output(runner, result.for_model())
     await runner.emit(
         "tool_execution_completed",
-        tool_completed_payload(tool_call, result, bounded),
+        with_ended(tool_completed_payload(tool_call, result, bounded), started_mono),
     )
     return result
 

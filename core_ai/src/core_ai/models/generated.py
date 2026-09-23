@@ -35,6 +35,8 @@ OPENAI_MODELS = (
     ModelInfo(id="gpt-5.6-sol", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
     ModelInfo(id="gpt-5.6-terra", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
     ModelInfo(id="gpt-6-astra", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
+    ModelInfo(id="gpt-6-luna", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
+    ModelInfo(id="gpt-6-sol", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
     ModelInfo(id="gpt-image-1", provider="openai", api="responses", context_limit=0),
     ModelInfo(id="gpt-image-1-mini", provider="openai", api="responses", context_limit=0),
     ModelInfo(id="gpt-image-1.5", provider="openai", api="responses", context_limit=0),
@@ -59,6 +61,7 @@ ANTHROPIC_MODELS = (
     ModelInfo(id="claude-opus-4-7", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1000000),
     ModelInfo(id="claude-opus-4-8", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1000000),
     ModelInfo(id="claude-opus-5", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1000000),
+    ModelInfo(id="claude-opus-5-5", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1000000),
     ModelInfo(id="claude-sonnet-4-5", provider="anthropic", api="messages", reasoning=True, context_limit=1000000),
     ModelInfo(id="claude-sonnet-4-5-20250929", provider="anthropic", api="messages", reasoning=True, context_limit=1000000),
     ModelInfo(id="claude-sonnet-4-6", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', 'max')), context_limit=1000000),
@@ -96,6 +99,7 @@ GROK_MODELS = (
     ModelInfo(id="grok-4.3", provider="grok", api="chat_completions", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None)), context_limit=1000000),
     ModelInfo(id="grok-4.5", provider="grok", api="chat_completions", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None)), context_limit=500000),
     ModelInfo(id="grok-4.6", provider="grok", api="chat_completions", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', None)), context_limit=500000),
+    ModelInfo(id="grok-4.7", provider="grok", api="chat_completions", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', None)), context_limit=500000),
     ModelInfo(id="grok-build-0.1", provider="grok", api="chat_completions", reasoning=True, context_limit=256000),
 )
 

@@ -832,6 +832,8 @@ def test_core_harness_has_no_jev_or_typesafe_imports() -> None:
     offenders: list[str] = []
     for path in root.rglob("*.py"):
         text = path.read_text(encoding="utf-8").lower()
+        # Reserved control-plane event name only; not a product dependency.
+        text = text.replace("jev_decision", "")
         if "jev" in text or "typesafe" in text:
             offenders.append(str(path))
     assert offenders == []

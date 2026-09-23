@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 import uuid
 from itertools import count
 from typing import TYPE_CHECKING, List, Optional
@@ -15,6 +14,7 @@ from core_ai.types import Content, Message
 from core_harness.addons.subagent.background import wait_for_child_result
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import HarnessResult, ToolCall, UsageTotals
+from core_harness.timing import mono_now, wall_now, with_ended, with_started
 
 if TYPE_CHECKING:
     from core_harness.harness import CoreHarness
@@ -38,7 +38,8 @@ async def run_session(
     """Run turns until the model stops calling tools or a limit is hit."""
     active_session = session_id or harness.session_id or str(uuid.uuid4())
     run_id = str(uuid.uuid4())
-    started_at = time.monotonic()
+    started_mono = mono_now()
+    started_wall = wall_now()
     harness._set_active_identity(run_id, active_session)
     messages = await harness._initial_messages(
         active_session,
@@ -47,11 +48,14 @@ async def run_session(
     )
     await harness.emit(
         "run_started",
-        {
-            "model_id": harness.model_id,
-            "tool_names": list(harness.tools),
-            "prompt": text_from_content(user_input),
-        },
+        with_started(
+            {
+                "model_id": harness.model_id,
+                "tool_names": list(harness.tools),
+                "prompt": text_from_content(user_input),
+            },
+            at=started_wall,
+        ),
     )
     await harness.notify_addons(
         "before_run",
@@ -67,7 +71,7 @@ async def run_session(
     turn = 0
     deadline = None
     if harness.limits.max_runtime_seconds is not None:
-        deadline = started_at + harness.limits.max_runtime_seconds
+        deadline = started_mono + harness.limits.max_runtime_seconds
     from core_harness.turn_runner import TurnRunner
 
     turn_runner = TurnRunner(
@@ -92,11 +96,11 @@ async def run_session(
 
     try:
         for turn in count() if harness.max_turns is None else range(harness.max_turns):
-            _raise_if_limit(harness, "max_runtime_seconds", time.monotonic() - started_at)
+            _raise_if_limit(harness, "max_runtime_seconds", mono_now() - started_mono)
             _raise_if_limit(harness, "max_tokens", usage.total_tokens)
             remaining = None
             if deadline is not None:
-                remaining = max(deadline - time.monotonic(), 0.0)
+                remaining = max(deadline - mono_now(), 0.0)
             turn_runner.remaining_runtime = remaining
             turn_runner.deadline = deadline
             await _deliver_child_results(harness, messages, turn)
@@ -126,9 +130,9 @@ async def run_session(
                         await harness.emit("waiting_for_children", {"turn": turn, "child_ids": children})
                         await wait_for_child_result(
                             harness,
-                            None if deadline is None else max(0.0, deadline - time.monotonic()),
+                            None if deadline is None else max(0.0, deadline - mono_now()),
                         )
-                    _raise_if_limit(harness, "max_runtime_seconds", time.monotonic() - started_at)
+                    _raise_if_limit(harness, "max_runtime_seconds", mono_now() - started_mono)
                     await _deliver_child_results(harness, messages, turn)
                     await harness._persist_state(
                         session_id=active_session, turn=turn, messages=messages,
@@ -146,27 +150,29 @@ async def run_session(
                     status="completed",
                     metadata={"output_text": result.assistant_text, "run_id": run_id},
                 )
-                elapsed_seconds = max(0.0, time.monotonic() - started_at)
                 await harness.emit(
                     "run_completed",
-                    {
-                        "turn": turn,
-                        "output_text": result.assistant_text,
-                        "elapsed_seconds": elapsed_seconds,
-                        "usage": usage.model_dump(),
-                        "context": {
-                            "context_limit": context_limit,
-                            "tokens_used": result.budget_tokens,
-                            "context_left": context_left,
-                            "utilization": (
-                                result.budget_tokens / context_limit
-                                if context_limit
-                                else None
-                            ),
-                            "message_sizes": result.message_sizes,
+                    with_ended(
+                        {
+                            "turn": turn,
+                            "output_text": result.assistant_text,
+                            "usage": usage.model_dump(),
+                            "context": {
+                                "context_limit": context_limit,
+                                "tokens_used": result.budget_tokens,
+                                "context_left": context_left,
+                                "utilization": (
+                                    result.budget_tokens / context_limit
+                                    if context_limit
+                                    else None
+                                ),
+                                "message_sizes": result.message_sizes,
+                            },
                         },
-                    },
+                        started_mono,
+                    ),
                 )
+                await _emit_run_summary(harness, started_mono, status="completed", turn=turn)
                 completed = HarnessResult(
                     output_text=result.assistant_text,
                     messages=messages,
@@ -206,7 +212,8 @@ async def run_session(
     except asyncio.CancelledError:
         _clear_cancellation()
         await harness.shutdown_children()
-        await harness.emit("run_cancelled", {"turn": turn, "reason": "cancelled"})
+        await harness.emit("run_cancelled", with_ended({"turn": turn, "reason": "cancelled"}, started_mono))
+        await _emit_run_summary(harness, started_mono, status="cancelled", turn=turn)
         await harness._persist_state(
             session_id=active_session, turn=turn, messages=messages, usage=usage,
             context_limit=context_limit, context_left=context_left,
@@ -215,7 +222,8 @@ async def run_session(
         raise HarnessCancelled("cancelled") from None
     except HarnessCancelled as exc:
         await harness.shutdown_children()
-        await harness.emit("run_cancelled", {"turn": turn, "reason": str(exc)})
+        await harness.emit("run_cancelled", with_ended({"turn": turn, "reason": str(exc)}, started_mono))
+        await _emit_run_summary(harness, started_mono, status="cancelled", turn=turn)
         await harness._persist_state(
             session_id=active_session,
             turn=turn,
@@ -231,14 +239,18 @@ async def run_session(
         await harness.shutdown_children()
         await harness.emit(
             "run_limit_exceeded",
-            {
-                "turn": turn,
-                "limit": exc.limit,
-                "value": exc.value,
-                "max": exc.maximum,
-                "message": str(exc),
-            },
+            with_ended(
+                {
+                    "turn": turn,
+                    "limit": exc.limit,
+                    "value": exc.value,
+                    "max": exc.maximum,
+                    "message": str(exc),
+                },
+                started_mono,
+            ),
         )
+        await _emit_run_summary(harness, started_mono, status="limit_exceeded", turn=turn)
         await harness._persist_state(
             session_id=active_session,
             turn=turn,
@@ -258,12 +270,16 @@ async def run_session(
         await harness.shutdown_children()
         await harness.emit(
             "run_failed",
-            {
-                "turn": turn,
-                "error_type": type(exc).__name__,
-                "message": str(exc),
-            },
+            with_ended(
+                {
+                    "turn": turn,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                },
+                started_mono,
+            ),
         )
+        await _emit_run_summary(harness, started_mono, status="failed", turn=turn)
         await harness._persist_state(
             session_id=active_session,
             turn=turn,
@@ -277,12 +293,43 @@ async def run_session(
         raise
 
 
+
+async def _emit_run_summary(
+    harness: "CoreHarness",
+    started_mono: float,
+    *,
+    status: str,
+    turn: int,
+) -> None:
+    """Always emit run_summary after a terminal run event (duration on the wire)."""
+    await harness.emit(
+        "run_summary",
+        with_ended(
+            {
+                "label": "summary so far",
+                "summary": "",
+                "status": status,
+                "turn": turn,
+            },
+            started_mono,
+        ),
+    )
+
+
 async def _deliver_child_results(harness: "CoreHarness", messages: List[Message], turn: int) -> None:
     for message in harness.drain_child_results():
         messages.append(message)
-        await harness.emit("message_injected", {
-            "turn": turn, "role": message.role, "content": message.content, "source": "subagent",
-        })
+        await harness.emit(
+            "message_injected",
+            {
+                "turn": turn,
+                "role": message.role,
+                "content": message.content,
+                "source": "subagent",
+                "kind": "subagent",
+                "injected_at": wall_now(),
+            },
+        )
 
 
 def _raise_if_limit(harness: "CoreHarness", name: str, value: float) -> None:

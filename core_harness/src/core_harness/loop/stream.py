@@ -9,6 +9,7 @@ from core_ai.types import Message, StreamEvent
 
 from core_harness.context import estimate_completion_tokens, estimate_prompt_tokens
 from core_harness.models import PendingToolCall, StreamedTurn, UsageTotals
+from core_harness.timing import mono_now, with_ended
 
 
 async def stream_model_turn(
@@ -34,9 +35,15 @@ async def stream_model_turn(
     if not streamed.saw_usage:
         await _emit_estimated_usage(runner, messages, turn=turn, usage=usage, streamed=streamed)
 
+    started_mono = getattr(runner, "_turn_started_mono", None)
+    if not isinstance(started_mono, (int, float)):
+        started_mono = mono_now()
     await runner.emit(
         "turn_completed",
-        {"turn": turn, "had_tool_calls": bool(streamed.pending_calls)},
+        with_ended(
+            {"turn": turn, "had_tool_calls": bool(streamed.pending_calls)},
+            float(started_mono),
+        ),
     )
     return streamed
 

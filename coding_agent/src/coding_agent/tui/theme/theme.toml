@@ -78,12 +78,11 @@ Screen {
 }
 
 .welcome {
-    width: 72;
-    height: auto;
+    width: 100%;
+    height: 1fr;
     min-height: 10;
-    margin: 2 0 1 1;
-    padding: 1 2;
-    border-left: thick $panel-edge;
+    margin: 0;
+    padding: 0 2;
     color: $muted;
 }
 
@@ -263,7 +262,7 @@ tools = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 0;
+    margin: 0 0 1 0;
     padding: 0;
     padding-bottom: 0;
     padding-left: 0;

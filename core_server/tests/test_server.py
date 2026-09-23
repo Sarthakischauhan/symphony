@@ -394,7 +394,8 @@ def test_runs_stream_harness_events() -> None:
     names = [name for name, _ in events]
     assert names[0] == "run_started"
     assert "text_delta" in names
-    assert names[-1] == "run_completed"
+    assert "run_completed" in names
+    assert names[-1] == "run_summary"
     delta = next(payload for name, payload in events if name == "text_delta")
     assert delta["payload"]["delta"] == "hello from harness"
     assert "Be brief." in str(registry.calls[0]["messages"][0].content)
@@ -889,7 +890,8 @@ def test_run_status_and_event_replay() -> None:
         complete = client.get(run["events_url"])
         events = parse_sse(complete.text)
         assert events[0][0] == "run_started"
-        assert events[-1][0] == "run_completed"
+        assert any(name == "run_completed" for name, _ in events)
+        assert events[-1][0] == "run_summary"
 
         replay = client.get(
             run["events_url"],
@@ -965,10 +967,12 @@ def test_events_emitted_after_harness_terminal_event_are_streamed() -> None:
         )
     )
     _, body = run_and_read(app, {"message": "hi"})
-    assert [name for name, _ in parse_sse(body)][-2:] == [
-        "run_completed",
-        "run_summary",
-    ]
+    names = [name for name, _ in parse_sse(body)]
+    assert "run_completed" in names
+    # Harness emits a stamped run_summary; addons may emit another after it.
+    assert names[-1] == "run_summary"
+    completed_at = names.index("run_completed")
+    assert names[completed_at + 1] == "run_summary"
 
 
 def test_run_manager_serializes_work_for_one_session() -> None:

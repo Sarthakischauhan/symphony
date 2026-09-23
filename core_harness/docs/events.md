@@ -5,9 +5,12 @@ Canonical user-facing catalog:
 
 `CoreHarness` emits ordered control-plane events with an `event_type` and a
 `payload`. Every `event_type` below is a member of
-`core_harness.ControlPlaneEventType` except `run_summary`, which is a product
-event emitted by the `symphony-code` learning add-on. Events marked conditional
-are emitted only when applicable. Identity fields (`run_id`, `session_id`,
+`core_harness.ControlPlaneEventType`. Events marked conditional are emitted only
+when applicable. Timed spans carry wire stamps: `run_started` includes
+`started_at`; terminal run events, `turn_completed`, and `tool_execution_completed`
+include `ended_at` and `duration_ms` (optional `duration_human`). A `run_summary`
+event is emitted after every terminal run; the learning add-on may emit a richer
+follow-up with the same type. Identity fields (`run_id`, `session_id`,
 `seq`, `ts`, `schema_version`, `agent_id`, `parent_id`) are added by
 `CoreHarness.emit` and omitted from the examples.
 
@@ -19,7 +22,8 @@ are emitted only when applicable. Identity fields (`run_id`, `session_id`,
   "payload": {
     "model_id": "anthropic:claude-sonnet-5",
     "tool_names": ["get_weather"],
-    "session_id": "session-123"
+    "session_id": "session-123",
+    "started_at": 1715000000.0
   }
 }
 ```
@@ -31,7 +35,8 @@ are emitted only when applicable. Identity fields (`run_id`, `session_id`,
   "event_type": "turn_started",
   "payload": {
     "turn": 0,
-    "message_count": 2
+    "message_count": 2,
+    "started_at": 1715000000.1
   }
 }
 ```
@@ -133,7 +138,10 @@ discard partial output from the failed attempt.
   "event_type": "turn_completed",
   "payload": {
     "turn": 0,
-    "had_tool_calls": true
+    "had_tool_calls": true,
+    "ended_at": 1715000001.2,
+    "duration_ms": 1100,
+    "duration_human": "1s"
   }
 }
 ```
@@ -191,7 +199,8 @@ discard partial output from the failed attempt.
     "tool_name": "get_weather",
     "arguments": {
       "city": "San Francisco"
-    }
+    },
+    "started_at": 1715000000.5
   }
 }
 ```
@@ -206,7 +215,10 @@ discard partial output from the failed attempt.
     "tool_name": "get_weather",
     "result": "Sunny, 18°C",
     "truncated": false,
-    "original_chars": 12
+    "original_chars": 12,
+    "ended_at": 1715000000.8,
+    "duration_ms": 300,
+    "duration_human": "300ms"
   }
 }
 ```
@@ -256,7 +268,10 @@ Surfaces can re-derive `tokens_used` / `context_left` from
   "payload": {
     "turn": 1,
     "role": "user",
-    "content": "Use metric units."
+    "content": "Use metric units.",
+    "source": "subagent",
+    "kind": "subagent",
+    "injected_at": 1715000001.0
   }
 }
 ```
@@ -282,23 +297,34 @@ Surfaces can re-derive `tokens_used` / `context_left` from
       "utilization": 0.0005,
       "message_sizes": []
     },
-    "session_id": "session-123"
+    "session_id": "session-123",
+    "ended_at": 1715000012.4,
+    "duration_ms": 12400,
+    "duration_human": "12s",
+    "elapsed_seconds": 12.4
   }
 }
 ```
 
-## `run_summary` (conditional)
+## `run_summary`
 
-Emitted by a product add-on after `run_completed` when a two-line recap of
-the run is available. The coding agent shows this in the transcript as
-**summary so far**.
+Emitted by the harness after every terminal run (`run_completed`,
+`run_cancelled`, `run_limit_exceeded`, `run_failed`) so consumers can always
+read `duration_ms` without reconstructing clocks. The coding-agent learning
+add-on may emit a later `run_summary` with a non-empty `summary` (shown as
+**summary so far** in the TUI).
 
 ```json
 {
   "event_type": "run_summary",
   "payload": {
     "label": "summary so far",
-    "summary": "Patched the retry helper.\\nAdded after-run learning recap."
+    "summary": "Patched the retry helper.\nAdded after-run learning recap.",
+    "status": "completed",
+    "turn": 1,
+    "ended_at": 1715000012.4,
+    "duration_ms": 12400,
+    "duration_human": "12s"
   }
 }
 ```
@@ -310,7 +336,10 @@ the run is available. The coding agent shows this in the transcript as
   "event_type": "run_cancelled",
   "payload": {
     "turn": 1,
-    "reason": "cancelled"
+    "reason": "cancelled",
+    "ended_at": 1715000005.0,
+    "duration_ms": 5000,
+    "duration_human": "5s"
   }
 }
 ```
@@ -329,7 +358,10 @@ raises `HarnessLimitExceeded`.
     "limit": "max_turns",
     "value": 9,
     "max": 8.0,
-    "message": "Harness exceeded max_turns=8"
+    "message": "Harness exceeded max_turns=8",
+    "ended_at": 1715000010.0,
+    "duration_ms": 10000,
+    "duration_human": "10s"
   }
 }
 ```
@@ -342,7 +374,10 @@ raises `HarnessLimitExceeded`.
   "payload": {
     "turn": 1,
     "error_type": "RuntimeError",
-    "message": "provider returned an unexpected payload"
+    "message": "provider returned an unexpected payload",
+    "ended_at": 1715000003.0,
+    "duration_ms": 3000,
+    "duration_human": "3s"
   }
 }
 ```
@@ -410,3 +445,23 @@ Emitted on the parent's plane when a child finishes.
   }
 }
 ```
+
+## Reserved event types
+
+These `ControlPlaneEventType` members exist for upcoming surfaces. The harness
+may not emit them yet; consumers should accept them as pass-through.
+
+| `event_type` | Intended use |
+| --- | --- |
+| `run_phase` | Named phase changes inside a run |
+| `assistant_message_started` / `assistant_message_completed` | Assistant message boundaries |
+| `reasoning_completed` | End of a reasoning block |
+| `tool_execution_failed` | Tool failure distinct from completed-with-error |
+| `tool_denied` | Explicit tool denial |
+| `approval_required` / `approval_resolved` | Human approval flow |
+| `user_input_requested` / `user_input_received` | Interactive user input |
+| `run_progress` / `run_metrics` | Progress and metrics snapshots |
+| `config_changed` | Runtime config change |
+| `jev_decision` | Jev critic decision |
+| `child_progress` | Background child progress |
+

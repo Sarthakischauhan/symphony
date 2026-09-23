@@ -33,6 +33,17 @@ from core_harness.context import (
 )
 
 
+
+TERMINAL_RUN_TYPES = {"run_completed", "run_cancelled", "run_limit_exceeded", "run_failed"}
+
+
+def _last_terminal(events):
+    for event in reversed(events):
+        if event.event_type in TERMINAL_RUN_TYPES:
+            return event
+    raise AssertionError("no terminal run event")
+
+
 def get_weather(city: str, sink: EventSink) -> str:
     assert isinstance(sink, EventSink)
     return f"It is sunny in {city}."
@@ -493,6 +504,7 @@ def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
         "turn_completed",
         "context",
         "run_completed",
+        "run_summary",
     ]
     usage_events = [event for event in sink.events if event.event_type == "usage"]
     assert usage_events[0].payload["cumulative_tokens"] == 12
@@ -502,7 +514,7 @@ def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
     assert context_events[1].payload["context_left"] == 80
     assert "message_sizes" in context_events[0].payload
     assert context_events[0].payload["message_sizes"][0]["role"] == "system"
-    assert sink.events[-1].payload["usage"]["total_tokens"] == 38
+    assert _last_terminal(sink.events).payload["usage"]["total_tokens"] == 38
 
 
 def test_context_limit_uses_gemini_family_fallback() -> None:
@@ -1178,8 +1190,9 @@ def test_cancelling_the_run_task_stops_harness() -> None:
     with pytest.raises(HarnessCancelled, match="cancelled"):
         asyncio.run(_run())
     assert sink.events[0].event_type == "run_started"
-    assert sink.events[-1].event_type == "run_cancelled"
-    assert sink.events[-1].payload["reason"] == "cancelled"
+    assert _last_terminal(sink.events).event_type == "run_cancelled"
+    assert _last_terminal(sink.events).payload["reason"] == "cancelled"
+    assert sink.events[-1].event_type == "run_summary"
 
 
 def test_e2e_two_tool_loop_answers_three_times_five() -> None:
@@ -1218,7 +1231,8 @@ def test_e2e_two_tool_loop_answers_three_times_five() -> None:
     event_types = [event.event_type for event in sink.events]
     assert event_types[0] == ControlPlaneEventType.RUN_STARTED.value
     assert event_types.count("tool_execution_completed") == 2
-    assert event_types[-1] == ControlPlaneEventType.RUN_COMPLETED.value
+    assert ControlPlaneEventType.RUN_COMPLETED.value in event_types
+    assert event_types[-1] == ControlPlaneEventType.RUN_SUMMARY.value
 
     completed_tools = [
         event.payload["tool_name"]
@@ -1226,7 +1240,7 @@ def test_e2e_two_tool_loop_answers_three_times_five() -> None:
         if event.event_type == "tool_execution_completed"
     ]
     assert completed_tools == ["call_tool_a", "call_tool_b"]
-    assert sink.events[-1].payload["output_text"] == "15"
+    assert _last_terminal(sink.events).payload["output_text"] == "15"
 
 
 def call_live_core_harness() -> tuple[EventSink, object]:
@@ -1319,9 +1333,11 @@ def test_core_harness_runs_tool_loop() -> None:
     assert "tool_call_started" in event_types
     assert "tool_execution_completed" in event_types
     assert "context" in event_types
-    assert event_types[-1] == "run_completed"
-    assert sink.events[-1].payload["usage"]["total_tokens"] > 0
-    assert "message_sizes" in sink.events[-1].payload["context"]
+    assert "run_completed" in event_types
+    assert event_types[-1] == "run_summary"
+    completed = _last_terminal(sink.events)
+    assert completed.payload["usage"]["total_tokens"] > 0
+    assert "message_sizes" in completed.payload["context"]
 
 
 def test_e2e_live_two_tool_loop_answers_three_times_five() -> None:
@@ -1331,7 +1347,8 @@ def test_e2e_live_two_tool_loop_answers_three_times_five() -> None:
     assert tool_names == ["call_tool_a", "call_tool_b"]
     event_types = [event.event_type for event in sink.events]
     assert event_types[0] == "run_started"
-    assert event_types[-1] == "run_completed"
+    assert "run_completed" in event_types
+    assert event_types[-1] == "run_summary"
     completed_tools = [
         event.payload["tool_name"]
         for event in sink.events
