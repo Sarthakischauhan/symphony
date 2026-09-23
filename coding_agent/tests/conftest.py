@@ -16,6 +16,23 @@ for src_path in (
 
 
 @pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent developer credentials from enabling providers during tests."""
+    for name in (
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+        "XAI_API_KEY", "OPENROUTER_API_KEY", "VERCEL_AI_GATEWAY_API_KEY",
+        "AI_GATEWAY_API_KEY", "SYMPHONY_MODEL", "OPENAI_MODEL", "ANTHROPIC_MODEL",
+        "GEMINI_MODEL", "GROK_MODEL", "XAI_MODEL", "OPENROUTER_MODEL",
+        "VERCEL_MODEL", "AI_GATEWAY_MODEL", "OPENAI_BASE_URL", "ANTHROPIC_BASE_URL",
+        "GEMINI_BASE_URL", "XAI_BASE_URL", "OPENROUTER_BASE_URL",
+        "AI_GATEWAY_BASE_URL", "OLLAMA_API_KEY", "OLLAMA_BASE_URL", "OLLAMA_HOST",
+        "OLLAMA_ENABLED", "OLLAMA_MODEL", "LOCAL_API_KEY", "LOCAL_BASE_URL",
+        "LOCAL_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_symphony_home(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
