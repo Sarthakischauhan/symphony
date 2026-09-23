@@ -18,9 +18,7 @@ ScheduleFlush = Callable[[Callable[[], None]], None]
 ChromeSnapshot = Tuple[Any, ...]
 
 # High-frequency events are reduced immediately but painted on one throttled UI tick.
-_BUFFERED_PAINT_EVENT_TYPES = frozenset(
-    {"text_delta", "reasoning_delta", "tool_call_delta"}
-)
+_BUFFERED_PAINT_EVENT_TYPES = frozenset({"text_delta", "reasoning_delta"})
 _TOASTABLE_JEV_ACTIONS = frozenset({"replan", "retry", "review", "gather", "ask"})
 _JEV_TOAST_REASON_LIMIT = 120
 
@@ -573,7 +571,7 @@ class EventPresenter:
         self._tool_argument_tails[call_id] = tail
         self.state.phase = "tool"
         self.state.tool_args_preview = tail
-        self._pending_tool_paints[call_id] = None
+        self._pending_tool_paints.pop(call_id, None)
 
     def _on_tool_execution_started(self, payload: Dict[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
