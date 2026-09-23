@@ -115,6 +115,18 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
         "XAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_BASE_URL",
+        "OPENROUTER_MODEL",
+        "AI_GATEWAY_API_KEY",
+        "VERCEL_AI_GATEWAY_API_KEY",
+        "AI_GATEWAY_BASE_URL",
+        "VERCEL_MODEL",
+        "AI_GATEWAY_MODEL",
+        "OPENAI_BASE_URL",
+        "ANTHROPIC_BASE_URL",
+        "GEMINI_BASE_URL",
+        "XAI_BASE_URL",
         "SYMPHONY_MODEL",
         "OLLAMA_API_KEY",
         "OLLAMA_BASE_URL",
@@ -392,6 +404,10 @@ def test_tui_offline_without_provider_still_renders(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("AI_GATEWAY_API_KEY", raising=False)
+    monkeypatch.delenv("VERCEL_AI_GATEWAY_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
 
     async def _run() -> None:

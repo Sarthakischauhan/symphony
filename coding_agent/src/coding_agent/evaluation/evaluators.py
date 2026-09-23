@@ -174,13 +174,13 @@ class VercelJevEvaluator:
         self,
         config: EvaluationConfig,
         *,
-        api_key: str = "",
+        api_key: Optional[str] = None,
         base_url: str = "",
         transport: Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
         self.config = config
         resolved_key, resolved_base = vercel_credentials(config)
-        self.api_key = api_key or resolved_key
+        self.api_key = resolved_key if api_key is None else api_key
         self.base_url = base_url or resolved_base
         self.transport = transport
 
