@@ -416,7 +416,7 @@ def build_agent(
     )
     return CodingAgent(
         registry=registry,
-        model_id=default_model_id(registry, model_id),
+        model_id=default_model_id(registry, model_id or resolved.last_model),
         workspace=workspace,
         sink=sink,
         session_id=session_id,

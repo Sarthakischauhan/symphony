@@ -113,6 +113,11 @@ def select_model(app: Any, argument: str) -> None:
         app.add_notice(f"Unknown model: {argument}. Run /model to see available models.", "warning")
         return
     agent.harness.model_id = selected.id
+    app.config = ensure_spawn_settings(
+        app.workspace,
+        config=app.config,
+        overrides={"last_model": selected.id},
+    )
     if not model_supports_effort(selected.id):
         agent.harness.reasoning_effort = None
     if agent.learning_loop is not None:
