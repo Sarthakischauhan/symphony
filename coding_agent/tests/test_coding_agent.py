@@ -21,6 +21,7 @@ def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path)
     assert any(addon.name == "learning" for addon in agent.harness.addons)
     defaults = CodingAgentConfig().harness
     assert agent.harness.max_turns is defaults.max_turns is None
+    assert agent.harness.config.spawn_max_turns is defaults.spawn_max_turns is None
     assert agent.harness.limits.max_tool_calls is defaults.max_tool_calls is None
     assert agent.harness.limits.max_tokens is defaults.max_tokens is None
     assert agent.harness.limits.max_runtime_seconds is defaults.max_runtime_seconds is None
@@ -67,7 +68,8 @@ def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
         model_id=" fake:child ",
     )
     assert cfg.model_id == "fake:child"
-    assert cfg.max_turns == agent.harness.config.spawn_max_turns
+    assert agent.harness.config.spawn_max_turns is None
+    assert cfg.max_turns == 99
     assert cfg.sink is plane
     assert plane.approvals.mode == "ask"
     assert any(addon.name == "approval" for addon in agent.harness.addons)

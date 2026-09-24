@@ -134,10 +134,16 @@ class SubagentAddon(Addon):
 
         # Children get a fresh turn budget. Do not inherit the parent's remaining
         # max_turns — a long parent run would otherwise starve every spawn.
-        child_turns = (
-            max_turns if max_turns is not None else parent.config.spawn_max_turns
-        )
-        child_turns = max(1, min(int(child_turns), parent.config.spawn_max_turns))
+        # spawn_max_turns=None means no turn cliff (context compaction stops the run).
+        cap = parent.config.spawn_max_turns
+        if max_turns is not None:
+            child_turns: Optional[int] = max(1, int(max_turns))
+            if cap is not None:
+                child_turns = min(child_turns, cap)
+        elif cap is not None:
+            child_turns = cap
+        else:
+            child_turns = None
         return CoreHarness(
             registry=parent.registry,
             model_id=model_id or parent.model_id,
@@ -264,8 +270,9 @@ class SubagentAddon(Addon):
                 "remaining children before finalizing your answer. No polling is needed. "
                 f"Background defaults to {default_background}. "
                 "Optionally set model_id and max_turns for that child. "
-                "Children get a fresh turn budget (spawn_max_turns by default) "
-                "and do not inherit the parent's remaining turns. "
+                "Children get a fresh turn budget and do not inherit the parent's "
+                "remaining turns. When spawn_max_turns is set it caps the child; "
+                "when unset, children have no turn cliff (context limits apply). "
                 "Children run without approval prompts and cannot spawn further "
                 "agents."
             ),
@@ -290,7 +297,7 @@ class SubagentAddon(Addon):
                     },
                     "max_turns": {
                         "type": "integer",
-                        "description": "Optional fresh turn cap for the child, limited by spawn_max_turns. Defaults to spawn_max_turns, not the parent's remaining turns.",
+                        "description": "Optional fresh turn cap for the child. When spawn_max_turns is set, the call is limited by it. Defaults to spawn_max_turns when set, otherwise no turn cliff (not the parent's remaining turns).",
                     },
                 },
                 "required": ["prompt"],
