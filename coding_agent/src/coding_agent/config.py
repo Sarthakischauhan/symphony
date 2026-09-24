@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core_harness.config import HarnessConfig
 from coding_agent.plugins.models import PluginConfig
+from coding_agent.prompts import SUBAGENT_SYSTEM_PROMPT
 
 SPAWN_SETTINGS_NAME = "config.json"
 SettingsSource = Union["CodingAgentConfig", str, Path]
@@ -134,6 +135,7 @@ def default_coding_agent_harness() -> HarnessConfig:
         context_compact_ratio=0.8,
         context_target_tokens=80_000,
         compaction_keep_recent_tools=32,
+        subagent_system_prompt=SUBAGENT_SYSTEM_PROMPT,
     )
 
 
