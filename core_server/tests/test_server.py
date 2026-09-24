@@ -311,6 +311,16 @@ def test_models_includes_configured_default_outside_catalog() -> None:
     assert "openai:gpt-5.6-luna" in ids
 
 
+def test_spawn_max_turns_defaults_to_none() -> None:
+    config = ServerConfig(registry=FakeRegistry(), model_id="openai:test")
+    assert config.spawn_max_turns is None
+    assert config.to_harness_config().spawn_max_turns is None
+    assert build_config(registry=FakeRegistry()).spawn_max_turns is None
+
+    with pytest.raises(ValueError, match="spawn_max_turns must be positive"):
+        ServerConfig(registry=FakeRegistry(), model_id="openai:test", spawn_max_turns=0)
+
+
 def test_supported_models_is_optional_and_must_include_default() -> None:
     config = ServerConfig(registry=FakeRegistry(), model_id="openai:test")
     assert config.supported_models == []
