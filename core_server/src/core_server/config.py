@@ -76,7 +76,7 @@ class ServerConfig:
     context_target_tokens: Optional[int] = None
     compaction_keep_recent_tools: int = 32
     max_spawn_depth: int = 1
-    spawn_max_turns: int = 8
+    spawn_max_turns: Optional[int] = None
     max_parallel_tool_calls: int = 3
     cors_origins: List[str] = field(default_factory=list)
     max_request_bytes: int = 1_048_576
@@ -95,7 +95,6 @@ class ServerConfig:
         positive = {
             "max_turns": self.max_turns,
             "compaction_keep_recent_tools": self.compaction_keep_recent_tools,
-            "spawn_max_turns": self.spawn_max_turns,
             "max_parallel_tool_calls": self.max_parallel_tool_calls,
             "max_request_bytes": self.max_request_bytes,
             "max_message_chars": self.max_message_chars,
@@ -105,6 +104,8 @@ class ServerConfig:
         for name, value in positive.items():
             if value <= 0:
                 raise ValueError(f"{name} must be positive")
+        if self.spawn_max_turns is not None and self.spawn_max_turns <= 0:
+            raise ValueError("spawn_max_turns must be positive")
         if self.max_spawn_depth < 0:
             raise ValueError("max_spawn_depth must be non-negative")
 
@@ -171,7 +172,7 @@ def build_config(
     context_target_tokens: Optional[int] = None,
     compaction_keep_recent_tools: int = 32,
     max_spawn_depth: int = 1,
-    spawn_max_turns: int = 8,
+    spawn_max_turns: Optional[int] = None,
     max_parallel_tool_calls: int = 3,
 ) -> ServerConfig:
     """Build a server config from explicit values or the process environment."""
