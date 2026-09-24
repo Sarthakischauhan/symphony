@@ -231,7 +231,9 @@ class CodingAgent:
         cap = self.harness.config.spawn_max_turns
         turns = None
         if max_turns:
-            turns = max(1, min(int(max_turns), cap))
+            turns = max(1, int(max_turns))
+            if cap is not None:
+                turns = min(turns, cap)
         mid = str(model_id).strip() if model_id else None
         return ChildConfig(
             model_id=mid or None,

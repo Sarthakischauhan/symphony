@@ -34,7 +34,7 @@ class HarnessConfig(BaseModel):
     context_target_tokens: Optional[int] = Field(default=None, ge=1)
     compaction_keep_recent_tools: int = Field(default=32, ge=1)
     max_spawn_depth: int = Field(default=1, ge=0)
-    spawn_max_turns: int = Field(default=8, ge=1)
+    spawn_max_turns: Optional[int] = Field(default=None, ge=1)
     max_parallel_tool_calls: int = Field(default=3, ge=1)
     subagent_system_prompt: str = Field(
         default=DEFAULT_SUBAGENT_SYSTEM_PROMPT,
