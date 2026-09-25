@@ -5,22 +5,25 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field
 
 from coding_agent.config import BashConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
+if TYPE_CHECKING:
+    from coding_agent.tools.bash_jobs import BashJobs
+
 DEFAULT_BASH_CONFIG = BashConfig()
 
 
 class BashArgs(ToolArgsModel):
     command: str = Field(
-        ...,
-        min_length=1,
+        default="",
         description=(
             "Shell command to run with cwd set to the working directory "
-            "(e.g. 'python -m pytest', 'ls -la')."
+            "(e.g. 'python -m pytest', 'ls -la'). Required for action=run."
         ),
     )
     timeout: int = Field(
@@ -28,6 +31,19 @@ class BashArgs(ToolArgsModel):
         ge=1,
         description="Seconds to wait before killing the process group.",
     )
+    background: bool = Field(
+        default=False,
+        description=(
+            "Run detached and return a job id plus log path at once (for long builds, "
+            "servers, test suites). When it exits you are sent its status and output "
+            "tail automatically; do not poll."
+        ),
+    )
+    action: Literal["run", "output", "stop"] = Field(
+        default="run",
+        description="run a command; output: tail a background job's log; stop: kill a background job.",
+    )
+    job_id: str = Field(default="", description="Background job id for action=output or stop.")
 
 
 class BashTool(WorkspaceTool):
@@ -41,8 +57,11 @@ class BashTool(WorkspaceTool):
     )
     args_model = BashArgs
 
-    def __init__(self, workspace: str, *, config: BashConfig = DEFAULT_BASH_CONFIG) -> None:
+    def __init__(
+        self, workspace: str, *, config: BashConfig = DEFAULT_BASH_CONFIG, jobs: BashJobs | None = None
+    ) -> None:
         self.config = config
+        self.jobs = jobs
         super().__init__(workspace)
         timeout_schema = self.parameters["properties"]["timeout"]
         timeout_schema["default"] = config.default_timeout_seconds
@@ -53,7 +72,16 @@ class BashTool(WorkspaceTool):
         prepared.setdefault("timeout", self.config.default_timeout_seconds)
         return prepared
 
-    async def run(self, command: str, timeout: int) -> str:
+    async def run(
+        self,
+        command: str,
+        timeout: int,
+        background: bool = False,
+        action: str = "run",
+        job_id: str = "",
+    ) -> str:
+        if background or action != "run":
+            return await self.run_job(command, action, job_id)
         if not isinstance(command, str) or not command.strip():
             return "error: command must be a non-empty string"
         timeout = min(max(int(timeout), 1), self.config.max_timeout_seconds)
@@ -86,6 +114,19 @@ class BashTool(WorkspaceTool):
         if proc.returncode not in (0, None):
             return f"exit={proc.returncode}\n{text}".rstrip() if text else f"exit={proc.returncode}"
         return text or "(no output)"
+
+    async def run_job(self, command: str, action: str, job_id: str) -> str:
+        if self.jobs is None:
+            return "error: background jobs are not available here"
+        if action == "run":
+            if not command.strip():
+                return "error: command must be a non-empty string"
+            return await self.jobs.start(command, self.workspace)
+        if not job_id:
+            return f"error: job_id is required for action={action}"
+        if action == "output":
+            return self.jobs.output(job_id, self.config.max_output_bytes)
+        return await self.jobs.stop(job_id)
 
 
 def decode_capped(output: bytes, truncated: bool, cap: int) -> str:

@@ -352,6 +352,7 @@ async def reload_project(app: Any) -> None:
     try:
         load_provider_env(app.workspace)
         reloaded_config = ensure_spawn_settings(app.workspace)
+        reloaded_config.unattended = app.config.unattended
         reloaded_agent = build_agent(
             workspace=app.workspace,
             sink=app.sink,

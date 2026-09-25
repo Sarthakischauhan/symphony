@@ -9,6 +9,7 @@ from coding_agent.config import ToolsConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from coding_agent.tools.ask_user import AskUserArgs, AskUserTool
 from coding_agent.tools.bash import BashArgs, BashTool
+from coding_agent.tools.bash_jobs import BashJobs
 from coding_agent.tools.generate_image import GenerateImageArgs, GenerateImageTool
 from coding_agent.tools.memory import MemoryArgs, MemoryTool
 from coding_agent.tools.patch import PatchArgs, PatchTool
@@ -30,7 +31,7 @@ TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
 )
 
 __all__ = [
-    "AskUserArgs", "AskUserTool", "BashArgs", "BashTool",
+    "AskUserArgs", "AskUserTool", "BashArgs", "BashJobs", "BashTool",
     "GenerateImageArgs", "GenerateImageTool", "MemoryArgs", "MemoryTool", "PatchArgs", "PatchTool",
     "ReadFileArgs", "ReadFileTool", "SearchArgs", "SearchTool", "EnterPlanModeTool", "ExitPlanModeTool", "TOOL_CLASSES",
     "ToolArgsModel", "WorkspaceTool", "WriteFileArgs", "WriteFileTool", "build_tools",
@@ -42,10 +43,13 @@ def build_tools(
     *,
     config: ToolsConfig | None = None,
     learning_enabled: bool = False,
+    unattended: bool = False,
+    bash_jobs: BashJobs | None = None,
 ) -> List[Tool]:
     tools_config = config or ToolsConfig()
     configured = {
-        BashTool: {"config": tools_config.bash},
+        AskUserTool: {"unattended": unattended},
+        BashTool: {"config": tools_config.bash, "jobs": bash_jobs},
         ReadFileTool: {"config": tools_config.read_file},
         SearchTool: {"config": tools_config.search},
     }

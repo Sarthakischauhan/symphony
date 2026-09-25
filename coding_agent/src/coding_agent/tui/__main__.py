@@ -49,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable Jev critic mode (findings only; does not switch the chat model)",
     )
+    parser.add_argument(
+        "--unattended",
+        action="store_true",
+        help="No human in the loop: auto-approve (deny rules still apply) and auto-answer ask_user",
+    )
     parser.set_defaults(enable_learning=None)
     return parser
 
@@ -76,6 +81,7 @@ def main() -> None:
         session_id=session_id,
         enable_learning=args.enable_learning,
         enable_jev=args.enable_jev,
+        unattended=args.unattended,
     )
 
 

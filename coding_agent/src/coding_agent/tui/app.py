@@ -80,6 +80,7 @@ class CodingAgentApp(
         session_id: Optional[str] = None,
         enable_learning: Optional[bool] = None,
         enable_jev: Optional[bool] = None,
+        unattended: bool = False,
     ) -> None:
         super().__init__()
         self.workspace = Path(workspace).resolve()
@@ -93,6 +94,8 @@ class CodingAgentApp(
             overrides["learning"] = {"enabled": enable_learning}
         if enable_jev is not None:
             overrides["evaluation"] = {"enabled": enable_jev}
+        if unattended:
+            overrides["unattended"] = True
         self.config = ensure_spawn_settings(
             self.workspace, overrides=overrides or None
         )
@@ -265,6 +268,7 @@ def run_tui(
     session_id: Optional[str] = None,
     enable_learning: Optional[bool] = None,
     enable_jev: Optional[bool] = None,
+    unattended: bool = False,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
     workspace = Path(workspace).resolve()
@@ -278,4 +282,5 @@ def run_tui(
         session_id=session_id,
         enable_learning=enable_learning,
         enable_jev=enable_jev,
+        unattended=unattended,
     ).run()

@@ -43,8 +43,11 @@ following before deploying it:
   entry; authorized addon code runs with the agent user's permissions and
   must be treated as trusted code.
 - Approval is a `before_tool` add-on in `symphony-code` (`ApprovalAddon`),
-  not a harness method. Unattended `CoreHarness` runs allow tools. Child
-  agents share the same filesystem and skip `ApprovalAddon`. `spawn_agent`
+  not a harness method; a bare `CoreHarness` allows every tool. `approvals.deny` patterns in `~/.symphony/config.json`
+  are checked first and block a call in every mode, including `always_allow`;
+  `approvals.allow` patterns skip the prompt. Child agents share the same
+  filesystem and skip `ApprovalAddon` (except its deny rules in unattended
+  runs, below). `spawn_agent`
   starts background work by default in `symphony-code`; a returned child ID
   acknowledges startup, not completion. The runtime delivers results
   automatically and waits before final completion. Closing a child
@@ -62,6 +65,29 @@ following before deploying it:
   no TUI, and credentials must already be in the environment. Isolation is
   whatever container you run it in (the `symphony-bench` image mounts the
   workspace at `/testbed`); the CLI itself is not a sandbox.
+
+### Unattended runs
+
+`symphony --unattended` has no human in the loop. Treat it as handing the
+agent your shell:
+
+- `bash` runs with full filesystem access and every approval prompt is
+  auto-approved (the approval mode is forced to `always_allow` for the run).
+- `approvals.deny` fnmatch patterns (on the bash command, or on the path for
+  `write_file`/`patch`/`generate_image`) are the **only** gate. They are loaded
+  from the config file, so they survive restarts, and they also apply to
+  spawned children through a deny-only fork of `ApprovalAddon`. Patterns match
+  the literal command text; a determined model can phrase around them
+  (`sh -c`, variables, scripts), so deny rules reduce accidents, they do not
+  contain an adversary.
+- `ask_user` never waits: it answers "no human available; pick the safest
+  reasonable option and continue". Plan mode cannot be entered.
+- Every decision a human would have made is emitted as an `auto_decision`
+  event and journaled in the session JSONL. That is the audit trail.
+- Background `bash` jobs (`background: true`) run in their own process group
+  and are killed when the run is cancelled or fails.
+- This is **not a sandbox**. Run unattended work in a container or VM if the
+  workspace or machine matters.
 
 Plan mode is a gated planning phase, not a sandbox: `bash` is allowed and shell
 writes are not scanned. Its tool gate blocks `write_file` and `patch` except for
