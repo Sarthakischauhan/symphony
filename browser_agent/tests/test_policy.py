@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
 import pytest
 
-from core_ai.types import Message
-
+from browser_agent.fixture_policy import FixturePolicy
+from browser_agent.goal_text_candidates import text_candidates
+from browser_agent.jev_answers import DecisionError, decision_from_answers
+from browser_agent.jev_client import JevClient
+from browser_agent.jev_credentials import TYPESAFE_URL, JevEndpoint
+from browser_agent.jev_policy import JevPolicy
+from browser_agent.jev_questions import build_questions
 from browser_agent.models import Element, Observation
-from browser_agent.policy import (
-    DirectJevClient,
-    FixturePolicy,
-    JevPolicy,
-    VercelJevClient,
-    decision_from_answers,
-)
-from browser_agent.questions import build_questions, build_state, text_candidates
+from browser_agent.rank_elements import rank_by_goal
+
+GOAL = "Search for travel and report the price of The Alps Guide."
 
 
 def _page(*, query: str = "", submitted: bool = False) -> Observation:
@@ -35,194 +36,134 @@ def _page(*, query: str = "", submitted: bool = False) -> Observation:
     )
 
 
+def _decide(answers: object, offered: set[str]):
+    return decision_from_answers(answers, model="typesafe-ai/jev", provider="vercel", offered_operations=offered)
+
+
 def test_text_candidates_take_the_search_phrase() -> None:
-    assert text_candidates('Search for travel and report the price of The Alps Guide.') == ["travel"]
+    assert text_candidates(GOAL) == ["travel"]
     assert text_candidates('Type "ZRH" then continue.')[0] == "ZRH"
 
 
+def test_rank_puts_goal_words_first() -> None:
+    links = [Element(index=1, role="link", name="Home"), Element(index=2, role="link", name="Espresso machines")]
+    assert [element.index for element in rank_by_goal(links, "Open the espresso page")] == [2, 1]
+
+
 def test_questions_offer_type_only_when_a_field_exists() -> None:
-    page = _page()
-    questions = build_questions(page, "Search for travel and stop.", ["travel"])
+    questions = build_questions(_page(), "Search for travel and stop.", ["travel"])
     assert "TYPE_TEXT" in questions["operation"]["criteria"]
     assert questions["type_value"]["criteria"]["travel"].startswith("Type this exact string")
-    buttons_only = Observation(
-        url="https://example.test",
-        title="Home",
-        text="Home",
-        elements=[Element(index=1, role="link", name="Espresso", kind="click")],
-    )
-    bare = build_questions(buttons_only, "Open Espresso", [])
+    links = Observation(url="https://example.test", elements=[Element(index=1, role="link", name="Espresso")])
+    bare = build_questions(links, "Open Espresso", [])
     assert "TYPE_TEXT" not in bare["operation"]["criteria"]
     assert "type_target" not in bare
     assert "1" in bare["click_target"]["criteria"]
 
 
+def test_select_without_options_offers_no_select_target() -> None:
+    dropdown = Element(index=1, role="select", name="Class", kind="select")
+    empty = Observation(url="https://example.test", elements=[dropdown])
+    assert "select_target" not in build_questions(empty, "Pick a class", [])
+
+
 def test_decision_parser_reads_choice_and_boolean() -> None:
-    decision = decision_from_answers(
+    decision = _decide(
         {
-            "operation": {
-                "type": "choice",
-                "choice": "CLICK",
-                "probabilities": {"CLICK": 0.91, "DONE": 0.02},
-            },
+            "operation": {"type": "choice", "choice": "CLICK", "probabilities": {"CLICK": 0.91, "DONE": 0.02}},
             "click_target": {"type": "choice", "choice": "2", "probabilities": {"2": 0.8}},
             "goal_met": {"type": "boolean", "probability": 0.1},
         },
-        model="typesafe-ai/jev",
-        provider="vercel",
-        offered_operations={"CLICK", "DONE", "BLOCKED"},
+        {"CLICK", "DONE", "BLOCKED"},
     )
-    assert decision.operation == "CLICK"
-    assert decision.click_target == 2
+    assert (decision.operation, decision.click_target, decision.goal_met) == ("CLICK", 2, False)
     assert decision.confidence == pytest.approx(0.91)
-    assert decision.goal_met is False
 
 
 def test_uncalibrated_choice_is_not_a_zero() -> None:
-    decision = decision_from_answers(
-        {"operation": {"type": "choice", "choice": "SCROLL_DOWN"}},
-        model="typesafe-ai/jev",
-        provider="vercel",
-        offered_operations={"SCROLL_DOWN", "DONE"},
-    )
-    assert decision.confidence == 1.0
+    assert _decide({"operation": {"type": "choice", "choice": "SCROLL_DOWN"}}, {"SCROLL_DOWN"}).confidence == 1.0
 
 
 def test_select_target_splits_index_and_option() -> None:
-    decision = decision_from_answers(
+    decision = _decide(
         {
             "operation": {"type": "choice", "choice": "SELECT", "confidence": 0.77},
             "select_target": {"type": "choice", "choice": "4:Economy"},
             "goal_met": {"type": "noul", "noul": 0.2},
         },
-        model="jev-latest",
-        provider="typesafe",
-        offered_operations={"SELECT", "DONE"},
+        {"SELECT", "DONE"},
     )
-    assert decision.select_index == 4
-    assert decision.select_option == "Economy"
-    assert decision.goal_met is False
+    assert (decision.select_index, decision.select_option, decision.goal_met) == (4, "Economy", False)
 
 
-def test_unknown_operation_blocks() -> None:
-    decision = decision_from_answers(
-        {"operation": {"type": "choice", "choice": "NAVIGATE"}},
-        model="typesafe-ai/jev",
-        provider="vercel",
-        offered_operations={"CLICK", "DONE"},
-    )
+def test_unknown_operation_blocks_with_a_reason() -> None:
+    decision = _decide({"operation": {"type": "choice", "choice": "NAVIGATE"}}, {"CLICK", "DONE"})
     assert decision.operation == "BLOCKED"
+    assert "not available" in decision.reason
+    with pytest.raises(DecisionError):
+        _decide({}, {"DONE"})
 
 
-@pytest.mark.asyncio
-async def test_vercel_client_posts_evaluation_model() -> None:
-    captured: dict[str, object] = {}
-
+def _mock(captured: dict, answers: dict) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
-        captured["path"] = request.url.path
-        captured["payload"] = json.loads(request.content)
-        captured["model"] = request.headers.get("ai-model-id")
-        captured["spec"] = request.headers.get("ai-evaluation-model-specification-version")
-        return httpx.Response(
-            200,
-            json={
-                "model": "typesafe-ai/jev",
-                "answers": {
-                    "operation": {"type": "choice", "choice": "CLICK", "probabilities": {"CLICK": 0.88}},
-                    "click_target": {"type": "choice", "choice": "2"},
-                    "goal_met": {"type": "boolean", "probability": 0.05},
-                },
-            },
-        )
+        captured.update(url=str(request.url), headers=request.headers, payload=json.loads(request.content))
+        return httpx.Response(200, json={"model": "typesafe-ai/jev", "answers": answers})
 
-    page = _page()
-    goal = "Search for travel and report the price."
-    questions = build_questions(page, goal, ["travel"])
-    state = build_state(goal, page, [])
-    client = VercelJevClient(api_key="gw-test", transport=httpx.MockTransport(handler))
+    return httpx.MockTransport(handler)
+
+
+def test_vercel_client_posts_evaluation_model() -> None:
+    captured: dict = {}
+    answers = {
+        "operation": {"type": "choice", "choice": "CLICK", "probabilities": {"CLICK": 0.88}},
+        "click_target": {"type": "choice", "choice": "2"},
+        "goal_met": {"type": "boolean", "probability": 0.05},
+    }
+    url = "https://ai-gateway.vercel.sh/v4/ai/evaluation-model"
+    client = JevClient.for_endpoint(JevEndpoint("vercel", "gw-test", "typesafe-ai/jev", url), _mock(captured, answers))
     policy = JevPolicy(client, model="typesafe-ai/jev", provider="vercel")
-    decision = await policy.choose(goal=goal, observation=page, history=[], candidates=["travel"])
-    payload = captured["payload"]
-    assert captured["path"] == "/v4/ai/evaluation-model"
-    assert captured["model"] == "typesafe-ai/jev"
-    assert captured["spec"] == "4"
-    assert isinstance(payload, dict)
-    assert payload["state"]["goal"] == goal
-    assert payload["questions"]["operation"]["type"] == "choice"
-    assert "CLICK" in payload["questions"]["operation"]["criteria"]
-    # The explicit state/questions message is what the shared helper expects.
-    assert evaluation_round_trip(payload) == payload
-    assert decision.operation == "CLICK"
-    assert decision.click_target == 2
-    assert questions["operation"]["type"] == "choice"
-    assert state["url"].endswith("/catalog")
+    decision = asyncio.run(policy.choose(goal=GOAL, observation=_page(), history=[], candidates=["travel"]))
+    assert captured["url"] == url
+    assert captured["headers"]["ai-model-id"] == "typesafe-ai/jev"
+    assert captured["headers"]["ai-evaluation-model-specification-version"] == "4"
+    assert captured["payload"]["state"]["goal"] == GOAL
+    assert captured["payload"]["questions"]["goal_met"]["type"] == "boolean"
+    assert "CLICK" in captured["payload"]["questions"]["operation"]["criteria"]
+    assert (decision.operation, decision.click_target) == ("CLICK", 2)
 
 
-def evaluation_round_trip(payload: dict) -> dict:
-    from core_ai.providers.vercel_evaluation import evaluation_request_body
-
-    return evaluation_request_body([Message(role="user", content=json.dumps(payload))])
-
-
-@pytest.mark.asyncio
-async def test_typesafe_client_uses_noul() -> None:
-    captured: dict[str, object] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        captured["payload"] = json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={
-                "answers": {
-                    "operation": {"type": "choice", "choice": "DONE", "confidence": 0.94},
-                    "goal_met": {"type": "noul", "noul": 0.94},
-                }
-            },
-        )
-
-    client = DirectJevClient(
-        api_key="ts-test",
-        url="https://api.typesafe.ai/v1/systemone",
-        model="jev-latest",
-        provider="typesafe",
-        transport=httpx.MockTransport(handler),
-    )
+def test_typesafe_client_uses_noul() -> None:
+    captured: dict = {}
+    answers = {
+        "operation": {"type": "choice", "choice": "DONE", "confidence": 0.94},
+        "goal_met": {"type": "noul", "noul": 0.94},
+    }
+    endpoint = JevEndpoint("typesafe", "ts-test", "jev-latest", TYPESAFE_URL)
+    client = JevClient.for_endpoint(endpoint, _mock(captured, answers))
     policy = JevPolicy(client, model="jev-latest", provider="typesafe")
-    decision = await policy.choose(
-        goal="done already",
-        observation=_page(submitted=True),
-        history=[],
-        candidates=[],
-    )
-    payload = captured["payload"]
-    assert captured["url"] == "https://api.typesafe.ai/v1/systemone"
-    assert isinstance(payload, dict)
-    assert payload["model"] == "jev-latest"
-    assert payload["questions"]["goal_met"]["type"] == "noul"
-    assert decision.operation == "DONE"
-    assert decision.goal_met is True
+    decision = asyncio.run(policy.choose(goal="done", observation=_page(submitted=True), history=[], candidates=[]))
+    assert captured["url"] == TYPESAFE_URL
+    assert captured["headers"]["authorization"] == "Bearer ts-test"
+    assert captured["payload"]["model"] == "jev-latest"
+    assert captured["payload"]["questions"]["goal_met"]["type"] == "noul"
+    assert (decision.operation, decision.goal_met) == ("DONE", True)
 
 
-@pytest.mark.asyncio
-async def test_fixture_types_then_clicks_then_stops() -> None:
+def test_non_object_reply_is_a_decision_error() -> None:
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[1, 2]))
+    client = JevClient.for_endpoint(JevEndpoint("typesafe", "k", "jev-latest", TYPESAFE_URL), transport)
+    with pytest.raises(DecisionError):
+        asyncio.run(client.complete({}, {}))
+
+
+def test_fixture_types_then_clicks_then_stops() -> None:
     policy = FixturePolicy()
-    goal = "Search for travel and report the price of The Alps Guide."
-    first = await policy.choose(goal=goal, observation=_page(), history=[], candidates=["travel"])
-    assert first.operation == "TYPE_TEXT"
-    assert first.type_value == "travel"
-    second = await policy.choose(
-        goal=goal,
-        observation=_page(query="travel"),
-        history=[{"operation": "TYPE_TEXT"}],
-        candidates=["travel"],
-    )
-    assert second.operation == "CLICK"
-    assert second.click_target == 2
-    third = await policy.choose(
-        goal=goal,
-        observation=_page(query="travel", submitted=True),
-        history=[],
-        candidates=["travel"],
-    )
-    assert third.operation == "DONE"
+
+    def choose(page: Observation, history: list):
+        return asyncio.run(policy.choose(goal=GOAL, observation=page, history=history, candidates=["travel"]))
+
+    first = choose(_page(), [])
+    assert (first.operation, first.type_value) == ("TYPE_TEXT", "travel")
+    second = choose(_page(query="travel"), [{"operation": "TYPE_TEXT"}])
+    assert (second.operation, second.click_target) == ("CLICK", 2)
+    assert choose(_page(query="travel", submitted=True), []).operation == "DONE"
