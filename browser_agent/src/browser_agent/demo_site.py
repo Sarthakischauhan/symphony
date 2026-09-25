@@ -1,13 +1,9 @@
-"""Local catalog the demo drives. No network, no login wall."""
+"""Local catalog the demo drives. No network, no login wall, nothing on disk."""
 
 from __future__ import annotations
 
-import functools
-import shutil
-import tempfile
 import threading
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BOOKSTORE_HTML = """<!doctype html>
 <html lang="en">
@@ -52,30 +48,40 @@ BOOKSTORE_HTML = """<!doctype html>
 DEMO_GOAL = "Search for travel and report the price of The Alps Guide."
 
 
+class _QuietHandler(BaseHTTPRequestHandler):
+    """Answers every GET with ``BOOKSTORE_HTML`` and logs nothing."""
+
+    def do_GET(self) -> None:
+        body = BOOKSTORE_HTML.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        del format, args
+
+
 class DemoSite:
+    """Serves the catalog on an ephemeral 127.0.0.1 port until ``close``."""
+
     def __init__(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="symphony-browser-"))
-        (self.root / "index.html").write_text(BOOKSTORE_HTML, encoding="utf-8")
-        handler = functools.partial(QuietHandler, directory=str(self.root))
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), _QuietHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
     @property
     def url(self) -> str:
+        """The catalog's root URL."""
         host, port = self.server.server_address[:2]
         return f"http://{host}:{port}/"
 
     def close(self) -> None:
+        """Stop serving and release the port."""
         self.server.shutdown()
         self.thread.join(timeout=2)
         self.server.server_close()
-        shutil.rmtree(self.root, ignore_errors=True)
-
-
-class QuietHandler(SimpleHTTPRequestHandler):
-    def log_message(self, format: str, *args: object) -> None:
-        del format, args
 
 
 __all__ = ["BOOKSTORE_HTML", "DEMO_GOAL", "DemoSite"]
