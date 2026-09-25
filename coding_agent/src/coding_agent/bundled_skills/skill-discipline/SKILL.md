@@ -4,7 +4,6 @@ description: Follow only the skills that change this task. Extra instructions ma
 args:
   - name: budget
     type: number
-    required: false
     description: Maximum number of other skills to read for one task.
     default: 4
 ---

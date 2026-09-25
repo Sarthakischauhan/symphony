@@ -510,7 +510,9 @@ class CommandManager:
         elif command == "learning":
             app.push_screen(LearningModal(app.workspace))
         elif command in {"installed", "extensions", "plugins", "skills"}:
-            app.push_screen(ExtensionsModal(app.workspace, app._agent))
+            agent = app._agent
+            skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())
+            app.push_screen(ExtensionsModal(skills, plugins))
         elif command == "plan":
             select_mode(app, "plan")
             if argument:

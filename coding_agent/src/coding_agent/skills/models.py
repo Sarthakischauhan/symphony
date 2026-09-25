@@ -5,17 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
-@dataclass(frozen=True)
-class SkillArg:
-    """One argument declared in skill or plugin front matter."""
-
-    name: str
-    type: str
-    description: str
-    required: bool = False
-    default: str | int | float | bool | None = None
-    options: tuple[str, ...] = ()
+from coding_agent.extension_args import ExtensionArg, render_args
 
 
 @dataclass(frozen=True)
@@ -27,22 +17,12 @@ class Skill:
     description: str
     root: Path
     origin: str
-    body: str
-    args: tuple[SkillArg, ...] = ()
+    args: tuple[ExtensionArg, ...] = ()
 
     def catalog_line(self) -> str:
         """One prompt line: id, description, path, and the loaded args."""
-        line = (
-            f"- {self.skill_id}: {self.description} "
-            f"(SKILL.md: {self.root / 'SKILL.md'})"
-        )
-        if not self.args:
-            return line
-        rendered = ", ".join(
-            f"{arg.name}: {arg.type}" + (" required" if arg.required else "")
-            for arg in self.args
-        )
-        return f"{line} [args: {rendered}]"
+        line = f"- {self.skill_id}: {self.description} (SKILL.md: {self.root / 'SKILL.md'})"
+        return f"{line} [args: {render_args(self.args)}]" if self.args else line
 
     @property
     def resources(self) -> tuple[str, ...]:
@@ -70,4 +50,4 @@ class SkillDiagnostic:
     message: str
 
 
-__all__ = ["Skill", "SkillArg", "SkillDiagnostic"]
+__all__ = ["Skill", "SkillDiagnostic"]

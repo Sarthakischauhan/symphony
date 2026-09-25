@@ -41,7 +41,7 @@ from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.personalities import compose_system_prompt
 from coding_agent.plan import PlanStore
 from coding_agent.plan_mode import PlanModeAddon, PlanModeState
-from coding_agent.plugins import PluginManager
+from coding_agent.plugins import LoadedPlugin, PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.skills import SkillRegistry, SkillsAddon, bundled_skills_root
 from coding_agent.tools import EnterPlanModeTool, ExitPlanModeTool, build_tools
@@ -142,13 +142,11 @@ class CodingAgent:
         skill_roots = [
             ("bundled", bundled_skills_root()),
             ("user", Path.home() / ".symphony" / "skills"),
-            ("workspace", self.workspace / ".symphony" / "skills"),
             *[("configured", root) for root in self.config.skills.roots],
         ]
         plugin_addons = []
-        plugin_skill_roots = []
         self.plugin_diagnostics = ()
-        self.loaded_plugins = ()
+        self.loaded_plugins: tuple[LoadedPlugin, ...] = ()
         if self.config.plugins.enabled:
             # Global config must not be able to authorize executable code.
             # Authorization is supplied by the trusted process environment;
@@ -168,8 +166,9 @@ class CodingAgent:
                 entry for entry in discovered_plugins
                 if entry.path.expanduser().resolve() not in configured_paths
             )
-            plugin_addons, plugin_skill_roots, self.plugin_diagnostics = plugin_manager.load(plugin_entries)
-            self.loaded_plugins = plugin_manager.loaded
+            plugin_addons, plugin_skill_roots, self.loaded_plugins, self.plugin_diagnostics = (
+                plugin_manager.load(plugin_entries)
+            )
             if self.plugin_diagnostics:
                 details = "; ".join(
                     f"{diagnostic.source}: {diagnostic.message}"

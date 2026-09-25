@@ -1,11 +1,12 @@
-"""Skill and plugin front matter loads name, description, and args."""
+"""Skill front matter loads name, description, and args, and rejects hostile YAML."""
 
+import time
 from pathlib import Path
 
 import pytest
 
-from coding_agent.skills.frontmatter import parse_args, parse_skill_front_matter
-from coding_agent.plugins.manager import PluginManager
+from coding_agent.extension_args import ExtensionArg, render_args
+from coding_agent.skills.frontmatter import read_front_matter
 from coding_agent.skills.registry import SkillRegistry, bundled_skills_root
 
 
@@ -15,16 +16,14 @@ def _write_skill(root: Path, name: str, front: str, body: str = "Do the thing.\n
     (skill / "SKILL.md").write_text(f"---\n{front}\n---\n{body}", encoding="utf-8")
 
 
-def test_bundled_skills_load_name_description_and_args():
+def test_bundled_skills_all_load_with_a_valid_arg_contract():
     registry, diagnostics = SkillRegistry.discover([("bundled", bundled_skills_root())])
     assert diagnostics == ()
-    debug = registry.get("bundled/systematic-debug")
-    assert debug.name == "systematic-debug"
-    assert "Reproduce" in debug.description
-    assert [arg.name for arg in debug.args] == ["repro", "hypothesis"]
-    assert debug.args[0].required is True
-    assert debug.args[0].type == "string"
-    assert "repro: string required" in debug.catalog_line()
+    assert len(registry.skills) == 7
+    for skill in registry.skills:
+        for arg in skill.args:
+            assert arg.description
+            assert arg.type != "enum" or arg.default is None or arg.default in arg.options
 
 
 def test_folded_description_and_enum_arg(tmp_path: Path):
@@ -44,77 +43,83 @@ args:
     default: sketch
 """.strip(),
     )
-    registry, diagnostics = SkillRegistry.discover([("workspace", tmp_path)])
+    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
     assert diagnostics == ()
-    skill = registry.get("workspace/orient")
+    skill = registry.get("user/orient")
     assert skill.description == "Folded line still one description."
     assert skill.args[0].options == ("sketch", "thorough")
     assert skill.args[0].default == "sketch"
 
 
-def test_malformed_args_are_skipped_and_valid_skills_remain(tmp_path: Path):
-    _write_skill(
-        tmp_path,
-        "bad-enum",
-        """
-name: bad-enum
-description: Missing enum options.
-args:
-  - name: mode
-    type: enum
-    description: Mode.
-""".strip(),
+def test_render_args_shows_type_options_default_and_required():
+    args = (
+        ExtensionArg(name="repro", type="string", description="Failing command.", required=True),
+        ExtensionArg(name="depth", type="enum", enum=["sketch", "thorough"], description="D.", default="sketch"),
+        ExtensionArg(name="max_files", type="number", description="N.", default=4),
+        ExtensionArg(name="focus", type="string", description="F.", default=""),
     )
-    _write_skill(
-        tmp_path,
-        "ok-skill",
-        "name: ok-skill\ndescription: This one still loads.\nargs: []",
+    assert render_args(args) == (
+        "repro: string required, depth: enum[sketch|thorough]=sketch, max_files: number=4, focus: string"
     )
-    registry, diagnostics = SkillRegistry.discover([("workspace", tmp_path)])
-    assert registry.get("workspace/ok-skill").args == ()
-    assert len(diagnostics) == 1
-    assert "bad-enum" in diagnostics[0].source
 
 
-def test_duplicate_argument_names_are_rejected():
-    with pytest.raises(ValueError, match="duplicate argument name"):
-        parse_skill_front_matter(
-            "name: demo\ndescription: Has two of the same arg.\n"
-            "args:\n  - {name: repro, type: string, description: One.}\n"
-            "  - {name: repro, type: string, description: Two.}\n"
-        )
+def test_malformed_skills_are_skipped_and_valid_skills_remain(tmp_path: Path):
+    bad_enum = "name: bad-enum\ndescription: No options.\nargs:\n  - {name: m, type: enum, description: M.}"
+    _write_skill(tmp_path, "bad-enum", bad_enum)
+    _write_skill(tmp_path, "bad-yaml", "name: bad-yaml\ndescription: [unclosed")
+    _write_skill(tmp_path, "ok-skill", "name: ok-skill\ndescription: This one still loads.\nargs: []")
+    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    assert [skill.name for skill in registry.skills] == ["ok-skill"]
+    assert sorted(Path(d.source).parent.name for d in diagnostics) == ["bad-enum", "bad-yaml"]
+    assert any("invalid YAML front matter" in d.message for d in diagnostics)
 
 
-def test_plugin_manifest_loads_description_and_args(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
-    plugin = tmp_path / "home" / ".symphony" / "plugins" / "search"
-    plugin.mkdir(parents=True)
-    (plugin / "plugin.json").write_text(
-        """
-        {
-          "schema_version": 1,
-          "id": "search",
-          "description": "Search before opening files.",
-          "args": [
-            {"name": "query", "type": "string", "description": "Text to find.", "required": true}
-          ],
-          "skills": []
-        }
-        """,
-        encoding="utf-8",
-    )
-    manager = PluginManager(tmp_path / "repo")
-    addons, roots, diagnostics = manager.load(manager.discover())
-    assert addons == []
-    assert roots == []
-    assert diagnostics == ()
-    loaded = manager.loaded[0]
-    assert loaded.plugin_id == "search"
-    assert loaded.description == "Search before opening files."
-    assert loaded.args[0].name == "query"
-    assert loaded.args[0].required is True
+def test_standard_keys_such_as_allowed_tools_are_ignored():
+    meta = read_front_matter("---\nname: langfuse\ndescription: Trace runs.\nallowed-tools: Bash(curl:*)\n---\n")
+    assert meta.name == "langfuse"
 
 
-def test_parse_args_rejects_a_non_list():
-    with pytest.raises(ValueError, match="args must be a list"):
-        parse_args("query")
+def test_closing_fence_at_eof_without_newline_is_accepted():
+    assert read_front_matter("---\nname: demo\ndescription: Ends at EOF.\n---").name == "demo"
+
+
+def test_mid_line_dashes_do_not_close_front_matter():
+    meta = read_front_matter("---\nname: demo\ndescription: see foo---\n---\nbody ---\n")
+    assert meta.description == "see foo---"
+
+
+_BOMB = "a: &a [x, x, x, x, x, x, x, x, x]\n" + "".join(
+    f"{chr(98 + i)}: &{chr(98 + i)} [*{chr(97 + i)}, *{chr(97 + i)}, *{chr(97 + i)}]\n" for i in range(8)
+)
+
+
+@pytest.mark.parametrize(
+    ("front", "error"),
+    [
+        (_BOMB + "name: bomb\ndescription: Alias bomb.", "aliases are not allowed"),
+        ("name: big\ndescription: " + "x" * 4100, "byte limit"),
+        ("name: demo\ndescription: [unclosed", "invalid YAML front matter"),
+        ("name: demo\ndescription: D.\nargs: query", "tuple"),
+        ("name: demo\ndescription: D.\nargs:\n  - {name: r, type: string, description: One.}\n"
+         "  - {name: r, type: string, description: Two.}", "duplicate argument name"),
+        ("name: demo\ndescription: D.\nargs:\n  - {name: d, type: enum, enum: [a, b], description: D., default: c}",
+         "default is not in its enum"),
+        ("name: demo\ndescription: D.\nargs:\n  - {name: r, type: string, description: R., required: true, default: x}",
+         "required and cannot have a default"),
+        ("name: demo\ndescription: D.\nargs:\n  - {name: n, type: number, description: N., default: true}",
+         "does not match type number"),
+        ("name: demo\ndescription: D.\nargs:\n  - {name: s, type: string, enum: [a], description: S.}",
+         "other types take none"),
+    ],
+)
+def test_invalid_front_matter_is_rejected(front: str, error: str):
+    with pytest.raises(ValueError, match=error):
+        read_front_matter(f"---\n{front}\n---\n")
+
+
+def test_alias_bomb_is_rejected_quickly(tmp_path: Path):
+    _write_skill(tmp_path, "bomb", _BOMB + "name: bomb\ndescription: Alias bomb.")
+    started = time.monotonic()
+    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    assert time.monotonic() - started < 1
+    assert registry.skills == () and len(diagnostics) == 1

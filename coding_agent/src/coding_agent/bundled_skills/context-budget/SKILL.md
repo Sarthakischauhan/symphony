@@ -4,7 +4,6 @@ description: Read only the code the next decision needs.
 args:
   - name: max_files
     type: number
-    required: false
     description: Most files to open before deciding on an edit.
     default: 4
 ---

@@ -8,9 +8,7 @@ args:
     description: Command, test name, or exact symptom that fails.
   - name: hypothesis
     type: string
-    required: false
     description: One suspected cause. Leave empty until there is evidence.
-    default: ""
 ---
 
 1. Run `repro` and keep the exact error. Do not edit while reading it.

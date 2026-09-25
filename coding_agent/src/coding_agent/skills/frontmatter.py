@@ -1,101 +1,57 @@
-"""YAML front matter for skills.
+"""Split and validate the YAML front matter at the top of a SKILL.md.
 
-Lives in the skills package. Plugin manifests reuse ``parse_args`` for the
-same argument contract. The loader keeps name, description, and args.
+Why: skill files come from user directories and are pasted into the prompt,
+so the YAML is untrusted. It is size-capped, loaded without aliases, and
+reduced to the three keys the catalog reads: name, description, and args.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+import re
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from coding_agent.skills.models import SkillArg
+from coding_agent.extension_args import Description, ExtensionArgs
 
-_NAME = r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
-_ARG_NAME = r"^[a-z][a-z0-9_]*$"
+SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+_FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
+_MAX_FRONT_MATTER_BYTES = 4096
 
 
-class _ArgModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class _NoAliasLoader(yaml.SafeLoader):
+    """SafeLoader that rejects YAML aliases (``*name``)."""
 
-    name: str = Field(pattern=_ARG_NAME, max_length=64)
-    type: Literal["string", "number", "boolean", "enum"]
-    description: str = Field(min_length=1, max_length=500)
-    required: bool = False
-    default: str | int | float | bool | None = None
-    enum: list[str] | None = None
-
-    @model_validator(mode="after")
-    def _check_shape(self) -> "_ArgModel":
-        if self.type == "enum":
-            options = self.enum or []
-            if len(options) < 2 or any(not isinstance(item, str) or not item for item in options):
-                raise ValueError(f"argument {self.name} needs at least two enum options")
-            if self.default is not None and self.default not in options:
-                raise ValueError(f"argument {self.name} default is not in its enum")
-        elif self.enum is not None:
-            raise ValueError(f"argument {self.name} enum list is only valid for type enum")
-        if self.default is not None and not _default_matches(self.type, self.default):
-            raise ValueError(f"argument {self.name} default does not match its type")
-        return self
+    def compose_node(self, parent, index):
+        # WHY: aliases expand exponentially ("billion laughs"); 353 bytes of
+        # front matter took 50s at startup. Skills never need them.
+        if self.check_event(yaml.AliasEvent):
+            raise ValueError("YAML aliases are not allowed in front matter")
+        return super().compose_node(parent, index)
 
 
 class _SkillFrontMatter(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    """The keys the catalog reads; other standard keys such as allowed-tools are ignored."""
 
-    name: str = Field(pattern=_NAME, min_length=1, max_length=1000)
-    description: str = Field(min_length=1, max_length=1000)
-    args: list[_ArgModel] = Field(default_factory=list)
+    model_config = ConfigDict(extra="ignore")
 
-
-def parse_args(value: object) -> tuple[SkillArg, ...]:
-    """Validate an args list from YAML front matter or a plugin manifest."""
-    if value is None:
-        return ()
-    if not isinstance(value, list):
-        raise ValueError("args must be a list")
-    parsed = [_ArgModel.model_validate(item) for item in value]
-    names = [arg.name for arg in parsed]
-    if len(names) != len(set(names)):
-        raise ValueError("duplicate argument name")
-    return tuple(_to_arg(arg) for arg in parsed)
+    name: str = Field(pattern=SKILL_NAME.pattern, max_length=1000)
+    description: Description
+    args: ExtensionArgs = ()
 
 
-def parse_skill_front_matter(text: str) -> tuple[str, str, tuple[SkillArg, ...]]:
-    """Load name, description, and args from a YAML front-matter document."""
-    loaded = yaml.safe_load(text)
-    if not isinstance(loaded, dict):
-        raise ValueError("front matter must be a YAML map")
-    meta = _SkillFrontMatter.model_validate(loaded)
-    names = [arg.name for arg in meta.args]
-    if len(names) != len(set(names)):
-        raise ValueError("duplicate argument name")
-    return meta.name, " ".join(meta.description.split()), tuple(_to_arg(arg) for arg in meta.args)
+def read_front_matter(text: str) -> _SkillFrontMatter:
+    """Validate the leading ``---`` block of a SKILL.md."""
+    match = _FRONT_MATTER.match(text)
+    if match is None:
+        raise ValueError("SKILL.md must start with a closed YAML front matter block")
+    if len(match.group(1).encode()) > _MAX_FRONT_MATTER_BYTES:
+        raise ValueError(f"front matter exceeds the {_MAX_FRONT_MATTER_BYTES} byte limit")
+    try:
+        data = yaml.load(match.group(1), Loader=_NoAliasLoader)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid YAML front matter: {exc}") from exc
+    return _SkillFrontMatter.model_validate(data)
 
 
-def _to_arg(arg: _ArgModel) -> SkillArg:
-    return SkillArg(
-        name=arg.name,
-        type=arg.type,
-        description=arg.description,
-        required=arg.required,
-        default=arg.default,
-        options=tuple(arg.enum or ()),
-    )
-
-
-def _default_matches(kind: str, value: object) -> bool:
-    if kind == "string":
-        return isinstance(value, str)
-    if kind == "boolean":
-        return isinstance(value, bool)
-    if kind == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if kind == "enum":
-        return isinstance(value, str)
-    return False
-
-
-__all__ = ["parse_args", "parse_skill_front_matter"]
+__all__ = ["SKILL_NAME", "read_front_matter"]

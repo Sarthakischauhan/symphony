@@ -7,14 +7,16 @@ import types
 import uuid
 from pathlib import Path
 from typing import Iterable
-from coding_agent.skills.frontmatter import parse_args
-from coding_agent.plugins.models import LoadedPlugin, PluginConfig, PluginContext, PluginDiagnostic
+from coding_agent.plugins.models import (
+    LoadedPlugin, PluginConfig, PluginContext, PluginDiagnostic, PluginLoadResult, PluginMetadata,
+)
 
 class PluginManager:
+    """Load ~/.symphony plugin manifests; addons are code, so only authorized roots are imported."""
+
     def __init__(self, workspace: Path, *, authorized_roots: Iterable[Path] = ()) -> None:
         self.workspace = workspace.resolve()
         self.authorized_roots = tuple(p.expanduser().resolve() for p in authorized_roots)
-        self.loaded: tuple[LoadedPlugin, ...] = ()
 
     def discover(self) -> tuple[PluginConfig, ...]:
         """Discover installed plugins without executing any plugin code.
@@ -40,7 +42,7 @@ class PluginManager:
                     entries.append(PluginConfig(path=plugin_root))
         return tuple(entries)
 
-    def load(self, entries: Iterable[PluginConfig]):
+    def load(self, entries: Iterable[PluginConfig]) -> PluginLoadResult:
         """Load manifests, skill directories, and authorized executable add-ons."""
         addons = []
         diagnostics = []
@@ -73,17 +75,8 @@ class PluginManager:
                 if plugin_id in seen:
                     raise ValueError(f"duplicate plugin id: {plugin_id}")
                 seen.add(plugin_id)
-                description = data.get("description", "")
-                if not isinstance(description, str):
-                    raise ValueError("description must be a string")
-                args = parse_args(data.get("args", []))
-                loaded.append(LoadedPlugin(
-                    plugin_id=plugin_id,
-                    description=" ".join(description.split()),
-                    root=root,
-                    enabled=entry.enabled,
-                    args=args,
-                ))
+                metadata = PluginMetadata.model_validate(data)
+                loaded.append(LoadedPlugin(plugin_id, metadata.description, root, entry.enabled))
                 skills = data.get("skills", [])
                 if not isinstance(skills, list):
                     raise ValueError("skills must be a list")
@@ -142,7 +135,6 @@ class PluginManager:
                     sys.modules.pop(package_name, None)
             except Exception as exc:
                 diagnostics.append(PluginDiagnostic(str(manifest_path), str(exc)))
-        self.loaded = tuple(loaded)
-        return addons, skill_roots, tuple(diagnostics)
+        return PluginLoadResult(addons, skill_roots, tuple(loaded), tuple(diagnostics))
 
 __all__ = ["PluginManager"]

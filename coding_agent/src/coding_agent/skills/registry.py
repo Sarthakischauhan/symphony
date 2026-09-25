@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import re
+import logging
 from pathlib import Path
 from typing import Iterable
 
-from pydantic import ValidationError
-
-from coding_agent.skills.frontmatter import parse_skill_front_matter
+from coding_agent.skills.frontmatter import SKILL_NAME, read_front_matter
 from coding_agent.skills.models import Skill, SkillDiagnostic
 
-_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+logger = logging.getLogger(__name__)
 _MAX_FILE_BYTES = 128_000
 
 
 def bundled_skills_root() -> Path:
-    """Skills shipped inside the coding_agent package."""
+    """Skills shipped in the package, so every install starts with the same habits without copying files."""
     return Path(__file__).resolve().parent.parent / "bundled_skills"
 
 
@@ -58,6 +56,7 @@ class SkillRegistry:
         *,
         max_skills: int = 100,
     ) -> tuple["SkillRegistry", tuple[SkillDiagnostic, ...]]:
+        """Load every SKILL.md under ``roots``; a broken skill becomes a diagnostic, never a crash."""
         found: list[Skill] = []
         diagnostics: list[SkillDiagnostic] = []
         seen: set[str] = set()
@@ -81,7 +80,8 @@ class SkillRegistry:
                         diagnostics.append(SkillDiagnostic(str(document), "skill limit reached"))
                         continue
                     found.append(skill)
-                except (OSError, UnicodeError, ValueError, ValidationError) as exc:
+                except (OSError, UnicodeError, ValueError) as exc:
+                    logger.warning("Skipping skill %s: %s", document, exc)
                     diagnostics.append(SkillDiagnostic(str(document), str(exc)))
         return cls(found), tuple(diagnostics)
 
@@ -96,28 +96,14 @@ def _parents_from(root: Path, path: Path) -> list[Path]:
 
 
 def _parse_skill(origin: str, root: Path, document: Path) -> Skill:
-    if not _NAME.fullmatch(root.name):
+    if not SKILL_NAME.fullmatch(root.name):
         raise ValueError("skill directory name must be one identifier segment")
     if document.stat().st_size > _MAX_FILE_BYTES:
         raise ValueError("SKILL.md exceeds the 128000 byte limit")
     text = document.read_text(encoding="utf-8").lstrip("\ufeff").replace("\r\n", "\n")
-    if not text.startswith("---\n"):
-        raise ValueError("SKILL.md must start with YAML front matter")
-    if text.count("---\n") < 2:
-        raise ValueError("SKILL.md front matter is not closed")
-    _, front, body = text.split("---\n", 2)
-    name, description, args = parse_skill_front_matter(front)
-    if not _NAME.fullmatch(name):
-        raise ValueError("skill name must be one identifier segment")
-    return Skill(
-        skill_id=f"{origin}/{name}",
-        name=name,
-        description=description,
-        root=root,
-        origin=origin,
-        body=body.lstrip("\n"),
-        args=args,
-    )
+    meta = read_front_matter(text)
+    return Skill(skill_id=f"{origin}/{meta.name}", name=meta.name, description=meta.description,
+                 root=root, origin=origin, args=meta.args)
 
 
 __all__ = ["SkillRegistry", "bundled_skills_root"]
