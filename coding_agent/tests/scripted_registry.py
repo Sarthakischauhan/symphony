@@ -22,12 +22,13 @@ def first_user_text(messages: list[Message]) -> str:
 
 
 class ScriptedRegistry:
-    """Keyed by the conversation's first user prompt; step = assistant messages so far."""
+    """Keyed by the conversation's first user prompt; each call for a key plays its next turn."""
 
     def __init__(self, scripts: dict[str, list[Turn]], *, delay: float = 0.0) -> None:
         self.scripts = scripts
         self.delay = delay
         self.calls: list[list[Message]] = []
+        self.steps: dict[str, int] = {}
 
     async def stream(self, model_id, messages, tools=None, **kwargs):
         del model_id, tools, kwargs
@@ -38,8 +39,9 @@ class ScriptedRegistry:
         self.calls.append(list(messages))
         if self.delay:
             await asyncio.sleep(self.delay)
-        turns = self.scripts.get(first_user_text(messages), [])
-        step = sum(1 for m in messages if m.role == "assistant")
+        key = first_user_text(messages)
+        turns = self.scripts.get(key, [])
+        step = self.steps[key] = self.steps.get(key, -1) + 1
         if step < len(turns):
             for index, (name, args) in enumerate(turns[step]):
                 call_id = f"call-{step}-{index}-{len(self.calls)}"

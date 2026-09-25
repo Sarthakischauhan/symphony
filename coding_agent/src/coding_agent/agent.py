@@ -119,6 +119,9 @@ class CodingAgent:
         self.registry = registry
         self.session_id = session_id or str(uuid.uuid4())
         self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
+        self.goal = ""
+        if isinstance(self.persistence, JsonlPersistence):
+            self.persistence.checkpoint_metadata = self._checkpoint_metadata
         self.base_system_prompt = system_prompt.rstrip()
         # Unattended runs cannot enter plan mode: approving a plan needs a human.
         self.unattended = self.config.unattended
@@ -282,6 +285,9 @@ class CodingAgent:
         if jev_addon is not None:
             jev_addon.follow_ups = 0
 
+        if not self.goal:
+            previous = await self.persistence.load_checkpoint(session_id=session_id or self.session_id)
+            self.goal = (previous.metadata.get("goal") if previous else "") or task_text
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
@@ -309,6 +315,10 @@ class CodingAgent:
                 session_id=session_id or self.session_id,
             )
         return result
+
+    def _checkpoint_metadata(self) -> dict[str, Any]:
+        """Goal (first prompt), current todo (the active plan file), live background jobs."""
+        return {"goal": self.goal, "todo": self.plan_mode.plan_path, "background_jobs": self.bash_jobs.running_ids()}
 
     def _jev_follow_up(self) -> Optional[str]:
         addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)

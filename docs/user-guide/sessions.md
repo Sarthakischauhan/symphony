@@ -9,6 +9,14 @@ starts a fresh persisted session.
 uv run --package symphony-code symphony --resume
 ```
 
+`symphony --resume --continue` skips the picker. If the most recent session's
+last checkpoint still says `running` (the process died mid-run), it starts a new
+unattended run in that session with one note: when it was interrupted, which
+background jobs were lost, and the original goal. Checkpoints carry `goal` (the
+first prompt), `todo` (the active plan file, if any), and `background_jobs`
+metadata for this. The goal is also the pinned first user message, so
+compaction keeps it.
+
 ## What is stored
 
 One JSONL file per session (including child agents). Messages append as the run

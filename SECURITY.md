@@ -86,6 +86,11 @@ agent your shell:
   event and journaled in the session JSONL. That is the audit trail.
 - Background `bash` jobs (`background: true`) run in their own process group
   and are killed when the run is cancelled or fails.
+- `symphony run` refuses to start without `--unattended`. `symphony --resume
+  --continue` always continues **unattended**, even when the interrupted session
+  was an interactive one. `run --detach` leaves a process in its own session
+  with no controlling terminal; stop it with `kill <pid>` (pid in
+  `~/.symphony/sessions/<sid>.run.json`).
 - This is **not a sandbox**. Run unattended work in a container or VM if the
   workspace or machine matters.
 

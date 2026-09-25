@@ -33,13 +33,16 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
     "broad_patch_chars": 400,
     "require_for_bash": true,
     "require_for_overwrite": true,
-    "require_for_broad_patch": true
+    "require_for_broad_patch": true,
+    "allow": [],
+    "deny": []
   },
   "tools": {
     "bash": {
       "default_timeout_seconds": 30,
       "max_timeout_seconds": 120,
-      "max_output_bytes": 32000
+      "max_output_bytes": 32000,
+      "max_background_seconds": 3600
     },
     "read_file": {
       "max_text_bytes": 32000,
@@ -88,6 +91,14 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
 - `always_allow` — every tool call is authorized without a prompt.
 - Rules live in `coding_agent.approvals`; the TUI only renders the question.
 - TUI **Always allow** is per-run, including child agents, and does not persist.
+- `deny` / `allow` are fnmatch patterns matched on the bash command, or on the
+  path for `write_file`, `patch`, and `generate_image`. `deny` is checked first
+  and blocks the call in every mode, including `always_allow` and unattended
+  runs; `allow` skips the prompt. Example: `"deny": ["rm -rf *", "git push*", "*.env"]`.
+- `--unattended` (TUI flag, and required by `symphony run`) is runtime-only and
+  never written to this file. It auto-approves prompts, auto-answers
+  `ask_user`, disables plan mode, emits `auto_decision` events, and keeps
+  `deny` rules on spawned children. See `SECURITY.md`.
 
 ## Context policy
 
