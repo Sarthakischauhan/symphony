@@ -318,7 +318,7 @@ class CodingAgent:
 
     def _checkpoint_metadata(self) -> dict[str, Any]:
         """Goal (first prompt), current todo (the active plan file), live background jobs."""
-        return {"goal": self.goal, "todo": self.plan_mode.plan_path, "background_jobs": self.bash_jobs.running_ids()}
+        return {"goal": self.goal, "todo": self.plan_mode.plan_path, "background_jobs": self.bash_jobs.running()}
 
     def _jev_follow_up(self) -> Optional[str]:
         addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)

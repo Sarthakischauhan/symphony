@@ -15,7 +15,7 @@ from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.run.detach import detach
-from coding_agent.run.interrupted import interrupted_session, resume_note
+from coding_agent.run.interrupted import interrupted_session, resume_note, stop_orphaned_jobs
 from coding_agent.run.log_sink import LogLineSink
 
 
@@ -64,8 +64,9 @@ def continue_interrupted(workspace: Path, *, model: Optional[str] = None) -> int
         print("nothing to continue: the most recent session was not interrupted mid-run")
         return 0
     summary, checkpoint = found
+    stopped = stop_orphaned_jobs(checkpoint.metadata.get("background_jobs"))
     print(f"continuing interrupted session {summary.session_id} unattended", flush=True)
-    return run_task(workspace, resume_note(summary, checkpoint), model=model, session_id=summary.session_id)
+    return run_task(workspace, resume_note(summary, checkpoint, stopped), model=model, session_id=summary.session_id)
 
 
 def main(argv: Sequence[str]) -> int:

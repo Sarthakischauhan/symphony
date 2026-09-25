@@ -34,9 +34,9 @@ class BashArgs(ToolArgsModel):
     background: bool = Field(
         default=False,
         description=(
-            "Run detached and return a job id plus log path at once (for long builds, "
-            "servers, test suites). When it exits you are sent its status and output "
-            "tail automatically; do not poll."
+            "Run detached and return a job id plus log path at once (for long builds or "
+            "test suites). When it exits you are sent its status and output tail "
+            "automatically; do not poll. The run cannot finish while a job is alive."
         ),
     )
     action: Literal["run", "output", "stop"] = Field(

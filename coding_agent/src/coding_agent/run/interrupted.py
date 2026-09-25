@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 from typing import Optional
 
 from core_harness import Checkpoint
@@ -20,10 +22,24 @@ async def interrupted_session(persistence: JsonlPersistence) -> Optional[tuple[S
     return sessions[0], checkpoint
 
 
-def resume_note(summary: SessionSummary, checkpoint: Checkpoint) -> str:
-    jobs = ", ".join(checkpoint.metadata.get("background_jobs") or []) or "none"
+def stop_orphaned_jobs(jobs: object) -> list[str]:
+    """SIGKILL job process groups (own session, so pgid == pid) that outlived the killed run."""
+    stopped = []
+    for job_id, pid in (jobs.items() if isinstance(jobs, dict) else []):
+        if not isinstance(pid, int) or pid <= 1:
+            continue
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            continue
+        stopped.append(f"{job_id} (pid {pid})")
+    return stopped
+
+
+def resume_note(summary: SessionSummary, checkpoint: Checkpoint, stopped: list[str]) -> str:
     goal = checkpoint.metadata.get("goal") or summary.first_message
     return (
-        f"previous run was interrupted at {summary.updated_at}; background jobs {jobs} were lost; "
+        f"previous run was interrupted at {summary.updated_at}; "
+        f"background jobs {', '.join(stopped) or 'none'} were stopped; "
         f"continue toward the original task: {goal}"
     )

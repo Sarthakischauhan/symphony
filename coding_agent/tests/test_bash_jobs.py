@@ -57,16 +57,17 @@ def test_output_and_stop_actions(tmp_path: Path) -> None:
 
     async def _run() -> None:
         started = await tool.execute(sink=None, args={"command": "echo hello-job; sleep 30", "background": True})
+        assert "servers" not in tool.parameters["properties"]["background"]["description"]
         job_id = started.split()[3]
         assert (tmp_path / "jobs" / f"{job_id}.log").as_posix() in started
         await asyncio.sleep(0.3)
         output = await tool.execute(sink=None, args={"action": "output", "job_id": job_id})
         assert output.startswith(f"job {job_id} running") and "hello-job" in output
-        assert jobs.running_ids() == [job_id]
+        assert list(jobs.running()) == [job_id] and jobs.running()[job_id] > 1
         stopped = await tool.execute(sink=None, args={"action": "stop", "job_id": job_id})
         assert stopped == f"stopped background job {job_id}"
         await harness.child_tasks[job_id].task
-        assert jobs.running_ids() == []
+        assert jobs.running() == {}
         assert len(harness._child_results) == 1
         assert f"Background job {job_id} exit=-" in harness._child_results[0].content
         missing = await tool.execute(sink=None, args={"action": "output", "job_id": "nope"})
@@ -87,7 +88,7 @@ def test_cancelling_the_watcher_kills_the_process_group(tmp_path: Path) -> None:
         assert record.status == "background"
         record.task.cancel()
         await asyncio.gather(record.task, return_exceptions=True)
-        assert jobs.running_ids() == []
+        assert jobs.running() == {}
         assert record.status == "cancelled"
         assert harness._child_results == []
 

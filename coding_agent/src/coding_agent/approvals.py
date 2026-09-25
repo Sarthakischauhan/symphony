@@ -10,6 +10,7 @@ human would have made is emitted as an ``auto_decision`` event instead.
 
 from __future__ import annotations
 
+import os
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Union
@@ -26,11 +27,23 @@ AUTO_DECISION = "auto_decision"
 RULE_SUBJECTS = {"bash": "command", "write_file": "path", "patch": "path", "generate_image": "path"}
 
 
-def matching_rule(patterns: Sequence[str], tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
-    """First pattern matching the bash command (or write/patch path), if any."""
+def rule_subjects(tool_name: str, arguments: Dict[str, Any], workspace: Path) -> set[str]:
+    """The bash command, or a path normalized so ``../`` and symlinks cannot dodge a rule."""
     field = RULE_SUBJECTS.get(tool_name)
-    subject = str(arguments.get(field) or "").strip() if field else ""
-    return next((pattern for pattern in patterns if subject and fnmatchcase(subject, pattern)), None)
+    raw = str(arguments.get(field) or "").strip() if field else ""
+    if not raw or field == "command":
+        return {raw} if raw else set()
+    joined = os.path.join(workspace, os.path.expanduser(raw))
+    absolute, resolved = os.path.normpath(joined), str(Path(joined).resolve())
+    return {absolute, resolved, os.path.relpath(absolute, workspace)}
+
+
+def matching_rule(
+    patterns: Sequence[str], tool_name: str, arguments: Dict[str, Any], workspace: Path
+) -> Optional[str]:
+    """First pattern matching the bash command or any normalized form of the path, if any."""
+    subjects = rule_subjects(tool_name, arguments, workspace)
+    return next((p for p in patterns if any(fnmatchcase(s, p) for s in subjects)), None)
 
 
 class ApprovalPolicy:
@@ -49,7 +62,7 @@ class ApprovalPolicy:
 
         Deny rules are not a prompt; ``ApprovalAddon`` checks them first.
         """
-        if config.mode == "always_allow" or matching_rule(config.allow, tool_name, arguments):
+        if config.mode == "always_allow" or matching_rule(config.allow, tool_name, arguments, self.workspace):
             return ""
         if tool_name == "bash" and config.require_for_bash:
             command = str(arguments.get("command") or "").strip()
@@ -141,7 +154,7 @@ class ApprovalAddon(Addon):
         if approvals is None:
             return None
         emit = emit or self.plane.emit
-        rule = matching_rule(approvals.deny, tool_name, arguments)
+        rule = matching_rule(approvals.deny, tool_name, arguments, self.policy.workspace)
         if rule:
             await emit(AUTO_DECISION, {"kind": "approval", "tool": tool_name, "decision": "deny", "rule": rule})
             return f"tool call denied by rule {rule!r}"

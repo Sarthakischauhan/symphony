@@ -94,7 +94,9 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
 - `deny` / `allow` are fnmatch patterns matched on the bash command, or on the
   path for `write_file`, `patch`, and `generate_image`. `deny` is checked first
   and blocks the call in every mode, including `always_allow` and unattended
-  runs; `allow` skips the prompt. Example: `"deny": ["rm -rf *", "git push*", "*.env"]`.
+  runs; `allow` skips the prompt. Paths are matched after normalizing against
+  the workspace (absolute, symlink-resolved, and workspace-relative forms), so
+  `/etc/*` also blocks `../../etc/passwd`. Example: `"deny": ["rm -rf *", "git push*", "*.env"]`.
 - `--unattended` (TUI flag, and required by `symphony run`) is runtime-only and
   never written to this file. It auto-approves prompts, auto-answers
   `ask_user`, disables plan mode, emits `auto_decision` events, and keeps

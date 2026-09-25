@@ -44,8 +44,9 @@ class BashJobs:
     def bind(self, harness: Any) -> None:
         self.harness = harness
 
-    def running_ids(self) -> list[str]:
-        return [job_id for job_id, proc in self.procs.items() if proc.returncode is None]
+    def running(self) -> dict[str, int]:
+        """Live jobs as ``{job_id: pid}``; the pid is also the job's process-group id."""
+        return {job_id: proc.pid for job_id, proc in self.procs.items() if proc.returncode is None}
 
     async def start(self, command: str, cwd: Path) -> str:
         if self.harness is None:

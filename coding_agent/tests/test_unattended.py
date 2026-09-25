@@ -106,3 +106,24 @@ def test_unattended_flag_is_runtime_only(tmp_path: Path) -> None:
     assert config.unattended is True
     assert "unattended" not in spawn_settings_path(tmp_path).read_text(encoding="utf-8")
     assert ensure_spawn_settings(tmp_path).unattended is False
+
+
+def test_path_deny_rules_match_the_resolved_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "a" / "b"
+    workspace.mkdir(parents=True)
+    secret = tmp_path / "etc"
+    secret.mkdir()
+    (workspace / "link").symlink_to(secret)
+    approvals = ApprovalConfig(mode="always_allow", deny=[f"{secret}/*"], allow=["src/*"])
+    addon = ApprovalAddon(workspace, EventSink(), approvals=approvals)
+
+    def gate(tool: str, path: str):
+        return asyncio.run(addon.before_tool(tool_name=tool, arguments={"path": path, "content": "x"}))
+
+    for path in ("../../etc/passwd", f"{secret}/passwd", "link/passwd", "src/../../../etc/passwd"):
+        assert "denied by rule" in gate("write_file", path), path
+    assert "denied by rule" in gate("patch", "../../etc/hosts")
+    assert gate("write_file", "notes/etc/passwd") is None
+    ask = approvals.model_copy(update={"mode": "ask", "require_for_overwrite": True})
+    (tmp_path / "a" / "outside.txt").write_text("old", encoding="utf-8")
+    assert addon.policy.prompt_for(ask, "write_file", {"path": "src/../../outside.txt"})  # allow src/* not dodged

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -64,7 +65,12 @@ def test_resume_continue_finishes_interrupted_run_once(
     interrupted = asyncio.run(persistence.load_checkpoint(session_id=killed.session_id))
     assert interrupted.status == "running"
     assert interrupted.metadata["goal"] == GOAL
-    (lost_job,) = interrupted.metadata["background_jobs"]
+    ((lost_job, pid),) = interrupted.metadata["background_jobs"].items()
+    assert isinstance(pid, int)
+    # asyncio teardown reaped that job; a real SIGKILL leaves its group alive. Record a live one.
+    orphan = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    metadata = {**interrupted.metadata, "background_jobs": {lost_job: orphan.pid}}
+    asyncio.run(persistence.save_checkpoint(checkpoint=interrupted.model_copy(update={"metadata": metadata})))
 
     registry = ScriptedRegistry({GOAL: SCRIPT[GOAL][1:]})
     monkeypatch.setattr("core_ai.build_default_registry", lambda: registry)
@@ -72,7 +78,11 @@ def test_resume_continue_finishes_interrupted_run_once(
     monkeypatch.setattr("coding_agent.run.cli.has_configured_provider", lambda: True)
     monkeypatch.setattr("coding_agent.run.cli.load_provider_env", lambda _ws: None)
 
-    assert continue_interrupted(tmp_path) == 0
+    try:
+        assert continue_interrupted(tmp_path) == 0
+        assert orphan.wait(timeout=5) == -9  # killed before the resumed run started
+    finally:
+        orphan.kill()
     assert (tmp_path / "done.txt").read_text(encoding="utf-8") == "ok"
     out = capsys.readouterr().out
     assert f"continuing interrupted session {killed.session_id}" in out
@@ -89,7 +99,7 @@ def test_resume_continue_finishes_interrupted_run_once(
     notes = [[text_from_content(m.content) for m in call if text_from_content(m.content).startswith(NOTE)]
              for call in registry.calls]
     assert len(notes[0]) == 1 and all(len(found) <= 1 for found in notes)
-    assert f"background jobs {lost_job} were lost" in notes[0][0]
+    assert f"background jobs {lost_job} (pid {orphan.pid}) were stopped" in notes[0][0]
     assert notes[0][0].endswith(f"continue toward the original task: {GOAL}")
     done = asyncio.run(fresh.load_checkpoint(session_id=killed.session_id))
     assert done.status == "completed" and done.metadata["goal"] == GOAL

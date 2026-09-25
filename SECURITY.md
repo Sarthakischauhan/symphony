@@ -74,7 +74,8 @@ agent your shell:
 - `bash` runs with full filesystem access and every approval prompt is
   auto-approved (the approval mode is forced to `always_allow` for the run).
 - `approvals.deny` fnmatch patterns (on the bash command, or on the path for
-  `write_file`/`patch`/`generate_image`) are the **only** gate. They are loaded
+  `write_file`/`patch`/`generate_image`, normalized against the workspace so
+  `../` and symlinks resolve first) are the **only** gate. They are loaded
   from the config file, so they survive restarts, and they also apply to
   spawned children through a deny-only fork of `ApprovalAddon`. Patterns match
   the literal command text; a determined model can phrase around them
@@ -85,7 +86,9 @@ agent your shell:
 - Every decision a human would have made is emitted as an `auto_decision`
   event and journaled in the session JSONL. That is the audit trail.
 - Background `bash` jobs (`background: true`) run in their own process group
-  and are killed when the run is cancelled or fails.
+  and are killed when the run is cancelled or fails. If `symphony` itself is
+  SIGKILLed they keep running until `symphony --resume --continue` kills the
+  recorded groups, or you do.
 - `symphony run` refuses to start without `--unattended`. `symphony --resume
   --continue` always continues **unattended**, even when the interrupted session
   was an interactive one. `run --detach` leaves a process in its own session

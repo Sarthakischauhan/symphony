@@ -33,7 +33,8 @@ foreground max. When it exits, one bounded message (exit code, duration, last
 ~2 KB, log path) is injected before the next turn; the run waits for running
 jobs before it completes, so the model never needs to poll. `action: "output"`
 tails a job's log, `action: "stop"` kills its process group. Cancelling the run
-kills running jobs.
+kills running jobs. The run will not finish while a background job is alive,
+so stop it with `action: "stop"` when you are done with it.
 
 ## spawn_agent
 
