@@ -7,7 +7,7 @@ import types
 import uuid
 from pathlib import Path
 from typing import Iterable
-from coding_agent.frontmatter import parse_args
+from coding_agent.skills.frontmatter import parse_args
 from coding_agent.plugins.models import LoadedPlugin, PluginConfig, PluginContext, PluginDiagnostic
 
 class PluginManager:

@@ -8,7 +8,7 @@ from typing import Iterable
 
 from pydantic import ValidationError
 
-from coding_agent.frontmatter import parse_skill_front_matter
+from coding_agent.skills.frontmatter import parse_skill_front_matter
 from coding_agent.skills.models import Skill, SkillDiagnostic
 
 _NAME = re.compile(r"^[A-Za-z0-9_-]+$")

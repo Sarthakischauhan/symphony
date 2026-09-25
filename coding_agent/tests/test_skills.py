@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.frontmatter import parse_args, parse_skill_front_matter
+from coding_agent.skills.frontmatter import parse_args, parse_skill_front_matter
 from coding_agent.plugins.manager import PluginManager
 from coding_agent.skills.registry import SkillRegistry, bundled_skills_root
 

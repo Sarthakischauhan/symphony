@@ -1,6 +1,7 @@
-"""YAML front matter shared by skills and plugin manifests.
+"""YAML front matter for skills.
 
-The loader keeps three fields: name, description, and args.
+Lives in the skills package. Plugin manifests reuse ``parse_args`` for the
+same argument contract. The loader keeps name, description, and args.
 """
 
 from __future__ import annotations
