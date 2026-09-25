@@ -7,12 +7,14 @@ import types
 import uuid
 from pathlib import Path
 from typing import Iterable
-from coding_agent.plugins.models import PluginConfig, PluginContext, PluginDiagnostic
+from coding_agent.frontmatter import parse_args
+from coding_agent.plugins.models import LoadedPlugin, PluginConfig, PluginContext, PluginDiagnostic
 
 class PluginManager:
     def __init__(self, workspace: Path, *, authorized_roots: Iterable[Path] = ()) -> None:
         self.workspace = workspace.resolve()
         self.authorized_roots = tuple(p.expanduser().resolve() for p in authorized_roots)
+        self.loaded: tuple[LoadedPlugin, ...] = ()
 
     def discover(self) -> tuple[PluginConfig, ...]:
         """Discover installed plugins without executing any plugin code.
@@ -43,6 +45,7 @@ class PluginManager:
         addons = []
         diagnostics = []
         skill_roots = []
+        loaded: list[LoadedPlugin] = []
         seen: set[str] = set()
         addon_names: set[str] = set()
         for entry in entries:
@@ -70,6 +73,17 @@ class PluginManager:
                 if plugin_id in seen:
                     raise ValueError(f"duplicate plugin id: {plugin_id}")
                 seen.add(plugin_id)
+                description = data.get("description", "")
+                if not isinstance(description, str):
+                    raise ValueError("description must be a string")
+                args = parse_args(data.get("args", []))
+                loaded.append(LoadedPlugin(
+                    plugin_id=plugin_id,
+                    description=" ".join(description.split()),
+                    root=root,
+                    enabled=entry.enabled,
+                    args=args,
+                ))
                 skills = data.get("skills", [])
                 if not isinstance(skills, list):
                     raise ValueError("skills must be a list")
@@ -128,6 +142,7 @@ class PluginManager:
                     sys.modules.pop(package_name, None)
             except Exception as exc:
                 diagnostics.append(PluginDiagnostic(str(manifest_path), str(exc)))
+        self.loaded = tuple(loaded)
         return addons, skill_roots, tuple(diagnostics)
 
 __all__ = ["PluginManager"]

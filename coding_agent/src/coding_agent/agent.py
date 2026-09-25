@@ -43,7 +43,7 @@ from coding_agent.plan import PlanStore
 from coding_agent.plan_mode import PlanModeAddon, PlanModeState
 from coding_agent.plugins import PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
-from coding_agent.skills import SkillRegistry, SkillsAddon
+from coding_agent.skills import SkillRegistry, SkillsAddon, bundled_skills_root
 from coding_agent.tools import EnterPlanModeTool, ExitPlanModeTool, build_tools
 
 AgentMode = Literal["build", "plan"]
@@ -140,12 +140,15 @@ class CodingAgent:
             else None
         )
         skill_roots = [
+            ("bundled", bundled_skills_root()),
             ("user", Path.home() / ".symphony" / "skills"),
+            ("workspace", self.workspace / ".symphony" / "skills"),
             *[("configured", root) for root in self.config.skills.roots],
         ]
         plugin_addons = []
         plugin_skill_roots = []
         self.plugin_diagnostics = ()
+        self.loaded_plugins = ()
         if self.config.plugins.enabled:
             # Global config must not be able to authorize executable code.
             # Authorization is supplied by the trusted process environment;
@@ -166,6 +169,7 @@ class CodingAgent:
                 if entry.path.expanduser().resolve() not in configured_paths
             )
             plugin_addons, plugin_skill_roots, self.plugin_diagnostics = plugin_manager.load(plugin_entries)
+            self.loaded_plugins = plugin_manager.loaded
             if self.plugin_diagnostics:
                 details = "; ".join(
                     f"{diagnostic.source}: {diagnostic.message}"
@@ -306,11 +310,7 @@ class CodingAgent:
             lines = [
                 "Available skills (read the listed SKILL.md with read_file when relevant):"
             ]
-            lines.extend(
-                f"- {skill.skill_id}: {skill.description} "
-                f"(SKILL.md: {skill.root / 'SKILL.md'})"
-                for skill in self.skill_registry.skills
-            )
+            lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
             skills = "\n".join(lines)
         self.harness.system_prompt = compose_system_prompt(
             self.base_system_prompt,

@@ -999,6 +999,7 @@ source = { editable = "coding_agent" }
 dependencies = [
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "symphony-core" },
     { name = "symphony-harness" },
     { name = "textual" },
@@ -1019,6 +1020,7 @@ requires-dist = [
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=3.0.0" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "symphony-core", editable = "core_ai" },
     { name = "symphony-harness", editable = "core_harness" },
     { name = "textual", specifier = ">=8.2.8" },

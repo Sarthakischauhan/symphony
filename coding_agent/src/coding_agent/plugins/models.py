@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
+from coding_agent.skills.models import SkillArg
+
 class PluginConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: Path
@@ -22,4 +24,18 @@ class PluginDiagnostic:
     source: str
     message: str
 
-__all__ = ["PluginConfig", "PluginContext", "PluginDiagnostic"]
+@dataclass(frozen=True)
+class LoadedPlugin:
+    """A discovered plugin after its manifest is validated.
+
+    ``args`` is the contract declared on the manifest. Discovery does not
+    execute addon code to learn them.
+    """
+
+    plugin_id: str
+    description: str
+    root: Path
+    enabled: bool
+    args: tuple[SkillArg, ...] = ()
+
+__all__ = ["PluginConfig", "PluginContext", "PluginDiagnostic", "LoadedPlugin"]
