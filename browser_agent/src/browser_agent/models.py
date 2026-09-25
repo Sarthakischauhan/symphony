@@ -10,71 +10,68 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-OPERATIONS = (
-    "CLICK",
-    "TYPE_TEXT",
-    "SELECT",
-    "SCROLL_DOWN",
-    "SCROLL_UP",
-    "WAIT",
-    "PRESS_ENTER",
-    "DONE",
-    "BLOCKED",
-)
+from browser_agent.redact_secret_fields import is_secret_field
 
+Operation = Literal[
+    "CLICK", "TYPE_TEXT", "SELECT", "SCROLL_DOWN", "SCROLL_UP", "WAIT", "PRESS_ENTER", "DONE", "BLOCKED"
+]
 RunStatus = Literal["done", "blocked", "limited", "error"]
 
 
 class Element(BaseModel):
+    """One interactive node from the page snapshot, addressed by ``index``.
+
+    ``secret`` is set by the page itself (``type=password`` or a credential
+    ``autocomplete`` token). The snapshot never carries a secret's value.
+    """
+
     index: int
     role: str
     name: str
     value: str = ""
     kind: Literal["click", "type", "select"] = "click"
     options: list[str] = Field(default_factory=list)
+    secret: bool = False
+
+    @property
+    def shown_value(self) -> str:
+        """The value Jev may see: ``***`` for a filled secret field."""
+        return "***" if self.value and is_secret_field(self) else self.value
 
     def label(self) -> str:
+        """One line of Jev criteria text, e.g. ``[1] textbox Search · empty``."""
         bits = f"[{self.index}] {self.role} {self.name}".strip()
-        if self.kind == "type":
-            bits += f" · {self.value}" if self.value else " · empty"
-        elif self.value:
-            bits += f" · {self.value}"
+        if self.shown_value or self.kind == "type":
+            bits += f" · {self.shown_value or 'empty'}"
         if self.kind == "select" and self.options:
             bits += " · options " + ", ".join(self.options[:6])
         return bits[:180]
 
     def compact(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "index": self.index,
-            "role": self.role,
-            "name": self.name,
-            "kind": self.kind,
-            "value": self.value,
-        }
+        """The element as it appears in Jev's ``state.elements``."""
+        payload = self.model_dump(include={"index", "role", "name", "kind"}) | {"value": self.shown_value}
         if self.options:
-            payload["options"] = self.options[:12]
+            payload["options"] = self.options
         return payload
 
 
 class Observation(BaseModel):
+    """What the agent sees of the page for one step."""
+
     url: str
     title: str = ""
     elements: list[Element] = Field(default_factory=list)
     text: str = ""
 
     def find(self, index: Optional[int]) -> Optional[Element]:
-        if index is None:
-            return None
-        for element in self.elements:
-            if element.index == index:
-                return element
-        return None
+        """The element with ``index``, or None when this page has no such element."""
+        return next((element for element in self.elements if element.index == index), None)
 
 
 class Decision(BaseModel):
     """One Jev (or fixture) answer, already reduced to the operation we run."""
 
-    operation: str
+    operation: Operation
     confidence: float = 0.0
     click_target: Optional[int] = None
     type_target: Optional[int] = None
@@ -89,6 +86,7 @@ class Decision(BaseModel):
     reason: str = ""
 
     def target_index(self) -> Optional[int]:
+        """The element index the chosen operation acts on, if it acts on one."""
         if self.operation == "CLICK":
             return self.click_target
         if self.operation in {"TYPE_TEXT", "PRESS_ENTER"}:
@@ -97,33 +95,16 @@ class Decision(BaseModel):
             return self.select_index
         return None
 
-    def signature(self) -> tuple[str, Optional[int], str]:
-        return (self.operation, self.target_index(), self.type_value)
-
     def event_payload(self) -> dict[str, Any]:
-        value = self.type_value
-        target = self.type_target
-        return {
-            "source": "browser",
-            "model": self.model,
-            "provider": self.provider,
-            "operation": self.operation,
-            "confidence": self.confidence,
-            "click_target": self.click_target,
-            "type_target": target,
-            "type_value": value,
-            "select_index": self.select_index,
-            "select_option": self.select_option,
-            "goal_met": self.goal_met,
-            "goal_met_confidence": self.goal_met_confidence,
-            "probabilities": self.probabilities,
-            "reason": self.reason,
-        }
+        """The ``jev_decision`` event body. Callers redact ``type_value`` first."""
+        return self.model_dump() | {"source": "browser"}
 
 
 class StepRecord(BaseModel):
+    """One executed (or terminal) step in the run result."""
+
     step: int
-    operation: str
+    operation: Operation
     target: Optional[int] = None
     type_value: str = ""
     confidence: float = 0.0
@@ -132,6 +113,8 @@ class StepRecord(BaseModel):
 
 
 class BrowserRunResult(BaseModel):
+    """The outcome of one ``BrowserAgent.run``."""
+
     status: RunStatus
     output_text: str = ""
     url: str = ""
@@ -144,11 +127,11 @@ class BrowserRunResult(BaseModel):
 
 
 __all__ = [
-    "OPERATIONS",
     "BrowserRunResult",
     "Decision",
     "Element",
     "Observation",
+    "Operation",
     "RunStatus",
     "StepRecord",
 ]
