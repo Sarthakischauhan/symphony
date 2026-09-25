@@ -462,6 +462,6 @@ may not emit them yet; consumers should accept them as pass-through.
 | `user_input_requested` / `user_input_received` | Interactive user input |
 | `run_progress` / `run_metrics` | Progress and metrics snapshots |
 | `config_changed` | Runtime config change |
-| `jev_decision` | Jev critic decision |
+| `jev_decision` | Jev evaluation answer. Browser agent: operation, element index, confidence (`source: "browser"`). Coding agent: optional finish-check critic |
 | `child_progress` | Background child progress |
 

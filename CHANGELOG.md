@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `symphony-browser` (workspace package `browser_agent`): a browser-use agent
+  whose policy is Jev, the evaluation model, not a chat model. Each step is
+  one `POST /v4/ai/evaluation-model` call (`typesafe-ai/jev` on Vercel AI
+  Gateway, or TypeSafe / OpenRouter when that key is the one configured).
+  The call chooses the operation and, speculatively, the element. Code
+  executes only the matching target and emits `jev_decision` on the control
+  plane. A chat model (Grok when `XAI_API_KEY` is set) writes a string only
+  when the operation is `TYPE_TEXT` and the goal did not already supply one.
+  `symphony-browser demo` drives a local catalog page. Without a Jev key the
+  demo says so and falls back to an offline fixture policy.
 - Headless `symphony bench` CLI plus `symphony-bench:latest` Docker image and
   a thin Harbor adapter (`bench.agent:SymphonyAgent`). Writes `workspace.patch`
   and `result.json`; Harbor's grader owns pass/fail.

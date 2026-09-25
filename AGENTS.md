@@ -4,7 +4,7 @@ Guidance for coding agents (and humans) making changes to Symphony.
 
 ## What this is
 
-A [uv](https://docs.astral.sh/uv/) workspace of four Python packages. Names
+A [uv](https://docs.astral.sh/uv/) workspace of five Python packages. Names
 differ by layer on purpose; use the right one for the context you are in:
 
 | Directory | PyPI distribution | Python import | Command(s) |
@@ -13,9 +13,10 @@ differ by layer on purpose; use the right one for the context you are in:
 | `core_harness/` | `symphony-harness` | `core_harness` | — |
 | `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases `symphony-code`, `coding-agent-tui`) |
 | `core_server/` | `core-server` (not published) | `core_server` | `core-server` |
+| `browser_agent/` | `symphony-browser` (not published) | `browser_agent` | `symphony-browser` |
 
 Dependency direction is strictly `core_ai` → `core_harness` → `coding_agent` /
-`core_server`. The harness must stay product-agnostic: anything that knows
+`core_server` / `browser_agent`. The harness must stay product-agnostic: anything that knows
 about files, shells, TUIs, or session files belongs in `coding_agent`, not
 `core_harness`.
 

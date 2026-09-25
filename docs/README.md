@@ -25,24 +25,26 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [symphony-core](./packages/symphony-core.md) | Providers, catalog, streaming types |
 | [symphony-harness](./packages/symphony-harness.md) | Loop, tools, events, limits, subagents |
 | [symphony-code](./packages/symphony-code.md) | Workspace agent and TUI |
+| [symphony-browser](./packages/symphony-browser.md) | Browser-use agent driven by Jev |
 | [core-server](./packages/core-server.md) | FastAPI + SSE |
 | [TUI](./user-guide/tui.md) | Composer, modes, keybindings, images |
 | [Configuration](./user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
 | [Langfuse](./user-guide/langfuse.md) | Optional traces of sent prompts and tools |
-| [Jev](./user-guide/jev.md) | Optional finish check with session rules (`--jev` / `/jev`) |
+| [Jev](./user-guide/jev.md) | Finish check on `symphony-code`, and the browser agent's policy |
 | [Tools](./user-guide/tools.md) | Workspace tool surface |
 | [Learning](./user-guide/learning.md) | Post-run reflection |
 | [Sessions](./user-guide/sessions.md) | JSONL resume |
-| [Architecture](./developer-guide/architecture.md) | How the four packages fit |
+| [Architecture](./developer-guide/architecture.md) | How the packages fit |
 | [Extending the harness](./developer-guide/extending.md) | Addon hooks; Learning as the canonical example |
 | [Changelog](../CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./developer-guide/events.md) | Control-plane catalog |
-| [CLI](./reference/cli.md) | Flags for `symphony`, `symphony bench`, and `core-server` |
+| [CLI](./reference/cli.md) | Flags for `symphony`, `symphony bench`, `symphony-browser`, and `core-server` |
 | [Bench](../bench/README.md) | Headless CLI, `symphony-bench` image, Harbor smoke |
 | [Environment](./reference/environment.md) | Keys, models, base URLs |
 | [Slash commands](./reference/slash-commands.md) | Every TUI command |
 
-Package READMEs (`core_ai/`, `core_harness/`, `coding_agent/`, `core_server/`)
+Package READMEs (`core_ai/`, `core_harness/`, `coding_agent/`, `core_server/`,
+`browser_agent/`)
 are the PyPI-facing versions of the same material. Prefer this `docs/` tree
 when you are reading in GitHub.
 
@@ -52,3 +54,4 @@ when you are reading in GitHub.
 | `core_harness/` | `symphony-harness` | `core_harness` | — |
 | `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases `symphony-code`, `coding-agent-tui`) |
 | `core_server/` | `core-server` (workspace only) | `core_server` | `core-server` |
+| `browser_agent/` | `symphony-browser` (workspace only) | `browser_agent` | `symphony-browser` |
