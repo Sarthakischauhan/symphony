@@ -2,10 +2,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Any, NamedTuple
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from coding_agent.extension_args import Description
+from coding_agent.extension_args import fold_whitespace
 
 class PluginConfig(BaseModel):
     """One plugin entry from config or discovery; strict so typos are reported."""
@@ -17,7 +17,7 @@ class PluginConfig(BaseModel):
 class PluginMetadata(BaseModel):
     """The display fields of plugin.json; the loader validates the other keys itself."""
     model_config = ConfigDict(extra="ignore")
-    description: Description = ""  # Optional: pydantic does not validate the default.
+    description: Annotated[str, AfterValidator(fold_whitespace), Field(max_length=1000)] = ""
 
 @dataclass(frozen=True)
 class PluginContext:

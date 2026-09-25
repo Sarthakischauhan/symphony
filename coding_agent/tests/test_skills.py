@@ -57,9 +57,11 @@ def test_render_args_shows_type_options_default_and_required():
         ExtensionArg(name="depth", type="enum", enum=["sketch", "thorough"], description="D.", default="sketch"),
         ExtensionArg(name="max_files", type="number", description="N.", default=4),
         ExtensionArg(name="focus", type="string", description="F.", default=""),
+        ExtensionArg(name="dry_run", type="boolean", description="B.", default=False),
     )
     assert render_args(args) == (
-        "repro: string required, depth: enum[sketch|thorough]=sketch, max_files: number=4, focus: string"
+        "repro: string required, depth: enum[sketch|thorough]=sketch, max_files: number=4, focus: string, "
+        "dry_run: boolean=false"
     )
 
 
@@ -99,6 +101,7 @@ _BOMB = "a: &a [x, x, x, x, x, x, x, x, x]\n" + "".join(
         (_BOMB + "name: bomb\ndescription: Alias bomb.", "aliases are not allowed"),
         ("name: big\ndescription: " + "x" * 4100, "byte limit"),
         ("name: demo\ndescription: [unclosed", "invalid YAML front matter"),
+        ("name: demo\ndescription: D.\nx: " + "[" * 1000 + "]" * 1000, "invalid YAML front matter"),
         ("name: demo\ndescription: D.\nargs: query", "tuple"),
         ("name: demo\ndescription: D.\nargs:\n  - {name: r, type: string, description: One.}\n"
          "  - {name: r, type: string, description: Two.}", "duplicate argument name"),
@@ -110,6 +113,8 @@ _BOMB = "a: &a [x, x, x, x, x, x, x, x, x]\n" + "".join(
          "does not match type number"),
         ("name: demo\ndescription: D.\nargs:\n  - {name: s, type: string, enum: [a], description: S.}",
          "other types take none"),
+        ("name: demo\ndescription: D.\nargs:\n  - {name: d, type: enum, enum: [a, a], description: D.}",
+         "duplicate enum options"),
     ],
 )
 def test_invalid_front_matter_is_rejected(front: str, error: str):

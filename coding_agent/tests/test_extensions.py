@@ -61,6 +61,13 @@ def test_plugin_load_returns_description_for_enabled_and_disabled_manifests(tmp_
     )
 
 
+def test_plugin_with_empty_description_loads(tmp_path):
+    plain = _manifest(tmp_path / "plain", id="plain", description="")
+    result = PluginManager(tmp_path).load([PluginConfig(path=plain)])
+    assert result.diagnostics == ()
+    assert result.plugins == (LoadedPlugin("plain", "", plain.resolve(), True),)
+
+
 def test_invalid_plugin_metadata_is_a_diagnostic(tmp_path):
     bad = _manifest(tmp_path / "bad", id="bad", description=42)
     result = PluginManager(tmp_path).load([PluginConfig(path=bad)])
@@ -87,3 +94,17 @@ def test_extensions_modal_renders_skill_args_and_plugin_states(tmp_path):
     assert "args  depth: enum[sketch|thorough]=sketch" in texts
     assert {"search", "ENABLED", "Search before opening files.", "idle", "DISABLED"} <= set(texts)
     assert "3 total" in texts
+
+
+def test_extensions_modal_renders_markup_like_plugin_paths_literally(tmp_path):
+    plugin = LoadedPlugin("odd[/]id", "", tmp_path / "odd[/]root", True)
+
+    async def _run() -> list[str]:
+        app = App()
+        async with app.run_test() as pilot:
+            app.push_screen(ExtensionsModal((), (plugin,)))
+            await pilot.pause()
+            return [str(widget.render()) for widget in app.screen.query(Static)]
+
+    texts = asyncio.run(_run())
+    assert "odd[/]id" in texts and str(tmp_path / "odd[/]root") in texts

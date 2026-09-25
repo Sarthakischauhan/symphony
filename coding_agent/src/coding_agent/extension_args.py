@@ -38,6 +38,8 @@ class ExtensionArg(BaseModel):
     def _check_enum_and_default(self) -> ExtensionArg:
         if (self.type == "enum") != bool(self.options) or len(self.options) == 1 or "" in self.options:
             raise ValueError(f"argument {self.name}: type enum needs two or more options; other types take none")
+        if len(set(self.options)) != len(self.options):
+            raise ValueError(f"argument {self.name} has duplicate enum options")
         if self.default is None:
             return self
         if self.required:
@@ -63,7 +65,8 @@ def render_args(args: tuple[ExtensionArg, ...]) -> str:
     return ", ".join(
         f"{arg.name}: {arg.type}"
         + (f"[{'|'.join(arg.options)}]" if arg.options else "")
-        + (f"={arg.default}" if arg.default not in (None, "") else "")
+        + (f"={str(arg.default).lower() if isinstance(arg.default, bool) else arg.default}"
+           if arg.default not in (None, "") else "")
         + (" required" if arg.required else "")
         for arg in args
     )

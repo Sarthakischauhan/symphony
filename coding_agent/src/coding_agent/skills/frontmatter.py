@@ -49,7 +49,7 @@ def read_front_matter(text: str) -> _SkillFrontMatter:
         raise ValueError(f"front matter exceeds the {_MAX_FRONT_MATTER_BYTES} byte limit")
     try:
         data = yaml.load(match.group(1), Loader=_NoAliasLoader)
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, RecursionError) as exc:
         raise ValueError(f"invalid YAML front matter: {exc}") from exc
     return _SkillFrontMatter.model_validate(data)
 

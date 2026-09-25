@@ -19,20 +19,20 @@ def _skill_card(skill: Skill):
         yield Static(skill.description, classes="extension-description", markup=False)
         if skill.args:
             yield Static(f"args  {render_args(skill.args)}", classes="extension-path", markup=False)
-        yield Static(f"SKILL.md  {skill.root / 'SKILL.md'}", classes="extension-path")
+        yield Static(f"SKILL.md  {skill.root / 'SKILL.md'}", classes="extension-path", markup=False)
 
 
 def _plugin_card(plugin: LoadedPlugin):
     """Render one plugin manifest as a card: id, enabled state, description, and root."""
     with Vertical(classes="extension-card"):
         with Horizontal(classes="extension-card-header"):
-            yield Static(plugin.plugin_id, classes="extension-name")
+            yield Static(plugin.plugin_id, classes="extension-name", markup=False)
             yield Static("ENABLED" if plugin.enabled else "DISABLED", classes=(
                 "extension-status enabled" if plugin.enabled else "extension-status disabled"
             ))
         if plugin.description:
             yield Static(plugin.description, classes="extension-description", markup=False)
-        yield Static(str(plugin.root), classes="extension-path")
+        yield Static(str(plugin.root), classes="extension-path", markup=False)
 
 class ExtensionsModal(ModalBase[None]):
     """Show the skills and plugins available to this workspace."""
