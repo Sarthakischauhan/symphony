@@ -52,6 +52,10 @@ jobs:
         # tests run against the built packages rather than only src/ on sys.path.
         run: uv sync --locked --all-packages --dev
 
+      - name: Install Chromium for the browser agent
+        # The browser_agent end-to-end and snapshot tests drive a real page.
+        run: uv run --no-sync playwright install --with-deps chromium
+
       - name: Run tests
         run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests browser_agent/tests
 

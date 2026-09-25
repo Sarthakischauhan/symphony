@@ -39,6 +39,31 @@ uv run --package symphony-code symphony bench --workspace /testbed --instruction
 
 Harbor adapter and image: [`bench/README.md`](../../bench/README.md).
 
+## symphony-browser
+
+Browser-use agent. Jev chooses every operation and element; Grok writes text
+only for `TYPE_TEXT` when the goal has no literal. Prints the JSON result.
+Exit 0 when the run is `done`, 1 for `blocked` / `limited` / `error`, 2 for a
+setup error (bad URL, bad Jev config, Chromium missing).
+
+```sh
+uv run --package symphony-browser symphony-browser demo [options]
+uv run --package symphony-browser symphony-browser run --url URL --goal TEXT [options]
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--url URL` | required (`run`) | Page to open. Only `http` / `https` with a host |
+| `--goal TEXT` | required (`run`) | What to achieve. Never put credentials here: the goal is emitted, sent to Jev, and written to the trace |
+| `--policy` | `auto` | `auto` (Jev if a key is set, else the offline fixture), `jev` (fail without a key), `fixture` |
+| `--max-steps N` | `6` (`demo`), `12` (`run`) | Step cap; hitting it ends as `limited` |
+| `--headed` | off | Show the Chromium window |
+| `--no-sandbox` | off | Disable the Chromium sandbox (and `/dev/shm`). Only for root or containers |
+| `--trace PATH` | none | Also write the JSON result to `PATH` |
+| `--text-model grok:ID` | `SYMPHONY_BROWSER_TEXT_MODEL`, else the catalog Grok default | Text writer for `TYPE_TEXT`. Only `grok:` models; anything else exits 2 |
+
+Install Chromium once with `uv run --package symphony-browser playwright install chromium`.
+
 ## core-server
 
 ```sh

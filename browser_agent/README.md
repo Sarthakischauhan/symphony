@@ -30,6 +30,9 @@ Full write-up: [docs/packages/symphony-browser.md](../docs/packages/symphony-bro
 | `OPENROUTER_API_KEY` | `~typesafe/jev-latest` via OpenRouter decisions |
 | `XAI_API_KEY` | Grok, only when `TYPE_TEXT` needs a string the goal did not already contain |
 
+Do not put credentials in a goal: it is emitted, sent to Jev, and traced.
+Flags: [docs/reference/cli.md](../docs/reference/cli.md#symphony-browser).
+
 Set `SYMPHONY_JEV_PROVIDER` to `vercel`, `typesafe`, or `openrouter` when
 more than one key is present. The default is the Vercel gateway, which is
 how the rest of Symphony already calls Jev.

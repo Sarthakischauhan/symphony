@@ -39,14 +39,26 @@ on the control plane.
 
 A chat model runs only when the operation is `TYPE_TEXT` and the goal did
 not already contain the string (a quote, or the phrase after "search for").
-With `XAI_API_KEY` set, that model is Grok (`grok-4.5` unless
-`--text-model grok:<id>` overrides it). Password fields are typed, but the
-event stores `***`.
+With `XAI_API_KEY` set, that model is Grok (the catalog default unless
+`--text-model grok:<id>` overrides it; other providers are rejected).
+
+Every Jev choice then passes one gate, in order: a third identical action on
+an unchanged page is `BLOCKED`; an action must name an element on this page
+(and `TYPE_TEXT` must have a string); the page must still be http(s); a
+confident `goal_met` turns a scroll or wait into `DONE`; an action below the
+confidence floor is `BLOCKED`.
+
+Secret fields (`type=password` or a credential `autocomplete`) are marked in
+the page snapshot and their values never leave the browser. Jev sees `***`
+for a filled one. Text typed into a secret field (or a field named like a
+password, PIN, OTP, or card) is typed for real, but events and the result
+store `***`. Goals are not redacted: do not put credentials in a goal.
 
 ## Credentials
 
 First match, unless `SYMPHONY_JEV_PROVIDER` is `vercel`, `typesafe`, or
-`openrouter`:
+`openrouter`. Forcing a provider whose key is missing, or an unknown value,
+is an error:
 
 | Provider | Key | Model | Endpoint |
 | --- | --- | --- | --- |
@@ -54,7 +66,8 @@ First match, unless `SYMPHONY_JEV_PROVIDER` is `vercel`, `typesafe`, or
 | TypeSafe | `TYPESAFE_API_KEY` | `jev-latest` | `https://api.typesafe.ai/v1/systemone` |
 | OpenRouter | `OPENROUTER_API_KEY` | `~typesafe/jev-latest` | `https://openrouter.ai/api/alpha/decisions` |
 
-`JEV_MODEL` overrides the model id. The Vercel path reuses
+`JEV_MODEL` overrides the model id. `AI_GATEWAY_BASE_URL`,
+`TYPESAFE_BASE_URL`, and `OPENROUTER_DECISIONS_URL` override the endpoints. The Vercel path reuses
 `core_ai.providers.vercel_evaluation`, the same helper as the coding-agent
 critic.
 
@@ -80,6 +93,8 @@ uv run --package symphony-browser symphony-browser run \
 
 Only `http` and `https` URLs are accepted. `--policy jev` fails instead of
 falling back when the key is missing. `--trace trace.json` writes the run.
+The Chromium sandbox is on; pass `--no-sandbox` only as root or in a
+container. All flags: [CLI reference](../reference/cli.md#symphony-browser).
 
 ## Library
 
@@ -103,5 +118,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Tests mock the evaluation response. They do not call a live API. The
-Chromium test skips when the browser binary is not installed.
+Tests mock the evaluation response and unset provider keys; they do not call
+a live API. CI installs Chromium, so the end-to-end test runs there. Locally
+it skips only when the Chromium binary is missing.
