@@ -13,6 +13,13 @@ from browser_agent.models import Decision, Element, Observation
 from browser_agent.rank_elements import goal_tokens, rank_by_goal
 
 _PRICE = re.compile(r"\$\s?\d")
+# Verbs and nouns every task goal uses; they say nothing about which control or fact is wanted.
+_GENERIC = frozenset("search price book books find click open show tell give using where what which".split())
+
+
+def _keywords(goal: str, min_length: int) -> list[str]:
+    """Goal words that name the target: no function words, no generic task verbs."""
+    return [token for token in goal_tokens(goal, min_length) if token not in _GENERIC]
 
 
 def _goal_satisfied(goal: str, text: str) -> bool:
@@ -21,7 +28,7 @@ def _goal_satisfied(goal: str, text: str) -> bool:
     wants_price = "price" in goal.lower() or "$" in goal
     if wants_price and not _PRICE.search(text):
         return False
-    keywords = goal_tokens(goal, min_length=4)
+    keywords = _keywords(goal, 4)
     if keywords and not any(token in lowered for token in keywords):
         return False
     return wants_price or (bool(keywords) and all(token in lowered for token in keywords[:3]))
@@ -68,8 +75,9 @@ class FixturePolicy:
             if button is not None:
                 return Decision(operation="CLICK", confidence=0.9, click_target=button.index, **stamp)
             return Decision(operation="PRESS_ENTER", confidence=0.86, type_target=typables[0].index, **stamp)
-        clicks = rank_by_goal([element for element in observation.elements if element.kind == "click"], goal)
-        if clicks and any(token in clicks[0].name.lower() for token in goal_tokens(goal)):
+        keywords = _keywords(goal, 3)
+        clicks = rank_by_goal([e for e in observation.elements if e.kind == "click"], " ".join(keywords))
+        if clicks and any(token in clicks[0].name.lower() for token in keywords):
             return Decision(operation="CLICK", confidence=0.88, click_target=clicks[0].index, **stamp)
         if sum(item.get("operation") == "SCROLL_DOWN" for item in history) >= 2:
             reason = "No control on this page matches the goal."

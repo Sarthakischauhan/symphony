@@ -6,12 +6,8 @@ import re
 
 from browser_agent.models import Element
 
-_STOPWORDS = frozenset({
-    "the", "and", "for", "with", "from", "that", "this", "into", "onto", "your",
-    "page", "then", "when", "stop", "once", "visible", "report", "search", "price",
-    "find", "click", "open", "book", "books", "show", "tell", "give", "using",
-    "where", "what", "which",
-})
+# Function words only. Task words such as "book" or "search" often name the control itself.
+_STOPWORDS = frozenset("the and for with from that this into onto your page then when stop once visible report".split())
 
 
 def goal_tokens(goal: str, min_length: int = 3) -> list[str]:

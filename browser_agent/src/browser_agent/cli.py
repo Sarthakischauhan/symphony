@@ -62,7 +62,7 @@ def _add_common(sub: argparse.ArgumentParser, max_steps: int) -> None:
 
 
 async def _execute(args: argparse.Namespace, url: str, goal: str) -> int:
-    """Run one goal and print the JSON result. 0 done, 1 not done, 2 setup error."""
+    """Run one goal and print the JSON result. 0 done, 1 not done, 2 setup or page-load error."""
     try:
         policy = build_policy(args.policy)
         text_writer = build_text_writer(args.text_model)
@@ -83,7 +83,11 @@ async def _execute(args: argparse.Namespace, url: str, goal: str) -> int:
                 file=sys.stderr,
             )
             return 2
-        session = await browser.open(url)
+        try:
+            session = await browser.open(url)
+        except PlaywrightError as exc:
+            print(f"Could not load {url}: {exc}", file=sys.stderr)
+            return 2
         result = await BrowserAgent(policy, max_steps=args.max_steps, text_writer=text_writer).run(goal, session)
     finally:
         await browser.stop()

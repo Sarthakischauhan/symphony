@@ -44,7 +44,7 @@ Harbor adapter and image: [`bench/README.md`](../../bench/README.md).
 Browser-use agent. Jev chooses every operation and element; Grok writes text
 only for `TYPE_TEXT` when the goal has no literal. Prints the JSON result.
 Exit 0 when the run is `done`, 1 for `blocked` / `limited` / `error`, 2 for a
-setup error (bad URL, bad Jev config, Chromium missing).
+setup error (bad URL, bad Jev config, Chromium missing, page failed to load).
 
 ```sh
 uv run --package symphony-browser symphony-browser demo [options]

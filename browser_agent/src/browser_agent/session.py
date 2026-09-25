@@ -81,9 +81,11 @@ _SNAPSHOT_JS = r"""
 class PageSession(Protocol):
     """One open page: observe it, then act on it with a gated Decision."""
 
-    async def observe(self) -> Observation: ...
+    async def observe(self) -> Observation:
+        """Snapshot the page for one step."""
 
-    async def act(self, decision: Decision) -> None: ...
+    async def act(self, decision: Decision) -> None:
+        """Run one gated decision on the page."""
 
 
 def observation_from_payload(payload: dict[str, Any]) -> Observation:

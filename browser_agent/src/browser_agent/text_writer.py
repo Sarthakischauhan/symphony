@@ -25,7 +25,8 @@ class TextUnavailable(RuntimeError):
 class TextWriter(Protocol):
     """Writes the one string to type into ``element``."""
 
-    async def write(self, *, goal: str, element: Element, observation: Observation) -> str: ...
+    async def write(self, *, goal: str, element: Element, observation: Observation) -> str:
+        """The exact string to type into ``element``; raises TextUnavailable when there is none."""
 
 
 def _parse_text(raw: str) -> str:

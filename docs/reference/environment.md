@@ -133,10 +133,12 @@ stderr. The Chromium sandbox is on by default; `--no-sandbox` turns it off for
 root or container runs only.
 
 Goals must not contain credentials. The goal is emitted in `run_started`,
-sent to Jev in every request, and written to `--trace`. Typed values in
-secret fields (`type=password`, credential `autocomplete`, or a password / PIN /
-OTP / card name) are stored as `***`, and their page values never leave the
-browser.
+sent to Jev in every request, and written to `--trace`. Fields the page marks
+secret (`type=password` or a credential `autocomplete`) never leave the
+browser: the snapshot carries `***` when filled and `""` when empty. Fields
+caught only by their name (password / PIN / OTP / card) do leave the browser
+in the snapshot, but are masked to `***` before anything is sent to Jev.
+Text typed into either kind is stored as `***` in events and the result.
 
 ## Catalog generation (maintainers)
 

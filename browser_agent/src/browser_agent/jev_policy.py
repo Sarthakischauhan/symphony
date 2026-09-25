@@ -25,7 +25,8 @@ class Policy(Protocol):
         observation: Observation,
         history: list[dict[str, Any]],
         candidates: list[str],
-    ) -> Decision: ...
+    ) -> Decision:
+        """The next Decision for ``observation``; ``candidates`` are the goal's literal strings."""
 
 
 class JevPolicy:

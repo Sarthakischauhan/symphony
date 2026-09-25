@@ -25,7 +25,8 @@ BodyBuilder = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 class JevClientProtocol(Protocol):
     """Anything that answers one Jev request; tests pass a scripted fake."""
 
-    async def complete(self, state: dict[str, Any], questions: dict[str, Any]) -> dict[str, Any]: ...
+    async def complete(self, state: dict[str, Any], questions: dict[str, Any]) -> dict[str, Any]:
+        """Send ``state`` and ``questions``; return the reply object with ``answers``."""
 
 
 class JevClient:

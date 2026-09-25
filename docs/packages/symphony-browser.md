@@ -50,9 +50,14 @@ confidence floor is `BLOCKED`.
 
 Secret fields (`type=password` or a credential `autocomplete`) are marked in
 the page snapshot and their values never leave the browser. Jev sees `***`
-for a filled one. Text typed into a secret field (or a field named like a
-password, PIN, OTP, or card) is typed for real, but events and the result
-store `***`. Goals are not redacted: do not put credentials in a goal.
+for a filled one and `""` for an empty one. A field named like a password,
+PIN, OTP, or card is masked to `***` before Jev sees it. Text typed into any
+of these is typed for real, but events and the result store `***`. The
+repeat guard's digests stay inside the run and are never sent to Jev.
+
+Goals, and the strings quoted in them, go to Jev verbatim by design: Jev
+chooses `type_value` from them. They are also emitted and traced, so never
+put credentials in a goal.
 
 ## Credentials
 

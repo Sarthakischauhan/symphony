@@ -50,6 +50,15 @@ def test_rank_puts_goal_words_first() -> None:
     assert [element.index for element in rank_by_goal(links, "Open the espresso page")] == [2, 1]
 
 
+def test_task_words_still_rank_their_control_first() -> None:
+    filler = [Element(index=i, role="link", name=f"Story {i}") for i in range(1, 50)]
+    buttons = [Element(index=50, role="button", name="Book now"), Element(index=51, role="button", name="Search")]
+    page = Observation(url="https://example.test", elements=[*filler, *buttons])
+    assert rank_by_goal(page.elements, "Book a table")[0].name == "Book now"
+    targets = build_questions(page, "Book a table and search the price", [])["click_target"]["criteria"]
+    assert {"50", "51"} <= set(targets)
+
+
 def test_questions_offer_type_only_when_a_field_exists() -> None:
     questions = build_questions(_page(), "Search for travel and stop.", ["travel"])
     assert "TYPE_TEXT" in questions["operation"]["criteria"]
