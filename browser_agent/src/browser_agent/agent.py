@@ -65,7 +65,7 @@ class BrowserAgent:
         ``run_id`` or event sequence across runs. Never raises: failures end as
         ``status="error"`` with a ``run_failed`` event.
         """
-        self.harness = CoreHarness(
+        harness = CoreHarness(
             registry=ModelRegistry(),
             model_id=f"{self.policy.provider}:{self.policy.name}",
             system_prompt=_SYSTEM_PROMPT,
@@ -73,8 +73,9 @@ class BrowserAgent:
             sink=self.sink,
             agent_id="browser",
         )
-        emit = self.harness.emit
+        emit = harness.emit
         history: list[dict[str, Any]] = []
+        repeat_keys: list[str] = []
         steps: list[StepRecord] = []
         candidates = text_candidates(goal)
         observation = Observation(url="")
@@ -92,7 +93,7 @@ class BrowserAgent:
                 decision = gate(
                     decision.model_copy(update={"type_value": typed}),
                     observation,
-                    history,
+                    repeat_keys,
                     min_confidence=self.min_confidence,
                     goal_met_stop=self.goal_met_stop,
                 )
@@ -114,27 +115,29 @@ class BrowserAgent:
                 if decision.operation in {"DONE", "BLOCKED"}:
                     await emit(ControlPlaneEventType.TURN_COMPLETED, {"turn": step, "operation": decision.operation})
                     status: RunStatus = "done" if decision.operation == "DONE" else "blocked"
-                    return await self._finish(status, public.reason, observation, goal, steps)
+                    return await self._finish(harness, status, public.reason, observation, goal, steps)
                 tool = {"name": decision.operation.lower(), "turn": step}
                 await emit(ControlPlaneEventType.TOOL_EXECUTION_STARTED, tool | {"target": record.target})
                 await session.act(decision)
                 await emit(ControlPlaneEventType.TOOL_EXECUTION_COMPLETED, tool | {"status": "success"})
-                history.append(
-                    record.model_dump(include={"step", "operation", "target", "url"})
-                    | {"value": shown, "repeat_key": repeat_key(decision, observation)}
-                )
+                # The repeat digest stays run-local: Jev knows everything in it
+                # except the typed text, so sending it would let a PIN be brute-forced.
+                repeat_keys.append(repeat_key(decision, observation))
+                history.append(record.model_dump(include={"step", "operation", "target", "url"}) | {"value": shown})
                 await emit(ControlPlaneEventType.TURN_COMPLETED, {"turn": step, "operation": decision.operation})
             observation = await session.observe()
-            return await self._finish("limited", f"Stopped after {self.max_steps} steps.", observation, goal, steps)
+            message = f"Stopped after {self.max_steps} steps."
+            return await self._finish(harness, "limited", message, observation, goal, steps)
         # Run boundary: a page, network, or model failure must end the run as
         # status="error" with a run_failed event, not escape into the caller's
         # event stream half-finished.
         except Exception as exc:
             error = {"error_type": type(exc).__name__}
-            return await self._finish("error", str(exc), observation, goal, steps, error)
+            return await self._finish(harness, "error", str(exc), observation, goal, steps, error)
 
     async def _finish(
         self,
+        harness: CoreHarness,
         status: RunStatus,
         message: str,
         observation: Observation,
@@ -156,7 +159,7 @@ class BrowserAgent:
         )
         payload = {"status": status, "message": message, "output_text": result.output_text[:2000]}
         payload |= {"url": result.url, "steps": len(steps), "max_steps": self.max_steps, **(extra or {})}
-        await self.harness.emit(_TERMINAL_EVENT[status], payload)
+        await harness.emit(_TERMINAL_EVENT[status], payload)
         return result
 
     async def _resolve_text(self, decision: Decision, goal: str, observation: Observation) -> str:

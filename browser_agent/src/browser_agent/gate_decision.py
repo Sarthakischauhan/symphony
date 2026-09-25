@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
-
 from browser_agent.models import Decision, Observation
 from browser_agent.validate_url import require_http_url
 
@@ -23,7 +21,9 @@ def repeat_key(decision: Decision, observation: Observation) -> str:
     """Fingerprint of the action and the page it ran on.
 
     ``type_value`` is the resolved string (Jev's literal or the text writer's),
-    before redaction. Only this digest is kept in history, never the string.
+    before redaction. The loop keeps these digests in a run-local list and never
+    sends them to Jev: Jev knows every other input, so a digest would let it
+    brute-force a short secret such as a PIN.
     """
     raw = [decision.operation, decision.target_index(), decision.type_value, observation.url, observation.text]
     return hashlib.sha256(json.dumps(raw).encode()).hexdigest()[:16]
@@ -36,7 +36,7 @@ def _blocked(decision: Decision, reason: str) -> Decision:
 def gate(
     decision: Decision,
     observation: Observation,
-    history: list[dict[str, Any]],
+    recent_keys: list[str],
     *,
     min_confidence: float,
     goal_met_stop: float,
@@ -45,8 +45,7 @@ def gate(
     operation = decision.operation
     if operation in {"DONE", "BLOCKED"}:
         return decision
-    recent = [item.get("repeat_key") for item in history[-2:]]
-    if operation not in _PASSIVE and recent == [repeat_key(decision, observation)] * 2:
+    if operation not in _PASSIVE and recent_keys[-2:] == [repeat_key(decision, observation)] * 2:
         return _blocked(decision, "The same action was chosen three times in a row without the page changing.")
     if operation in _TARGETED and observation.find(decision.target_index()) is None:
         return _blocked(decision, f"{operation} names no element on this page.")

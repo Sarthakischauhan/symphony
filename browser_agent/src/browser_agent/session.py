@@ -2,7 +2,7 @@
 
 ``PlaywrightSession`` stamps ``data-jev-id`` on the live DOM and acts on those
 nodes. Secret fields (``type=password`` or a credential ``autocomplete``) are
-marked in the page, and their values never leave it.
+marked in the page, and only ``***`` (filled) or "" (empty) leaves it.
 """
 
 from __future__ import annotations
@@ -63,12 +63,13 @@ _SNAPSHOT_JS = r"""
     const item = { index, role, name: nameOf(el, secret), value: "", kind: "click", options: [], secret };
     if (editable) {
       item.kind = "type";
-      item.value = secret ? "" : String(el.value || el.innerText || "").slice(0, 200);
+      item.value = String(el.value || el.innerText || "").slice(0, 200);
     } else if (tag === "select") {
       item.kind = "select";
       item.value = String(el.value || "");
       item.options = Array.from(el.options || []).map((option) => option.label || option.text).slice(0, maxOptions);
     }
+    if (secret) item.value = item.value ? "***" : "";
     out.push(item);
   }
   const text = (document.body ? document.body.innerText : "").replace(/\s+/g, " ").trim().slice(0, maxText);

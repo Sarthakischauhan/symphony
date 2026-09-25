@@ -15,21 +15,21 @@ PAGE = Observation(
 )
 
 
-def _gate(decision: Decision, observation: Observation = PAGE, history: list | None = None) -> Decision:
-    return gate(decision, observation, history or [], min_confidence=0.25, goal_met_stop=0.92)
+def _gate(decision: Decision, observation: Observation = PAGE, keys: list[str] | None = None) -> Decision:
+    return gate(decision, observation, keys or [], min_confidence=0.25, goal_met_stop=0.92)
 
 
 def test_third_identical_action_with_writer_text_is_blocked() -> None:
     typed = Decision(operation="TYPE_TEXT", confidence=0.9, type_target=1, type_value="travel")
-    history = [{"repeat_key": repeat_key(typed, PAGE)}] * 2
-    assert _gate(typed, history=history[:1]).operation == "TYPE_TEXT"
-    blocked = _gate(typed, history=history)
+    keys = [repeat_key(typed, PAGE)] * 2
+    assert _gate(typed, keys=keys[:1]).operation == "TYPE_TEXT"
+    blocked = _gate(typed, keys=keys)
     assert blocked.operation == "BLOCKED"
     assert "three times" in blocked.reason
     other_text = typed.model_copy(update={"type_value": "alps"})
-    assert _gate(other_text, history=history).operation == "TYPE_TEXT"
+    assert _gate(other_text, keys=keys).operation == "TYPE_TEXT"
     changed_page = PAGE.model_copy(update={"text": "Symphony Books. The Alps Guide"})
-    assert _gate(typed, changed_page, history).operation == "TYPE_TEXT"
+    assert _gate(typed, changed_page, keys).operation == "TYPE_TEXT"
 
 
 def test_action_without_a_live_target_is_blocked() -> None:

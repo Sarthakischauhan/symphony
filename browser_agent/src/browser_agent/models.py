@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from browser_agent.redact_secret_fields import is_secret_field
+from browser_agent.redact_secret_fields import SECRET_MARKER, is_secret_field
 
 Operation = Literal[
     "CLICK", "TYPE_TEXT", "SELECT", "SCROLL_DOWN", "SCROLL_UP", "WAIT", "PRESS_ENTER", "DONE", "BLOCKED"
@@ -22,7 +22,7 @@ class Element(BaseModel):
     """One interactive node from the page snapshot, addressed by ``index``.
 
     ``secret`` is set by the page itself (``type=password`` or a credential
-    ``autocomplete`` token). The snapshot never carries a secret's value.
+    ``autocomplete`` token). The snapshot carries ``***`` for a filled secret, never its value.
     """
 
     index: int
@@ -36,7 +36,7 @@ class Element(BaseModel):
     @property
     def shown_value(self) -> str:
         """The value Jev may see: ``***`` for a filled secret field."""
-        return "***" if self.value and is_secret_field(self) else self.value
+        return SECRET_MARKER if self.value and is_secret_field(self) else self.value
 
     def label(self) -> str:
         """One line of Jev criteria text, e.g. ``[1] textbox Search · empty``."""

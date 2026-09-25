@@ -17,6 +17,7 @@ LOGIN_HTML = """<!doctype html><title>Login</title>
 <input type="password" placeholder="Enter code" value="s3cret">
 <input type="text" autocomplete="one-time-code" aria-label="Code" value="424242">
 <input type="password" value="hunter2">
+<input type="password" aria-label="Confirm">
 """
 
 
@@ -68,5 +69,5 @@ def test_snapshot_never_contains_a_secret_value() -> None:
     for secret in ("s3cret", "424242", "hunter2"):
         assert secret not in raw
     elements = snapshot["observation"].elements
-    assert [element.secret for element in elements] == [False, True, True, True]
-    assert elements[0].value == "me@example.test"
+    assert [element.secret for element in elements] == [False, True, True, True, True]
+    assert [element.value for element in elements] == ["me@example.test", "***", "***", "***", ""]

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from browser_agent.models import Element
 
+SECRET_MARKER = "***"
 _SECRET_NAME = re.compile(r"password|passcode|secret|\botp\b|\bpin\b|cvv|card", re.IGNORECASE)
 
 
@@ -24,7 +25,7 @@ def is_secret_field(element: Optional[Element]) -> bool:
 
 def redact_typed(element: Optional[Element], text: str) -> str:
     """``***`` in place of text typed into a secret field; other text unchanged."""
-    return "***" if text and is_secret_field(element) else text
+    return SECRET_MARKER if text and is_secret_field(element) else text
 
 
-__all__ = ["is_secret_field", "redact_typed"]
+__all__ = ["SECRET_MARKER", "is_secret_field", "redact_typed"]

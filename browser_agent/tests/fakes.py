@@ -75,11 +75,13 @@ class ScriptedJev:
 
 
 class AnswerJev:
-    """Returns the same answers for every request."""
+    """Returns the same answers for every request and records each state."""
 
     def __init__(self, answers: dict) -> None:
         self.answers = answers
+        self.states: list[dict] = []
 
     async def complete(self, state: dict, questions: dict) -> dict:
-        del state, questions
+        del questions
+        self.states.append(state)
         return {"answers": self.answers}

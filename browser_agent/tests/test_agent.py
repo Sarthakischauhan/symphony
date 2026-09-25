@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 
 from fakes import AnswerJev, MemorySession, ScriptedJev, StaticTextWriter
 
@@ -80,13 +82,18 @@ class PasswordPage:
 def test_secret_values_stay_off_events_and_steps() -> None:
     client = AnswerJev(TYPE_ONE | {"type_value": {"type": "choice", "choice": "s3cret"}})
     page = PasswordPage()
-    agent = BrowserAgent(_jev(client), max_steps=1)
+    agent = BrowserAgent(_jev(client), max_steps=3)
     result = asyncio.run(agent.run('Type "s3cret" into the field.', page))
     assert page.typed == "s3cret"
     decision = next(event for event in agent.sink.events if event.event_type == "jev_decision")
     assert decision.payload["type_value"] == "***"
     assert result.steps[0].type_value == "***"
     assert "s3cret" not in result.steps[0].note
+    history = [item for state in client.states for item in state["history"]]
+    assert len(history) == 3
+    assert all(set(item) == {"step", "operation", "target", "url", "value"} for item in history)
+    assert not re.search(r"\b[0-9a-f]{16}\b", json.dumps(history))
+    assert all(element["value"] in {"", "***"} for state in client.states for element in state["elements"])
 
 
 def test_step_limit_is_limited_with_run_limit_exceeded() -> None:
