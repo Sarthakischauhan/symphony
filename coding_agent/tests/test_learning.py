@@ -13,7 +13,7 @@ from core_harness import HarnessResult, EventSink
 from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
-from coding_agent.agent import default_addons
+from coding_agent.default_addons import default_addons
 from coding_agent.config import CodingAgentConfig, LearningConfig
 from coding_agent.learning import (
     MEMORY_CONTEXT_PREFIX,
@@ -194,9 +194,7 @@ def test_user_message_cancels_in_flight_review_without_summary(tmp_path: Path) -
     assert emitted == []
 
 
-def test_after_run_hook_emits_summary_on_the_control_plane(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_after_run_hook_emits_summary_on_the_control_plane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "coding_agent.learning.addon.LEARNING_IDLE_DELAY_SECONDS",
         0.0,
@@ -531,8 +529,10 @@ def test_spawn_child_factory_skips_learning(tmp_path: Path) -> None:
 
 def test_agent_run_does_not_schedule_learning_outside_addon_hooks() -> None:
     from coding_agent import agent as agent_mod
+    from coding_agent import default_addons as addons_mod
 
     source = Path(agent_mod.__file__).read_text(encoding="utf-8")
-    assert "learning_loop.schedule" not in source
-    assert "LearningAddon(" in source
+    addons_source = Path(addons_mod.__file__).read_text(encoding="utf-8")
+    assert "learning_loop.schedule" not in source + addons_source
+    assert "LearningAddon(" in addons_source
     assert "learning=self.learning_loop" in source

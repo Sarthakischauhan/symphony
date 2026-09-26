@@ -8,7 +8,8 @@ from textual.app import App
 from textual.widgets import Static
 
 from coding_agent.extension_args import ExtensionArg
-from coding_agent.plugins import LoadedPlugin, PluginConfig
+from coding_agent.config import PluginsConfig
+from coding_agent.plugins import LoadedPlugin, PluginConfig, load_authorized_plugins
 from coding_agent.plugins.manager import PluginManager
 from coding_agent.skills import Skill
 from coding_agent.tui.screens.extensions import ExtensionsModal
@@ -108,3 +109,10 @@ def test_extensions_modal_renders_markup_like_plugin_paths_literally(tmp_path):
 
     texts = asyncio.run(_run())
     assert "odd[/]id" in texts and str(tmp_path / "odd[/]root") in texts
+
+
+def test_configured_plugin_entry_overrides_the_discovered_one_with_the_same_path(tmp_path):
+    installed = _manifest(Path.home() / ".symphony" / "plugins" / "demo", id="demo", description="Installed.")
+    config = PluginsConfig(entries=[PluginConfig(path=installed, enabled=False)])
+    result = load_authorized_plugins(tmp_path, config)
+    assert result.plugins == (LoadedPlugin("demo", "Installed.", installed.resolve(), False),)

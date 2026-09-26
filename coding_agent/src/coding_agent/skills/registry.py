@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from coding_agent.skills.frontmatter import SKILL_NAME, read_front_matter
 from coding_agent.skills.models import Skill, SkillDiagnostic
+
+if TYPE_CHECKING:
+    from coding_agent.config import SkillsConfig
 
 logger = logging.getLogger(__name__)
 _MAX_FILE_BYTES = 128_000
@@ -16,6 +19,18 @@ _MAX_FILE_BYTES = 128_000
 def bundled_skills_root() -> Path:
     """Skills shipped in the package, so every install starts with the same habits without copying files."""
     return Path(__file__).resolve().parent.parent / "bundled_skills"
+
+
+def default_skill_roots(config: SkillsConfig) -> list[tuple[str, Path]]:
+    """Bundled skills, then ~/.symphony/skills, then configured roots; never the workspace.
+
+    Why: a cloned repository must not be able to inject prompt text through its own skills folder.
+    """
+    return [
+        ("bundled", bundled_skills_root()),
+        ("user", Path.home() / ".symphony" / "skills"),
+        *[("configured", root) for root in config.roots],
+    ]
 
 
 class SkillRegistry:
@@ -27,6 +42,14 @@ class SkillRegistry:
     @property
     def skills(self) -> tuple[Skill, ...]:
         return tuple(sorted(self._skills.values(), key=lambda skill: skill.skill_id))
+
+    def catalog_prompt(self) -> str:
+        """The system-prompt skill catalog, or "" when no skills are loaded."""
+        if not self.skills:
+            return ""
+        lines = ["Available skills (read the listed SKILL.md with read_file when relevant):"]
+        lines.extend(skill.catalog_line() for skill in self.skills)
+        return "\n".join(lines)
 
     def get(self, skill_id: str) -> Skill:
         try:
@@ -64,8 +87,8 @@ class SkillRegistry:
             root = root.expanduser().resolve()
             if not root.is_dir():
                 continue
-            candidates = [root] if (root / "SKILL.md").is_file() else sorted(
-                path for path in root.iterdir() if path.is_dir()
+            candidates = (
+                [root] if (root / "SKILL.md").is_file() else sorted(path for path in root.iterdir() if path.is_dir())
             )
             for skill_root in candidates:
                 document = skill_root / "SKILL.md"
@@ -102,8 +125,14 @@ def _parse_skill(origin: str, root: Path, document: Path) -> Skill:
         raise ValueError("SKILL.md exceeds the 128000 byte limit")
     text = document.read_text(encoding="utf-8").lstrip("\ufeff").replace("\r\n", "\n")
     meta = read_front_matter(text)
-    return Skill(skill_id=f"{origin}/{meta.name}", name=meta.name, description=meta.description,
-                 root=root, origin=origin, args=meta.args)
+    return Skill(
+        skill_id=f"{origin}/{meta.name}",
+        name=meta.name,
+        description=meta.description,
+        root=root,
+        origin=origin,
+        args=meta.args,
+    )
 
 
-__all__ = ["SkillRegistry", "bundled_skills_root"]
+__all__ = ["SkillRegistry", "bundled_skills_root", "default_skill_roots"]
