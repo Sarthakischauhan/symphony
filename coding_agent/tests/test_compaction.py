@@ -13,7 +13,7 @@ from core_harness.addons.compaction import KeepSystemRecentCompactor
 from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
 from coding_agent import CodingAgent
-from coding_agent.agent import default_addons
+from coding_agent.default_addons import default_addons
 from coding_agent.compaction import (
     AiCompactionAddon,
     InferenceCompactor,
@@ -135,9 +135,7 @@ def test_inference_compactor_turns_dropped_history_into_one_marked_message() -> 
 
 def test_inference_compactor_keeps_tool_groups_atomic_at_window_edge() -> None:
     registry = StubRegistry()
-    compactor = InferenceCompactor(
-        registry=registry, model_id="fake:model", keep_recent_tools=1
-    )
+    compactor = InferenceCompactor(registry=registry, model_id="fake:model", keep_recent_tools=1)
     messages = [
         Message(role="system", content="system"),
         Message(role="user", content="task"),
@@ -200,9 +198,7 @@ def test_inference_compactor_skips_model_when_nothing_is_dropped() -> None:
 def test_inference_compactor_follows_current_model_id() -> None:
     registry = StubRegistry()
     current = {"model_id": "fake:first"}
-    compactor = InferenceCompactor(
-        registry=registry, model_id=lambda: current["model_id"], keep_recent_tools=1
-    )
+    compactor = InferenceCompactor(registry=registry, model_id=lambda: current["model_id"], keep_recent_tools=1)
     messages = [Message(role="user", content=text) for text in ("hello", "again", "latest")]
 
     _compact(compactor, messages)
@@ -221,9 +217,7 @@ def test_inference_compactor_falls_back_to_template_when_model_fails() -> None:
     ]
 
     compacted = _compact(
-        InferenceCompactor(
-            registry=FailingRegistry(), model_id="fake:model", keep_recent_tools=1
-        ),
+        InferenceCompactor(registry=FailingRegistry(), model_id="fake:model", keep_recent_tools=1),
         messages,
     )
     template = _compact(KeepSystemRecentCompactor(keep_recent_tools=1), messages)
@@ -330,9 +324,7 @@ def test_ai_compaction_addon_occupies_compaction_slot() -> None:
 
 def test_default_addons_mount_only_ai_compaction(tmp_path: Path) -> None:
     persistence = JsonlPersistence(tmp_path / "sessions")
-    harness_config = HarnessConfig(
-        compaction_keep_recent_tools=6, context_target_tokens=9_000
-    )
+    harness_config = HarnessConfig(compaction_keep_recent_tools=6, context_target_tokens=9_000)
 
     addons = default_addons(
         persistence=persistence,
@@ -345,11 +337,7 @@ def test_default_addons_mount_only_ai_compaction(tmp_path: Path) -> None:
     assert len(compaction) == 1
     ai = compaction[0]
     assert isinstance(ai, AiCompactionAddon)
-    assert (
-        ai.keep_recent_tools == 6
-        and ai.target_tokens == 9_000
-        and ai.max_output_tokens == 222
-    )
+    assert ai.keep_recent_tools == 6 and ai.target_tokens == 9_000 and ai.max_output_tokens == 222
     assert not any(isinstance(addon, CompactionAddon) for addon in addons)
 
 
