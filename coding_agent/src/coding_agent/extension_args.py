@@ -65,8 +65,11 @@ def render_args(args: tuple[ExtensionArg, ...]) -> str:
     return ", ".join(
         f"{arg.name}: {arg.type}"
         + (f"[{'|'.join(arg.options)}]" if arg.options else "")
-        + (f"={str(arg.default).lower() if isinstance(arg.default, bool) else arg.default}"
-           if arg.default not in (None, "") else "")
+        + (
+            f"={str(arg.default).lower() if isinstance(arg.default, bool) else arg.default}"
+            if arg.default not in (None, "")
+            else ""
+        )
         + (" required" if arg.required else "")
         for arg in args
     )

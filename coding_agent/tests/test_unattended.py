@@ -41,15 +41,19 @@ def _tool_results(registry: ScriptedRegistry, prompt: str) -> list[str]:
 
 def test_unattended_run_never_prompts_and_denies_in_parent_and_child(tmp_path: Path) -> None:
     (tmp_path / "keep").mkdir()
-    registry = ScriptedRegistry({
-        "PARENT": [[
-            ("bash", {"command": "echo parent-ran"}),
-            ("ask_user", {"question": "Which db?", "choices": ["sqlite", "postgres"], "default": "sqlite"}),
-            ("bash", {"command": "rm -rf keep"}),
-            ("spawn_agent", {"prompt": "CHILD", "label": "kid"}),
-        ]],
-        "CHILD": [[("bash", {"command": "rm -rf keep"})]],
-    })
+    registry = ScriptedRegistry(
+        {
+            "PARENT": [
+                [
+                    ("bash", {"command": "echo parent-ran"}),
+                    ("ask_user", {"question": "Which db?", "choices": ["sqlite", "postgres"], "default": "sqlite"}),
+                    ("bash", {"command": "rm -rf keep"}),
+                    ("spawn_agent", {"prompt": "CHILD", "label": "kid"}),
+                ]
+            ],
+            "CHILD": [[("bash", {"command": "rm -rf keep"})]],
+        }
+    )
     sink = NoHumanSink()
     agent = CodingAgent(
         registry=registry,  # type: ignore[arg-type]
@@ -84,8 +88,9 @@ def test_unattended_run_never_prompts_and_denies_in_parent_and_child(tmp_path: P
 
 
 def test_deny_rules_apply_even_in_always_allow_and_survive_restart(tmp_path: Path) -> None:
-    ensure_spawn_settings(tmp_path, overrides={"approvals": {"mode": "always_allow", "deny": ["git push*"],
-                                                             "allow": ["ls*"]}})
+    ensure_spawn_settings(
+        tmp_path, overrides={"approvals": {"mode": "always_allow", "deny": ["git push*"], "allow": ["ls*"]}}
+    )
     reloaded = ensure_spawn_settings(tmp_path)
     assert reloaded.approvals.deny == ["git push*"] and reloaded.approvals.allow == ["ls*"]
     addon = ApprovalAddon(tmp_path, EventSink(), approvals=reloaded.approvals)

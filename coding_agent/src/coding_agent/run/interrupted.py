@@ -25,7 +25,7 @@ async def interrupted_session(persistence: JsonlPersistence) -> Optional[tuple[S
 def stop_orphaned_jobs(jobs: object) -> list[str]:
     """SIGKILL job process groups (own session, so pgid == pid) that outlived the killed run."""
     stopped = []
-    for job_id, pid in (jobs.items() if isinstance(jobs, dict) else []):
+    for job_id, pid in jobs.items() if isinstance(jobs, dict) else []:
         if not isinstance(pid, int) or pid <= 1:
             continue
         try:

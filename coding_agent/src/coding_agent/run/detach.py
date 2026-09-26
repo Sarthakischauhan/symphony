@@ -23,8 +23,12 @@ def detach(run_argv: list[str], workspace: Path) -> int:
             command, start_new_session=True, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT
         )
     info = {
-        "pid": proc.pid, "session_id": session_id, "log": str(log_path), "workspace": str(workspace),
-        "argv": command, "started_at": datetime.now(timezone.utc).isoformat(),
+        "pid": proc.pid,
+        "session_id": session_id,
+        "log": str(log_path),
+        "workspace": str(workspace),
+        "argv": command,
+        "started_at": datetime.now(timezone.utc).isoformat(),
     }
     (root / f"{session_id}.run.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
     print(f"pid {proc.pid}\nlog {log_path}\nsession {session_id}")

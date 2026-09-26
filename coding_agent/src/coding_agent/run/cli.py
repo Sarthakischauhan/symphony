@@ -23,7 +23,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="symphony run", description="Run one task headless, with no human.")
     parser.add_argument("task", help="Task prompt")
     parser.add_argument(
-        "--unattended", action="store_true", required=True,
+        "--unattended",
+        action="store_true",
+        required=True,
         help="Required: auto-approve tools (approvals.deny still applies) and auto-answer ask_user",
     )
     parser.add_argument("--detach", action="store_true", help="Run in the background; print pid, log, session id")
@@ -40,7 +42,10 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
         print("error: no provider credentials configured", file=sys.stderr)
         return 1
     agent = build_agent(
-        workspace=workspace, sink=LogLineSink(), model_id=model, session_id=session_id,
+        workspace=workspace,
+        sink=LogLineSink(),
+        model_id=model,
+        session_id=session_id,
         config=ensure_spawn_settings(workspace, overrides={"unattended": True}),
     )
     print(f"session {agent.session_id}", flush=True)

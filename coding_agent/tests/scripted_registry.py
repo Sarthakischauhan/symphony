@@ -15,8 +15,11 @@ Turn = list[tuple[str, dict]]
 
 def first_user_text(messages: list[Message]) -> str:
     return next(
-        (text_from_content(m.content) for m in messages
-         if m.role == "user" and not text_from_content(m.content).startswith("[compacted")),
+        (
+            text_from_content(m.content)
+            for m in messages
+            if m.role == "user" and not text_from_content(m.content).startswith("[compacted")
+        ),
         "",
     )
 

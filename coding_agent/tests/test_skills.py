@@ -103,18 +103,31 @@ _BOMB = "a: &a [x, x, x, x, x, x, x, x, x]\n" + "".join(
         ("name: demo\ndescription: [unclosed", "invalid YAML front matter"),
         ("name: demo\ndescription: D.\nx: " + "[" * 1000 + "]" * 1000, "invalid YAML front matter"),
         ("name: demo\ndescription: D.\nargs: query", "tuple"),
-        ("name: demo\ndescription: D.\nargs:\n  - {name: r, type: string, description: One.}\n"
-         "  - {name: r, type: string, description: Two.}", "duplicate argument name"),
-        ("name: demo\ndescription: D.\nargs:\n  - {name: d, type: enum, enum: [a, b], description: D., default: c}",
-         "default is not in its enum"),
-        ("name: demo\ndescription: D.\nargs:\n  - {name: r, type: string, description: R., required: true, default: x}",
-         "required and cannot have a default"),
-        ("name: demo\ndescription: D.\nargs:\n  - {name: n, type: number, description: N., default: true}",
-         "does not match type number"),
-        ("name: demo\ndescription: D.\nargs:\n  - {name: s, type: string, enum: [a], description: S.}",
-         "other types take none"),
-        ("name: demo\ndescription: D.\nargs:\n  - {name: d, type: enum, enum: [a, a], description: D.}",
-         "duplicate enum options"),
+        (
+            "name: demo\ndescription: D.\nargs:\n  - {name: r, type: string, description: One.}\n"
+            "  - {name: r, type: string, description: Two.}",
+            "duplicate argument name",
+        ),
+        (
+            "name: demo\ndescription: D.\nargs:\n  - {name: d, type: enum, enum: [a, b], description: D., default: c}",
+            "default is not in its enum",
+        ),
+        (
+            "name: demo\ndescription: D.\nargs:\n  - {name: r, type: string, description: R., required: true, default: x}",
+            "required and cannot have a default",
+        ),
+        (
+            "name: demo\ndescription: D.\nargs:\n  - {name: n, type: number, description: N., default: true}",
+            "does not match type number",
+        ),
+        (
+            "name: demo\ndescription: D.\nargs:\n  - {name: s, type: string, enum: [a], description: S.}",
+            "other types take none",
+        ),
+        (
+            "name: demo\ndescription: D.\nargs:\n  - {name: d, type: enum, enum: [a, a], description: D.}",
+            "duplicate enum options",
+        ),
     ],
 )
 def test_invalid_front_matter_is_rejected(front: str, error: str):

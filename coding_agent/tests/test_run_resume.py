@@ -32,22 +32,27 @@ class KillOnSecondCall(ScriptedRegistry):
             yield event
 
 
-SCRIPT = {GOAL: [
-    [("bash", {"command": "sleep 30", "background": True})],
-    [("bash", {"command": "printf ok > done.txt"})],
-]}
+SCRIPT = {
+    GOAL: [
+        [("bash", {"command": "sleep 30", "background": True})],
+        [("bash", {"command": "printf ok > done.txt"})],
+    ]
+}
 
 
 def _settings(workspace: Path) -> None:
-    ensure_spawn_settings(workspace, overrides={
-        "learning": {"enabled": False},
-        "langfuse": {"enabled": False},
-        "harness": {
-            "context_limits": {"fake:test-model": 400},
-            "context_compact_ratio": 0.05,
-            "compaction_keep_recent_tools": 1,
+    ensure_spawn_settings(
+        workspace,
+        overrides={
+            "learning": {"enabled": False},
+            "langfuse": {"enabled": False},
+            "harness": {
+                "context_limits": {"fake:test-model": 400},
+                "context_compact_ratio": 0.05,
+                "compaction_keep_recent_tools": 1,
+            },
         },
-    })
+    )
 
 
 def test_resume_continue_finishes_interrupted_run_once(
@@ -56,7 +61,8 @@ def test_resume_continue_finishes_interrupted_run_once(
     _settings(tmp_path)
     killed = CodingAgent(
         registry=KillOnSecondCall(SCRIPT),  # type: ignore[arg-type]
-        model_id="fake:test-model", workspace=tmp_path,
+        model_id="fake:test-model",
+        workspace=tmp_path,
         config=ensure_spawn_settings(tmp_path, overrides={"unattended": True}),
     )
     with pytest.raises(Killed):
@@ -89,15 +95,15 @@ def test_resume_continue_finishes_interrupted_run_once(
     assert '"kind": "approval"' in out  # auto_decision logged, no prompt
 
     # The goal is in every model request of the resumed run, even after compaction.
-    assert registry.calls and all(
-        any(text_from_content(m.content) == GOAL for m in call) for call in registry.calls
-    )
+    assert registry.calls and all(any(text_from_content(m.content) == GOAL for m in call) for call in registry.calls)
     fresh = JsonlPersistence(sessions_dir(tmp_path))
     entries = [json.loads(line) for line in fresh._path(killed.session_id).read_text().splitlines()]
     assert any(entry.get("type") == "compaction" for entry in entries)
     assert any(entry.get("event_type") == "auto_decision" for entry in entries)
-    notes = [[text_from_content(m.content) for m in call if text_from_content(m.content).startswith(NOTE)]
-             for call in registry.calls]
+    notes = [
+        [text_from_content(m.content) for m in call if text_from_content(m.content).startswith(NOTE)]
+        for call in registry.calls
+    ]
     assert len(notes[0]) == 1 and all(len(found) <= 1 for found in notes)
     assert f"background jobs {lost_job} (pid {orphan.pid}) were stopped" in notes[0][0]
     assert notes[0][0].endswith(f"continue toward the original task: {GOAL}")
@@ -112,8 +118,11 @@ def test_goal_survives_forced_manual_compaction(tmp_path: Path) -> None:
     _settings(tmp_path)
     agent = CodingAgent(
         registry=ScriptedRegistry({GOAL: [[("bash", {"command": f"echo step{i}"})] for i in range(4)]}),  # type: ignore[arg-type]
-        model_id="fake:test-model", workspace=tmp_path,
-        config=ensure_spawn_settings(tmp_path, overrides={"unattended": True, "harness": {"context_compact_ratio": None}}),
+        model_id="fake:test-model",
+        workspace=tmp_path,
+        config=ensure_spawn_settings(
+            tmp_path, overrides={"unattended": True, "harness": {"context_compact_ratio": None}}
+        ),
     )
     asyncio.run(agent.run(GOAL))
     before, after = asyncio.run(agent.compact_conversation())

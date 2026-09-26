@@ -57,19 +57,26 @@ class BashJobs:
         try:
             with log_path.open("wb") as log:
                 proc = await asyncio.create_subprocess_shell(
-                    command, stdin=asyncio.subprocess.DEVNULL, stdout=log,
-                    stderr=asyncio.subprocess.STDOUT, cwd=cwd, start_new_session=True,
+                    command,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=asyncio.subprocess.STDOUT,
+                    cwd=cwd,
+                    start_new_session=True,
                 )
         except OSError as exc:
             return f"error: failed to run command: {exc}"
         self.procs[job_id], self.logs[job_id] = proc, log_path
-        record = ChildTask(job_id, self.harness.agent_id, str(self.harness.session_id or ""),
-                           f"bash:{command[:80]}", status=JOB_STATUS)
+        record = ChildTask(
+            job_id, self.harness.agent_id, str(self.harness.session_id or ""), f"bash:{command[:80]}", status=JOB_STATUS
+        )
         record.task = asyncio.create_task(self._watch(record, proc, log_path), name=f"bash-job:{job_id}")
         self.harness.child_tasks[job_id] = record
         await asyncio.sleep(0)  # enter the watcher so a cancel always reaches its cleanup
-        return (f"started background job {job_id}\nlog: {log_path}\n"
-                "You will get its exit status and output tail when it ends; do not poll.")
+        return (
+            f"started background job {job_id}\nlog: {log_path}\n"
+            "You will get its exit status and output tail when it ends; do not poll."
+        )
 
     def output(self, job_id: str, cap: int) -> str:
         if job_id not in self.procs:
@@ -98,7 +105,12 @@ class BashJobs:
             raise
         record.status = "completed"
         tail = log_tail(log_path, WAKE_TAIL_BYTES)
-        self.harness._child_results.append(Message(role="user", content=(
-            f"Background job {record.child_id} {status} after {time.monotonic() - started:.1f}s. "
-            f"Last output:\n{tail}\nFull log: {log_path}"
-        )))
+        self.harness._child_results.append(
+            Message(
+                role="user",
+                content=(
+                    f"Background job {record.child_id} {status} after {time.monotonic() - started:.1f}s. "
+                    f"Last output:\n{tail}\nFull log: {log_path}"
+                ),
+            )
+        )

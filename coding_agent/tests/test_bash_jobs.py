@@ -30,8 +30,13 @@ def test_background_job_outlives_foreground_cap_and_wakes_the_loop_once(tmp_path
         tools=ToolsConfig(bash=BashConfig(default_timeout_seconds=1, max_timeout_seconds=1)),
         unattended=True,
     )
-    agent = CodingAgent(registry=registry, model_id="fake:test-model", workspace=tmp_path,  # type: ignore[arg-type]
-                        sink=sink, config=config)
+    agent = CodingAgent(
+        registry=registry,
+        model_id="fake:test-model",
+        workspace=tmp_path,  # type: ignore[arg-type]
+        sink=sink,
+        config=config,
+    )
     started = time.monotonic()
     result = asyncio.run(agent.run("build it"))
     assert time.monotonic() - started >= 2
@@ -39,7 +44,9 @@ def test_background_job_outlives_foreground_cap_and_wakes_the_loop_once(tmp_path
 
     types = [event.event_type for event in sink.events]
     assert "waiting_for_children" in types
-    bash_calls = [e for e in sink.events if e.event_type == "tool_execution_started" and e.payload["tool_name"] == "bash"]
+    bash_calls = [
+        e for e in sink.events if e.event_type == "tool_execution_started" and e.payload["tool_name"] == "bash"
+    ]
     assert len(bash_calls) == 1  # no output/poll calls
     assert len(registry.calls) == 3
     woken = registry.calls[2]
