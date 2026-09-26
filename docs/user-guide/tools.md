@@ -26,6 +26,16 @@ require confirmation in `ask` mode.
 Non-zero exits and timeouts return the captured output; they are not tool
 failures. Default timeout 30s, max 120s, output capped at 32 KB.
 
+`background: true` starts the command detached (its own process group, output
+to `~/.symphony/sessions/jobs/<job_id>.log`) and returns the job id at once.
+It is capped by `tools.bash.max_background_seconds` (default 3600), not the
+foreground max. When it exits, one bounded message (exit code, duration, last
+~2 KB, log path) is injected before the next turn; the run waits for running
+jobs before it completes, so the model never needs to poll. `action: "output"`
+tails a job's log, `action: "stop"` kills its process group. Cancelling the run
+kills running jobs. The run will not finish while a background job is alive,
+so stop it with `action: "stop"` when you are done with it.
+
 ## spawn_agent
 
 Optional `model_id` and `max_turns` apply to that child only. Children get a

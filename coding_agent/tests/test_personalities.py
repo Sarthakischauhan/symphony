@@ -41,6 +41,10 @@ def test_load_personalities_from_repo_catalog() -> None:
     assert all(row.system_addon for row in rows)
     assert get("direct") is not None
     assert get("direct").name == "Direct"  # type: ignore[union-attr]
+    bad_boy = get("bad_boy").system_addon  # type: ignore[union-attr]
+    assert "dignity" not in bad_boy
+    assert "What's up, asshole. Let's fix your mess." in bad_boy
+    assert "Done, you awesome bitch. Tests pass." in bad_boy
 
 
 def test_load_personalities_missing_or_invalid_is_empty(tmp_path: Path) -> None:

@@ -1,10 +1,29 @@
 # Skills and local plugins
 
-`coding_agent` discovers Markdown skills from `~/.symphony/skills/<name>/` and
-`<workspace>/.symphony/skills/<name>/`. Each directory must contain a bounded
-`SKILL.md` with `name` and `description` front matter. The agent shows a stable
-catalog in its prompt and reads the document or resources with `read_file` when
-needed. Discovery does not execute scripts.
+`coding_agent` discovers Markdown skills from the package's bundled skills and
+`~/.symphony/skills/<name>/`. Each directory must contain a bounded `SKILL.md`.
+YAML front matter (at most 4 KB, no aliases) loads three fields: `name`,
+`description`, and optional `args`; other keys such as `allowed-tools` are
+ignored. The agent shows that contract in its prompt and reads the document or
+resources with `read_file` when needed. Discovery does not execute scripts.
+
+```markdown
+---
+name: systematic-debug
+description: Reproduce a failure before editing.
+args:
+  - name: repro
+    type: string
+    required: true
+    description: Command, test, or symptom that fails.
+---
+```
+
+`args` entries are `name`, `type` (`string`, `number`, `boolean`, or `enum`),
+`description`, and optional `required`, `default`, and `enum`. A required arg
+cannot have a default, and an enum default must be one of its options. Plugin
+manifests may add a `description` to `plugin.json`; it is read without
+importing addon code.
 
 ## Configuration
 

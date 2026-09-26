@@ -7,9 +7,13 @@ import types
 import uuid
 from pathlib import Path
 from typing import Iterable
-from coding_agent.plugins.models import PluginConfig, PluginContext, PluginDiagnostic
+from coding_agent.plugins.models import (
+    LoadedPlugin, PluginConfig, PluginContext, PluginDiagnostic, PluginLoadResult, PluginMetadata,
+)
 
 class PluginManager:
+    """Load ~/.symphony plugin manifests; addons are code, so only authorized roots are imported."""
+
     def __init__(self, workspace: Path, *, authorized_roots: Iterable[Path] = ()) -> None:
         self.workspace = workspace.resolve()
         self.authorized_roots = tuple(p.expanduser().resolve() for p in authorized_roots)
@@ -38,11 +42,12 @@ class PluginManager:
                     entries.append(PluginConfig(path=plugin_root))
         return tuple(entries)
 
-    def load(self, entries: Iterable[PluginConfig]):
+    def load(self, entries: Iterable[PluginConfig]) -> PluginLoadResult:
         """Load manifests, skill directories, and authorized executable add-ons."""
         addons = []
         diagnostics = []
         skill_roots = []
+        loaded: list[LoadedPlugin] = []
         seen: set[str] = set()
         addon_names: set[str] = set()
         for entry in entries:
@@ -70,6 +75,8 @@ class PluginManager:
                 if plugin_id in seen:
                     raise ValueError(f"duplicate plugin id: {plugin_id}")
                 seen.add(plugin_id)
+                metadata = PluginMetadata.model_validate(data)
+                loaded.append(LoadedPlugin(plugin_id, metadata.description, root, entry.enabled))
                 skills = data.get("skills", [])
                 if not isinstance(skills, list):
                     raise ValueError("skills must be a list")
@@ -128,6 +135,6 @@ class PluginManager:
                     sys.modules.pop(package_name, None)
             except Exception as exc:
                 diagnostics.append(PluginDiagnostic(str(manifest_path), str(exc)))
-        return addons, skill_roots, tuple(diagnostics)
+        return PluginLoadResult(addons, skill_roots, tuple(loaded), tuple(diagnostics))
 
 __all__ = ["PluginManager"]

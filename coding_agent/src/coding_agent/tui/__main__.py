@@ -29,6 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List saved sessions and interactively resume one",
     )
+    parser.add_argument(
+        "--continue",
+        dest="continue_run",
+        action="store_true",
+        help="With --resume: continue the most recent session unattended if it was interrupted mid-run",
+    )
     learning = parser.add_mutually_exclusive_group()
     learning.add_argument(
         "--learn",
@@ -49,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable Jev critic mode (findings only; does not switch the chat model)",
     )
+    parser.add_argument(
+        "--unattended",
+        action="store_true",
+        help="No human in the loop: auto-approve (deny rules still apply) and auto-answer ask_user",
+    )
     parser.set_defaults(enable_learning=None)
     return parser
 
@@ -58,9 +69,19 @@ def main() -> None:
         from coding_agent.bench.cli import main as bench_main
 
         raise SystemExit(bench_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "run":
+        from coding_agent.run.cli import main as run_main
+
+        raise SystemExit(run_main(sys.argv[2:]))
     parser = build_parser()
     args = parser.parse_args()
     workspace = Path(args.workspace or ".").resolve()
+    if args.continue_run:
+        if not args.resume:
+            parser.error("--continue requires --resume")
+        from coding_agent.run.cli import continue_interrupted
+
+        raise SystemExit(continue_interrupted(workspace, model=args.model))
     session_id = None
     if args.resume:
         persistence = JsonlPersistence(sessions_dir(workspace))
@@ -76,6 +97,7 @@ def main() -> None:
         session_id=session_id,
         enable_learning=args.enable_learning,
         enable_jev=args.enable_jev,
+        unattended=args.unattended,
     )
 
 
