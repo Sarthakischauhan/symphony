@@ -131,6 +131,7 @@ are **not** members of `ControlPlaneEventType`; consumers should treat unknown
 | `event_type` | Emitted by | Payload notes |
 | --- | --- | --- |
 | `collected` | `symphony-code` JSONL persistence, after a terminal run event | Overlay keyed by the original event's `run_id` and `seq`. `load_events` stamps `collected: true` onto that mid-run event and keeps the flag sticky. The TUI folds collected work into the completed-run collection and does not resurrect live cards on resume. |
+| `auto_decision` | `symphony-code` `ApprovalAddon` (via the harness `emit`, so it is journaled) | A decision made without a human. `kind: "approval"` with `tool`, `decision` (`allow`/`deny`), `rule` (the matching deny pattern, or `unattended` when a prompt was auto-approved); `kind: "ask_user"` with `question`. The audit trail for `--unattended` runs. |
 
 ## Transport
 

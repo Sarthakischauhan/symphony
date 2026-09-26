@@ -15,7 +15,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from core_ai.content import text_from_content
 from core_ai.types import Message
@@ -83,6 +83,9 @@ class JsonlPersistence:
         self._lock = threading.Lock()
         self._event_keys: Dict[str, set[tuple[str, int]]] = {}
         self._entries: Dict[str, List[Dict[str, Any]]] = {}
+        # Product fields (goal, todo, live background jobs) merged into every
+        # checkpoint so an interrupted run can be continued later.
+        self.checkpoint_metadata: Callable[[], Dict[str, Any]] = dict
 
     def _path(self, session_id: str) -> Path:
         if not _SESSION_ID.match(session_id):
@@ -560,6 +563,7 @@ class JsonlPersistence:
     async def save_checkpoint(self, *, checkpoint: Checkpoint) -> None:
         payload = checkpoint.model_dump()
         payload.pop("messages", None)
+        payload["metadata"] = {**self.checkpoint_metadata(), **payload["metadata"]}
         with self._lock:
             entries = self._read_entries(checkpoint.session_id)
             outgoing: List[Dict[str, Any]] = []

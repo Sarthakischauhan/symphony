@@ -41,10 +41,10 @@ from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.personalities import compose_system_prompt
 from coding_agent.plan import PlanStore
 from coding_agent.plan_mode import PlanModeAddon, PlanModeState
-from coding_agent.plugins import PluginManager
+from coding_agent.plugins import LoadedPlugin, PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
-from coding_agent.skills import SkillRegistry, SkillsAddon
-from coding_agent.tools import EnterPlanModeTool, ExitPlanModeTool, build_tools
+from coding_agent.skills import SkillRegistry, SkillsAddon, bundled_skills_root
+from coding_agent.tools import BashJobs, EnterPlanModeTool, ExitPlanModeTool, build_tools
 
 AgentMode = Literal["build", "plan"]
 
@@ -119,7 +119,13 @@ class CodingAgent:
         self.registry = registry
         self.session_id = session_id or str(uuid.uuid4())
         self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
+        self.goal = ""
+        if isinstance(self.persistence, JsonlPersistence):
+            self.persistence.checkpoint_metadata = self._checkpoint_metadata
         self.base_system_prompt = system_prompt.rstrip()
+        # Unattended runs cannot enter plan mode: approving a plan needs a human.
+        self.unattended = self.config.unattended
+        mode = "build" if self.unattended else mode
         self.mode = mode
         self.plan_mode = PlanModeState(workspace=self.workspace, active=mode == "plan")
         self.plan_store = PlanStore(self.workspace)
@@ -140,12 +146,13 @@ class CodingAgent:
             else None
         )
         skill_roots = [
+            ("bundled", bundled_skills_root()),
             ("user", Path.home() / ".symphony" / "skills"),
             *[("configured", root) for root in self.config.skills.roots],
         ]
         plugin_addons = []
-        plugin_skill_roots = []
         self.plugin_diagnostics = ()
+        self.loaded_plugins: tuple[LoadedPlugin, ...] = ()
         if self.config.plugins.enabled:
             # Global config must not be able to authorize executable code.
             # Authorization is supplied by the trusted process environment;
@@ -165,7 +172,9 @@ class CodingAgent:
                 entry for entry in discovered_plugins
                 if entry.path.expanduser().resolve() not in configured_paths
             )
-            plugin_addons, plugin_skill_roots, self.plugin_diagnostics = plugin_manager.load(plugin_entries)
+            plugin_addons, plugin_skill_roots, self.loaded_plugins, self.plugin_diagnostics = (
+                plugin_manager.load(plugin_entries)
+            )
             if self.plugin_diagnostics:
                 details = "; ".join(
                     f"{diagnostic.source}: {diagnostic.message}"
@@ -177,10 +186,16 @@ class CodingAgent:
             skill_roots,
             max_skills=self.config.skills.max_skills,
         )
+        self.bash_jobs = BashJobs(
+            sessions_dir(self.workspace) / "jobs",
+            max_seconds=self.config.tools.bash.max_background_seconds,
+        )
         self.tools = tools if tools is not None else build_tools(
             self.workspace,
             config=self.config.tools,
             learning_enabled=self.config.learning.enabled,
+            unattended=self.unattended,
+            bash_jobs=self.bash_jobs,
         )
         include_subagent = tools is None
         addons = default_addons(
@@ -197,13 +212,17 @@ class CodingAgent:
             should_review=lambda: self.mode != "plan",
         )
         addons.append(PlanModeAddon(self.plan_mode))
-        addons.append(ApprovalAddon(self.workspace, self.sink))
+        self.approval = ApprovalAddon(
+            self.workspace, self.sink, approvals=self.config.approvals, unattended=self.unattended
+        )
+        addons.append(self.approval)
         if self.config.skills.enabled:
             addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
-        self.tools.extend([
-            EnterPlanModeTool(self.workspace, self.plan_mode, self),
-            ExitPlanModeTool(self.workspace, self.plan_mode),
-        ])
+        if not self.unattended:
+            self.tools.extend([
+                EnterPlanModeTool(self.workspace, self.plan_mode, self),
+                ExitPlanModeTool(self.workspace, self.plan_mode),
+            ])
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -215,6 +234,7 @@ class CodingAgent:
             agent_id=self.session_id,
             addons=addons + plugin_addons,
         )
+        self.bash_jobs.bind(self.harness)
         self.apply_system_prompt()
 
     def _spawn_child_config(
@@ -226,7 +246,7 @@ class CodingAgent:
         max_turns: Optional[int] = None,
         **_: Any,
     ) -> ChildConfig:
-        """Children share the parent sink and skip ApprovalAddon."""
+        """Children share the parent sink and skip ApprovalAddon (deny-only fork when unattended)."""
         del prompt, label
         cap = self.harness.config.spawn_max_turns
         turns = None
@@ -241,12 +261,17 @@ class CodingAgent:
             sink=self.sink,
             # addon_factory replaces fork_for_child. Omit learning (and Jev):
             # LearningAddon.fork_for_child returns None — children skip observe.
-            addon_factory=lambda parent: default_addons(
-                persistence=self.persistence, harness_config=parent.config,
-                compaction=self.config.compaction, include_subagent=False,
-                langfuse=self.config.langfuse,
-            ),
+            addon_factory=self._child_addons,
         )
+
+    def _child_addons(self, parent: CoreHarness) -> list:
+        addons = default_addons(
+            persistence=self.persistence, harness_config=parent.config,
+            compaction=self.config.compaction, include_subagent=False,
+            langfuse=self.config.langfuse,
+        )
+        gate = self.approval.fork_for_child(parent)
+        return addons + ([gate] if gate is not None else [])
 
     async def run(
         self,
@@ -263,6 +288,9 @@ class CodingAgent:
         if jev_addon is not None:
             jev_addon.follow_ups = 0
 
+        if not self.goal:
+            previous = await self.persistence.load_checkpoint(session_id=session_id or self.session_id)
+            self.goal = (previous.metadata.get("goal") if previous else "") or task_text
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
@@ -291,6 +319,10 @@ class CodingAgent:
             )
         return result
 
+    def _checkpoint_metadata(self) -> dict[str, Any]:
+        """Goal (first prompt), current todo (the active plan file), live background jobs."""
+        return {"goal": self.goal, "todo": self.plan_mode.plan_path, "background_jobs": self.bash_jobs.running()}
+
     def _jev_follow_up(self) -> Optional[str]:
         addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)
         consume = getattr(addon, "consume_follow_up", None)
@@ -306,11 +338,7 @@ class CodingAgent:
             lines = [
                 "Available skills (read the listed SKILL.md with read_file when relevant):"
             ]
-            lines.extend(
-                f"- {skill.skill_id}: {skill.description} "
-                f"(SKILL.md: {skill.root / 'SKILL.md'})"
-                for skill in self.skill_registry.skills
-            )
+            lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
             skills = "\n".join(lines)
         self.harness.system_prompt = compose_system_prompt(
             self.base_system_prompt,
@@ -321,6 +349,7 @@ class CodingAgent:
         )
 
     def set_mode(self, mode: AgentMode) -> None:
+        mode = "build" if self.unattended else mode
         self.mode = mode
         if mode == "plan":
             self.plan_mode.begin()

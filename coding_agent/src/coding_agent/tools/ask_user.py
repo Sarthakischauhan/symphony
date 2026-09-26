@@ -8,6 +8,8 @@ from pydantic import Field
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
+NO_HUMAN_ANSWER = "no human available; pick the safest reasonable option and continue"
+
 
 class AskUserArgs(ToolArgsModel):
     question: str = Field(..., min_length=1, description="Clarifying question to show the user.")
@@ -24,6 +26,10 @@ class AskUserTool(WorkspaceTool):
     )
     args_model = AskUserArgs
 
+    def __init__(self, workspace: str, *, unattended: bool = False) -> None:
+        self.unattended = unattended
+        super().__init__(workspace)
+
     async def run(
         self,
         question: str,
@@ -34,6 +40,12 @@ class AskUserTool(WorkspaceTool):
         question = question.strip()
         if not question:
             return "error: question must be a non-empty string"
+
+        if self.unattended:
+            # ApprovalAddon records the auto_decision; never block on a human here.
+            hints = [f"default: {default}"] if default else []
+            hints += [f"choices: {', '.join(choices)}"] if choices else []
+            return "\n".join([NO_HUMAN_ANSWER, *hints])
 
         if sink is None:
             return "error: interactive user questions require an interactive control plane"

@@ -27,6 +27,10 @@ class ApprovalConfig(BaseModel):
     require_for_bash: bool = True
     require_for_overwrite: bool = True
     require_for_broad_patch: bool = True
+    # fnmatch patterns on the bash command, or on the path for write_file /
+    # patch / generate_image. deny wins over every mode, including unattended.
+    allow: list[str] = Field(default_factory=list)
+    deny: list[str] = Field(default_factory=list)
 
 
 class BashConfig(BaseModel):
@@ -35,6 +39,7 @@ class BashConfig(BaseModel):
     default_timeout_seconds: int = Field(default=30, ge=1)
     max_timeout_seconds: int = Field(default=120, ge=1)
     max_output_bytes: int = Field(default=32000, ge=1)
+    max_background_seconds: int = Field(default=3600, ge=1)
 
 
 class ReadFileConfig(BaseModel):
@@ -155,6 +160,8 @@ class CodingAgentConfig(BaseModel):
     last_model: str | None = None
     # Default "direct" inserts that catalog segment. null = stock prompt only.
     personality: str | None = "direct"
+    # Runtime-only (--unattended): never written back to config.json.
+    unattended: bool = Field(default=False, exclude=True)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -282,6 +289,7 @@ def ensure_spawn_settings(
         payload = _merge(payload, overrides)
 
     resolved = CodingAgentConfig.model_validate(payload)
+    resolved.unattended = resolved.unattended or bool(config and config.unattended)
     _validate_tools(resolved)
     path.write_text(
         json.dumps(resolved.model_dump(mode="json"), indent=2) + "\n",
