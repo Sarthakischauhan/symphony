@@ -24,7 +24,7 @@ uv run --package symphony-code symphony   # asks for a provider if none is set
 ## Names
 
 The repository is **Symphony**. It is a [uv](https://docs.astral.sh/uv/)
-workspace of four packages; three are published to PyPI. The PyPI names, the
+workspace of five packages; three are published to PyPI. The PyPI names, the
 Python import names, and the command names are all different on purpose, and
 this table is the one place they are all listed:
 
@@ -34,6 +34,7 @@ this table is the one place they are all listed:
 | `core_harness/` | `symphony-harness` | `core_harness` | — |
 | `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases: `symphony-code`, `coding-agent-tui`) |
 | `core_server/` | `core-server` (not published; workspace only) | `core_server` | `core-server` |
+| `browser_agent/` | `symphony-browser` (not published; workspace only) | `browser_agent` | `symphony-browser` |
 
 ---
 
@@ -48,7 +49,9 @@ children; those children reuse the stream, tagged with `parent_id` and
 `agent_id`.
 
 `symphony-code` is the first product on the harness (workspace tools, JSONL
-sessions, Textual TUI). A browser-use agent is next.
+sessions, Textual TUI). `symphony-browser` is the browser-use agent: Jev, the
+evaluation model, chooses every click and field, and a chat model writes text
+only when a field has to be typed.
 
 <video src="./docs/demo.mp4" controls muted loop playsinline poster="./docs/demo.png" width="800">
   <a href="./docs/demo.mp4">Demo: symphony-code writes hello.py, a test, and runs pytest</a>
@@ -97,6 +100,7 @@ flowchart TD
 | Harness | [`symphony-harness`](./core_harness/README.md) | Turns, tools, control-plane events, compaction |
 | Harness | [`symphony-core`](./core_ai/README.md) | OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel AI Gateway; catalog; streaming types |
 | Agent | [`symphony-code`](./coding_agent/README.md) | Workspace tools, JSONL sessions, Textual TUI |
+| Agent | [`symphony-browser`](./browser_agent/README.md) | Browser-use agent. Jev chooses each action |
 | Server | [`core-server`](./core_server/README.md) | FastAPI wrapper that streams those events over SSE |
 
 ---
@@ -143,6 +147,7 @@ pip install symphony-core symphony-harness symphony-code
 | [`symphony-core`](./core_ai/README.md) | `core_ai` | Providers, catalog, `Message` / `StreamEvent` |
 | [`symphony-harness`](./core_harness/README.md) | `core_harness` | Agent loop, tools, control plane, compaction |
 | [`symphony-code`](./coding_agent/README.md) | `coding_agent` | Workspace tools + Textual TUI |
+| [`symphony-browser`](./browser_agent/README.md) | `browser_agent` | Jev-driven browser agent (workspace) |
 | [`core-server`](./core_server/README.md) | `core_server` | FastAPI SSE of harness events (workspace) |
 
 Full steps: **[Installation](./docs/getting-started/installation.md)**.
@@ -217,6 +222,7 @@ print(result.output_text)
 | **Turn-based harness** | Multi-turn tool calls, schema generation, run caps (turns, tools, runtime, tokens). |
 | **Events** | `EventSink.emit` for UIs. The harness stamps `run_id`, `session_id`, seq, timestamp, schema version. Persistence and compaction are add-ons. Approval is a product `before_tool` add-on. Cancel the run task to stop a run. |
 | **Coding agent** | `read_file`, `write_file`, `generate_image`, `patch`, `search`, `bash`, `ask_user`, `spawn_agent`. `@file` search, streamed bash, approval prompts, Textual TUI, 900-token-capped learning with a two-line **summary so far**. |
+| **Browser agent** | `symphony-browser` turns the page into a numbered element table. Jev (`typesafe-ai/jev`) picks the operation and the element in one evaluation call. A chat model writes text only for `TYPE_TEXT`. |
 | **Context** | Warn thresholds, token estimates, pluggable compaction that keeps the system prompt, original task, and recent turns. |
 | **Persistence** | `Persistence` protocol with checkpoints; JSONL sessions for TUI resume. |
 | **SSE server** | FastAPI wrapper that forwards harness events unchanged. |
@@ -244,7 +250,7 @@ All package docs live under **[`docs/`](./docs/README.md)**:
 | [Tools](./docs/user-guide/tools.md) | Workspace tool surface |
 | [Learning](./docs/user-guide/learning.md) | Post-run reflection |
 | [Sessions](./docs/user-guide/sessions.md) | JSONL resume |
-| [Architecture](./docs/developer-guide/architecture.md) | How the four packages fit |
+| [Architecture](./docs/developer-guide/architecture.md) | How the packages fit |
 | [Changelog](./CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./docs/developer-guide/events.md) | Control-plane catalog |
 | [CLI](./docs/reference/cli.md) | Flags for `symphony` and `core-server` |

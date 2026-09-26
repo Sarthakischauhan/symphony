@@ -112,6 +112,34 @@ fail open. A confident rule violation triggers one automatic revision. Without
 a rule, auto-follow-up remains off by default. See
 [`docs/user-guide/jev.md`](../user-guide/jev.md).
 
+## Browser agent (`symphony-browser`)
+
+Jev is the browser agent's policy. The first provider with a key wins, in
+this order, unless `SYMPHONY_JEV_PROVIDER` forces one.
+
+| Variable | Role |
+| --- | --- |
+| `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` | Jev (`typesafe-ai/jev`) on Vercel AI Gateway `POST /v4/ai/evaluation-model`. `AI_GATEWAY_BASE_URL` is honoured |
+| `TYPESAFE_API_KEY` | Jev (`jev-latest`) on the TypeSafe decisions API |
+| `TYPESAFE_BASE_URL` | TypeSafe endpoint (default `https://api.typesafe.ai/v1/systemone`) |
+| `OPENROUTER_API_KEY` | Jev (`~typesafe/jev-latest`) on OpenRouter decisions |
+| `OPENROUTER_DECISIONS_URL` | OpenRouter endpoint (default `https://openrouter.ai/api/alpha/decisions`) |
+| `SYMPHONY_JEV_PROVIDER` | `vercel`, `typesafe`, or `openrouter`. An unknown value, or a provider whose key is missing, is an error, not a fallback |
+| `JEV_MODEL` | Overrides the Jev model id for whichever provider is selected |
+| `SYMPHONY_BROWSER_TEXT_MODEL` | Default for `--text-model`. Must be `grok:<model>`; needs `XAI_API_KEY` (`XAI_BASE_URL` is honoured) |
+
+No Jev key: `--policy auto` runs the offline fixture policy and says so on
+stderr. The Chromium sandbox is on by default; `--no-sandbox` turns it off for
+root or container runs only.
+
+Goals must not contain credentials. The goal is emitted in `run_started`,
+sent to Jev in every request, and written to `--trace`. Fields the page marks
+secret (`type=password` or a credential `autocomplete`) never leave the
+browser: the snapshot carries `***` when filled and `""` when empty. Fields
+caught only by their name (password / PIN / OTP / card) do leave the browser
+in the snapshot, but are masked to `***` before anything is sent to Jev.
+Text typed into either kind is stored as `***` in events and the result.
+
 ## Catalog generation (maintainers)
 
 These only affect `core_ai/scripts/generate_models.py` and the opt-in build

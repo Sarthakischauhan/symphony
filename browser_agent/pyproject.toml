@@ -1,0 +1,37 @@
+[project]
+name = "symphony-browser"
+version = "0.1.0"
+description = "Symphony browser-use agent: Jev chooses each action, a text model writes only when typing (import as browser_agent; run as symphony-browser)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Sarthak Chauhan", email = "sarthakchauhann@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "symphony-core",
+    "symphony-harness",
+    "httpx>=0.28.1",
+    "playwright>=1.49.0",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Sarthakischauhan/symphony"
+Documentation = "https://github.com/Sarthakischauhan/symphony/blob/main/docs/packages/symphony-browser.md"
+Source = "https://github.com/Sarthakischauhan/symphony/tree/main/browser_agent"
+
+[project.scripts]
+symphony-browser = "browser_agent.cli:main"
+
+[tool.uv.sources]
+symphony-core = { workspace = true }
+symphony-harness = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "browser_agent"

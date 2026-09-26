@@ -7,7 +7,7 @@ license = "MIT"
 
 [tool.uv]
 package = false
-workspace = { members = ["coding_agent", "core_harness", "core_ai", "core_server"] }
+workspace = { members = ["coding_agent", "core_harness", "core_ai", "core_server", "browser_agent"] }
 
 [dependency-groups]
 dev = [

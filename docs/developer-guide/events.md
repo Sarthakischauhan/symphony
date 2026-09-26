@@ -117,6 +117,11 @@ to emit today): `run_phase`, `assistant_message_started`,
 `user_input_requested`, `user_input_received`, `run_progress`, `run_metrics`,
 `config_changed`, `jev_decision`, `child_progress`.
 
+`jev_decision` is emitted by the browser agent (`source: "browser"`) for each
+evaluation-model answer: `operation`, target indexes, `confidence`, and
+`goal_met`. The coding-agent critic may use the same event type for a finish
+check. Consumers should branch on `source` when both products are attached.
+
 ## Product events (not in the harness enum)
 
 Add-ons and products may emit their own events through the same plane. These

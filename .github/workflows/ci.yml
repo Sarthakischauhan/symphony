@@ -52,8 +52,17 @@ jobs:
         # tests run against the built packages rather than only src/ on sys.path.
         run: uv sync --locked --all-packages --dev
 
+      - name: Install Chromium for the browser agent
+        # The browser_agent end-to-end and snapshot tests drive a real page
+        # with the Chromium sandbox on. Ubuntu 24.04 blocks the unprivileged
+        # user namespaces that sandbox needs, so allow them on the runner
+        # rather than testing with --no-sandbox.
+        run: |
+          uv run --no-sync playwright install --with-deps chromium
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Run tests
-        run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests
+        run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests browser_agent/tests
 
   build:
     runs-on: ubuntu-latest

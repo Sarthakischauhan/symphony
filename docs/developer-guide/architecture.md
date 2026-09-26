@@ -14,6 +14,7 @@ stream, tagged with `parent_id` and `agent_id`.
 | Harness | `symphony-harness` | Turns, tools, control-plane events, compaction |
 | Harness | `symphony-core` | OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel AI Gateway; catalog; streaming types |
 | Agent | `symphony-code` | Workspace tools, JSONL sessions, Textual TUI |
+| Agent | `symphony-browser` | Browser-use agent. Jev chooses each action |
 | Server | `core-server` | FastAPI wrapper that streams those events over SSE |
 
 ```mermaid
