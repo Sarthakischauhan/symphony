@@ -8,7 +8,13 @@ from core_ai.content import split_text_and_images, text_from_content, to_openai_
 from core_ai.models import get_model
 from core_ai.oauth.openai_codex import is_codex_base_url
 from core_ai.providers.base import BaseProvider
-from core_ai.providers.http import is_retryable_http_status, iter_sse_json, stream_with_retries
+from core_ai.providers.http import (
+    apply_refreshed_credentials,
+    is_auth_failure,
+    is_retryable_http_status,
+    iter_sse_json,
+    stream_with_retries,
+)
 from core_ai.types import Message, StreamEvent
 
 load_dotenv(override=True)
@@ -42,11 +48,13 @@ class OpenAIProvider(BaseProvider):
         base_url: str = "https://api.openai.com/v1",
         transport: Optional[httpx.AsyncBaseTransport] = None,
         extra_headers: Optional[Dict[str, str]] = None,
+        credential_refresher: Optional[Any] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.transport = transport
         self.extra_headers = dict(extra_headers or {})
+        self.credential_refresher = credential_refresher
 
     async def stream(
         self,
@@ -63,10 +71,34 @@ class OpenAIProvider(BaseProvider):
             if self._uses_codex_responses() or not self._uses_chat_completions(model_name)
             else self._stream_chat
         )
-        async for event in stream_with_retries(
-            lambda: once(model_name, messages, tools, max_output_tokens, reasoning_effort)
-        ):
+        async def attempt() -> AsyncGenerator[StreamEvent, None]:
+            try:
+                async for event in once(
+                    model_name, messages, tools, max_output_tokens, reasoning_effort
+                ):
+                    yield event
+            except Exception as exc:
+                if not is_auth_failure(exc) or not self._refresh_credentials():
+                    raise
+                async for event in once(
+                    model_name, messages, tools, max_output_tokens, reasoning_effort
+                ):
+                    yield event
+
+        async for event in stream_with_retries(attempt):
             yield event
+
+    def _refresh_credentials(self) -> bool:
+        """Replace a rejected bearer token before the request is sent again."""
+        refresher = self.credential_refresher
+        if refresher is None:
+            return False
+        try:
+            refreshed = refresher(self)
+        except Exception:
+            return False
+        return apply_refreshed_credentials(self, refreshed)
+
 
     async def _stream_chat(
         self,

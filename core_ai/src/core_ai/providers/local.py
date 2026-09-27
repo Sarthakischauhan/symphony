@@ -7,7 +7,7 @@ localhost probe.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -30,11 +30,13 @@ class LocalProvider(OpenAIProvider):
         api_key: str = LOCAL_DUMMY_KEY,
         base_url: str = LOCAL_DEFAULT_BASE_URL,
         transport: Optional[httpx.AsyncBaseTransport] = None,
+        credential_refresher: Optional[Any] = None,
     ):
         super().__init__(
             api_key=api_key or LOCAL_DUMMY_KEY,
             base_url=local_chat_base_url(base_url) or LOCAL_DEFAULT_BASE_URL,
             transport=transport,
+            credential_refresher=credential_refresher,
         )
 
     @staticmethod

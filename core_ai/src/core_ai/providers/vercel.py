@@ -56,12 +56,14 @@ class VercelProvider(OpenAIProvider):
         base_url: str = VERCEL_DEFAULT_BASE_URL,
         transport: Optional[httpx.AsyncBaseTransport] = None,
         extra_headers: Optional[dict[str, str]] = None,
+        credential_refresher: Optional[Any] = None,
     ):
         super().__init__(
             api_key=api_key,
             base_url=vercel_chat_base_url(base_url) or VERCEL_DEFAULT_BASE_URL,
             transport=transport,
             extra_headers=extra_headers,
+            credential_refresher=credential_refresher,
         )
 
     async def stream(

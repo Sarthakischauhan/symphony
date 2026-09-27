@@ -1,7 +1,7 @@
 """Subscription OAuth for OpenAI Codex, Anthropic, and xAI."""
 
 from core_ai.oauth.login import LoginFlow, start_login
-from core_ai.oauth.runtime import OAuthRuntime, oauth_runtime_for
+from core_ai.oauth.runtime import OAuthRuntime, oauth_runtime_for, refresh_oauth_credentials
 from core_ai.oauth.store import (
     delete_token,
     load_token,
@@ -22,6 +22,7 @@ __all__ = [
     "load_token",
     "load_valid_token",
     "oauth_runtime_for",
+    "refresh_oauth_credentials",
     "save_token",
     "start_login",
     "supports_oauth",

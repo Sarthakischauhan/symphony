@@ -4,7 +4,7 @@ import os
 from typing import Optional
 
 from core_ai.models import ModelInfo, list_models, register_model, unregister_model
-from core_ai.oauth import oauth_runtime_for
+from core_ai.oauth import oauth_runtime_for, refresh_oauth_credentials
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.catalog import (
     PROVIDERS,
@@ -143,6 +143,7 @@ def build_default_registry(
         kwargs: dict = {"api_key": api_key, "base_url": base_url}
         if oauth is not None:
             kwargs["extra_headers"] = oauth.extra_headers
+            kwargs["credential_refresher"] = _oauth_refresher(spec.id)
             if spec.id == "anthropic":
                 kwargs["use_bearer"] = True
         registry.register(
@@ -175,6 +176,13 @@ def default_model_id(registry: ModelRegistry, model_id: Optional[str] = None) ->
             return runtime[0].full_id
         return full_id
     raise RuntimeError("No model providers are registered")
+
+
+def _oauth_refresher(provider_id: str):
+    def refresh(_provider: object) -> dict | None:
+        return refresh_oauth_credentials(provider_id)
+
+    return refresh
 
 
 def _env_base_url(spec: ProviderSpec) -> str:

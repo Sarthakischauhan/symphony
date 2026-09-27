@@ -6,7 +6,12 @@ from dotenv import load_dotenv
 
 from core_ai.content import to_anthropic_blocks
 from core_ai.providers.base import BaseProvider
-from core_ai.providers.http import iter_sse_json, stream_with_retries
+from core_ai.providers.http import (
+    apply_refreshed_credentials,
+    is_auth_failure,
+    iter_sse_json,
+    stream_with_retries,
+)
 from core_ai.types import Message, StreamEvent
 
 load_dotenv(override=True)
@@ -26,6 +31,7 @@ class AnthropicProvider(BaseProvider):
         api_version: str = "2023-06-01",
         extra_headers: Optional[Dict[str, str]] = None,
         use_bearer: bool = False,
+        credential_refresher: Optional[Any] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -33,6 +39,7 @@ class AnthropicProvider(BaseProvider):
         self.api_version = api_version
         self.extra_headers = dict(extra_headers or {})
         self.use_bearer = use_bearer
+        self.credential_refresher = credential_refresher
 
     async def stream(
         self,
@@ -44,15 +51,39 @@ class AnthropicProvider(BaseProvider):
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         del reasoning_effort, extra_headers
-        async for event in stream_with_retries(
-            lambda: self._stream_once(
-                model_name,
-                messages,
-                tools,
-                max_output_tokens=max_output_tokens,
-            )
-        ):
+
+        async def attempt() -> AsyncGenerator[StreamEvent, None]:
+            try:
+                async for event in self._stream_once(
+                    model_name,
+                    messages,
+                    tools,
+                    max_output_tokens=max_output_tokens,
+                ):
+                    yield event
+            except Exception as exc:
+                if not is_auth_failure(exc) or not self._refresh_credentials():
+                    raise
+                async for event in self._stream_once(
+                    model_name,
+                    messages,
+                    tools,
+                    max_output_tokens=max_output_tokens,
+                ):
+                    yield event
+
+        async for event in stream_with_retries(attempt):
             yield event
+
+    def _refresh_credentials(self) -> bool:
+        refresher = self.credential_refresher
+        if refresher is None:
+            return False
+        try:
+            refreshed = refresher(self)
+        except Exception:
+            return False
+        return apply_refreshed_credentials(self, refreshed)
 
     async def _stream_once(
         self,

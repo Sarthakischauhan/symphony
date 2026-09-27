@@ -30,11 +30,13 @@ class OllamaProvider(OpenAIProvider):
         api_key: str = OLLAMA_DUMMY_KEY,
         base_url: str = OLLAMA_DEFAULT_BASE_URL,
         transport: Optional[httpx.AsyncBaseTransport] = None,
+        credential_refresher: Optional[Any] = None,
     ):
         super().__init__(
             api_key=api_key or OLLAMA_DUMMY_KEY,
             base_url=ollama_chat_base_url(base_url),
             transport=transport,
+            credential_refresher=credential_refresher,
         )
 
     @staticmethod

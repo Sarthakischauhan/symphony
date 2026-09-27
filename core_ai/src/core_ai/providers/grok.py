@@ -16,12 +16,14 @@ class GrokProvider(OpenAIProvider):
         base_url: str = "https://api.x.ai/v1",
         transport: Optional[httpx.AsyncBaseTransport] = None,
         extra_headers: Optional[dict[str, str]] = None,
+        credential_refresher: Optional[Any] = None,
     ):
         super().__init__(
             api_key=api_key,
             base_url=base_url,
             transport=transport,
             extra_headers=extra_headers,
+            credential_refresher=credential_refresher,
         )
 
     async def stream(

@@ -381,11 +381,12 @@ def test_load_valid_token_drops_expired_without_refresh() -> None:
 
 
 def test_build_default_registry_uses_grok_cli_proxy() -> None:
-    save_token("grok", OAuthToken(access_token="tok"))
+    save_token("grok", OAuthToken(access_token="tok", refresh_token="refresh"))
     registry = build_default_registry()
     provider = registry._providers["grok"]
     assert isinstance(provider, GrokProvider)
     assert provider.api_key == "tok"
+    assert provider.credential_refresher is not None
     assert provider.base_url == CLI_CHAT_PROXY_BASE_URL
     headers = provider.extra_headers
     assert headers["X-XAI-Token-Auth"] == TOKEN_AUTH_VALUE

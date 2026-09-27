@@ -2,10 +2,84 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
 from core_ai.models import ModelInfo, register_model, unregister_model
 from core_ai.providers.grok import GrokProvider
 from core_ai.types import Message, StreamEvent
+
+
+def test_grok_refreshes_rejected_oauth_bearer_once() -> None:
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        token = request.headers["authorization"].removeprefix("Bearer ")
+        calls.append(token)
+        if token == "stale":
+            return httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "message": (
+                            "Invalid or expired credentials (auth_kind=bearer, "
+                            "x_xai_token_auth=xai-grok-cli, upstream=PermissionDenied, "
+                            "reason=no auth context)"
+                        )
+                    }
+                },
+            )
+        body = "\n\n".join(
+            (
+                'data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}',
+                "data: [DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    def refresh(_provider: object) -> dict[str, str]:
+        return {"api_key": "fresh"}
+
+    async def collect() -> list[StreamEvent]:
+        provider = GrokProvider(
+            api_key="stale",
+            transport=httpx.MockTransport(handler),
+            credential_refresher=refresh,
+        )
+        return [
+            event
+            async for event in provider.stream(
+                "grok-4.6", [Message(role="user", content="Hi")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert calls == ["stale", "fresh"]
+    assert events[0].delta == "ok"
+
+
+def test_grok_does_not_retry_auth_failure_without_a_new_token() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            403,
+            json={"error": {"message": "Invalid or expired credentials (reason=no auth context)"}},
+        )
+
+    async def collect() -> None:
+        provider = GrokProvider(
+            api_key="stale",
+            transport=httpx.MockTransport(handler),
+            credential_refresher=lambda _provider: {"api_key": "stale"},
+        )
+        async for _event in provider.stream("grok-4.6", [Message(role="user", content="Hi")]):
+            pass
+
+    with pytest.raises(RuntimeError, match="no auth context"):
+        asyncio.run(collect())
+    assert calls == 1
 
 
 def test_grok_uses_chat_completions_stream() -> None:
