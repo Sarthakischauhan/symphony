@@ -45,7 +45,7 @@ def test_dashboard_lists_agents_and_closes(monkeypatch) -> None:
             rendered = app.screen.query_one("#agent-dashboard").get_option_at_index(0).prompt.plain
             assert "symphony" in rendered
             assert "openai:test" in rendered
-            assert "4321" in rendered
+            assert "cpu" in rendered and "ram" in rendered and "disk" in rendered
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, AgentDashboard)

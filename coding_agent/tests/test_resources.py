@@ -14,8 +14,8 @@ from coding_agent.resources.usage import (
 
 def test_usage_line_formats_known_and_unknown() -> None:
     usage = AgentUsage(pid=1, alive=True, cpu_percent=12.4, rss_bytes=48 * 1024 * 1024, disk_bytes=1200)
-    assert usage.line() == "cpu    12%   ram  48.0 MB   disk   1.2 KB"
-    assert AgentUsage(pid=1, alive=False).line() == "cpu    n/a   ram      n/a   disk      n/a"
+    assert usage.line() == "cpu  12%  ram  48.0 MB  disk   1.2 KB"
+    assert AgentUsage(pid=1, alive=False).line() == "cpu  n/a  ram      n/a  disk      n/a"
 
 
 def test_cpu_percent_needs_two_samples() -> None:

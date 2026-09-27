@@ -73,11 +73,10 @@ class AgentDashboard(ModalBase[None]):
         self._samples[record.pid] = _Sample(cpu_seconds, sampled_at)
         color = _KIND_COLOR.get(record.kind, "#a2adb8")
         label = record.label.strip() or _workspace_name(record.workspace) or record.session_id[:8]
-        content = Text(f"{record.kind:6} ", style=color)
-        content.append(_clip(label, 48))
-        content.append(f"  {record.model_id or 'model unset'}", style="#737373")
-        content.append(f"\n  {usage.line()}", style="#a2adb8")
-        content.append(f"   pid {record.pid}   {record.session_id[:8]}", style="#555555")
+        content = Text(f"{record.kind:4} ", style=color)
+        content.append(f"{_clip(label, 24):<24} ")
+        content.append(f"{_clip(record.model_id or 'model unset', 24):<24}", style="#737373")
+        content.append(f"  {usage.line()}", style="#a2adb8")
         return content
 
 

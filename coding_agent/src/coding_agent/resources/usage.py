@@ -26,10 +26,10 @@ class AgentUsage:
     disk_bytes: int | None = None
 
     def line(self) -> str:
-        """Single-row summary: ``cpu  12%   ram  48 MB   disk  1.2 MB``."""
+        """Single-row summary: ``cpu 12%  ram 48.0 MB  disk 1.2 KB``."""
         return (
-            f"cpu {_percent(self.cpu_percent):>6}   "
-            f"ram {_bytes(self.rss_bytes):>8}   "
+            f"cpu {_percent(self.cpu_percent):>4}  "
+            f"ram {_bytes(self.rss_bytes):>8}  "
             f"disk {_bytes(self.disk_bytes):>8}"
         )
 
