@@ -7,15 +7,15 @@
   lists closed conversations. `/dashboard` opens a subagent-style list of
   those live agents with CPU, memory, and disk, sampled per OS.
 - `symphony-browser` (workspace package `browser_agent`): a browser-use agent
-  whose policy is Jev, the evaluation model, not a chat model. Each step is
-  one `POST /v4/ai/evaluation-model` call (`typesafe-ai/jev` on Vercel AI
-  Gateway, or TypeSafe / OpenRouter when that key is the one configured).
-  The call chooses the operation and, speculatively, the element. Code
-  executes only the matching target and emits `jev_decision` on the control
-  plane. A chat model (Grok when `XAI_API_KEY` is set) writes a string only
-  when the operation is `TYPE_TEXT` and the goal did not already supply one.
-  `symphony-browser demo` drives a local catalog page. Without a Jev key the
-  demo says so and falls back to an offline fixture policy.
+  whose loop is `CoreHarness.run`. The goal is the user message. The chat
+  model calls `observe_page`, `click`, `type_text`, `press_enter`,
+  `select_option`, `scroll_down`, `scroll_up`, and `wait`; its final message,
+  with no tool call, is `output_text`. Jev is not the policy: an evaluation
+  model cannot emit a tool call. `--max-steps` is the harness turn cap.
+  `symphony-browser "query"` starts from a DuckDuckGo HTML search
+  (`https://html.duckduckgo.com/html/`), not Google, whose bot interstitial
+  blocks a fresh Playwright Chromium. The command uses the configured chat
+  provider and exits when none is configured.
 - Headless `symphony bench` CLI plus `symphony-bench:latest` Docker image and
   a thin Harbor adapter (`bench.agent:SymphonyAgent`). Writes `workspace.patch`
   and `result.json`; Harbor's grader owns pass/fail.

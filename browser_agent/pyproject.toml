@@ -1,7 +1,7 @@
 [project]
 name = "symphony-browser"
 version = "0.1.0"
-description = "Symphony browser-use agent: Jev chooses each action, a text model writes only when typing (import as browser_agent; run as symphony-browser)"
+description = "Symphony browser-use agent: the core harness loop drives the page (import as browser_agent; run as symphony-browser)"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "symphony-core",
     "symphony-harness",
+    "dotenv>=0.9.9",
     "httpx>=0.28.1",
     "playwright>=1.49.0",
     "pydantic>=2.0.0",

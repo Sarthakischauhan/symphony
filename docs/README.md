@@ -25,12 +25,12 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [symphony-core](./packages/symphony-core.md) | Providers, catalog, streaming types |
 | [symphony-harness](./packages/symphony-harness.md) | Loop, tools, events, limits, subagents |
 | [symphony-code](./packages/symphony-code.md) | Workspace agent and TUI |
-| [symphony-browser](./packages/symphony-browser.md) | Browser-use agent driven by Jev |
+| [symphony-browser](./packages/symphony-browser.md) | Browser-use agent on the core harness loop |
 | [core-server](./packages/core-server.md) | FastAPI + SSE |
 | [TUI](./user-guide/tui.md) | Composer, modes, keybindings, images |
 | [Configuration](./user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
 | [Langfuse](./user-guide/langfuse.md) | Optional traces of sent prompts and tools |
-| [Jev](./user-guide/jev.md) | Finish check on `symphony-code`, and the browser agent's policy |
+| [Jev](./user-guide/jev.md) | Finish check on `symphony-code` |
 | [Tools](./user-guide/tools.md) | Workspace tool surface |
 | [Learning](./user-guide/learning.md) | Post-run reflection |
 | [Sessions](./user-guide/sessions.md) | JSONL resume |

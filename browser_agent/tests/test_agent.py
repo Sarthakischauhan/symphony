@@ -1,145 +1,160 @@
-"""The loop executes Jev answers and stamps control-plane events."""
+"""The harness loop calls browser tools and its last message is the answer."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import re
+from typing import Any
 
-from fakes import AnswerJev, MemorySession, ScriptedJev, StaticTextWriter
+from core_ai.providers.base import BaseProvider
+from core_ai.registry import ModelRegistry
+from core_ai.types import Message, StreamEvent
+from fakes import MemorySession
 
 from browser_agent.agent import BrowserAgent
-from browser_agent.fixture_policy import FixturePolicy
-from browser_agent.jev_policy import JevPolicy
 from browser_agent.models import Element, Observation
 
 GOAL = "Search for travel and report the price of The Alps Guide."
-TYPE_ONE = {
-    "operation": {"type": "choice", "choice": "TYPE_TEXT", "confidence": 0.9},
-    "type_target": {"type": "choice", "choice": "1"},
-    "goal_met": {"type": "boolean", "probability": 0.0},
-}
 
 
-def _jev(client) -> JevPolicy:
-    return JevPolicy(client, model="typesafe-ai/jev", provider="vercel")
+class ScriptedChat(BaseProvider):
+    """Plays the catalog task as tool calls, then answers from the page."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream(self, model_name: str, messages: list[Message], tools: list[dict[str, Any]] = [], **kwargs: Any):
+        del model_name, tools, kwargs
+        self.calls += 1
+        last = messages[-1]
+        text = last.content if isinstance(last.content, str) else ""
+        if "$18" in text:
+            yield StreamEvent(type="text_delta", delta="The Alps Guide costs $18.")
+            yield StreamEvent(type="done")
+            return
+        if "travel" in text and "Search books" in text:
+            async for event in _emit_call("c-click", "click", {"index": 2}):
+                yield event
+            return
+        async for event in _emit_call("c-type", "type_text", {"index": 1, "text": "travel"}):
+            yield event
+
+
+class ScrollChat(BaseProvider):
+    """Never stops calling a tool, so the harness hits its turn cap."""
+
+    async def stream(self, model_name: str, messages: list[Message], tools: list[dict[str, Any]] = [], **kwargs: Any):
+        del model_name, messages, tools, kwargs
+        async for event in _emit_call("c-scroll", "scroll_down", {}):
+            yield event
+
+
+class BrokenChat(BaseProvider):
+    async def stream(self, model_name: str, messages: list[Message], tools: list[dict[str, Any]] = [], **kwargs: Any):
+        del model_name, messages, tools, kwargs
+        raise RuntimeError("gateway down")
+        yield StreamEvent(type="done")
+
+
+class EmptyChat(BaseProvider):
+    async def stream(self, model_name: str, messages: list[Message], tools: list[dict[str, Any]] = [], **kwargs: Any):
+        del model_name, messages, tools, kwargs
+        yield StreamEvent(type="done")
+
+
+async def _emit_call(call_id: str, name: str, args: dict[str, Any]):
+    """The harness reads the name from toolcall_start and the JSON from toolcall_delta."""
+    yield StreamEvent(type="toolcall_start", tool_call_id=call_id, tool_name=name)
+    yield StreamEvent(type="toolcall_delta", tool_call_id=call_id, delta=json.dumps(args))
+    yield StreamEvent(type="done")
+
+
+def _agent(provider: BaseProvider, **kwargs: Any) -> BrowserAgent:
+    registry = ModelRegistry()
+    registry.register("fake", provider)
+    return BrowserAgent(registry=registry, model_id="fake:chat", **kwargs)
 
 
 def _kinds(agent: BrowserAgent) -> list[str]:
     return [event.event_type for event in agent.sink.events]
 
 
-def test_jev_policy_drives_the_catalog() -> None:
-    client = ScriptedJev()
-    agent = BrowserAgent(_jev(client), max_steps=6)
+def test_harness_drives_the_catalog_and_answers() -> None:
+    agent = _agent(ScriptedChat(), max_steps=6)
     result = asyncio.run(agent.run(GOAL, MemorySession()))
     assert result.status == "done"
-    assert (result.provider, result.model) == ("vercel", "typesafe-ai/jev")
-    assert "$18" in result.output_text
-    assert [step.operation for step in result.steps] == ["TYPE_TEXT", "CLICK", "DONE"]
-    assert result.steps[0].type_value == "travel"
+    assert (result.provider, result.model) == ("fake", "chat")
+    assert result.output_text == "The Alps Guide costs $18."
     kinds = _kinds(agent)
-    assert (kinds[0], kinds[-1]) == ("run_started", "run_completed")
-    decisions = [event.payload for event in agent.sink.events if event.event_type == "jev_decision"]
-    assert [item["operation"] for item in decisions] == ["TYPE_TEXT", "CLICK", "DONE"]
-    assert decisions[0]["run_id"] and decisions[0]["agent_id"] == "browser"
-    assert decisions[0]["source"] == "browser"
-    assert client.states[0]["goal"].startswith("Search for travel")
+    assert kinds[0] == "run_started"
+    assert "run_completed" in kinds
+    assert "tool_execution_started" in kinds
+    started = next(event for event in agent.sink.events if event.event_type == "run_started")
+    assert started.payload["agent_id"] == "browser"
+    assert "type_text" in started.payload["tool_names"]
 
 
-def test_fixture_policy_reaches_the_same_page() -> None:
-    result = asyncio.run(BrowserAgent(FixturePolicy(), max_steps=6).run(GOAL, MemorySession()))
-    assert (result.status, result.provider) == ("done", "fixture")
-    assert "$18" in result.output_text
-
-
-def test_text_writer_is_used_only_when_jev_does_not_supply_a_string() -> None:
-    writer = StaticTextWriter("travel")
-    session = MemorySession()
-    agent = BrowserAgent(_jev(AnswerJev(TYPE_ONE)), max_steps=1, text_writer=writer)
-    result = asyncio.run(agent.run("Find a book.", session))
-    assert session.query == "travel"
-    assert (result.steps[0].operation, result.steps[0].type_value) == ("TYPE_TEXT", "travel")
-    literal = AnswerJev(TYPE_ONE | {"type_value": {"type": "choice", "choice": "alps"}})
-    asyncio.run(BrowserAgent(_jev(literal), max_steps=1, text_writer=writer).run("Find alps.", MemorySession()))
-    assert writer.calls == 1
-
-
-class PasswordPage:
-    """A login field the page marked secret, with a generic placeholder."""
-
-    def __init__(self) -> None:
-        self.typed = ""
-
-    async def observe(self) -> Observation:
-        field = Element(index=1, role="input", name="Enter code", value=self.typed, kind="type", secret=True)
-        return Observation(url="https://example.test/login", title="Login", text="Login", elements=[field])
-
-    async def act(self, decision) -> None:
-        self.typed = decision.type_value
-
-
-def test_secret_values_stay_off_events_and_steps() -> None:
-    client = AnswerJev(TYPE_ONE | {"type_value": {"type": "choice", "choice": "s3cret"}})
-    page = PasswordPage()
-    agent = BrowserAgent(_jev(client), max_steps=3)
-    result = asyncio.run(agent.run('Type "s3cret" into the field.', page))
-    assert page.typed == "s3cret"
-    decision = next(event for event in agent.sink.events if event.event_type == "jev_decision")
-    assert decision.payload["type_value"] == "***"
-    assert result.steps[0].type_value == "***"
-    assert "s3cret" not in result.steps[0].note
-    history = [item for state in client.states for item in state["history"]]
-    assert len(history) == 3
-    assert all(set(item) == {"step", "operation", "target", "url", "value"} for item in history)
-    assert not re.search(r"\b[0-9a-f]{16}\b", json.dumps(history))
-    assert all(element["value"] in {"", "***"} for state in client.states for element in state["elements"])
-
-
-def test_step_limit_is_limited_with_run_limit_exceeded() -> None:
-    scroll = {"operation": {"type": "choice", "choice": "SCROLL_DOWN", "confidence": 0.9}}
-    agent = BrowserAgent(_jev(AnswerJev(scroll)), max_steps=2)
+def test_turn_cap_is_limited() -> None:
+    agent = _agent(ScrollChat(), max_steps=2)
     result = asyncio.run(agent.run(GOAL, MemorySession()))
     assert result.status == "limited"
-    assert _kinds(agent)[-1] == "run_limit_exceeded"
+    assert "max_turns" in result.message
 
 
-def test_exception_is_error_with_run_failed() -> None:
-    class Broken:
-        async def complete(self, state: dict, questions: dict) -> dict:
-            raise RuntimeError("gateway down")
-
-    agent = BrowserAgent(_jev(Broken()), max_steps=2)
+def test_model_failure_is_error() -> None:
+    agent = _agent(BrokenChat(), max_steps=2)
     result = asyncio.run(agent.run(GOAL, MemorySession()))
-    assert (result.status, result.message) == ("error", "gateway down")
-    failed = agent.sink.events[-1]
-    assert failed.event_type == "run_failed"
-    assert failed.payload["error_type"] == "RuntimeError"
+    assert result.status == "error"
+    assert "gateway down" in result.message
 
 
-def test_repeated_writer_text_is_blocked_not_limited() -> None:
-    agent = BrowserAgent(_jev(AnswerJev(TYPE_ONE)), max_steps=6, text_writer=StaticTextWriter("travel"))
+def test_no_answer_is_blocked() -> None:
+    agent = _agent(EmptyChat(), max_steps=2)
+    result = asyncio.run(agent.run(GOAL, MemorySession()))
+    assert result.status == "blocked"
+    assert result.output_text == ""
 
-    class StuckPage(MemorySession):
+
+def test_missing_model_is_error_without_a_run() -> None:
+    agent = BrowserAgent(registry=ModelRegistry(), model_id="", max_steps=2)
+    result = asyncio.run(agent.run(GOAL, MemorySession()))
+    assert result.status == "error"
+    assert agent.sink.events == []
+
+
+def test_secret_values_are_not_typed_back_to_the_model() -> None:
+    class PasswordPage:
+        def __init__(self) -> None:
+            self.typed = ""
+
+        async def observe(self) -> Observation:
+            field = Element(index=1, role="input", name="Enter code", value=self.typed, kind="type", secret=True)
+            return Observation(url="https://example.test/login", title="Login", text="Login", elements=[field])
+
         async def act(self, decision) -> None:
-            del decision
+            self.typed = decision.type_value
 
-    result = asyncio.run(agent.run("Find a book.", StuckPage()))
-    assert result.status == "blocked"
-    assert [step.operation for step in result.steps] == ["TYPE_TEXT", "TYPE_TEXT", "BLOCKED"]
-    assert "three times" in result.message
+    class Typist(BaseProvider):
+        async def stream(self, model_name, messages, tools=None, **kwargs):
+            del model_name, tools, kwargs
+            last = messages[-1].content if isinstance(messages[-1].content, str) else ""
+            if "s3cret" in last and "Elements:" in last:
+                raise AssertionError("secret value was shown to the model")
+            if messages[-1].role == "tool":
+                yield StreamEvent(type="text_delta", delta="Typed.")
+                yield StreamEvent(type="done")
+                return
+            async for event in _emit_call("c-type", "type_text", {"index": 1, "text": "s3cret"}):
+                yield event
 
-
-def test_missing_target_is_blocked_not_success() -> None:
-    click = {"operation": {"type": "choice", "choice": "CLICK", "confidence": 0.9}}
-    agent = BrowserAgent(_jev(AnswerJev(click)), max_steps=3)
-    result = asyncio.run(agent.run(GOAL, MemorySession()))
-    assert result.status == "blocked"
-    assert "tool_execution_started" not in _kinds(agent)
+    page = PasswordPage()
+    result = asyncio.run(_agent(Typist()).run("Type the code.", page))
+    assert page.typed == "s3cret"
+    assert result.output_text == "Typed."
 
 
 def test_reused_agent_gets_a_new_run_id() -> None:
-    agent = BrowserAgent(FixturePolicy(), max_steps=6)
+    agent = _agent(ScriptedChat(), max_steps=6)
     asyncio.run(agent.run(GOAL, MemorySession()))
     asyncio.run(agent.run(GOAL, MemorySession()))
     starts = [event.payload for event in agent.sink.events if event.event_type == "run_started"]

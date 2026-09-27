@@ -1,7 +1,8 @@
 # Jev
 
-Jev is TypeSafe's evaluation model. Symphony uses it in two places, and they
-do not share a loop.
+Jev is TypeSafe's evaluation model. Symphony uses it as an optional finish
+check on `symphony-code`. It does not drive the browser agent: that agent is
+a core harness loop, and an evaluation model returns a choice, not a tool call.
 
 ## Finish check (`symphony-code`)
 
@@ -37,9 +38,5 @@ uses `typesafe-ai/jev` through Vercel AI Gateway
 `POST /v4/ai/evaluation-model` with `AI_GATEWAY_API_KEY` or
 `VERCEL_AI_GATEWAY_API_KEY`.
 
-## Browser agent (`symphony-browser`)
-
-The browser-use agent uses that same evaluation endpoint as the primary
-policy. Jev picks the next operation and the element index. A chat model is
-called only to write text for `TYPE_TEXT`. See
+The browser agent does not call Jev. See
 [symphony-browser](../packages/symphony-browser.md).
