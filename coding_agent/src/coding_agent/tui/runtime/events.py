@@ -625,7 +625,16 @@ class EventPresenter:
 
     def _on_compaction_started(self, payload: Dict[str, Any]) -> None:
         self.state.detail = "compacting context"
-        self.view.add_notice("Compacting conversation context…")
+        # The started event only knows the before-count. Keep the same toast
+        # wording while representing the in-progress state rather than claiming
+        # compaction has already completed.
+        before = payload.get("message_count", "?")
+        text = f"Compacted context · {before} → … messages"
+        add_update = getattr(self.view, "add_update", None)
+        if callable(add_update):
+            add_update(text)
+        else:
+            self.view.add_notice(text, "success")
 
     def _on_compaction_completed(self, payload: Dict[str, Any]) -> None:
         self.state.update_after_compaction(payload)
