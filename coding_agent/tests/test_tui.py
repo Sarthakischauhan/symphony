@@ -3077,7 +3077,9 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
             app._agent = FakeAgent(app.sink)  # type: ignore[assignment]
             app.set_context_metrics(90_000, 120_000)
             assert "75% context" in _footer_text(app)
-
+            app._presenter._on_compaction_started({"message_count": 40})
+            overlay = app.query_one("#composer-overlay", ComposerOverlay)
+            assert "Compacted context · 40 → … messages" in overlay.title
             await app._run_slash_command("/compact")
             await pilot.pause()
 

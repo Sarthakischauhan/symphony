@@ -11,6 +11,52 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 
+def test_codex_responses_emits_complete_function_call_arguments() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/responses")
+        body = "\n\n".join(
+            f"data: {event}"
+            for event in (
+                '{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_item_1","type":"function_call","call_id":"call_1","name":"search","arguments":""}}',
+                '{"type":"response.function_call_arguments.delta","item_id":"fc_item_1","output_index":1,"delta":"{\\\"query\\\":"}',
+                '{"type":"response.function_call_arguments.delta","item_id":"fc_item_1","output_index":1,"delta":"\\\"needle\\\"}"}',
+                '{"type":"response.function_call_arguments.done","item_id":"fc_item_1","output_index":1,"arguments":"{\\\"query\\\":\\\"needle\\\"}"}',
+                '{"type":"response.output_item.done","output_index":1,"item":{"id":"fc_item_1","type":"function_call","call_id":"call_1","name":"search","arguments":"{\\\"query\\\":\\\"needle\\\"}"}}',
+                '{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":7,"total_tokens":17}}}',
+                "[DONE]",
+            )
+        )
+        return httpx.Response(200, text=body)
+
+    async def collect() -> list[StreamEvent]:
+        provider = OpenAIProvider(
+            api_key="test",
+            base_url="https://chatgpt.com/backend-api/codex",
+            extra_headers={"ChatGPT-Account-Id": "acct"},
+            transport=httpx.MockTransport(handler),
+        )
+        return [
+            event
+            async for event in provider.stream(
+                "gpt-5.6-luna",
+                [Message(role="user", content="Search needle")],
+                tools=[{"name": "search", "parameters": {"type": "object"}}],
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert [(event.type, event.tool_call_id, event.tool_name) for event in events if event.type == "toolcall_start"] == [
+        ("toolcall_start", "call_1", "search")
+    ]
+    assert [event.delta for event in events if event.type == "toolcall_delta"] == [
+        '{"query":', '"needle"}'
+    ]
+    assert [event.delta for event in events if event.type == "toolcall_arguments"] == [
+        '{"query":"needle"}', '{"query":"needle"}'
+    ]
+    assert events[-1].type == "done"
+
+
 def test_gpt_5_6_uses_responses_reasoning_stream() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/responses"

@@ -90,6 +90,49 @@ def _http_status(exc: BaseException) -> Optional[int]:
     return None
 
 
+def apply_refreshed_credentials(provider: Any, refreshed: Any) -> bool:
+    """Install a replacement bearer token on a provider. Same token is a no-op."""
+    if not isinstance(refreshed, dict):
+        return False
+    api_key = str(refreshed.get("api_key") or "")
+    current = str(getattr(provider, "api_key", "") or "")
+    if not api_key or api_key == current:
+        return False
+    provider.api_key = api_key
+    headers = refreshed.get("extra_headers")
+    if isinstance(headers, dict):
+        provider.extra_headers = {str(key): str(value) for key, value in headers.items()}
+    base_url = refreshed.get("base_url")
+    if isinstance(base_url, str) and base_url.strip() and hasattr(provider, "base_url"):
+        provider.base_url = base_url.rstrip("/")
+    return True
+
+
+def is_auth_failure(exc: BaseException) -> bool:
+    """True when a provider rejected the bearer or API credential itself.
+
+    Transport retries must not treat this as a transient outage. Callers that
+    can refresh OAuth credentials use it to renew once and send the request again.
+    """
+    for item in _exception_chain(exc):
+        status = _http_status(item)
+        if status in {401, 403}:
+            return True
+        message = str(item).lower()
+        if any(
+            marker in message
+            for marker in (
+                "invalid or expired credentials",
+                "invalid api key",
+                "invalid token",
+                "token expired",
+                "no auth context",
+            )
+        ):
+            return True
+    return False
+
+
 def is_retryable(exc: BaseException) -> bool:
     """429, SSL MAC, transport, 5xx, and other hard stream failures can be retried."""
     if is_ssl_mac_error(exc):
@@ -100,6 +143,8 @@ def is_retryable(exc: BaseException) -> bool:
         return True
     if isinstance(exc, httpx.TransportError):
         return True
+    if is_auth_failure(exc):
+        return False
     status = _http_status(exc)
     if status is None:
         return False

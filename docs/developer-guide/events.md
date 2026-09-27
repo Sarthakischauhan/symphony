@@ -117,10 +117,9 @@ to emit today): `run_phase`, `assistant_message_started`,
 `user_input_requested`, `user_input_received`, `run_progress`, `run_metrics`,
 `config_changed`, `jev_decision`, `child_progress`.
 
-`jev_decision` is emitted by the browser agent (`source: "browser"`) for each
-evaluation-model answer: `operation`, target indexes, `confidence`, and
-`goal_met`. The coding-agent critic may use the same event type for a finish
-check. Consumers should branch on `source` when both products are attached.
+The coding-agent critic may emit `jev_decision` for a finish check. The
+browser agent does not: it drives the page through harness tool calls, so its
+events are the ordinary `tool_execution_*` events.
 
 ## Product events (not in the harness enum)
 

@@ -1106,6 +1106,7 @@ name = "symphony-browser"
 version = "0.1.0"
 source = { editable = "browser_agent" }
 dependencies = [
+    { name = "dotenv" },
     { name = "httpx" },
     { name = "playwright" },
     { name = "pydantic" },
@@ -1115,6 +1116,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "playwright", specifier = ">=1.49.0" },
     { name = "pydantic", specifier = ">=2.0.0" },

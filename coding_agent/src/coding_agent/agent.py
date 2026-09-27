@@ -24,7 +24,6 @@ from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
 from coding_agent.approvals import ApprovalAddon
-from coding_agent.credentials import renew_oauth_credentials
 from coding_agent.compaction import ai_compaction_from_config
 from coding_agent.config import (
     CompactionConfig,
@@ -280,7 +279,7 @@ class CodingAgent:
         conversation: Optional[List[Message]] = None,
         session_id: Optional[str] = None,
     ) -> HarnessResult:
-        """Run the agent, renewing an OAuth token once after an auth failure."""
+        """Run the agent. Rejected OAuth tokens are refreshed inside the provider."""
         mode = self.mode
         task_text = text_from_content(user_input)
         self.apply_system_prompt()
@@ -294,22 +293,11 @@ class CodingAgent:
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
-        try:
-            result = await self.harness.run(
-                user_input,
-                conversation=conversation,
-                session_id=session_id or self.session_id,
-            )
-        except Exception as exc:
-            registry = renew_oauth_credentials(self.harness.model_id, exc)
-            if registry is None:
-                raise
-            self.harness.registry = registry
-            result = await self.harness.run(
-                user_input,
-                conversation=conversation,
-                session_id=session_id or self.session_id,
-            )
+        result = await self.harness.run(
+            user_input,
+            conversation=conversation,
+            session_id=session_id or self.session_id,
+        )
         follow_up = self._jev_follow_up()
         if follow_up:
             result = await self.harness.run(

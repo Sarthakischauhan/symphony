@@ -165,10 +165,10 @@ and `~` paths are allowed:
   `TYPESAFE_API_KEY` (`jev-latest` on `https://api.typesafe.ai/v1/systemone`),
   `OPENROUTER_API_KEY` (`~typesafe/jev-latest`). A forced provider without
   its key, or an unknown `SYMPHONY_JEV_PROVIDER`, is an error.
-- `symphony-browser demo` serves a local catalog and drives Chromium.
-  `symphony-browser run --url --goal` is the same loop on an http(s) page.
-  No Jev key: the command says so and uses `FixturePolicy` (not an evaluation
-  model). Tests mock the evaluation response and do not call a live API.
+- `symphony-browser "what to do"` starts at a web search for that query and drives Chromium.
+  Add `--url` to start on a specific http(s) page.
+  No chat provider: the command exits with a setup error. Tests mock the model
+  and do not call a live API.
 - Playwright is a package dependency. The Chromium binary is not downloaded
   by `uv sync`; install it with `uv run --package symphony-browser playwright
   install chromium`. CI's test job installs it (`playwright install

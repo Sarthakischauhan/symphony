@@ -1,8 +1,8 @@
 """Page sessions. The agent talks to this surface, not to Playwright directly.
 
-``PlaywrightSession`` stamps ``data-jev-id`` on the live DOM and acts on those
-nodes. Secret fields (``type=password`` or a credential ``autocomplete``) are
-marked in the page, and only ``***`` (filled) or "" (empty) leaves it.
+``PlaywrightSession`` stamps ``data-browser-id`` on the live DOM and acts on
+those nodes. Secret fields (``type=password`` or a credential ``autocomplete``)
+are marked in the page, and only ``***`` (filled) or "" (empty) leaves it.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Protocol
 
 from browser_agent.models import Decision, Element, Observation
-from browser_agent.validate_url import require_http_url
+from browser_agent.urls import require_http_url
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, Page, Playwright
@@ -21,7 +21,7 @@ MAX_OPTIONS = 12
 
 _SNAPSHOT_JS = r"""
 ([maxElements, maxOptions, maxText]) => {
-  document.querySelectorAll("[data-jev-id]").forEach((node) => node.removeAttribute("data-jev-id"));
+  document.querySelectorAll("[data-browser-id]").forEach((node) => node.removeAttribute("data-browser-id"));
   const selector = [
     "a", "button", "input", "textarea", "select", "summary",
     "[role='button']", "[role='link']", "[role='textbox']",
@@ -58,7 +58,7 @@ _SNAPSHOT_JS = r"""
     const autocomplete = (el.getAttribute("autocomplete") || "").toLowerCase();
     const secret = type === "password" || /current-password|new-password|one-time-code|cc-/.test(autocomplete);
     const index = out.length + 1;
-    el.setAttribute("data-jev-id", String(index));
+    el.setAttribute("data-browser-id", String(index));
     const role = el.getAttribute("role") || tag;
     const item = { index, role, name: nameOf(el, secret), value: "", kind: "click", options: [], secret };
     if (editable) {
@@ -79,13 +79,13 @@ _SNAPSHOT_JS = r"""
 
 
 class PageSession(Protocol):
-    """One open page: observe it, then act on it with a gated Decision."""
+    """One open page: observe it, then act on it."""
 
     async def observe(self) -> Observation:
-        """Snapshot the page for one step."""
+        """Snapshot the page."""
 
     async def act(self, decision: Decision) -> None:
-        """Run one gated decision on the page."""
+        """Run one decision on the page."""
 
 
 def observation_from_payload(payload: dict[str, Any]) -> Observation:
@@ -99,7 +99,7 @@ def observation_from_payload(payload: dict[str, Any]) -> Observation:
 
 
 class PlaywrightSession:
-    """A live Chromium page addressed through ``data-jev-id`` attributes."""
+    """A live Chromium page addressed through ``data-browser-id`` attributes."""
 
     def __init__(self, page: Page) -> None:
         self.page = page
@@ -113,7 +113,7 @@ class PlaywrightSession:
 
     async def act(self, decision: Decision) -> None:
         """Run the decision's operation on its target; ``type_value`` is the text to type."""
-        target = self.page.locator(f'[data-jev-id="{decision.target_index()}"]')
+        target = self.page.locator(f'[data-browser-id="{decision.target_index()}"]')
         if decision.operation == "CLICK":
             await target.click(timeout=5000)
         elif decision.operation == "TYPE_TEXT":

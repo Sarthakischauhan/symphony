@@ -11,6 +11,7 @@ import pytest
 from core_ai.providers.http import (
     HARD_ERROR_MAX_RETRIES,
     RetryableStreamError,
+    is_auth_failure,
     is_retryable,
     is_ssl_mac_error,
     retry_reason_for,
@@ -45,6 +46,14 @@ def test_classifies_429_ssl_mac_and_hard_errors() -> None:
     assert is_retryable(httpx.ConnectError("connection reset"))
     assert not is_retryable(_status_error(400))
     assert not is_retryable(RuntimeError("invalid_request_error"))
+    auth = RuntimeError(
+        "Invalid or expired credentials (auth_kind=bearer, "
+        "x_xai_token_auth=xai-grok-cli, upstream=PermissionDenied, reason=no auth context)"
+    )
+    assert is_auth_failure(auth)
+    assert not is_retryable(auth)
+    assert is_auth_failure(_status_error(401))
+    assert not is_retryable(_status_error(403))
 
 
 def test_stream_retries_429_using_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:

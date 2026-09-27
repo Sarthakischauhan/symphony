@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -40,6 +40,7 @@ class OpenRouterProvider(OpenAIProvider):
         base_url: str = OPENROUTER_DEFAULT_BASE_URL,
         transport: Optional[httpx.AsyncBaseTransport] = None,
         extra_headers: Optional[dict[str, str]] = None,
+        credential_refresher: Optional[Any] = None,
     ):
         headers = _attribution_headers()
         headers.update(extra_headers or {})
@@ -48,6 +49,7 @@ class OpenRouterProvider(OpenAIProvider):
             base_url=openrouter_chat_base_url(base_url) or OPENROUTER_DEFAULT_BASE_URL,
             transport=transport,
             extra_headers=headers,
+            credential_refresher=credential_refresher,
         )
 
     @staticmethod
