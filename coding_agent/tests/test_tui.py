@@ -2278,6 +2278,41 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
     asyncio.run(_run())
 
 
+@pytest.mark.parametrize("content", ["Literal [/] tag", "[bold]literal[/bold] [/missing]"])
+def test_reasoning_and_queued_prompt_render_markup_literally(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            app._presenter.handle("run_started", {"model_id": "openai:gpt-5.6-luna"})
+            app._presenter.handle(
+                "reasoning_delta",
+                {"turn": 0, "summary_index": 0, "delta": content, "text": content},
+            )
+            app._presenter.flush_stream_paints()
+            app.queue_turn((content, content, (), ()))
+            await pilot.pause()
+
+            thought = app.query_one(ReasoningWidget)
+            assert str(thought.query_one(".reasoning-text").render()) == content
+            assert str(app.query_one("#queued-prompt-text", Static).render()) == content
+
+            updated = content + " another [/]"
+            thought.set_content(updated)
+            await pilot.pause()
+            assert str(thought.query_one(".reasoning-text").render()) == updated
+            thought.complete()
+            await pilot.pause()
+            assert str(thought.query_one(".reasoning-text").render()) == updated
+
+    asyncio.run(_run())
+
+
 def test_reasoning_delta_paints_visible_thought_body(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

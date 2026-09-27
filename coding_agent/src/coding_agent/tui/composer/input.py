@@ -174,7 +174,7 @@ class QueuedPrompt(Container):
     """Follow-up prompt controls shown on one line inside the composer."""
 
     def compose(self):  # type: ignore[no-untyped-def]
-        yield Static("", id="queued-prompt-text")
+        yield Static("", id="queued-prompt-text", markup=False)
         yield Button("Send now", id="queued-send-now", variant="default")
         yield Button("Edit", id="queued-edit", variant="default")
 
