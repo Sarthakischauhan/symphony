@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Sessions a live Symphony process still owns are recorded under
+  `~/.symphony/active` and left out of `symphony --resume`. The picker only
+  lists closed conversations. `/dashboard` opens a subagent-style list of
+  those live agents with CPU, memory, and disk, sampled per OS.
 - `symphony-browser` (workspace package `browser_agent`): a browser-use agent
   whose policy is Jev, the evaluation model, not a chat model. Each step is
   one `POST /v4/ai/evaluation-model` call (`typesafe-ai/jev` on Vercel AI

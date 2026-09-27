@@ -13,6 +13,7 @@ from textual.containers import Container
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
+from coding_agent.persistence.active import active_session_ids
 from coding_agent.tui.theme import RESUME_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.transcript import clip_text
 from core_ai.content import text_from_content
@@ -42,10 +43,22 @@ def _relative_time(value: str) -> str:
     return f"{seconds // 86_400}d ago"
 
 
-async def load_session_options(persistence: Any) -> list[SessionOption]:
-    """Build display rows through the existing persistence interface."""
+async def load_session_options(
+    persistence: Any,
+    *,
+    closed_only: bool = True,
+) -> list[SessionOption]:
+    """Build display rows through the existing persistence interface.
+
+    Active sessions are owned by a live Symphony process and listed under
+    ``~/.symphony/active``. The resume picker hides them so a conversation is
+    not opened twice. Pass ``closed_only=False`` to include them.
+    """
+    open_ids = active_session_ids() if closed_only else set()
     options: list[SessionOption] = []
     for session in await persistence.list_sessions():
+        if session.session_id in open_ids:
+            continue
         # JsonlPersistence computes these cheap row fields while scanning each
         # file. Avoid reparsing every transcript when opening the picker.
         if getattr(session, "message_count", 0) or getattr(session, "first_message", ""):

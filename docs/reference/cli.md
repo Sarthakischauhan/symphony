@@ -13,7 +13,7 @@ uv run --package symphony-code symphony [options]
 | --- | --- | --- |
 | `--workspace PATH` | current directory | Working directory: relative paths, bash cwd, `.symphony` |
 | `--model ID` | `SYMPHONY_MODEL` or first available provider | `provider:model` id |
-| `--resume` | off | Pick a saved session interactively |
+| `--resume` | off | Pick a saved session interactively. Sessions still owned by a live Symphony process (`~/.symphony/active`) are hidden |
 | `--resume --continue` | off | No picker: if the most recent session's last checkpoint is still `running` (the process was killed), continue it headless and unattended with one note naming the interruption time, stopped orphaned background jobs, and the original goal. Otherwise prints that there is nothing to continue. |
 | `--unattended` | off | No human in the loop: auto-approve (`approvals.deny` still applies, also to children), auto-answer `ask_user`, no plan mode. Not a sandbox. |
 | `--no-learning` | learning on | Disable post-run reflection |
