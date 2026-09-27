@@ -25,6 +25,7 @@ class StreamEvent(BaseModel):
         "reasoning_delta",
         "toolcall_start",
         "toolcall_delta",
+        "toolcall_arguments",
         "retry",
         "usage",
         "done",

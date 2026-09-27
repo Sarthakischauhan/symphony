@@ -220,6 +220,7 @@ class OpenAIProvider(BaseProvider):
 
         tool_indexes: Dict[str, int] = {}
         tool_ids: Dict[str, str] = {}
+        tool_names: Dict[str, str] = {}
         async with httpx.AsyncClient(transport=self.transport) as client:
             async with client.stream(
                 "POST", f"{self.base_url}/responses", json=payload,
@@ -247,6 +248,7 @@ class OpenAIProvider(BaseProvider):
                             index = int(data.get("output_index", 0))
                             tool_indexes[item_id] = index
                             tool_ids[item_id] = str(item.get("call_id") or item_id)
+                            tool_names[item_id] = str(item.get("name") or "")
                             yield StreamEvent(
                                 type="toolcall_start",
                                 content_index=index,
@@ -261,6 +263,43 @@ class OpenAIProvider(BaseProvider):
                             tool_call_id=tool_ids.get(item_id),
                             delta=data.get("delta", ""),
                         )
+                    elif event_type == "response.function_call_arguments.done":
+                        # The done event carries the authoritative complete JSON.
+                        # Some gateways omit or truncate delta events, so use it
+                        # when available as a replacement, not an appended fragment.
+                        item_id = str(data.get("item_id") or "")
+                        arguments = data.get("arguments")
+                        if isinstance(arguments, str):
+                            yield StreamEvent(
+                                type="toolcall_arguments",
+                                content_index=tool_indexes.get(item_id, int(data.get("output_index", 0))),
+                                tool_call_id=tool_ids.get(item_id),
+                                delta=arguments,
+                            )
+                    elif event_type == "response.output_item.done":
+                        item = data.get("item") or {}
+                        if item.get("type") == "function_call":
+                            item_id = str(item.get("id") or "")
+                            if item_id not in tool_indexes:
+                                index = int(data.get("output_index", 0))
+                                tool_indexes[item_id] = index
+                                tool_ids[item_id] = str(item.get("call_id") or item_id)
+                                tool_names[item_id] = str(item.get("name") or "")
+                                yield StreamEvent(
+                                    type="toolcall_start", content_index=index,
+                                    tool_call_id=tool_ids[item_id], tool_name=tool_names[item_id],
+                                )
+                            arguments = item.get("arguments")
+                            if isinstance(arguments, str):
+                                yield StreamEvent(
+                                    type="toolcall_arguments",
+                                    content_index=tool_indexes[item_id],
+                                    tool_call_id=tool_ids[item_id], delta=arguments,
+                                )
+                    elif event_type in {"response.failed", "error"}:
+                        error = data.get("error") or (data.get("response") or {}).get("error") or {}
+                        message = error.get("message") if isinstance(error, dict) else str(error)
+                        raise RuntimeError(str(message or "OpenAI Responses stream failed"))
                     elif event_type == "response.completed":
                         usage = (data.get("response") or {}).get("usage") or {}
                         details = usage.get("output_tokens_details") or {}

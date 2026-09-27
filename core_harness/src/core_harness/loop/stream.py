@@ -123,6 +123,24 @@ async def dispatch_stream_event(
                 "delta": event.delta,
             },
         )
+    elif event.type == "toolcall_arguments" and event.delta is not None:
+        pending = streamed.pending_calls.setdefault(
+            event.content_index,
+            PendingToolCall(
+                id=event.tool_call_id or f"toolcall-{turn}-{event.content_index}"
+            ),
+        )
+        if event.tool_call_id and pending.id.startswith("toolcall-"):
+            pending.id = event.tool_call_id
+        pending.arguments_json = event.delta
+        await emit(
+            "tool_call_arguments",
+            {
+                "turn": turn,
+                "tool_call_id": pending.id,
+                "arguments": event.delta,
+            },
+        )
     elif event.type == "retry":
         if event.retry_resets_stream:
             streamed.assistant_text = ""
