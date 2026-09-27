@@ -71,9 +71,7 @@ def docker_argv(
 ) -> list[str]:
     cfg = load_config()
     image = image or str(cfg.get("image") or IMAGE_DEFAULT)
-    model = symphony_model(model) or symphony_model(
-        str(cfg["model"]) if cfg.get("model") else None
-    )
+    model = symphony_model(model) or symphony_model(str(cfg["model"]) if cfg.get("model") else None)
     if max_turns is None and cfg.get("max_turns") is not None:
         max_turns = int(cfg["max_turns"])
     if timeout is None and cfg.get("timeout_sec") is not None:
