@@ -88,7 +88,27 @@ class TopBar(Static):
         self._model = ""
         self._label = ""
         self._auth = ""
+        self._workspace: Optional[Path] = None
+        self._branch_timer = None
         super().__init__(*args, **kwargs)
+
+    def on_mount(self) -> None:
+        """Poll Git's HEAD so checkouts made outside the TUI appear promptly."""
+        self._branch_timer = self.set_interval(0.5, self._refresh_branch)
+
+    def on_unmount(self) -> None:
+        if self._branch_timer is not None:
+            self._branch_timer.stop()
+            self._branch_timer = None
+
+    def _refresh_branch(self) -> None:
+        if self._workspace is None:
+            return
+        branch = read_git_branch(self._workspace)
+        if branch == self._branch:
+            return
+        self._branch = branch
+        self.update(self._render_row(max(self.content_size.width, 1)))
 
     def set_context(
         self,
@@ -98,6 +118,7 @@ class TopBar(Static):
         label: str = "",
         auth: str = "",
     ) -> None:
+        self._workspace = workspace
         branch = read_git_branch(workspace)
         model = model or ""
         if not auth and model:
