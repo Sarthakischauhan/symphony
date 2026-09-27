@@ -131,10 +131,19 @@ class Welcome(Static):
         ])
         if not isinstance(art, list) or not all(isinstance(line, str) for line in art):
             art = []
-        lines = [
-            *(Text(line, style=SYMPHONY_COLORS["accent"]) for line in art),
-            Text(str(workspace), style=SYMPHONY_COLORS["muted_dim"]),
-        ]
+        rainbow = ("#ff5f5f", "#ffaf5f", "#ffff5f", "#5fff5f", "#5fffff", "#5fafff", "#af5fff")
+        logo_width = max((len(line) for line in art), default=1)
+        lines = []
+        for line in art:
+            colored_line = Text()
+            for index, character in enumerate(line):
+                if character != " ":
+                    color_index = round(index * (len(rainbow) - 1) / max(logo_width - 1, 1))
+                    colored_line.append(character, style=rainbow[color_index])
+                else:
+                    colored_line.append(character)
+            lines.append(colored_line)
+        lines.append(Text(str(workspace), style=SYMPHONY_COLORS["muted_dim"]))
         body = Align.center(Group(*lines), vertical="middle")
         super().__init__(body, classes="welcome")
 
