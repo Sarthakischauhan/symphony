@@ -124,6 +124,7 @@ SLASH_COMMANDS = (
     SlashCommand("reload", "Reload configuration from .env"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),
+    SlashCommand("dashboard", "Show live agents and their CPU, memory, and disk"),
     SlashCommand("context", "Inspect active model context"),
     SlashCommand("learning", "Open markdown-rendered agent learnings"),
     SlashCommand("installed", "View installed skills and plugins"),

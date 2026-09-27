@@ -15,6 +15,7 @@ from textual.widgets import Static
 from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
+from coding_agent.persistence.active import register_active, release_active
 from coding_agent.plan import PlanStore
 from coding_agent.tui.chrome import ComposerOverlay, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
@@ -62,6 +63,7 @@ class CodingAgentApp(
 
     BINDINGS = [
         Binding("ctrl+g", "subagents", "Subagents", show=False),
+        Binding("ctrl+b", "dashboard", "Agents", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear", show=False),
@@ -86,6 +88,7 @@ class CodingAgentApp(
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
+        self._resumed = session_id is not None
         self.enable_learning = enable_learning
         self.enable_jev = enable_jev
         self.jev_rule = ""
@@ -198,9 +201,11 @@ class CodingAgentApp(
         )
         self._ui_state.phase = "idle"
         self._ui_state.detail = "ready"
+        self.session_id = self._agent.session_id
+        self._register_active_session()
         topbar.set_context(self.workspace, self._ui_state.model_id)
         self._presenter.refresh_chrome()
-        if self.session_id:
+        if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
 
@@ -249,7 +254,24 @@ class CodingAgentApp(
             self._agent.learning_loop.cancel()
         self.exit()
 
+    def action_dashboard(self) -> None:
+        from coding_agent.tui.screens.dashboard import AgentDashboard
+
+        self.push_screen(AgentDashboard())
+
+    def _register_active_session(self) -> None:
+        agent = self._agent
+        if agent is None or not agent.session_id:
+            return
+        register_active(
+            agent.session_id,
+            workspace=self.workspace,
+            kind="tui",
+            model_id=getattr(agent.harness, "model_id", "") or "",
+        )
+
     async def on_unmount(self) -> None:
+        release_active()
         harness = getattr(self._agent, "harness", None)
         shutdown_children = getattr(harness, "shutdown_children", None)
         if callable(shutdown_children):

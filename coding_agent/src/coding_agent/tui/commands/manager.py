@@ -407,6 +407,9 @@ def start_new_session(app: Any) -> None:
     app.session_id = session_id
     agent.session_id = session_id
     agent.harness.session_id = session_id
+    register = getattr(app, "_register_active_session", None)
+    if callable(register):
+        register()
     app._ui_state.reset_for_run(model_id=agent.harness.model_id)
     app._ui_state.phase = "idle"
     app._ui_state.detail = "ready"
@@ -506,6 +509,8 @@ class CommandManager:
             app.add_notice("Slash commands\n" + "\n".join(lines))
         elif command == "status":
             show_status(app)
+        elif command == "dashboard":
+            app.action_dashboard()
         elif command == "context":
             await show_context(app)
         elif command == "learning":

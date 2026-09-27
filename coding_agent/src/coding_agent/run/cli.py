@@ -13,7 +13,7 @@ from core_ai import has_configured_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
-from coding_agent.persistence import JsonlPersistence, sessions_dir
+from coding_agent.persistence import JsonlPersistence, register_active, release_active, sessions_dir
 from coding_agent.run.detach import detach
 from coding_agent.run.interrupted import interrupted_session, resume_note, stop_orphaned_jobs
 from coding_agent.run.log_sink import LogLineSink
@@ -49,6 +49,13 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
         config=ensure_spawn_settings(workspace, overrides={"unattended": True}),
     )
     print(f"session {agent.session_id}", flush=True)
+    register_active(
+        agent.session_id,
+        workspace=workspace,
+        kind="run",
+        model_id=getattr(agent.harness, "model_id", "") or (model or ""),
+        label=task,
+    )
 
     async def _run() -> str:
         result = await agent.run(task)
@@ -60,6 +67,8 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
     except Exception as exc:
         print(f"run failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         return 1
+    finally:
+        release_active()
     return 0
 
 

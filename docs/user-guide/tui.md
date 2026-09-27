@@ -111,6 +111,15 @@ it waits for remaining children and lets the parent incorporate their results
 before completing the run. No extra model tool calls are needed to wait or poll.
 Passing `background: false` to `spawn_agent` explicitly waits for completion.
 
+`/dashboard` opens the same kind of list for every live Symphony process
+(this TUI and headless `symphony run` jobs). Each row shows CPU, RAM, and
+the workspace's disk use. The resume picker hides those sessions until the
+process exits and removes its `~/.symphony/active` record.
+
+<div align="center">
+  <img src="../dashboard.png" alt="Live agent dashboard" height="280">
+</div>
+
 Press **Ctrl+G** to browse running and finished children, then **Enter** to
 inspect one. Child entries remain clickable after tool compaction. The child
 screen uses the parent's thought titles, tool widgets, 10-tool/final-completion

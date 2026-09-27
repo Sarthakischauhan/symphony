@@ -377,7 +377,7 @@ class ReasoningWidget(Collapsible):
     def __init__(self, content: str = "") -> None:
         self._summary_heading: str | None = None
         self._content_without_heading = content
-        self._body = SelectableStatic(classes="reasoning-text")
+        self._body = SelectableStatic(classes="reasoning-text", markup=False)
         self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
         self._label = Static("Thinking…", classes="reasoning-label", markup=False)
         self._status = Static("", classes="reasoning-status", markup=False)

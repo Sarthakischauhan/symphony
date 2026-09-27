@@ -18,6 +18,7 @@ menu.
 | `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |
 | `/compact` | Summarize older turns with the model; keep system prompt, original task, and recent turns |
 | `/status` | Session, model, and context details |
+| `/dashboard` | Live Symphony agents with CPU, memory, and disk. Same layout as the Ctrl+G subagent list |
 | `/context` | Stored vs sent tokens by role |
 | `/learning` | Markdown-rendered lessons |
 | `/diff` | Current workspace diff in a modal |
