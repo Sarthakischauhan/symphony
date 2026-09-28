@@ -114,3 +114,5 @@ frame. Reply with `{"type":"answer","request_id":"...","value":"..."}`;
 `{"type":"interrupt"}` cancels the active turn. Use the returned session ID
 on the next process to resume the conversation. Standard output is reserved
 for protocol frames; diagnostics go to standard error.
+`symphony stdio --models` prints one `models` frame for providers configured
+on that machine, with Symphony's current default listed first.

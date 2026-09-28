@@ -124,9 +124,36 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--model")
     parser.add_argument("--session-id")
+    parser.add_argument("--models", action="store_true", help="List models available to this Symphony installation")
     args = parser.parse_args(argv)
     # Libraries may print diagnostics; stdout belongs exclusively to JSONL.
     sys.stdout = sys.stderr
+    if args.models:
+        from core_ai import build_default_registry, default_model_id
+
+        load_provider_env(Path(args.workspace).expanduser().resolve())
+        try:
+            registry = build_default_registry()
+            models = [
+                {
+                    "id": info.full_id,
+                    "label": info.id,
+                    "description": info.provider,
+                    "reasoning_levels": [level for level, _ in info.thinking_level_map if level != "off"],
+                }
+                for info in registry.models()
+                if info.provider in registry.namespaces()
+            ]
+            default = default_model_id(registry)
+            selected = next((item for item in models if item["id"] == default), None)
+            if selected is None:
+                selected = {"id": default, "label": default.split(":", 1)[-1], "description": "Symphony default", "reasoning_levels": []}
+            models = [selected, *[item for item in models if item["id"] != default]]
+            write_frame({"type": "models", "models": models, "default": default})
+        except Exception as exc:
+            write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+            return 1
+        return 0
     return asyncio.run(serve(Path(args.workspace).expanduser().resolve(), args.model, args.session_id))
 
 
