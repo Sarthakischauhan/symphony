@@ -103,3 +103,14 @@ uv run pytest
 uv run --package core-server pytest
 uv run python scripts/generate_models.py   # from core_ai/
 ```
+## symphony stdio
+
+`symphony stdio --workspace /path/to/project [--session-id ID] [--model PROVIDER:MODEL]`
+starts an interactive, one-turn-at-a-time JSONL agent process. A manager sends
+`{"type":"run","prompt":"..."}` on stdin. Symphony sends a `ready` frame
+with its persisted session ID, `event` frames with its control-plane events,
+`input_requested` frames for approvals and questions, and a terminal `done`
+frame. Reply with `{"type":"answer","request_id":"...","value":"..."}`;
+`{"type":"interrupt"}` cancels the active turn. Use the returned session ID
+on the next process to resume the conversation. Standard output is reserved
+for protocol frames; diagnostics go to standard error.

@@ -73,6 +73,10 @@ def main() -> None:
         from coding_agent.run.cli import main as run_main
 
         raise SystemExit(run_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "stdio":
+        from coding_agent.run.stdio import main as stdio_main
+
+        raise SystemExit(stdio_main(sys.argv[2:]))
     parser = build_parser()
     args = parser.parse_args()
     workspace = Path(args.workspace or ".").resolve()
