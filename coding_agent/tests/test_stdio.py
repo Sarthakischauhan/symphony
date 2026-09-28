@@ -42,3 +42,13 @@ def test_frame_is_one_json_line(monkeypatch):
     stdio.write_frame({"type": "ready", "session_id": "abc"})
     assert json.loads("".join(output)) == {"type": "ready", "session_id": "abc"}
     assert "".join(output).endswith("\n")
+
+
+def test_staged_image_is_inlined(tmp_path):
+    image = tmp_path / "image.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nexample")
+    parts = stdio.user_content("Look at this", [str(image)])
+    assert parts[0] == {"type": "text", "text": "Look at this"}
+    assert parts[1]["type"] == "image"
+    assert parts[1]["media_type"] == "image/png"
+    assert parts[1]["filename"] == "image.png"

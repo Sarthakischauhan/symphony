@@ -116,3 +116,5 @@ on the next process to resume the conversation. Standard output is reserved
 for protocol frames; diagnostics go to standard error.
 `symphony stdio --models` prints one `models` frame for providers configured
 on that machine, with Symphony's current default listed first.
+The `run` command can include `"attachments":["/absolute/image.png"]`; the
+transport embeds up to eight images in the user message.

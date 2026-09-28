@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
+from core_ai.content import image_part_from_bytes, sniff_image_media_type
 from core_harness import EventSink
 from core_harness.events import normalize_event_type
 from core_harness.models import ControlPlaneEventType
@@ -25,6 +26,25 @@ from coding_agent.credentials import load_provider_env
 def write_frame(frame: dict[str, Any]) -> None:
     sys.__stdout__.write(json.dumps(frame, default=str, ensure_ascii=False) + "\n")
     sys.__stdout__.flush()
+
+
+def user_content(prompt: str, attachments: Sequence[str]) -> str | list[dict[str, Any]]:
+    """Inline staged image bytes using the same canonical parts as the TUI."""
+    if not attachments:
+        return prompt
+    if len(attachments) > 8:
+        raise ValueError("at most eight images can be attached")
+    parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for raw in attachments:
+        path = Path(raw).expanduser().resolve(strict=True)
+        if not path.is_file() or path.stat().st_size > 20 * 1024 * 1024:
+            raise ValueError("attachment must be a regular image under 20 MiB")
+        payload = path.read_bytes()
+        media = sniff_image_media_type(payload, filename=path.name)
+        if media is None:
+            raise ValueError(f"unsupported image: {path.name}")
+        parts.append(image_part_from_bytes(payload, media_type=media, filename=path.name))
+    return parts
 
 
 class StdioSink(EventSink):
@@ -104,9 +124,9 @@ async def serve(workspace: Path, model: str | None, session_id: str | None) -> i
                 write_frame({"type": "error", "message": "prompt is required"})
                 continue
 
-            async def execute(task: str) -> None:
+            async def execute(task: str, attachments: Sequence[str]) -> None:
                 try:
-                    await agent.run(task)
+                    await agent.run(user_content(task, attachments))
                     write_frame({"type": "done", "status": "completed"})
                 except asyncio.CancelledError:
                     write_frame({"type": "done", "status": "interrupted"})
@@ -114,7 +134,11 @@ async def serve(workspace: Path, model: str | None, session_id: str | None) -> i
                     write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
                     write_frame({"type": "done", "status": "errored"})
 
-            run = asyncio.create_task(execute(prompt))
+            paths = command.get("attachments") or []
+            if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+                write_frame({"type": "error", "message": "attachments must be a list of paths"})
+                continue
+            run = asyncio.create_task(execute(prompt, paths))
         else:
             write_frame({"type": "error", "message": f"invalid command: {kind}"})
 
