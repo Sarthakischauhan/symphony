@@ -118,3 +118,5 @@ for protocol frames; diagnostics go to standard error.
 on that machine, with Symphony's current default listed first.
 The `run` command can include `"attachments":["/absolute/image.png"]`; the
 transport embeds up to eight images in the user message.
+`--unattended` applies Symphony's unattended policy: tool prompts are
+auto-approved subject to deny rules, and user questions are auto-answered.

@@ -20,6 +20,7 @@ from core_harness.events import normalize_event_type
 from core_harness.models import ControlPlaneEventType
 
 from coding_agent.agent import build_agent
+from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
 
 
@@ -84,11 +85,14 @@ class StdioSink(EventSink):
             self.pending.pop(request_id, None)
 
 
-async def serve(workspace: Path, model: str | None, session_id: str | None) -> int:
+async def serve(workspace: Path, model: str | None, session_id: str | None, *, unattended: bool = False) -> int:
     load_provider_env(workspace)
     sink = StdioSink()
     try:
-        agent = build_agent(workspace=workspace, model_id=model, session_id=session_id, sink=sink)
+        agent = build_agent(
+            workspace=workspace, model_id=model, session_id=session_id, sink=sink,
+            config=ensure_spawn_settings(workspace, overrides={"unattended": True}) if unattended else None,
+        )
     except Exception as exc:
         write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         return 1
@@ -149,6 +153,7 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--model")
     parser.add_argument("--session-id")
     parser.add_argument("--models", action="store_true", help="List models available to this Symphony installation")
+    parser.add_argument("--unattended", action="store_true", help="Auto-approve tools subject to Symphony deny rules")
     args = parser.parse_args(argv)
     # Libraries may print diagnostics; stdout belongs exclusively to JSONL.
     sys.stdout = sys.stderr
@@ -178,7 +183,10 @@ def main(argv: Sequence[str]) -> int:
             write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             return 1
         return 0
-    return asyncio.run(serve(Path(args.workspace).expanduser().resolve(), args.model, args.session_id))
+    return asyncio.run(serve(
+        Path(args.workspace).expanduser().resolve(), args.model, args.session_id,
+        unattended=args.unattended,
+    ))
 
 
 __all__ = ["StdioSink", "main", "serve"]
