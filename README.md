@@ -1,4 +1,4 @@
-# Symphony
+# <img src="docs/assets/symphony-mark.svg" alt="" width="36" height="36" align="center"> Symphony
 
 An agent harness, MIT licensed. Keep the loop product-agnostic, keep providers
 swappable, and drive every UI from a single control-plane event stream.
