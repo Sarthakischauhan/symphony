@@ -88,3 +88,57 @@ def test_model_list_request_includes_provider_and_context(monkeypatch):
         "id": "openai:gpt-test", "label": "gpt-test", "provider": "openai",
         "description": "openai", "context_limit": 128000, "reasoning_levels": [],
     }]
+
+
+def test_command_catalog_is_the_tui_catalog(monkeypatch):
+    from coding_agent.tui.commands.catalog import SLASH_COMMANDS
+
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+        session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
+        '{"type":"command/list","request_id":"commands-1"}\n'
+    ))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    assert frames[1]["request_id"] == "commands-1"
+    assert {item["name"] for item in frames[1]["commands"]} == {
+        item.name for item in SLASH_COMMANDS
+    }
+
+
+def test_slash_command_does_not_call_the_model(monkeypatch):
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+        session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
+        run=lambda *_args: (_ for _ in ()).throw(AssertionError("model was called")),
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
+        '{"type":"run","prompt":"/help"}\n'
+    ))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    assert any(frame.get("event") == "text_delta" and "/model" in frame["payload"]["delta"] for frame in frames)
+
+
+def test_mode_command_survives_a_new_stdio_process(monkeypatch, tmp_path):
+    from coding_agent.protocols import commands
+
+    monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path)
+
+    class Agent:
+        session_id = "0876c78a-9f47-4bd5-a495-a8e912c3757c"
+        mode = "build"
+        harness = SimpleNamespace(reasoning_effort=None)
+
+        def set_mode(self, mode):
+            self.mode = mode
+
+    first = Agent()
+    assert asyncio.run(commands.execute(first, "/mode plan")) == "Switched to plan mode."
+    second = Agent()
+    commands.load_state(second)
+    assert second.mode == "plan"

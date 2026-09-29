@@ -22,9 +22,10 @@ from core_harness.models import ControlPlaneEventType
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
+from coding_agent.protocols.commands import catalog as command_catalog, execute as execute_command, load_state
 
 PROTOCOL_VERSION = 2
-CAPABILITIES = ["runs", "resume", "interrupt", "input", "models", "images", "subagents"]
+CAPABILITIES = ["runs", "resume", "interrupt", "input", "models", "images", "subagents", "commands"]
 
 
 def write_frame(frame: dict[str, Any]) -> None:
@@ -127,6 +128,7 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
             workspace=workspace, model_id=model, session_id=session_id, sink=sink,
             config=ensure_spawn_settings(workspace, overrides={"unattended": True}) if unattended else None,
         )
+        load_state(agent)
     except Exception as exc:
         write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         return 1
@@ -160,6 +162,13 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
             except Exception as exc:
                 write_frame({"type": "error", "request_id": request_id,
                              "message": f"{type(exc).__name__}: {exc}"})
+        elif kind == "command/list":
+            request_id = command.get("request_id")
+            if not isinstance(request_id, str) or not request_id:
+                write_frame({"type": "error", "message": "command/list requires request_id"})
+                continue
+            write_frame({"type": "commands", "request_id": request_id,
+                         "commands": command_catalog(), "protocol_version": PROTOCOL_VERSION})
         elif kind == "answer":
             pending = sink.pending.get(command.get("request_id"))
             if pending and not pending.done():
@@ -175,7 +184,12 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
 
             async def execute(task: str, attachments: Sequence[str]) -> None:
                 try:
-                    await agent.run(user_content(task, attachments))
+                    name = task[1:].split(None, 1)[0].lower() if task.startswith("/") else ""
+                    if name in {item["name"] for item in command_catalog()} and not attachments:
+                        result = await execute_command(agent, task)
+                        write_frame({"type": "event", "event": "text_delta", "payload": {"delta": result}})
+                    else:
+                        await agent.run(user_content(task, attachments))
                     write_frame({"type": "done", "status": "completed"})
                 except asyncio.CancelledError:
                     write_frame({"type": "done", "status": "interrupted"})
