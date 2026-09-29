@@ -74,7 +74,7 @@ def main() -> None:
 
         raise SystemExit(run_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "stdio":
-        from coding_agent.run.stdio import main as stdio_main
+        from coding_agent.protocols.stdio import main as stdio_main
 
         raise SystemExit(stdio_main(sys.argv[2:]))
     parser = build_parser()

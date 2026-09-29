@@ -120,3 +120,8 @@ The `run` command can include `"attachments":["/absolute/image.png"]`; the
 transport embeds up to eight images in the user message.
 `--unattended` applies Symphony's unattended policy: tool prompts are
 auto-approved subject to deny rules, and user questions are auto-answered.
+
+The `ready` frame declares `protocol_version: 1` and capabilities. Hosts
+must check the version before sending a prompt. This transport owns one active
+turn at a time; hosts may queue later prompts and start them after `done`.
+The transport implementation lives in `coding_agent/protocols/`.

@@ -3,7 +3,7 @@
 import asyncio
 import json
 
-from coding_agent.run import stdio
+from coding_agent.protocols import stdio
 
 
 def test_interactive_input_is_correlated(monkeypatch):
