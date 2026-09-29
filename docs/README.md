@@ -1,4 +1,4 @@
-# Symphony documentation
+# <img src="assets/symphony-mark.svg" alt="" width="32" height="32" align="center"> Symphony documentation
 
 Symphony is an MIT-licensed agent harness. These pages are the user-facing docs
 for every package in the workspace.
