@@ -3,6 +3,7 @@
 import asyncio
 import json
 
+from core_ai import ModelInfo
 from coding_agent.protocols import stdio
 
 
@@ -52,3 +53,25 @@ def test_staged_image_is_inlined(tmp_path):
     assert parts[1]["type"] == "image"
     assert parts[1]["media_type"] == "image/png"
     assert parts[1]["filename"] == "image.png"
+
+
+def test_model_catalog_includes_provider_and_context(monkeypatch):
+    import core_ai
+
+    class Registry:
+        def namespaces(self):
+            return ("openai",)
+
+        def models(self):
+            return [ModelInfo(id="gpt-test", provider="openai", api="responses", context_limit=128000)]
+
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+    monkeypatch.setattr(core_ai, "build_default_registry", Registry)
+    monkeypatch.setattr(core_ai, "default_model_id", lambda _registry: "openai:gpt-test")
+    assert stdio.main(["--models"]) == 0
+    assert frames[0]["models"] == [{
+        "id": "openai:gpt-test", "label": "gpt-test", "provider": "openai",
+        "description": "openai", "context_limit": 128000, "reasoning_levels": [],
+    }]

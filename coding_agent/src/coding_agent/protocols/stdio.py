@@ -171,7 +171,9 @@ def main(argv: Sequence[str]) -> int:
                 {
                     "id": info.full_id,
                     "label": info.id,
+                    "provider": info.provider,
                     "description": info.provider,
+                    "context_limit": info.context_limit,
                     "reasoning_levels": [level for level, _ in info.thinking_level_map if level != "off"],
                 }
                 for info in registry.models()
@@ -180,7 +182,9 @@ def main(argv: Sequence[str]) -> int:
             default = default_model_id(registry)
             selected = next((item for item in models if item["id"] == default), None)
             if selected is None:
-                selected = {"id": default, "label": default.split(":", 1)[-1], "description": "Symphony default", "reasoning_levels": []}
+                selected = {"id": default, "label": default.split(":", 1)[-1],
+                            "provider": default.split(":", 1)[0], "description": "Symphony default",
+                            "context_limit": None, "reasoning_levels": []}
             models = [selected, *[item for item in models if item["id"] != default]]
             write_frame({"type": "models", "models": models, "default": default,
                          "protocol_version": PROTOCOL_VERSION})
