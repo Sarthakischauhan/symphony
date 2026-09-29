@@ -24,7 +24,7 @@ from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
 
 PROTOCOL_VERSION = 1
-CAPABILITIES = ["runs", "resume", "interrupt", "input", "models", "images"]
+CAPABILITIES = ["runs", "resume", "interrupt", "input", "models", "images", "subagents"]
 
 
 def write_frame(frame: dict[str, Any]) -> None:

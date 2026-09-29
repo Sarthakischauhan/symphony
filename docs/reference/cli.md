@@ -125,3 +125,7 @@ The `ready` frame declares `protocol_version: 1` and capabilities. Hosts
 must check the version before sending a prompt. This transport owns one active
 turn at a time; hosts may queue later prompts and start them after `done`.
 The transport implementation lives in `coding_agent/protocols/`.
+Subagent lifecycle and child activity are regular `event` frames. Match an
+`agent_spawned` frame's `tool_call_id` to the spawning tool, route later events
+whose `agent_id` matches its `child_id`, and settle on `agent_completed` or
+`agent_failed`.
