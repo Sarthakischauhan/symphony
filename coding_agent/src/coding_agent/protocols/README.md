@@ -4,14 +4,17 @@
 hosts. The coding agent owns execution and persisted checkpoints. A host owns
 its composer queue and submits a single prompt per active turn.
 
-Protocol version 1 advertises `runs`, `resume`, `interrupt`, `input`, `models`,
+Protocol version 2 advertises `runs`, `resume`, `interrupt`, `input`, `models`,
 `images`, and `subagents` in its `ready` frame. A host sends `run`, `answer`, or `interrupt`
-commands and reads `event`, `input_requested`, `error`, and `done` frames.
+commands, or `model/list` with a `request_id`, and reads `event`, `input_requested`,
+`error`, `done`, and `models` frames.
 Unknown control-plane events can be ignored without losing the terminal
 `done` frame. A later version must change the version number when it changes
 required frame semantics.
 
-`symphony stdio --models` returns a `models` frame. Each row has a qualified
+After `ready`, send `{"type":"model/list","request_id":"catalog-1"}` on stdin.
+Symphony responds with a `models` frame carrying the same `request_id`. Each
+row has a qualified
 `id` (`provider:model`), display `label`, `provider`, `description`,
 `context_limit` (tokens, or null), and `reasoning_levels`. The default ID is
 also returned as `default`; hosts should keep the qualified ID when selecting

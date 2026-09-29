@@ -114,14 +114,16 @@ frame. Reply with `{"type":"answer","request_id":"...","value":"..."}`;
 `{"type":"interrupt"}` cancels the active turn. Use the returned session ID
 on the next process to resume the conversation. Standard output is reserved
 for protocol frames; diagnostics go to standard error.
-`symphony stdio --models` prints one `models` frame for providers configured
-on that machine, with Symphony's current default listed first.
+After `ready`, send `{"type":"model/list","request_id":"catalog-1"}` to
+receive a `models` frame with the same request ID. It lists models for
+configured providers, with Symphony's current default first. The frame
+includes the provider and context limit for each model.
 The `run` command can include `"attachments":["/absolute/image.png"]`; the
 transport embeds up to eight images in the user message.
 `--unattended` applies Symphony's unattended policy: tool prompts are
 auto-approved subject to deny rules, and user questions are auto-answered.
 
-The `ready` frame declares `protocol_version: 1` and capabilities. Hosts
+The `ready` frame declares `protocol_version: 2` and capabilities. Hosts
 must check the version before sending a prompt. This transport owns one active
 turn at a time; hosts may queue later prompts and start them after `done`.
 The transport implementation lives in `coding_agent/protocols/`.

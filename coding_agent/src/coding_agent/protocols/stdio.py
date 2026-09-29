@@ -23,7 +23,7 @@ from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 CAPABILITIES = ["runs", "resume", "interrupt", "input", "models", "images", "subagents"]
 
 
@@ -88,6 +88,37 @@ class StdioSink(EventSink):
             self.pending.pop(request_id, None)
 
 
+def model_catalog(registry: Any, request_id: str) -> dict[str, Any]:
+    from core_ai import default_model_id
+
+    namespaces = registry.namespaces()
+    models = [
+        {
+            "id": info.full_id,
+            "label": info.id,
+            "provider": info.provider,
+            "description": info.provider,
+            "context_limit": info.context_limit,
+            "reasoning_levels": [level for level, _ in info.thinking_level_map if level != "off"],
+        }
+        for info in registry.models()
+        if info.provider in namespaces
+    ]
+    default = default_model_id(registry)
+    selected = next((item for item in models if item["id"] == default), None)
+    if selected is None:
+        selected = {
+            "id": default, "label": default.split(":", 1)[-1],
+            "provider": default.split(":", 1)[0], "description": "Symphony default",
+            "context_limit": None, "reasoning_levels": [],
+        }
+    return {
+        "type": "models", "request_id": request_id,
+        "models": [selected, *[item for item in models if item["id"] != default]],
+        "default": default, "protocol_version": PROTOCOL_VERSION,
+    }
+
+
 async def serve(workspace: Path, model: str | None, session_id: str | None, *, unattended: bool = False) -> int:
     load_provider_env(workspace)
     sink = StdioSink()
@@ -119,7 +150,17 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
             write_frame({"type": "error", "message": "invalid JSON command"})
             continue
         kind = command.get("type")
-        if kind == "answer":
+        if kind == "model/list":
+            request_id = command.get("request_id")
+            if not isinstance(request_id, str) or not request_id:
+                write_frame({"type": "error", "message": "model/list requires request_id"})
+                continue
+            try:
+                write_frame(model_catalog(agent.registry, request_id))
+            except Exception as exc:
+                write_frame({"type": "error", "request_id": request_id,
+                             "message": f"{type(exc).__name__}: {exc}"})
+        elif kind == "answer":
             pending = sink.pending.get(command.get("request_id"))
             if pending and not pending.done():
                 pending.set_result(str(command.get("value", "")))
@@ -156,42 +197,10 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--model")
     parser.add_argument("--session-id")
-    parser.add_argument("--models", action="store_true", help="List models available to this Symphony installation")
     parser.add_argument("--unattended", action="store_true", help="Auto-approve tools subject to Symphony deny rules")
     args = parser.parse_args(argv)
     # Libraries may print diagnostics; stdout belongs exclusively to JSONL.
     sys.stdout = sys.stderr
-    if args.models:
-        from core_ai import build_default_registry, default_model_id
-
-        load_provider_env(Path(args.workspace).expanduser().resolve())
-        try:
-            registry = build_default_registry()
-            models = [
-                {
-                    "id": info.full_id,
-                    "label": info.id,
-                    "provider": info.provider,
-                    "description": info.provider,
-                    "context_limit": info.context_limit,
-                    "reasoning_levels": [level for level, _ in info.thinking_level_map if level != "off"],
-                }
-                for info in registry.models()
-                if info.provider in registry.namespaces()
-            ]
-            default = default_model_id(registry)
-            selected = next((item for item in models if item["id"] == default), None)
-            if selected is None:
-                selected = {"id": default, "label": default.split(":", 1)[-1],
-                            "provider": default.split(":", 1)[0], "description": "Symphony default",
-                            "context_limit": None, "reasoning_levels": []}
-            models = [selected, *[item for item in models if item["id"] != default]]
-            write_frame({"type": "models", "models": models, "default": default,
-                         "protocol_version": PROTOCOL_VERSION})
-        except Exception as exc:
-            write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
-            return 1
-        return 0
     return asyncio.run(serve(
         Path(args.workspace).expanduser().resolve(), args.model, args.session_id,
         unattended=args.unattended,

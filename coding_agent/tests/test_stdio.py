@@ -1,7 +1,10 @@
 """The stdio transport preserves approval questions and event frames."""
 
 import asyncio
+import io
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 from core_ai import ModelInfo
 from coding_agent.protocols import stdio
@@ -55,7 +58,7 @@ def test_staged_image_is_inlined(tmp_path):
     assert parts[1]["filename"] == "image.png"
 
 
-def test_model_catalog_includes_provider_and_context(monkeypatch):
+def test_model_list_request_includes_provider_and_context(monkeypatch):
     import core_ai
 
     class Registry:
@@ -68,10 +71,20 @@ def test_model_catalog_includes_provider_and_context(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
-    monkeypatch.setattr(core_ai, "build_default_registry", Registry)
     monkeypatch.setattr(core_ai, "default_model_id", lambda _registry: "openai:gpt-test")
-    assert stdio.main(["--models"]) == 0
-    assert frames[0]["models"] == [{
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+        registry=Registry(), session_id="session-test",
+        harness=SimpleNamespace(model_id="openai:gpt-test"),
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
+        '{"type":"model/list","request_id":"catalog-1"}\n'
+    ))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    assert frames[0]["type"] == "ready"
+    assert frames[1]["type"] == "models"
+    assert frames[1]["request_id"] == "catalog-1"
+    assert frames[1]["default"] == "openai:gpt-test"
+    assert frames[1]["models"] == [{
         "id": "openai:gpt-test", "label": "gpt-test", "provider": "openai",
         "description": "openai", "context_limit": 128000, "reasoning_levels": [],
     }]
