@@ -142,3 +142,132 @@ def test_mode_command_survives_a_new_stdio_process(monkeypatch, tmp_path):
     second = Agent()
     commands.load_state(second)
     assert second.mode == "plan"
+
+
+def test_context_usage_payload_uses_sent_tokens_not_a_missing_window():
+    assert stdio.context_usage_payload(SimpleNamespace(sent_tokens=20, context_limit=100)) == {
+        "tokens": 20, "window": 100,
+    }
+    assert stdio.context_usage_payload(SimpleNamespace(sent_tokens=0, context_limit=None)) == {
+        "tokens": 0,
+    }
+    assert stdio.context_usage_payload(SimpleNamespace(sent_tokens=4, context_limit=0)) == {
+        "tokens": 4,
+    }
+    assert stdio.context_usage_payload(SimpleNamespace(sent_tokens=-1, context_limit=10)) is None
+    assert stdio.context_usage_payload(SimpleNamespace(sent_tokens=True, context_limit=10)) is None
+    assert stdio.command_changes_prompt("/compact")
+    assert stdio.command_changes_prompt("/personality precise")
+    assert stdio.command_changes_prompt("/reload")
+    assert not stdio.command_changes_prompt("/help")
+    assert not stdio.command_changes_prompt("hello")
+
+
+def test_model_turn_emits_context_usage(monkeypatch):
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+
+    async def run(_content):
+        return None
+
+    async def context_report():
+        return SimpleNamespace(sent_tokens=1500, context_limit=32000)
+
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+        session_id="session-test",
+        harness=SimpleNamespace(model_id="openai:gpt-test"),
+        run=run,
+        context_report=context_report,
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO('{"type":"run","prompt":"hello"}\n'))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    usage = [frame for frame in frames if frame.get("event") == "context_usage"]
+    assert usage == [{
+        "type": "event", "event": "context_usage",
+        "payload": {"tokens": 1500, "window": 32000},
+    }]
+    assert frames[-1] == {"type": "done", "status": "completed"}
+
+
+def test_unusable_context_report_emits_nothing(monkeypatch):
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+
+    async def run(_content):
+        return None
+
+    async def context_report():
+        raise RuntimeError("not ready")
+
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+        session_id="session-test",
+        harness=SimpleNamespace(model_id="openai:gpt-test"),
+        run=run,
+        context_report=context_report,
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO('{"type":"run","prompt":"hello"}\n'))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    assert not any(frame.get("event") == "context_usage" for frame in frames)
+    assert frames[-1] == {"type": "done", "status": "completed"}
+
+
+def test_prompt_changing_commands_emit_context_usage(monkeypatch):
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+
+    async def execute(_agent, task):
+        return f"ran {task}"
+
+    async def context_report():
+        return SimpleNamespace(sent_tokens=40, context_limit=80)
+
+    monkeypatch.setattr(stdio, "execute_command", execute)
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+        session_id="session-test",
+        harness=SimpleNamespace(model_id="openai:gpt-test"),
+        context_report=context_report,
+        run=lambda *_args: (_ for _ in ()).throw(AssertionError("model was called")),
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
+        '{"type":"run","prompt":"/status"}\n'
+    ))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    assert not any(frame.get("event") == "context_usage" for frame in frames)
+    frames.clear()
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
+        '{"type":"run","prompt":"/personality precise"}\n'
+    ))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    usage = [frame for frame in frames if frame.get("event") == "context_usage"]
+    assert usage == [{
+        "type": "event", "event": "context_usage",
+        "payload": {"tokens": 40, "window": 80},
+    }]
+
+
+def test_persisted_model_turns_each_emit_context_usage(monkeypatch):
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+
+    class Harness:
+        async def _persist_state(self, **_kwargs):
+            return "saved"
+
+    async def context_report():
+        return SimpleNamespace(sent_tokens=9, context_limit=None)
+
+    agent = SimpleNamespace(harness=Harness(), context_report=context_report)
+    assert stdio.report_context_after_turns(agent)
+
+    async def scenario():
+        await agent.harness._persist_state(turn=0)
+        await agent.harness._persist_state(turn=1)
+
+    asyncio.run(scenario())
+    assert frames == [
+        {"type": "event", "event": "context_usage", "payload": {"tokens": 9}},
+        {"type": "event", "event": "context_usage", "payload": {"tokens": 9}},
+    ]
