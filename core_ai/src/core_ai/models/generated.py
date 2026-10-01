@@ -37,6 +37,9 @@ OPENAI_MODELS = (
     ModelInfo(id="gpt-6-astra", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
     ModelInfo(id="gpt-6-luna", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
     ModelInfo(id="gpt-6-sol", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
+    ModelInfo(id="gpt-6.1-sol", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
+    ModelInfo(id="gpt-daybreak-blue-latest", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1050000),
+    ModelInfo(id="gpt-daybreak-red-latest", provider="openai", api="responses", reasoning=True, thinking_level_map=(('off', 'none'), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=400000),
     ModelInfo(id="gpt-image-1", provider="openai", api="responses", context_limit=0),
     ModelInfo(id="gpt-image-1-mini", provider="openai", api="responses", context_limit=0),
     ModelInfo(id="gpt-image-1.5", provider="openai", api="responses", context_limit=0),
@@ -66,12 +69,13 @@ ANTHROPIC_MODELS = (
     ModelInfo(id="claude-sonnet-4-5-20250929", provider="anthropic", api="messages", reasoning=True, context_limit=1000000),
     ModelInfo(id="claude-sonnet-4-6", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', 'max')), context_limit=1000000),
     ModelInfo(id="claude-sonnet-5", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1000000),
+    ModelInfo(id="claude-sonnet-5-5", provider="anthropic", api="messages", reasoning=True, thinking_level_map=(('off', None), ('minimal', None), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', 'xhigh'), ('max', 'max')), context_limit=1000000),
 )
 
 GEMINI_MODELS = (
     ModelInfo(id="deep-research-max-preview-04-2026", provider="gemini", api="generate_content", reasoning=True, context_limit=131072),
     ModelInfo(id="deep-research-preview-04-2026", provider="gemini", api="generate_content", reasoning=True, context_limit=131072),
-    ModelInfo(id="gemini-2.5-computer-use-preview-10-2025", provider="gemini", api="generate_content", reasoning=True, context_limit=131072),
+    ModelInfo(id="gemini-2.5-computer-use-preview-10-2025", provider="gemini", api="generate_content", reasoning=True, context_limit=128000),
     ModelInfo(id="gemini-2.5-flash", provider="gemini", api="generate_content", reasoning=True, context_limit=1048576),
     ModelInfo(id="gemini-2.5-flash-lite", provider="gemini", api="generate_content", reasoning=True, context_limit=1048576),
     ModelInfo(id="gemini-2.5-pro", provider="gemini", api="generate_content", reasoning=True, context_limit=1048576),

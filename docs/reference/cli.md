@@ -103,3 +103,31 @@ uv run pytest
 uv run --package core-server pytest
 uv run python scripts/generate_models.py   # from core_ai/
 ```
+## symphony stdio
+
+`symphony stdio --workspace /path/to/project [--session-id ID] [--model PROVIDER:MODEL]`
+starts an interactive, one-turn-at-a-time JSONL agent process. A manager sends
+`{"type":"run","prompt":"..."}` on stdin. Symphony sends a `ready` frame
+with its persisted session ID, `event` frames with its control-plane events,
+`input_requested` frames for approvals and questions, and a terminal `done`
+frame. Reply with `{"type":"answer","request_id":"...","value":"..."}`;
+`{"type":"interrupt"}` cancels the active turn. Use the returned session ID
+on the next process to resume the conversation. Standard output is reserved
+for protocol frames; diagnostics go to standard error.
+After `ready`, send `{"type":"model/list","request_id":"catalog-1"}` to
+receive a `models` frame with the same request ID. It lists models for
+configured providers, with Symphony's current default first. The frame
+includes the provider and context limit for each model.
+The `run` command can include `"attachments":["/absolute/image.png"]`; the
+transport embeds up to eight images in the user message.
+`--unattended` applies Symphony's unattended policy: tool prompts are
+auto-approved subject to deny rules, and user questions are auto-answered.
+
+The `ready` frame declares `protocol_version: 2` and capabilities. Hosts
+must check the version before sending a prompt. This transport owns one active
+turn at a time; hosts may queue later prompts and start them after `done`.
+The transport implementation lives in `coding_agent/protocols/`.
+Subagent lifecycle and child activity are regular `event` frames. Match an
+`agent_spawned` frame's `tool_call_id` to the spawning tool, route later events
+whose `agent_id` matches its `child_id`, and settle on `agent_completed` or
+`agent_failed`.
