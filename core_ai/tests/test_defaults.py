@@ -110,7 +110,7 @@ def test_grok_registers_from_xai_api_key(monkeypatch: pytest.MonkeyPatch) -> Non
     registry = build_default_registry()
     assert registry.namespaces() == ("grok",)
     assert isinstance(registry._providers["grok"], GrokProvider)
-    assert default_model_id(registry) == "grok:grok-4.6"
+    assert default_model_id(registry) == "grok:grok-4.7"
 
 
 def test_unqualified_model_strips_known_provider_prefix_only() -> None:
