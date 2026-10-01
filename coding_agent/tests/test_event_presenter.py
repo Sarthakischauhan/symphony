@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
+import pytest
+
 from coding_agent.tui.runtime.events import EventPresenter
 from coding_agent.tui.runtime.state import UiRunState
 
@@ -301,6 +303,29 @@ def test_tool_argument_deltas_coalesce_to_one_scheduled_paint() -> None:
     assert view.tool_payloads == [
         ("read-1", {"path": "src/app.py"}, '{"path":"src/app.py"}')
     ]
+
+
+@pytest.mark.parametrize("prefix", [None, '{"command":"stale"}', '{"command":'])
+def test_tool_argument_snapshots_replace_deltas_without_notices(prefix) -> None:
+    scheduled: list = []
+    presenter, view, _ = _presenter(schedule=scheduled)
+    call = {"tool_call_id": "bash-1", "tool_name": "bash"}
+    presenter.handle("tool_call_started", call)
+    if prefix is not None:
+        presenter.handle("tool_call_delta", {**call, "delta": prefix})
+    raw = '{"command":"git diff --stat"}'
+    # OpenAI emits both function_call_arguments.done and output_item.done.
+    for _ in range(2):
+        presenter.handle("tool_call_arguments", {**call, "arguments": raw})
+    assert view.notices == []
+    assert view.tool_updates == []
+    assert len(scheduled) == 1
+    scheduled[0]()
+    assert view.tool_payloads == [("bash-1", {"command": "git diff --stat"}, raw)]
+    assert presenter.state.tool_args_preview == raw
+    presenter.handle("tool_execution_started", {**call, "arguments": {"command": "git diff --stat"}})
+    presenter.handle("tool_execution_completed", {**call, "status": "success", "result": "1 file changed"})
+    assert view.tool_updates[-2:] == ["bash-1:running", "bash-1:done"]
 
 
 def test_tool_start_flushes_buffered_assistant_before_add_tool() -> None:

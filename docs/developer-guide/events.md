@@ -67,6 +67,7 @@ A run ends with exactly one of `run_completed`, `run_cancelled`,
 | --- | --- | --- |
 | `TOOL_CALL_STARTED` | `tool_call_started` | `turn`, `tool_call_id`, `tool_name` |
 | `TOOL_CALL_DELTA` | `tool_call_delta` | Argument JSON `delta` |
+| `TOOL_CALL_ARGUMENTS` | `tool_call_arguments` | Complete argument JSON `arguments`; replaces accumulated deltas and may repeat |
 | `TOOL_EXECUTION_STARTED` | `tool_execution_started` | `tool_call_id`, `tool_name`, `arguments`, `started_at` |
 | `TOOL_EXECUTION_COMPLETED` | `tool_execution_completed` | `result`, `truncated`, `original_chars`, `ended_at`, `duration_ms`. A denied or unknown tool still produces both events; the denial is the `result`. |
 

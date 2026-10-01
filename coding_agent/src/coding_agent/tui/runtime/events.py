@@ -19,7 +19,7 @@ ChromeSnapshot = Tuple[Any, ...]
 
 # High-frequency events are reduced immediately but painted on one throttled UI tick.
 _BUFFERED_PAINT_EVENT_TYPES = frozenset(
-    {"text_delta", "reasoning_delta", "tool_call_delta"}
+    {"text_delta", "reasoning_delta", "tool_call_delta", "tool_call_arguments"}
 )
 _TOASTABLE_JEV_ACTIONS = frozenset({"replan", "retry", "review", "gather", "ask"})
 _JEV_TOAST_REASON_LIMIT = 120
@@ -573,6 +573,19 @@ class EventPresenter:
         self._tool_argument_tails[call_id] = tail
         self.state.phase = "tool"
         self.state.tool_args_preview = tail
+        self._pending_tool_paints[call_id] = None
+
+    def _on_tool_call_arguments(self, payload: Dict[str, Any]) -> None:
+        # Responses API completion events carry a full snapshot, sometimes
+        # twice. Replace the streamed fragments rather than appending it.
+        call_id = str(payload.get("tool_call_id") or "tool")
+        raw = payload.get("arguments")
+        if not isinstance(raw, str):
+            return
+        self._tool_argument_chunks[call_id] = [raw]
+        self._tool_argument_tails[call_id] = raw[-80:]
+        self.state.phase = "tool"
+        self.state.tool_args_preview = raw[-80:]
         self._pending_tool_paints[call_id] = None
 
     def _on_tool_execution_started(self, payload: Dict[str, Any]) -> None:

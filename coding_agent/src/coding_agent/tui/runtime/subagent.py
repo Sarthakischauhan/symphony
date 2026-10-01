@@ -90,9 +90,14 @@ class SubagentRecord:
         elif event_type == "tool_call_started":
             tool = self._tool(payload)
             tool["name"] = str(payload.get("tool_name") or tool["name"])
-        elif event_type == "tool_call_delta":
+        elif event_type in {"tool_call_delta", "tool_call_arguments"}:
             tool = self._tool(payload)
-            raw = str(tool.get("raw_arguments") or "") + str(payload.get("delta") or "")
+            if event_type == "tool_call_arguments":
+                raw = payload.get("arguments")
+                if not isinstance(raw, str):
+                    return
+            else:
+                raw = str(tool.get("raw_arguments") or "") + str(payload.get("delta") or "")
             tool["raw_arguments"] = raw
             tool["summary"] = raw
             try:

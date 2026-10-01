@@ -64,6 +64,7 @@ class ControlPlaneEventType(str, Enum):
     MODEL_RETRY_SCHEDULED = "model_retry_scheduled"
     TOOL_CALL_STARTED = "tool_call_started"
     TOOL_CALL_DELTA = "tool_call_delta"
+    TOOL_CALL_ARGUMENTS = "tool_call_arguments"
     TOOL_EXECUTION_STARTED = "tool_execution_started"
     TOOL_EXECUTION_COMPLETED = "tool_execution_completed"
     USAGE = "usage"
