@@ -89,67 +89,6 @@ class StdioSink(EventSink):
             self.pending.pop(request_id, None)
 
 
-_PROMPT_CHANGING_COMMANDS = frozenset({"compact", "personality", "reload"})
-
-
-def command_changes_prompt(task: str) -> bool:
-    """True when this slash command rewrites the prompt the chat will send."""
-    if not task.startswith("/"):
-        return False
-    name = task[1:].split(None, 1)[0].lower()
-    return name in _PROMPT_CHANGING_COMMANDS
-
-
-def context_usage_payload(report: Any) -> dict[str, int] | None:
-    """Occupancy of this chat, or nothing when the report is unusable.
-
-    ``tokens`` is ``sent_tokens`` — what the next request occupies — not
-    cumulative billing. A missing or non-positive window is omitted so the
-    host can keep the last capacity it measured.
-    """
-    tokens = getattr(report, "sent_tokens", None)
-    window = getattr(report, "context_limit", None)
-    if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
-        return None
-    payload: dict[str, int] = {"tokens": tokens}
-    if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
-        return payload
-    payload["window"] = window
-    return payload
-
-
-async def emit_context_usage(agent: Any) -> None:
-    """Emit ``context_usage`` when the report can be built; otherwise nothing."""
-    try:
-        report = await agent.context_report()
-    except Exception:
-        return
-    payload = context_usage_payload(report)
-    if payload is None:
-        return
-    write_frame({"type": "event", "event": "context_usage", "payload": payload})
-
-
-def report_context_after_turns(agent: Any) -> bool:
-    """Emit occupancy after each persisted model turn.
-
-    The harness saves the conversation at the end of a turn. Hooking that
-    write reports ``sent_tokens`` without a second estimate in the bridge.
-    """
-    harness = getattr(agent, "harness", None)
-    persist = getattr(harness, "_persist_state", None)
-    if harness is None or persist is None:
-        return False
-
-    async def persist_state(*args: Any, **kwargs: Any) -> Any:
-        result = await persist(*args, **kwargs)
-        await emit_context_usage(agent)
-        return result
-
-    harness._persist_state = persist_state
-    return True
-
-
 def model_catalog(registry: Any, request_id: str) -> dict[str, Any]:
     from core_ai import default_model_id
 
@@ -190,7 +129,6 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
             config=ensure_spawn_settings(workspace, overrides={"unattended": True}) if unattended else None,
         )
         load_state(agent)
-        reporting_turns = report_context_after_turns(agent)
     except Exception as exc:
         write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         return 1
@@ -250,12 +188,8 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
                     if name in {item["name"] for item in command_catalog()} and not attachments:
                         result = await execute_command(agent, task)
                         write_frame({"type": "event", "event": "text_delta", "payload": {"delta": result}})
-                        if command_changes_prompt(task):
-                            await emit_context_usage(agent)
                     else:
                         await agent.run(user_content(task, attachments))
-                        if not reporting_turns:
-                            await emit_context_usage(agent)
                     write_frame({"type": "done", "status": "completed"})
                 except asyncio.CancelledError:
                     write_frame({"type": "done", "status": "interrupted"})
@@ -287,4 +221,4 @@ def main(argv: Sequence[str]) -> int:
     ))
 
 
-__all__ = ["StdioSink", "command_changes_prompt", "context_usage_payload", "emit_context_usage", "main", "report_context_after_turns", "serve"]
+__all__ = ["StdioSink", "main", "serve"]
