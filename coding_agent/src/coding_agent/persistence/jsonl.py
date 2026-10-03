@@ -1,6 +1,6 @@
 """JSONL persistence for coding-agent sessions.
 
-One append-only file per session under ``.sessions/<session_id>.jsonl``.
+One append-only transcript per session under ``<root>/<session_id>/transcript.jsonl``.
 The transcript is the source of truth: conversation messages are stored as
 typed events and compaction stores a snapshot event. Runtime context is
 reconstructed from those events; no separate context file is written.
@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
+from coding_agent.persistence.artifacts import publish, safe_path, snapshot
+from coding_agent.persistence.images import archive, hydrate
 from core_ai.content import text_from_content
 from core_ai.types import Message
 from core_harness import Checkpoint
@@ -50,11 +52,11 @@ def sessions_dir(workspace: Union[str, Path] | None = None) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     if workspace is not None:
         legacy = Path(workspace).expanduser().resolve() / ".sessions"
-        if legacy.is_dir() and legacy != target:
+        if legacy.is_dir() and not legacy.is_symlink() and legacy != target:
             try:
                 for source in legacy.iterdir():
                     destination = target / source.name
-                    if source.is_file() and not destination.exists():
+                    if source.is_file() and not source.is_symlink() and not destination.exists() and not destination.is_symlink():
                         shutil.move(str(source), str(destination))
                 if not any(legacy.iterdir()):
                     legacy.rmdir()
@@ -87,21 +89,57 @@ class JsonlPersistence:
         # checkpoint so an interrupted run can be continued later.
         self.checkpoint_metadata: Callable[[], Dict[str, Any]] = dict
 
-    def _path(self, session_id: str) -> Path:
-        if not _SESSION_ID.match(session_id):
+    def session_dir(self, session_id: str) -> Path:
+        """Return a validated session artifact directory (without creating it)."""
+        if session_id in {".", ".."} or not _SESSION_ID.fullmatch(session_id):
             raise ValueError(f"invalid session_id: {session_id!r}")
-        return self.root / f"{session_id}.jsonl"
+        return safe_path(self.root, session_id)
+
+    def _path(self, session_id: str) -> Path:
+        return safe_path(self.session_dir(session_id), "transcript.jsonl")
+
+    def _artifacts(
+        self, session_id: str, entries: List[Dict[str, Any]], *, updated: bool = True
+    ) -> None:
+        directory = self.session_dir(session_id)
+        metadata_path = safe_path(directory, "metadata.json")
+        metadata: Dict[str, Any] = {}
+        if metadata_path.exists():
+            try:
+                saved = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if isinstance(saved, dict):
+                    metadata = saved
+            except (ValueError, OSError):
+                pass
+        created = next((item.get("created_at") for item in entries
+                        if item.get("type") == "header"), None) or _utc_now()
+        snapshot(metadata_path, {
+            **metadata, "version": 1, "session_id": session_id,
+            "created_at": metadata.get("created_at") or created,
+            "updated_at": _utc_now() if updated else metadata.get("updated_at", created),
+        })
+        for entry in entries:
+            if entry.get("type") in {"compaction", "compacted"}:
+                snapshot(safe_path(directory, "compactions", f"{int(entry.get('seq', 0))}.json"),
+                         {**entry, "version": 1})
+            elif entry.get("type") == "checkpoint":
+                snapshot(safe_path(directory, "checkpoint.json"),
+                         {key: value for key, value in {**entry, "version": 1}.items()
+                          if key != "messages"})
 
     def _read_entries(self, session_id: str) -> List[Dict[str, Any]]:
+        path = self._path(session_id)
+        legacy = safe_path(self.root, f"{session_id}.jsonl")
         cached = self._entries.get(session_id)
         if cached is not None:
             return cached
-        path = self._path(session_id)
-        if not path.is_file():
+        migrating = not path.is_file() and legacy.is_file()
+        source = legacy if migrating else path
+        if not source.is_file():
             self._entries[session_id] = []
             return self._entries[session_id]
         entries: List[Dict[str, Any]] = []
-        with path.open(encoding="utf-8") as handle:
+        with source.open(encoding="utf-8") as handle:
             for raw in handle:
                 line = raw.strip()
                 if not line:
@@ -112,6 +150,15 @@ class JsonlPersistence:
                     continue
                 if isinstance(item, dict):
                     entries.append(item)
+        if migrating:
+            # Publish a complete converted transcript atomically. Keep the flat
+            # source as a backup, so interrupted migration never destroys history.
+            entries = archive(entries, self.session_dir(session_id))
+            publish(path, "".join(json.dumps(item, ensure_ascii=False) + "\n"
+                                  for item in entries).encode("utf-8"))
+        # Artifacts are derived from the transcript. Rebuild them on restart,
+        # including after interruption between transcript and artifact publication.
+        self._artifacts(session_id, entries, updated=False)
         self._entries[session_id] = entries
         return entries
 
@@ -119,11 +166,14 @@ class JsonlPersistence:
         if not entries:
             return
         path = self._path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entries = archive(entries, self.session_dir(session_id))
         with path.open("a", encoding="utf-8") as handle:
             for entry in entries:
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
         cached = self._entries.setdefault(session_id, [])
         cached.extend(entries)
+        self._artifacts(session_id, entries)
 
     def _next_seq(self, entries: List[Dict[str, Any]]) -> int:
         return max((int(entry.get("seq", 0)) for entry in entries if str(entry.get("seq", "0")).isdigit()), default=0) + 1
@@ -389,7 +439,8 @@ class JsonlPersistence:
     async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
         with self._lock:
             entries = self._read_entries(session_id)
-        return apply_collection(self._journal_events(entries))
+        return apply_collection([(kind, hydrate(payload, self.session_dir(session_id)))
+                                 for kind, payload in self._journal_events(entries)])
 
     async def load_children(self, *, parent_session_id: str) -> list[dict[str, Any]]:
         with self._lock:
@@ -426,9 +477,10 @@ class JsonlPersistence:
         session_id: str,
         messages: List[Message],
     ) -> None:
-        incoming = [self._message_payload(message) for message in messages]
         with self._lock:
             entries = self._read_entries(session_id)
+            incoming = archive([self._message_payload(message) for message in messages],
+                               self.session_dir(session_id))
             stored = [self._canonical_payload(item) for item in self._messages_from(entries)]
             if not entries:
                 header = self._header(session_id)
@@ -477,6 +529,7 @@ class JsonlPersistence:
             next_seq = self._next_seq(entries)
             boundary = {
                 "type": "compaction",
+                "version": 1,
                 "seq": next_seq,
                 "through_seq": previous_seq,
                 "summary": summary,
@@ -494,24 +547,30 @@ class JsonlPersistence:
         """Load the reconstructed model context (runtime view)."""
         with self._lock:
             entries = self._read_entries(session_id)
-        return [Message.model_validate(payload) for payload in self._messages_from(entries)]
+        return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._messages_from(entries)]
 
     async def load_transcript(self, *, session_id: str) -> List[Message]:
         """Load the complete persisted transcript for the TUI/history view."""
         with self._lock:
             entries = self._read_entries(session_id)
-        return [Message.model_validate(payload) for payload in self._transcript_messages(entries)]
+        return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._transcript_messages(entries)]
 
     async def list_sessions(self) -> List[SessionSummary]:
         """List parent sessions, newest first. Child session files are omitted."""
         with self._lock:
             child_ids: set[str] = set()
             summaries: List[tuple[float, SessionSummary]] = []
-            for path in self.root.glob("*.jsonl"):
+            paths = {path.stem: path for path in self.root.glob("*.jsonl")}
+            paths.update({path.parent.name: path for path in self.root.glob("*/transcript.jsonl")})
+            for session_id, path in paths.items():
                 if path.name.endswith(".jsonl.tmp"):
                     continue
-                session_id = path.stem
-                if not _SESSION_ID.match(session_id):
+                if session_id in {".", ".."} or not _SESSION_ID.fullmatch(session_id):
+                    continue
+                try:
+                    self.session_dir(session_id)
+                    safe_path(self.root, str(path.relative_to(self.root)))
+                except ValueError:
                     continue
                 # The picker only needs file metadata and the first user
                 # message. Do not decode every JSON object in large transcripts.
@@ -569,7 +628,7 @@ class JsonlPersistence:
             outgoing: List[Dict[str, Any]] = []
             if not entries:
                 outgoing.append(self._header(checkpoint.session_id))
-            outgoing.append({"type": "checkpoint", **payload})
+            outgoing.append({"type": "checkpoint", "version": 1, **payload})
             self._append_entries(checkpoint.session_id, outgoing)
 
     async def load_checkpoint(self, *, session_id: str) -> Optional[Checkpoint]:
@@ -581,9 +640,16 @@ class JsonlPersistence:
                 latest = entry
         if latest is None:
             return None
-        payload = {key: value for key, value in latest.items() if key != "type"}
+        payload = hydrate({key: value for key, value in latest.items() if key != "type"}, self.session_dir(session_id))
         payload.setdefault("session_id", session_id)
         payload["messages"] = [
-            Message.model_validate(message) for message in self._messages_from(entries)
+            Message.model_validate(hydrate(message, self.session_dir(session_id))) for message in self._messages_from(entries)
         ]
         return Checkpoint.model_validate(payload)
+
+    async def load_compactions(self, session_id: str) -> List[Dict[str, Any]]:
+        """Return compaction boundaries in transcript order, with hydrated content."""
+        with self._lock:
+            entries = self._read_entries(session_id)
+            return [hydrate(entry, self.session_dir(session_id)) for entry in entries
+                    if entry.get("type") in {"compaction", "compacted"}]

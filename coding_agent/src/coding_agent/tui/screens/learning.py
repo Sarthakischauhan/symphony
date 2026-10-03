@@ -69,12 +69,13 @@ class LearningModal(ModalBase[None]):
 
     CSS = LEARNING_MODAL_CSS
 
-    def __init__(self, workspace: Path) -> None:
+    def __init__(self, workspace: Path, *, store: LearningStore | None = None) -> None:
         super().__init__()
         self.workspace = workspace
+        self.store = store
 
     def compose(self):  # type: ignore[no-untyped-def]
-        store = LearningStore(self.workspace)
+        store = self.store or LearningStore(self.workspace)
         memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
         user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
         with Container(id="learning-pane", classes="modal-pane"):
@@ -87,9 +88,15 @@ class LearningModal(ModalBase[None]):
                 yield ModalCloseButton("esc  close", id="modal-close")
             with ModalScroll(id="learning-body", classes="modal-body"):
                 yield Static("MEMORY.md", classes="learning-section")
-                yield Static(memory or "(empty)", classes="learning-content")
+                yield Static(memory or "(empty)", classes="learning-content", markup=False)
                 yield Static("USER.md", classes="learning-section")
-                yield Static(user or "(empty)", classes="learning-content")
+                yield Static(user or "(empty)", classes="learning-content", markup=False)
+                yield Static("WORKSPACE LESSONS", classes="learning-section")
+                for index, lesson in enumerate(reversed(store.load()), 1):
+                    yield Static(lesson.summary, classes="learning-content", markup=False)
+                    yield LearningCard(lesson, index)
+                if getattr(store, "session_dir", None) is not None:
+                    yield Static("Session provenance: /session", classes="learning-section")
             yield Static(
                 "↑↓ scroll   ·   Esc close",
                 id="learning-hint",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -11,8 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from coding_agent.config import LearningConfig
+from coding_agent.persistence.artifacts import publish, safe_path
 from coding_agent.learning.sanitize import sanitize_memory, sanitize_task, sanitize_text
 
+
+logger = logging.getLogger(__name__)
 
 _STOP_WORDS = {"this", "that", "with", "from", "into", "what", "when", "where", "which", "does", "need", "make", "only", "have", "will", "your", "the", "and", "for"}
 
@@ -47,15 +51,58 @@ class LearningStore:
         workspace: str | Path,
         *,
         max_lessons: int = LearningConfig().max_lessons,
+        session_dir: str | Path | None = None,
     ) -> None:
         root = Path(workspace).resolve() / ".symphony"
         self.path = root / "learning" / "lessons.jsonl"
+        self.session_dir = Path(session_dir).resolve() if session_dir is not None else None
         self.max_lessons = max_lessons
         self._lock = threading.RLock()
         self.memory_dir = root / "memory"
         self.memory_path = self.memory_dir / "MEMORY.md"
         self.user_path = self.memory_dir / "USER.md"
         self._migrate_legacy()
+        self.archive_memory_snapshot()
+
+    def _archive_record(self, relative_path: str, record: dict) -> None:
+        """Append session provenance; these files are never retrieval sources."""
+        if self.session_dir is None:
+            return
+        try:
+            with self._lock:
+                path = safe_path(self.session_dir, relative_path)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                payload = {"created_at": datetime.now(timezone.utc).isoformat(), **record}
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except OSError:
+            logger.warning("Could not archive session memory record", exc_info=True)
+
+    def archive_memory_snapshot(self) -> None:
+        """Copy sanitized shared memory into the session for inspection only."""
+        if self.session_dir is None:
+            return
+        try:
+            with self._lock:
+                directory = safe_path(self.session_dir, "memory")
+                directory.mkdir(parents=True, exist_ok=True)
+                for source in (self.memory_path, self.user_path):
+                    try:
+                        raw = source.read_text(encoding="utf-8")
+                    except FileNotFoundError:
+                        raw = ""
+                    publish(safe_path(directory, source.name),
+                            sanitize_memory(raw, max_chars=3000 if source == self.memory_path else 1500).encode("utf-8"))
+        except (OSError, UnicodeError):
+            logger.warning("Could not archive session memory snapshot", exc_info=True)
+
+    def archive_context(self, kind: str, task: str, context: str) -> None:
+        self._archive_record("learning/context.jsonl", {
+            "kind": kind,
+            "source": "workspace durable memory (untrusted reference data)",
+            "task": sanitize_task(task),
+            "context": sanitize_memory(context, max_chars=max(1400, len(context))),
+        })
 
     def _migrate_legacy(self) -> None:
         if self.memory_path.exists() or not self.path.exists():
@@ -76,6 +123,25 @@ class LearningStore:
         return [line[2:].strip() for line in lines if line.startswith("- ") and line[2:].strip()]
 
     def memory_operation(self, action: str, *, target: str = "memory", text: str = "", match: str = "") -> str:
+        with self._lock:
+            try:
+                result = self._memory_operation(action, target=target, text=text, match=match)
+            except ValueError as exc:
+                self._archive_record("memory/operations.jsonl", {
+                    "action": sanitize_text(action), "target": sanitize_text(target),
+                    "text": sanitize_text(text, max_chars=600), "match": sanitize_text(match, max_chars=600),
+                    "status": "error", "result": sanitize_text(str(exc), max_chars=600),
+                })
+                raise
+            self.archive_memory_snapshot()
+            self._archive_record("memory/operations.jsonl", {
+                "action": sanitize_text(action), "target": sanitize_text(target),
+                "text": sanitize_text(text, max_chars=600), "match": sanitize_text(match, max_chars=600),
+                "status": "ok", "result": sanitize_text(result, max_chars=600),
+            })
+            return result
+
+    def _memory_operation(self, action: str, *, target: str = "memory", text: str = "", match: str = "") -> str:
         action = action.strip().lower()
         if target not in {"memory", "user"}:
             raise ValueError("target must be memory or user")
@@ -132,7 +198,7 @@ class LearningStore:
             applicable_when=[sanitize_text(item, max_chars=120) for item in lesson.applicable_when[:6]],
             confidence=max(0.0, min(1.0, lesson.confidence)),
             source_task=sanitize_task(lesson.source_task),
-            created_at=lesson.created_at,
+            created_at=sanitize_text(lesson.created_at, max_chars=80),
         )
         with self._lock:
             lessons = self.load()
@@ -140,6 +206,7 @@ class LearningStore:
             lessons = [item for item in lessons if item.summary.casefold() != key]
             lessons.append(clean)
             self._rewrite(lessons[-self.max_lessons :])
+            self._archive_record("learning/lessons.jsonl", asdict(clean))
 
     def load(self) -> list[Lesson]:
         if not self.path.exists():
@@ -231,6 +298,12 @@ class LearningStore:
         return {word for word in words if word not in _STOP_WORDS}
 
     def query(self, task: str, *, limit: int = 6, max_chars: int = 1400) -> str:
+        context = self._query(task, limit=limit, max_chars=max_chars)
+        self.archive_memory_snapshot()
+        self.archive_context("queried", task, context)
+        return context
+
+    def _query(self, task: str, *, limit: int = 6, max_chars: int = 1400) -> str:
         """Return only relevant current Markdown memory, never unrelated fallback."""
         query_words = self._query_words(task)
         if not query_words:

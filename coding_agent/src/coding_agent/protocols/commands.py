@@ -9,6 +9,8 @@ from typing import Any
 
 from coding_agent.config import ensure_spawn_settings, symphony_dir
 from coding_agent.personalities import load_personalities
+from coding_agent.persistence.jsonl import JsonlPersistence
+from coding_agent.persistence.artifacts import publish, safe_path
 from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS
 
 
@@ -26,9 +28,28 @@ def _state_path(session_id: str) -> Path:
     return symphony_dir() / "protocols" / f"{uuid.UUID(session_id)}.json"
 
 
+def _agent_state_path(agent: Any) -> Path:
+    persistence = getattr(agent, "persistence", None)
+    if not isinstance(persistence, JsonlPersistence):
+        return _state_path(agent.session_id)
+
+    path = safe_path(persistence.session_dir(agent.session_id), "state.json")
+    if not path.exists():
+        try:
+            legacy = _state_path(agent.session_id)
+        except ValueError:
+            # JSONL sessions also support non-UUID identifiers.
+            return path
+        if legacy.is_file():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            publish(path, legacy.read_bytes())
+            legacy.unlink()
+    return path
+
+
 def load_state(agent: Any) -> None:
     try:
-        path = _state_path(agent.session_id)
+        path = _agent_state_path(agent)
     except ValueError:
         return
     if not path.exists():
@@ -43,11 +64,11 @@ def load_state(agent: Any) -> None:
 
 
 def _save_state(agent: Any, **changes: str) -> None:
-    path = _state_path(agent.session_id)
+    path = _agent_state_path(agent)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     data.update(changes)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    publish(path, (json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
 
 def _git_diff(workspace: Path) -> str:
@@ -70,6 +91,10 @@ async def execute(agent: Any, value: str) -> str:
             f"Mode: {agent.mode}\nPersonality: {agent.config.personality}\n"
             f"Effort: {agent.harness.reasoning_effort or 'default'}"
         )
+    if command == "session":
+        from coding_agent.persistence.presentation import session_report
+
+        return await session_report(agent)
     if command == "context":
         report = await agent.context_report()
         return str(report)
@@ -128,7 +153,11 @@ async def execute(agent: Any, value: str) -> str:
     if command == "learning":
         from coding_agent.learning.store import LearningStore
 
-        return LearningStore(agent.workspace).to_markdown()
+        store = getattr(agent, "learning_store", None)
+        if store is None:
+            # Lightweight protocol hosts/tests may not expose the agent's store.
+            store = LearningStore(agent.workspace)
+        return store.to_markdown()
     if command == "installed":
         skills = [item.name for item in agent.skill_registry.skills]
         plugins = [str(getattr(item, "name", item)) for item in agent.loaded_plugins]

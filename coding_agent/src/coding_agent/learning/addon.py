@@ -10,7 +10,7 @@ from core_ai.types import Message
 from core_harness.addons import Addon
 
 from coding_agent.learning.loop import LearningLoop
-from coding_agent.learning.store import MEMORY_CONTEXT_PREFIX
+from coding_agent.learning.store import MEMORY_CONTEXT_PREFIX, LearningStore
 
 
 LEARNING_IDLE_DELAY_SECONDS = 120.0
@@ -83,6 +83,7 @@ class LearningAddon(Addon):
         for message in messages:
             if isinstance(message, Message) and message.role == "system":
                 current = text_from_content(message.content)
+                self.loop.store.archive_context("injected", task, context)
                 if _has_desired_memory(current, context):
                     return
                 message.content = apply_memory_context(current, context)
@@ -109,3 +110,42 @@ class LearningAddon(Addon):
             emit=payload.get("emit"),
             delay_seconds=LEARNING_IDLE_DELAY_SECONDS,
         )
+
+
+class SessionMemoryAddon(Addon):
+    """Bind child-local memory tools without inheriting parent reflection tasks."""
+
+    name = "session_memory"
+
+    def __init__(
+        self, store_factory: Callable[[str], LearningStore], *,
+        context_limit: int = 6, context_max_chars: int = 1400,
+        should_inject: bool = True,
+    ) -> None:
+        self.store_factory = store_factory
+        self.context_limit = context_limit
+        self.context_max_chars = context_max_chars
+        self.should_inject = should_inject
+
+    def attach(self, harness: Any) -> None:
+        from coding_agent.tools.memory import MemoryTool
+
+        self.store = self.store_factory(harness.session_id)
+        # The harness normally shares tool objects with its parent. Replace only
+        # memory so concurrent children cannot rebind the parent's store.
+        for name, tool in list(harness.tools.items()):
+            if isinstance(tool, MemoryTool):
+                harness.tools[name] = MemoryTool(tool.workspace, store=self.store)
+
+    async def before_turn(self, **payload: Any) -> None:
+        if not self.should_inject:
+            return
+        messages = payload.get("messages") or []
+        task = next((text_from_content(m.content) for m in reversed(messages)
+                     if isinstance(m, Message) and m.role == "user"), "")
+        context = self.store.query(task, limit=self.context_limit, max_chars=self.context_max_chars)
+        for message in messages:
+            if isinstance(message, Message) and message.role == "system":
+                message.content = apply_memory_context(text_from_content(message.content), context)
+                self.store.archive_context("injected", task, context)
+                break

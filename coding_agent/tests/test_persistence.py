@@ -177,7 +177,7 @@ def test_jsonl_save_appends_until_history_rewrites(tmp_path: Path) -> None:
         Message(role="system", content="sys"),
         Message(role="user", content="summary"),
     ]
-    path = tmp_path / "sessions" / "s1.jsonl"
+    path = tmp_path / "sessions" / "s1" / "transcript.jsonl"
 
     async def _run() -> None:
         await store.save_conversation(session_id="s1", messages=first)
@@ -219,7 +219,7 @@ def test_jsonl_skips_token_deltas(tmp_path: Path) -> None:
 
 def test_jsonl_collects_mid_run_events_without_rewriting(tmp_path: Path) -> None:
     store = JsonlPersistence(tmp_path / "sessions")
-    path = tmp_path / "sessions" / "s1.jsonl"
+    path = tmp_path / "sessions" / "s1" / "transcript.jsonl"
 
     async def _run() -> None:
         await store.append_event(event_type="run_started", payload={
@@ -299,7 +299,7 @@ def test_compaction_is_append_only_and_latest_projection_is_resumed(tmp_path: Pa
         Message(role="user", content="message after second compaction"),
     ]))
 
-    path = tmp_path / "sessions" / f"{session_id}.jsonl"
+    path = tmp_path / "sessions" / session_id / "transcript.jsonl"
     raw = path.read_text(encoding="utf-8")
     assert "original question" in raw
     assert "original answer" in raw
@@ -368,7 +368,7 @@ def test_in_place_tool_prune_does_not_duplicate_conversation(tmp_path: Path) -> 
     pruned = list(base)
     pruned[4] = Message(role="tool", content="[tool result cleared: read_file]", tool_call_id="c1")
     grown = pruned + [Message(role="assistant", content="ok")]
-    path = tmp_path / "sessions" / f"{session_id}.jsonl"
+    path = tmp_path / "sessions" / session_id / "transcript.jsonl"
 
     async def _run() -> None:
         await store.save_conversation(session_id=session_id, messages=base)
@@ -399,7 +399,7 @@ def test_true_compact_is_one_boundary_and_stable_on_resave(tmp_path: Path) -> No
         Message(role="user", content=f"{COMPACTED_CONTEXT_MARK}\nsummary"),
         Message(role="assistant", content="old 7"),
     ]
-    path = tmp_path / "sessions" / f"{session_id}.jsonl"
+    path = tmp_path / "sessions" / session_id / "transcript.jsonl"
 
     async def _run() -> None:
         await store.save_conversation(session_id=session_id, messages=history)
