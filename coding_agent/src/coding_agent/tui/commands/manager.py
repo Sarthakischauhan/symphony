@@ -513,8 +513,20 @@ class CommandManager:
             app.action_dashboard()
         elif command == "context":
             await show_context(app)
+        elif command == "session":
+            if app._agent is None:
+                app.add_notice(OFFLINE_HINT, "error")
+            else:
+                from coding_agent.persistence.presentation import session_report
+                from coding_agent.tui.screens.session import SessionModal
+
+                store = app._agent.persistence
+                directory = getattr(store, "session_dir", None)
+                root = directory(app._agent.session_id) if callable(directory) else None
+                app.push_screen(SessionModal(await session_report(app._agent), root))
         elif command == "learning":
-            app.push_screen(LearningModal(app.workspace))
+            store = getattr(app._agent, "learning_store", None)
+            app.push_screen(LearningModal(app.workspace, store=store))
         elif command in {"installed", "extensions", "plugins", "skills"}:
             agent = app._agent
             skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())

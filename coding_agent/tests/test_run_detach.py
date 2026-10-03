@@ -62,13 +62,13 @@ def test_detach_returns_fast_and_child_keeps_running(
 
     out = capsys.readouterr().out
     session_id = out.split("session ")[1].split()[0]
-    info = json.loads((sessions_dir() / f"{session_id}.run.json").read_text(encoding="utf-8"))
+    info = json.loads((sessions_dir() / session_id / "run.json").read_text(encoding="utf-8"))
     pid = info["pid"]
     try:
         assert f"pid {pid}" in out and info["session_id"] == session_id
         assert "--detach" not in info["argv"] and info["argv"][-2:] == ["--session-id", session_id]
         os.kill(pid, 0)  # alive
-        session = sessions_dir() / f"{session_id}.jsonl"
+        session = sessions_dir() / session_id / "transcript.jsonl"
         assert _wait_for(session.exists), Path(info["log"]).read_text(encoding="utf-8")
         size = session.stat().st_size
         assert _wait_for(lambda: session.stat().st_size > size), Path(info["log"]).read_text(encoding="utf-8")

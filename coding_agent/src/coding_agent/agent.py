@@ -36,6 +36,8 @@ from coding_agent.config import (
 from coding_agent.evaluation import JEV_SYSTEM_SEGMENT, jev_from_config
 from coding_agent.langfuse import langfuse_from_config
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
+from coding_agent.learning.addon import SessionMemoryAddon
+from coding_agent.tools.memory import MemoryTool
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.personalities import compose_system_prompt
 from coding_agent.plan import PlanStore
@@ -131,6 +133,8 @@ class CodingAgent:
         self.learning_store = LearningStore(
             self.workspace,
             max_lessons=self.config.learning.max_lessons,
+            session_dir=(self.persistence.session_dir(self.session_id)
+                         if isinstance(self.persistence, JsonlPersistence) else None),
         )
         self.learning_loop = (
             LearningLoop(
@@ -196,6 +200,9 @@ class CodingAgent:
             unattended=self.unattended,
             bash_jobs=self.bash_jobs,
         )
+        for tool in self.tools:
+            if isinstance(tool, MemoryTool):
+                tool.learning_store = self.learning_store
         include_subagent = tools is None
         addons = default_addons(
             persistence=self.persistence,
@@ -269,6 +276,16 @@ class CodingAgent:
             compaction=self.config.compaction, include_subagent=False,
             langfuse=self.config.langfuse,
         )
+        addons.append(SessionMemoryAddon(
+            lambda session_id: LearningStore(
+                self.workspace, max_lessons=self.config.learning.max_lessons,
+                session_dir=(self.persistence.session_dir(session_id)
+                             if isinstance(self.persistence, JsonlPersistence) else None),
+            ),
+            context_limit=self.config.learning.context_limit,
+            context_max_chars=self.config.learning.context_max_chars,
+            should_inject=self.config.learning.enabled,
+        ))
         gate = self.approval.fork_for_child(parent)
         return addons + ([gate] if gate is not None else [])
 
@@ -280,6 +297,21 @@ class CodingAgent:
         session_id: Optional[str] = None,
     ) -> HarnessResult:
         """Run the agent. Rejected OAuth tokens are refreshed inside the provider."""
+        if isinstance(self.persistence, JsonlPersistence):
+            directory = self.persistence.session_dir(session_id or self.session_id)
+            if self.learning_store.session_dir != directory.resolve():
+                if self.learning_loop is not None:
+                    self.learning_loop.cancel()
+                    await self.learning_loop.wait()
+                self.learning_store = LearningStore(
+                    self.workspace, max_lessons=self.config.learning.max_lessons,
+                    session_dir=directory,
+                )
+                if self.learning_loop is not None:
+                    self.learning_loop.store = self.learning_store
+                for tool in self.tools:
+                    if isinstance(tool, MemoryTool):
+                        tool.learning_store = self.learning_store
         mode = self.mode
         task_text = text_from_content(user_input)
         self.apply_system_prompt()

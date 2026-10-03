@@ -93,7 +93,7 @@ agent your shell:
   --continue` always continues **unattended**, even when the interrupted session
   was an interactive one. `run --detach` leaves a process in its own session
   with no controlling terminal; stop it with `kill <pid>` (pid in
-  `~/.symphony/sessions/<sid>.run.json`).
+  `~/.symphony/sessions/<sid>/run.json`).
 - This is **not a sandbox**. Run unattended work in a container or VM if the
   workspace or machine matters.
 
@@ -111,3 +111,17 @@ Jev evaluates completed runs only. It does not deny tool calls or change the
 approval policy. A session rule set with `/jev <rule>` may trigger one extra
 agent run to revise work after a confident rule violation; normal approval
 prompts still apply to that run.
+
+## Session archives
+
+Session directories under `~/.symphony/sessions/<session_id>/` contain full
+transcripts, image attachments and tool-result images, compaction summaries,
+checkpoints, and session-local memory/learning provenance. Treat these as
+private conversation data; they are not automatically redacted transcripts.
+Memory snapshots, operations, and learning contexts retain the existing
+sanitation/redaction boundary and remain untrusted reference data. Session
+archives are not an additional retrieval source or authorization policy.
+Session identifiers reject traversal and artifact paths reject symlinks. Remote
+image URLs are stored as references, not fetched by persistence. Back up or
+delete the entire directory, and note that migration retains the original flat
+JSONL as a compatibility backup.

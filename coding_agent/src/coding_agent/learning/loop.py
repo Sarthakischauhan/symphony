@@ -16,7 +16,7 @@ from core_harness import HarnessResult
 from coding_agent.config import LearningConfig
 from coding_agent.learning.prompts import REVIEWER_SYSTEM_PROMPT
 from coding_agent.learning.sanitize import sanitize_task, sanitize_text
-from coding_agent.learning.store import LearningStore
+from coding_agent.learning.store import LearningStore, Lesson
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +146,20 @@ class LearningLoop:
             review = await self.review(task, result)
             if generation is not None and generation != self._generation:
                 return
+            # Session provenance is archival only, not a new durable-memory
+            # proposal or a retrieval source. Preserve non-session behavior.
+            if self.store.session_dir is not None:
+                self.store._archive_record("learning/lessons.jsonl", {
+                    **json.loads(Lesson(
+                        summary=sanitize_text(review.summary or review.transcript_summary or result.output_text, max_chars=240),
+                        worked=[sanitize_text(item, max_chars=180) for item in review.worked[:6]],
+                        failed=[sanitize_text(item, max_chars=180) for item in review.failed[:6]],
+                        applicable_when=[sanitize_text(item, max_chars=120) for item in review.applicable_when[:6]],
+                        confidence=review.confidence,
+                        source_task=sanitize_task(task),
+                    ).to_json()),
+                    "kind": "post_run_review",
+                })
             recap = two_line_summary(review.transcript_summary)
             if recap and emit is not None:
                 await emit(
@@ -175,6 +189,7 @@ class LearningLoop:
             Message(role="system", content=REVIEWER_SYSTEM_PROMPT),
             Message(role="user", content=_review_prompt(task, result)),
         ]
+        self.store.archive_context("reflection", task, messages[1].content)
         chunks: list[str] = []
         async for event in self.registry.stream(
             self.model_id,
