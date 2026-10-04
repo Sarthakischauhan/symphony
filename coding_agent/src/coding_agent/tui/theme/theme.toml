@@ -1292,7 +1292,29 @@ LearningModal {
     background: #171b1c;
 }
 
-#learning-body {
+#learning-tabs {
+    height: 1fr;
+    background: #0A0A0A;
+}
+
+#learning-tabs Tabs {
+    height: 1;
+    background: #0A0A0A;
+}
+
+#learning-tabs Tab {
+    width: 1fr;
+    color: #858d91;
+    background: #0A0A0A;
+}
+
+#learning-tabs Tab.-active {
+    color: #d9dde0;
+    text-style: bold;
+    background: #171717;
+}
+
+.learning-tab-body {
     height: 1fr;
     padding: 0;
     background: #0A0A0A;

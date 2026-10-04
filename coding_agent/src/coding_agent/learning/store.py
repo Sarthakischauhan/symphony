@@ -61,13 +61,15 @@ class LearningStore:
         self.session_dir = Path(session_dir).resolve() if session_dir is not None else None
         self.max_lessons = max_lessons
         self._lock = threading.RLock()
-        # Live memory stays workspace-wide. Each session archives a sanitized
-        # snapshot under ``<session>/memory/MEMORY.md``; that copy is not retrieved.
+        # Shared workspace memory is what prompts retrieve. A session also keeps
+        # its own notes at ``<session>/memory/MEMORY.md``; those are not retrieved.
         self.memory_dir = root / "memory"
-        self.memory_path = self.memory_dir / "MEMORY.md"
+        self.global_memory_path = self.memory_dir / "MEMORY.md"
+        self.memory_path = self.global_memory_path
         self.user_path = self.memory_dir / "USER.md"
         self.session_id = session_id
         self._migrate_legacy()
+        self.session_memory_path = self._session_notes_path()
         self.archive_memory_snapshot()
 
     def _archive_record(self, relative_path: str, record: dict) -> None:
@@ -84,22 +86,51 @@ class LearningStore:
         except OSError:
             logger.warning("Could not archive session memory record", exc_info=True)
 
+    def _session_notes_path(self) -> Path | None:
+        if self.session_dir is None:
+            return None
+        try:
+            return safe_path(self.session_dir, "memory/MEMORY.md")
+        except (OSError, ValueError):
+            return None
+
+    def read_session_memory(self) -> str:
+        """Return this session's own MEMORY.md, not the shared workspace file."""
+        path = self.session_memory_path
+        if path is None:
+            return ""
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    def write_session_memory(self, text: str) -> None:
+        """Replace this session's MEMORY.md. Does not change global memory."""
+        path = self.session_memory_path
+        if path is None:
+            raise ValueError("session memory requires a session directory")
+        clean = sanitize_memory(text, max_chars=3000)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(clean if clean.endswith("\n") or not clean else clean + "\n", encoding="utf-8")
+
     def archive_memory_snapshot(self) -> None:
-        """Copy sanitized shared memory into the session for inspection only."""
+        """Copy sanitized shared USER.md into the session for inspection only.
+
+        Session MEMORY.md is owned by the session and is not overwritten from
+        the shared workspace file.
+        """
         if self.session_dir is None:
             return
         try:
             with self._lock:
                 directory = safe_path(self.session_dir, "memory")
                 directory.mkdir(parents=True, exist_ok=True)
-                for source in (self.memory_path, self.user_path):
-                    try:
-                        raw = source.read_text(encoding="utf-8")
-                    except FileNotFoundError:
-                        raw = ""
-                    publish(safe_path(directory, source.name),
-                            sanitize_memory(raw, max_chars=3000 if source == self.memory_path else 1500).encode("utf-8"))
-        except (OSError, UnicodeError):
+                try:
+                    raw = self.user_path.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    raw = ""
+                publish(safe_path(directory, "USER.md"), sanitize_memory(raw, max_chars=1500).encode("utf-8"))
+        except (OSError, UnicodeError, ValueError):
             logger.warning("Could not archive session memory snapshot", exc_info=True)
 
     def archive_context(self, kind: str, task: str, context: str) -> None:
@@ -115,6 +146,7 @@ class LearningStore:
         self.session_id = session_id
         if session_dir is not None:
             self.session_dir = Path(session_dir).resolve()
+        self.session_memory_path = self._session_notes_path()
         self.archive_memory_snapshot()
 
     def _migrate_legacy(self) -> None:

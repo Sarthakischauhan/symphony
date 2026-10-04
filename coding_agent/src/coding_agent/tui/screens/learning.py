@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.console import Group
 from rich.text import Text
 from textual.containers import Container, Horizontal
-from textual.widgets import Static
+from textual.widgets import Static, TabbedContent, TabPane
 
 from coding_agent.learning import LearningStore, Lesson
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
@@ -83,32 +83,34 @@ class LearningModal(ModalBase[None]):
 
     def compose(self):  # type: ignore[no-untyped-def]
         store = self.store or LearningStore(self.workspace, session_id=self.session_id)
-        memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
+        session_memory = store.read_session_memory().strip()
+        memory = store.global_memory_path.read_text(encoding="utf-8") if store.global_memory_path.exists() else ""
         user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
-        session = self.session_id or "workspace"
+        session = (self.session_id or "session")[:8]
         with Container(id="learning-pane", classes="modal-pane"):
             with Horizontal(id="learning-header"):
                 yield Static("learning", id="learning-title")
-                yield Static(
-                    f"session {session[:8]}",
-                    id="learning-counter",
-                )
+                yield Static(f"session {session}", id="learning-counter")
                 yield ModalCloseButton("esc  close", id="modal-close")
-            with ModalScroll(id="learning-body", classes="modal-body"):
-                yield Static("workspace  ·  MEMORY.md", classes="learning-section")
-                yield Static(memory.strip() or "(empty)", classes="learning-content", markup=False)
-                yield Static("shared  ·  USER.md", classes="learning-section")
-                yield Static(user.strip() or "(empty)", classes="learning-content", markup=False)
-                yield Static("workspace lessons", classes="learning-section")
-                lessons = list(reversed(store.load()))
-                if not lessons:
-                    yield Static("(empty)", classes="learning-content", markup=False)
-                for index, lesson in enumerate(lessons, 1):
-                    yield LearningCard(lesson, index)
-                if store.session_dir is not None:
-                    yield Static("session archive  ·  /session", classes="learning-section")
+            with TabbedContent(id="learning-tabs"):
+                with TabPane("Session", id="learning-tab-session"):
+                    with ModalScroll(classes="modal-body learning-tab-body"):
+                        yield Static("this session  ·  MEMORY.md", classes="learning-section")
+                        yield Static(session_memory or "(empty)", classes="learning-content", markup=False)
+                with TabPane("Global", id="learning-tab-global"):
+                    with ModalScroll(classes="modal-body learning-tab-body"):
+                        yield Static("workspace  ·  MEMORY.md", classes="learning-section")
+                        yield Static(memory.strip() or "(empty)", classes="learning-content", markup=False)
+                        yield Static("shared  ·  USER.md", classes="learning-section")
+                        yield Static(user.strip() or "(empty)", classes="learning-content", markup=False)
+                        yield Static("workspace lessons", classes="learning-section")
+                        lessons = list(reversed(store.load()))
+                        if not lessons:
+                            yield Static("(empty)", classes="learning-content", markup=False)
+                        for index, lesson in enumerate(lessons, 1):
+                            yield LearningCard(lesson, index)
             yield Static(
-                "↑↓ scroll   ·   Esc close",
+                "tab switch   ·   ↑↓ scroll   ·   Esc close",
                 id="learning-hint",
                 classes="modal-footer",
             )
