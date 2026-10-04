@@ -45,6 +45,7 @@ def build_tools(
     learning_enabled: bool = False,
     unattended: bool = False,
     bash_jobs: BashJobs | None = None,
+    learning_store: object | None = None,
 ) -> List[Tool]:
     tools_config = config or ToolsConfig()
     configured = {
@@ -52,6 +53,7 @@ def build_tools(
         BashTool: {"config": tools_config.bash, "jobs": bash_jobs},
         ReadFileTool: {"config": tools_config.read_file},
         SearchTool: {"config": tools_config.search},
+        MemoryTool: {"store": learning_store},
     }
     classes = TOOL_CLASSES if learning_enabled else tuple(
         tool for tool in TOOL_CLASSES if tool is not MemoryTool

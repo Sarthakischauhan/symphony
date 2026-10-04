@@ -16,6 +16,7 @@ from coding_agent.persistence.artifacts import publish, safe_path
 from coding_agent.learning.sanitize import sanitize_memory, sanitize_task, sanitize_text
 
 
+
 logger = logging.getLogger(__name__)
 
 _STOP_WORDS = {"this", "that", "with", "from", "into", "what", "when", "where", "which", "does", "need", "make", "only", "have", "will", "your", "the", "and", "for"}
@@ -50,17 +51,22 @@ class LearningStore:
         self,
         workspace: str | Path,
         *,
+        session_id: str | None = None,
         max_lessons: int = LearningConfig().max_lessons,
         session_dir: str | Path | None = None,
     ) -> None:
         root = Path(workspace).resolve() / ".symphony"
+        self.workspace = Path(workspace).resolve()
         self.path = root / "learning" / "lessons.jsonl"
         self.session_dir = Path(session_dir).resolve() if session_dir is not None else None
         self.max_lessons = max_lessons
         self._lock = threading.RLock()
+        # Live memory stays workspace-wide. Each session archives a sanitized
+        # snapshot under ``<session>/memory/MEMORY.md``; that copy is not retrieved.
         self.memory_dir = root / "memory"
         self.memory_path = self.memory_dir / "MEMORY.md"
         self.user_path = self.memory_dir / "USER.md"
+        self.session_id = session_id
         self._migrate_legacy()
         self.archive_memory_snapshot()
 
@@ -104,7 +110,15 @@ class LearningStore:
             "context": sanitize_memory(context, max_chars=max(1400, len(context))),
         })
 
+    def bind_session(self, session_id: str | None, session_dir: str | Path | None = None) -> None:
+        """Record the active session and refresh its archived memory snapshot."""
+        self.session_id = session_id
+        if session_dir is not None:
+            self.session_dir = Path(session_dir).resolve()
+        self.archive_memory_snapshot()
+
     def _migrate_legacy(self) -> None:
+        """One-shot: seed workspace MEMORY.md from the unused lessons archive."""
         if self.memory_path.exists() or not self.path.exists():
             return
         lessons = self.load()

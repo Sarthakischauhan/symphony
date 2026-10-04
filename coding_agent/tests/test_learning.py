@@ -428,6 +428,21 @@ def test_two_line_summary_clamps_to_two_lines() -> None:
     assert recap == "first line\nsecond line"
 
 
+def test_session_archive_does_not_fork_live_memory(tmp_path: Path) -> None:
+    first_dir = tmp_path / "sessions" / "session-a"
+    second_dir = tmp_path / "sessions" / "session-b"
+    first = LearningStore(tmp_path, session_id="session-a", session_dir=first_dir)
+    second = LearningStore(tmp_path, session_id="session-b", session_dir=second_dir)
+    first.memory_operation("add", text="Python tests use pytest -q")
+    first.memory_operation("add", target="user", text="Prefer concise responses")
+    assert first.memory_path == tmp_path / ".symphony" / "memory" / "MEMORY.md"
+    assert "pytest" in first.memory_path.read_text(encoding="utf-8")
+    assert "pytest" in second.memory_path.read_text(encoding="utf-8")
+    assert "concise" in second.user_path.read_text(encoding="utf-8")
+    assert "pytest" in (first_dir / "memory" / "MEMORY.md").read_text(encoding="utf-8")
+    assert "pytest" in second.query("fix the Python tests")
+
+
 def test_query_selects_relevant_markdown_memory_only(tmp_path: Path) -> None:
     store = LearningStore(tmp_path)
     store.memory_operation("add", text="Python tests use pytest -q")

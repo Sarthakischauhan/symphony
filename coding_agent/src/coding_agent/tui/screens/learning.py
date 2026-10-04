@@ -69,34 +69,44 @@ class LearningModal(ModalBase[None]):
 
     CSS = LEARNING_MODAL_CSS
 
-    def __init__(self, workspace: Path, *, store: LearningStore | None = None) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        session_id: str | None = None,
+        store: LearningStore | None = None,
+    ) -> None:
         super().__init__()
         self.workspace = workspace
+        self.session_id = session_id
         self.store = store
 
     def compose(self):  # type: ignore[no-untyped-def]
-        store = self.store or LearningStore(self.workspace)
+        store = self.store or LearningStore(self.workspace, session_id=self.session_id)
         memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
         user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
+        session = self.session_id or "workspace"
         with Container(id="learning-pane", classes="modal-pane"):
             with Horizontal(id="learning-header"):
                 yield Static("learning", id="learning-title")
                 yield Static(
-                    "durable memory",
+                    f"session {session[:8]}",
                     id="learning-counter",
                 )
                 yield ModalCloseButton("esc  close", id="modal-close")
             with ModalScroll(id="learning-body", classes="modal-body"):
-                yield Static("MEMORY.md", classes="learning-section")
-                yield Static(memory or "(empty)", classes="learning-content", markup=False)
-                yield Static("USER.md", classes="learning-section")
-                yield Static(user or "(empty)", classes="learning-content", markup=False)
-                yield Static("WORKSPACE LESSONS", classes="learning-section")
-                for index, lesson in enumerate(reversed(store.load()), 1):
-                    yield Static(lesson.summary, classes="learning-content", markup=False)
+                yield Static("workspace  ·  MEMORY.md", classes="learning-section")
+                yield Static(memory.strip() or "(empty)", classes="learning-content", markup=False)
+                yield Static("shared  ·  USER.md", classes="learning-section")
+                yield Static(user.strip() or "(empty)", classes="learning-content", markup=False)
+                yield Static("workspace lessons", classes="learning-section")
+                lessons = list(reversed(store.load()))
+                if not lessons:
+                    yield Static("(empty)", classes="learning-content", markup=False)
+                for index, lesson in enumerate(lessons, 1):
                     yield LearningCard(lesson, index)
                 if store.session_dir is not None:
-                    yield Static("Session provenance: /session", classes="learning-section")
+                    yield Static("session archive  ·  /session", classes="learning-section")
             yield Static(
                 "↑↓ scroll   ·   Esc close",
                 id="learning-hint",

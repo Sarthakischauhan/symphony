@@ -408,6 +408,13 @@ def start_new_session(app: Any) -> None:
     app.session_id = session_id
     agent.session_id = session_id
     agent.harness.session_id = session_id
+    store = getattr(agent, "learning_store", None)
+    if store is not None and hasattr(store, "bind_session"):
+        persistence = getattr(agent, "persistence", None)
+        session_dir = None
+        if persistence is not None and hasattr(persistence, "session_dir"):
+            session_dir = persistence.session_dir(session_id)
+        store.bind_session(session_id, session_dir)
     register = getattr(app, "_register_active_session", None)
     if callable(register):
         register()
@@ -525,11 +532,16 @@ class CommandManager:
                 root = store.session_dir(app._agent.session_id) if isinstance(store, JsonlPersistence) else None
                 app.push_screen(SessionModal(await session_report(app._agent), root))
         elif command == "learning":
+            agent = getattr(app, "_agent", None)
             try:
-                learned = app._agent.learning_store
+                learned = agent.learning_store if agent is not None else None
             except AttributeError:
                 learned = None
-            app.push_screen(LearningModal(app.workspace, store=learned))
+            app.push_screen(LearningModal(
+                app.workspace,
+                session_id=getattr(agent, "session_id", None),
+                store=learned,
+            ))
         elif command in {"installed", "extensions", "plugins", "skills"}:
             agent = app._agent
             skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())

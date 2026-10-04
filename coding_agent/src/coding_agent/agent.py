@@ -132,6 +132,7 @@ class CodingAgent:
         self.plan_store = PlanStore(self.workspace)
         self.learning_store = LearningStore(
             self.workspace,
+            session_id=self.session_id,
             max_lessons=self.config.learning.max_lessons,
             session_dir=(self.persistence.session_dir(self.session_id)
                          if isinstance(self.persistence, JsonlPersistence) else None),
@@ -199,6 +200,7 @@ class CodingAgent:
             learning_enabled=self.config.learning.enabled,
             unattended=self.unattended,
             bash_jobs=self.bash_jobs,
+            learning_store=self.learning_store,
         )
         for tool in self.tools:
             if isinstance(tool, MemoryTool):

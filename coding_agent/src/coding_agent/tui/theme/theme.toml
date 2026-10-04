@@ -1306,6 +1306,24 @@ LearningModal {
     background: #0A0A0A;
 }
 
+.learning-section {
+    width: 100%;
+    height: auto;
+    margin: 1 1 0 1;
+    color: #8eafc2;
+    text-style: bold;
+    background: #0A0A0A;
+}
+
+.learning-content {
+    width: 100%;
+    height: auto;
+    margin: 0 1 1 1;
+    padding: 0 1;
+    color: #bdbdbd;
+    background: #0A0A0A;
+}
+
 .learning-card {
     width: 100%;
     height: auto;
