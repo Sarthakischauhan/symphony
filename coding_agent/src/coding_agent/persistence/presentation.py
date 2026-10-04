@@ -8,6 +8,8 @@ from typing import Any
 
 from core_ai.content import text_from_content
 
+from coding_agent.persistence.jsonl import JsonlPersistence
+
 
 def _visible(value: Any) -> Any:
     """Keep every field visible without dumping binary image bodies."""
@@ -43,12 +45,14 @@ def session_images(root: Path) -> list[Path]:
 
 async def session_report(agent: Any) -> str:
     """Render archived state without injecting it into the model's context."""
-    store = agent.persistence
+    try:
+        store = agent.persistence
+    except AttributeError:
+        store = None
     session_id = agent.session_id
-    directory = getattr(store, "session_dir", None)
-    if not callable(directory):
+    if not isinstance(store, JsonlPersistence):
         return "Session artifacts are unavailable with this persistence backend."
-    root = directory(session_id)
+    root = store.session_dir(session_id)
     transcript = await store.load_transcript(session_id=session_id)
     context = await store.load_conversation(session_id=session_id)
     events = await store.load_events(session_id=session_id)

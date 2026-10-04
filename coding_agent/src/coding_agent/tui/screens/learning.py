@@ -95,7 +95,7 @@ class LearningModal(ModalBase[None]):
                 for index, lesson in enumerate(reversed(store.load()), 1):
                     yield Static(lesson.summary, classes="learning-content", markup=False)
                     yield LearningCard(lesson, index)
-                if getattr(store, "session_dir", None) is not None:
+                if store.session_dir is not None:
                     yield Static("Session provenance: /session", classes="learning-section")
             yield Static(
                 "↑↓ scroll   ·   Esc close",

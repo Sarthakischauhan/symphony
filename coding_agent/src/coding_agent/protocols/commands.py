@@ -29,7 +29,10 @@ def _state_path(session_id: str) -> Path:
 
 
 def _agent_state_path(agent: Any) -> Path:
-    persistence = getattr(agent, "persistence", None)
+    try:
+        persistence = agent.persistence
+    except AttributeError:
+        return _state_path(agent.session_id)
     if not isinstance(persistence, JsonlPersistence):
         return _state_path(agent.session_id)
 
@@ -153,7 +156,10 @@ async def execute(agent: Any, value: str) -> str:
     if command == "learning":
         from coding_agent.learning.store import LearningStore
 
-        store = getattr(agent, "learning_store", None)
+        try:
+            store = agent.learning_store
+        except AttributeError:
+            store = None
         if store is None:
             # Lightweight protocol hosts/tests may not expose the agent's store.
             store = LearningStore(agent.workspace)

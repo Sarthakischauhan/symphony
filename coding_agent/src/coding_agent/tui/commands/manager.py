@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from core_ai import get_model, get_provider
 from coding_agent.agent import build_agent
+from coding_agent.persistence.jsonl import JsonlPersistence
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.langfuse import ensure_langfuse_installed
@@ -521,12 +522,14 @@ class CommandManager:
                 from coding_agent.tui.screens.session import SessionModal
 
                 store = app._agent.persistence
-                directory = getattr(store, "session_dir", None)
-                root = directory(app._agent.session_id) if callable(directory) else None
+                root = store.session_dir(app._agent.session_id) if isinstance(store, JsonlPersistence) else None
                 app.push_screen(SessionModal(await session_report(app._agent), root))
         elif command == "learning":
-            store = getattr(app._agent, "learning_store", None)
-            app.push_screen(LearningModal(app.workspace, store=store))
+            try:
+                learned = app._agent.learning_store
+            except AttributeError:
+                learned = None
+            app.push_screen(LearningModal(app.workspace, store=learned))
         elif command in {"installed", "extensions", "plugins", "skills"}:
             agent = app._agent
             skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())

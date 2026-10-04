@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from coding_agent.persistence import JsonlPersistence, sessions_dir
+from coding_agent.persistence.artifacts import publish
 
 
 def detach(run_argv: list[str], workspace: Path) -> int:
@@ -31,6 +32,6 @@ def detach(run_argv: list[str], workspace: Path) -> int:
         "argv": command,
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    (root / "run.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    publish(root / "run.json", (json.dumps(info, indent=2) + "\n").encode("utf-8"))
     print(f"pid {proc.pid}\nlog {log_path}\nsession {session_id}")
     return 0
