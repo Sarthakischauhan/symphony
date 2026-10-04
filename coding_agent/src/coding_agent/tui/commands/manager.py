@@ -517,9 +517,11 @@ class CommandManager:
         elif command == "context":
             await show_context(app)
         elif command == "learning":
+            agent = getattr(app, "_agent", None)
             app.push_screen(LearningModal(
                 app.workspace,
-                session_id=getattr(getattr(app, "_agent", None), "session_id", None),
+                session_id=getattr(agent, "session_id", None),
+                store=getattr(agent, "learning_store", None),
             ))
         elif command in {"installed", "extensions", "plugins", "skills"}:
             agent = app._agent

@@ -69,28 +69,38 @@ class LearningModal(ModalBase[None]):
 
     CSS = LEARNING_MODAL_CSS
 
-    def __init__(self, workspace: Path, *, session_id: str | None = None) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        session_id: str | None = None,
+        store: LearningStore | None = None,
+    ) -> None:
         super().__init__()
         self.workspace = workspace
         self.session_id = session_id
+        self.store = store
 
     def compose(self):  # type: ignore[no-untyped-def]
-        store = LearningStore(self.workspace, session_id=self.session_id)
+        store = getattr(self, "store", None) or LearningStore(
+            self.workspace, session_id=self.session_id
+        )
         memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
         user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
+        session = self.session_id or "this session"
         with Container(id="learning-pane", classes="modal-pane"):
             with Horizontal(id="learning-header"):
                 yield Static("learning", id="learning-title")
                 yield Static(
-                    "durable memory",
+                    f"session {session[:8]}",
                     id="learning-counter",
                 )
                 yield ModalCloseButton("esc  close", id="modal-close")
             with ModalScroll(id="learning-body", classes="modal-body"):
-                yield Static("MEMORY.md", classes="learning-section")
-                yield Static(memory or "(empty)", classes="learning-content")
-                yield Static("USER.md", classes="learning-section")
-                yield Static(user or "(empty)", classes="learning-content")
+                yield Static("this session  ·  MEMORY.md", classes="learning-section")
+                yield Static(memory.strip() or "(empty)", classes="learning-content")
+                yield Static("shared  ·  USER.md", classes="learning-section")
+                yield Static(user.strip() or "(empty)", classes="learning-content")
             yield Static(
                 "↑↓ scroll   ·   Esc close",
                 id="learning-hint",
