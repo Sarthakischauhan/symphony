@@ -1,5 +1,8 @@
 # Memory and learning
 
+For a diagrammed implementation walkthrough, see
+[How Symphony learning works](../developer-guide/learning-flow.md).
+
 Symphony uses durable capture jobs, candidate observations, curated topic files,
 and a rebuildable SQLite FTS5/BM25 index. The old Markdown-memory and idle
 reflection implementations have been replaced. Legacy `.symphony/memory/` and

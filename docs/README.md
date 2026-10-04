@@ -32,7 +32,8 @@ Then read **[Installation](./getting-started/installation.md)** and
 | [Langfuse](./user-guide/langfuse.md) | Optional traces of sent prompts and tools |
 | [Jev](./user-guide/jev.md) | Finish check on `symphony-code` |
 | [Tools](./user-guide/tools.md) | Workspace tool surface |
-| [Learning](./user-guide/learning.md) | Post-run reflection |
+| [Learning](./user-guide/learning.md) | Automatic capture, curated topics, and recall |
+| [Learning flow](./developer-guide/learning-flow.md) | Mermaid diagrams of capture, recovery, consolidation, retrieval, and memory scopes |
 | [Sessions](./user-guide/sessions.md) | JSONL resume |
 | [Architecture](./developer-guide/architecture.md) | How the packages fit |
 | [Extending the harness](./developer-guide/extending.md) | Addon hooks; Learning as the canonical example |
