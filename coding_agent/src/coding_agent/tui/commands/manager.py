@@ -407,6 +407,9 @@ def start_new_session(app: Any) -> None:
     app.session_id = session_id
     agent.session_id = session_id
     agent.harness.session_id = session_id
+    store = getattr(agent, "learning_store", None)
+    if store is not None and hasattr(store, "bind_session"):
+        store.bind_session(session_id)
     register = getattr(app, "_register_active_session", None)
     if callable(register):
         register()
@@ -514,7 +517,10 @@ class CommandManager:
         elif command == "context":
             await show_context(app)
         elif command == "learning":
-            app.push_screen(LearningModal(app.workspace))
+            app.push_screen(LearningModal(
+                app.workspace,
+                session_id=getattr(getattr(app, "_agent", None), "session_id", None),
+            ))
         elif command in {"installed", "extensions", "plugins", "skills"}:
             agent = app._agent
             skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())

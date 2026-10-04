@@ -142,3 +142,66 @@ def test_mode_command_survives_a_new_stdio_process(monkeypatch, tmp_path):
     second = Agent()
     commands.load_state(second)
     assert second.mode == "plan"
+
+
+def test_protocol_catalog_includes_dynamic_argument_choices(monkeypatch, tmp_path):
+    from coding_agent.protocols import commands
+    monkeypatch.setattr(commands, "load_personalities", lambda: [
+        SimpleNamespace(id="custom", name="Custom personality", description="Workspace choice")
+    ])
+    plans = tmp_path / ".symphony" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "test_plan.md").write_text("# Test plan")
+    catalog = {item["name"]: item for item in commands.catalog(tmp_path)}
+    assert catalog["personality"]["options"] == [
+        {"value": "custom", "label": "Custom personality", "description": "Workspace choice"}
+    ]
+    assert {item["value"] for item in catalog["mode"]["options"]} == {"build", "plan"}
+    assert catalog["plans"]["options"][0]["value"] == ".symphony/plans/test_plan.md"
+
+
+def test_personality_command_accepts_whitespace_and_applies_prompt(monkeypatch, tmp_path):
+    from coding_agent.protocols import commands
+    applied = []
+    monkeypatch.setattr(commands, "load_personalities", lambda: [
+        SimpleNamespace(id="precise", name="Precise", description="Careful")
+    ])
+    monkeypatch.setattr(commands, "ensure_spawn_settings", lambda workspace, **kwargs:
+                        SimpleNamespace(personality=kwargs["overrides"]["personality"]))
+    agent = SimpleNamespace(workspace=tmp_path, config=SimpleNamespace(personality="direct"),
+                            apply_system_prompt=lambda: applied.append(True))
+    assert "precise" in asyncio.run(commands.execute(agent, "/personality "))
+    assert asyncio.run(commands.execute(agent, "/personality\tprecise")) == "Personality: Precise."
+    assert agent.config.personality == "precise"
+    assert applied == [True]
+
+
+def test_command_attachments_are_rejected_without_inference(monkeypatch):
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda workspace: None)
+    monkeypatch.setattr(stdio, "build_agent", lambda **kwargs: SimpleNamespace(
+        session_id="session-test", harness=SimpleNamespace(model_id="test"),
+        run=lambda *args: (_ for _ in ()).throw(AssertionError("model called")),
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
+        '{"type":"run","prompt":"/personality ","attachments":["image.png"]}\n'
+    ))
+    asyncio.run(stdio.serve(Path("."), None, None))
+    assert any(frame.get("type") == "error" and "attachments" in frame["message"] for frame in frames)
+    assert any(frame.get("type") == "done" and frame["status"] == "errored" for frame in frames)
+
+
+def test_reload_refreshes_live_agent_configuration(monkeypatch, tmp_path):
+    from coding_agent.protocols import commands
+    import coding_agent.credentials as credentials
+    called = []
+    monkeypatch.setattr(credentials, "load_provider_env", lambda workspace, **kwargs: called.append("env"))
+    config = SimpleNamespace(personality="warm")
+    monkeypatch.setattr(commands, "ensure_spawn_settings", lambda workspace: config)
+    agent = SimpleNamespace(workspace=tmp_path, config=None, mode="plan",
+                            apply_system_prompt=lambda: called.append("prompt"))
+    assert "Reloaded" in asyncio.run(commands.execute(agent, "/reload"))
+    assert agent.config is config
+    assert agent.mode == "plan"
+    assert called == ["env", "prompt"]

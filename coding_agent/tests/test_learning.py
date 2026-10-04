@@ -428,6 +428,26 @@ def test_two_line_summary_clamps_to_two_lines() -> None:
     assert recap == "first line\nsecond line"
 
 
+def test_session_memory_is_isolated_and_user_memory_is_shared(tmp_path: Path) -> None:
+    first = LearningStore(tmp_path, session_id="session-a")
+    second = LearningStore(tmp_path, session_id="session-b")
+    first.memory_operation("add", text="Python tests use pytest -q")
+    first.memory_operation("add", target="user", text="Prefer concise responses")
+    assert first.memory_path == first.memory_path.parent / "MEMORY.md"
+    assert first.memory_path.parent.name == "session-a"
+    assert "pytest" in first.memory_path.read_text(encoding="utf-8")
+    assert not second.memory_path.exists()
+    assert "concise" in second.user_path.read_text(encoding="utf-8")
+    assert "pytest" in first.query("fix the Python tests")
+    assert second.query("fix the Python tests") == ""
+    legacy = tmp_path / ".symphony" / "memory" / "MEMORY.md"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("# Durable memory\n\n- Python tests use pytest -q\n", encoding="utf-8")
+    seeded = LearningStore(tmp_path, session_id="session-c")
+    assert "pytest" in seeded.memory_path.read_text(encoding="utf-8")
+    assert legacy.is_file()
+
+
 def test_query_selects_relevant_markdown_memory_only(tmp_path: Path) -> None:
     store = LearningStore(tmp_path)
     store.memory_operation("add", text="Python tests use pytest -q")

@@ -69,12 +69,13 @@ class LearningModal(ModalBase[None]):
 
     CSS = LEARNING_MODAL_CSS
 
-    def __init__(self, workspace: Path) -> None:
+    def __init__(self, workspace: Path, *, session_id: str | None = None) -> None:
         super().__init__()
         self.workspace = workspace
+        self.session_id = session_id
 
     def compose(self):  # type: ignore[no-untyped-def]
-        store = LearningStore(self.workspace)
+        store = LearningStore(self.workspace, session_id=self.session_id)
         memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
         user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
         with Container(id="learning-pane", classes="modal-pane"):

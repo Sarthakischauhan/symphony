@@ -12,6 +12,7 @@ from pathlib import Path
 
 from coding_agent.config import LearningConfig
 from coding_agent.learning.sanitize import sanitize_memory, sanitize_task, sanitize_text
+from coding_agent.persistence.jsonl import _SESSION_ID, sessions_dir
 
 
 _STOP_WORDS = {"this", "that", "with", "from", "into", "what", "when", "where", "which", "does", "need", "make", "only", "have", "will", "your", "the", "and", "for"}
@@ -46,19 +47,49 @@ class LearningStore:
         self,
         workspace: str | Path,
         *,
+        session_id: str | None = None,
         max_lessons: int = LearningConfig().max_lessons,
     ) -> None:
         root = Path(workspace).resolve() / ".symphony"
+        self.workspace = Path(workspace).resolve()
         self.path = root / "learning" / "lessons.jsonl"
         self.max_lessons = max_lessons
         self._lock = threading.RLock()
+        # User preferences stay workspace-wide. Durable notes follow the session,
+        # next to its transcript: ``<sessions>/<session-id>/MEMORY.md``.
         self.memory_dir = root / "memory"
-        self.memory_path = self.memory_dir / "MEMORY.md"
         self.user_path = self.memory_dir / "USER.md"
+        self.session_id = session_id
+        self.memory_path = self._session_memory_path(session_id)
         self._migrate_legacy()
 
+    def bind_session(self, session_id: str | None) -> None:
+        """Point durable memory at ``<session-id>/MEMORY.md`` without moving user prefs."""
+        self.session_id = session_id
+        self.memory_path = self._session_memory_path(session_id)
+
+    def _session_memory_path(self, session_id: str | None) -> Path:
+        if session_id and _SESSION_ID.match(session_id):
+            return sessions_dir(self.workspace) / session_id / "MEMORY.md"
+        return self.memory_dir / "MEMORY.md"
+
     def _migrate_legacy(self) -> None:
-        if self.memory_path.exists() or not self.path.exists():
+        """Copy the old workspace MEMORY.md into a session file once.
+
+        The shared file stays in place so other sessions can still seed from it.
+        Lessons JSONL is only a fallback when no markdown memory exists at all.
+        """
+        legacy = self.memory_dir / "MEMORY.md"
+        if self.memory_path != legacy and legacy.is_file():
+            try:
+                text = legacy.read_text(encoding="utf-8")
+            except OSError:
+                return
+            if text.strip():
+                self.memory_path.parent.mkdir(parents=True, exist_ok=True)
+                self.memory_path.write_text(text, encoding="utf-8")
+            return
+        if not self.path.exists():
             return
         lessons = self.load()
         if lessons:

@@ -130,6 +130,7 @@ class CodingAgent:
         self.plan_store = PlanStore(self.workspace)
         self.learning_store = LearningStore(
             self.workspace,
+            session_id=self.session_id,
             max_lessons=self.config.learning.max_lessons,
         )
         self.learning_loop = (
@@ -195,6 +196,7 @@ class CodingAgent:
             learning_enabled=self.config.learning.enabled,
             unattended=self.unattended,
             bash_jobs=self.bash_jobs,
+            learning_store=self.learning_store,
         )
         include_subagent = tools is None
         addons = default_addons(

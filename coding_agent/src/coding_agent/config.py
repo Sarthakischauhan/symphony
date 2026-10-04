@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Literal, Union
 
@@ -135,6 +136,8 @@ def default_coding_agent_harness() -> HarnessConfig:
     """Product harness settings. Engine field defaults fill the rest."""
     return HarnessConfig(
         max_turns=None,
+        max_tool_calls=None,
+        max_runtime_seconds=None,
         spawn_max_turns=None,
         tool_result_max_chars=32_000,
         context_warn_threshold=32_000,
@@ -219,7 +222,14 @@ def _validate_tools(config: CodingAgentConfig) -> None:
 
 
 def symphony_dir() -> Path:
-    """Return the user-wide Symphony data/config directory."""
+    """Return the user-wide Symphony data/config directory.
+
+    ``SYMPHONY_HOME`` can point directly at that directory without changing
+    the process home. Cargo and other tools must keep the user's real home.
+    """
+    override = os.environ.get("SYMPHONY_HOME", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
     return (Path.home() / ".symphony").expanduser().resolve()
 
 

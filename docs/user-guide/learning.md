@@ -1,12 +1,16 @@
 # Learning
 
 Learning uses a small, curated memory rather than injecting the legacy lesson
-archive. The `memory` tool writes sanitized entries to
-`<workspace>/.symphony/memory/MEMORY.md` or `USER.md`; both files are shown by
-`/learning` and injected as untrusted reference data into the system prompt.
-Duplicate additions are no-ops and bounded files report their current entries
-when the limit is exceeded. Procedures belong in skills, not memory. The legacy
-`<workspace>/.symphony/learning/lessons.jsonl` remains an unused migration archive.
+archive. The `memory` tool writes sanitized session notes to
+`~/.symphony/sessions/<session-id>/MEMORY.md` and shared preferences to
+`<workspace>/.symphony/memory/USER.md`. Both files are shown by `/learning`
+and injected as untrusted reference data into the system prompt. A new
+conversation gets its own `MEMORY.md`; user preferences stay shared. An
+existing workspace `MEMORY.md` is copied into a session file the first time
+that session opens. Duplicate additions are no-ops and bounded files report
+their current entries when the limit is exceeded. Procedures belong in skills,
+not memory. The legacy `<workspace>/.symphony/learning/lessons.jsonl` remains
+an unused migration archive.
 
 Learning is enabled by default. Reflection may propose durable memory updates
 and a two-line recap, but plan mode skips reflection. The harness sees learning
