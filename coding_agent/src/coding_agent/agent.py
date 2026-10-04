@@ -38,6 +38,8 @@ from coding_agent.langfuse import langfuse_from_config
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
 from coding_agent.learning.addon import SessionMemoryAddon
 from coding_agent.tools.memory import MemoryTool
+from coding_agent.tools.memory_search import MemorySearchTool
+from coding_agent.tools.memory_get import MemoryGetTool
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.personalities import compose_system_prompt
 from coding_agent.plan import PlanStore
@@ -203,7 +205,7 @@ class CodingAgent:
             learning_store=self.learning_store,
         )
         for tool in self.tools:
-            if isinstance(tool, MemoryTool):
+            if isinstance(tool, (MemoryTool, MemorySearchTool, MemoryGetTool)):
                 tool.learning_store = self.learning_store
         include_subagent = tools is None
         addons = default_addons(
@@ -312,7 +314,7 @@ class CodingAgent:
                 if self.learning_loop is not None:
                     self.learning_loop.store = self.learning_store
                 for tool in self.tools:
-                    if isinstance(tool, MemoryTool):
+                    if isinstance(tool, (MemoryTool, MemorySearchTool, MemoryGetTool)):
                         tool.learning_store = self.learning_store
         mode = self.mode
         task_text = text_from_content(user_input)
@@ -327,11 +329,22 @@ class CodingAgent:
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))
-        result = await self.harness.run(
-            user_input,
-            conversation=conversation,
-            session_id=session_id or self.session_id,
-        )
+        try:
+            result = await self.harness.run(
+                user_input,
+                conversation=conversation,
+                session_id=session_id or self.session_id,
+            )
+        except BaseException:
+            # Persisted partial context is available even when the turn stopped.
+            # Capture is fail-open and may be retried from its durable job later.
+            if self.learning_loop is not None and mode != "plan":
+                try:
+                    partial = await self.persistence.load_conversation(session_id=session_id or self.session_id)
+                    self.learning_loop.capture(task_text, partial)
+                except Exception:
+                    pass
+            raise
         follow_up = self._jev_follow_up()
         if follow_up:
             result = await self.harness.run(
@@ -380,12 +393,12 @@ class CodingAgent:
         self.apply_system_prompt()
 
     async def wait_for_learning(self) -> None:
-        """Optionally drain pending reflections before application shutdown."""
+        """Drain the current memory capture worker; failed jobs remain durable."""
         if self.learning_loop is not None:
             await self.learning_loop.wait()
 
     async def shutdown_learning(self) -> None:
-        """Cancel or finish pending reflection when the TUI exits."""
+        """Stop capture execution without discarding durable jobs."""
         if self.learning_loop is not None:
             await self.learning_loop.shutdown()
 

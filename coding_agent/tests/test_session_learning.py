@@ -5,7 +5,6 @@ import json
 from types import SimpleNamespace
 
 from core_ai.types import Message, StreamEvent
-from core_harness import HarnessResult
 
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore, Lesson
 from coding_agent.learning.addon import SessionMemoryAddon
@@ -47,8 +46,8 @@ def test_injected_context_and_reflection_are_archived_without_new_trusted_source
     class Registry:
         async def stream(self, *args, **kwargs):
             yield StreamEvent(type="text_delta", delta=json.dumps({
-                "summary": "Test persistence after edits", "worked": ["focused pytest"],
-                "transcript_summary": "Tests passed", "confidence": 0.9,
+                "observations": [{"text": "Test persistence after edits", "topic": "testing", "confidence": 0.9}],
+                "transcript_summary": "Tests passed",
             }))
 
     async def run():
@@ -57,23 +56,22 @@ def test_injected_context_and_reflection_are_archived_without_new_trusted_source
                     Message(role="user", content="editing persistence")]
         await LearningAddon(loop).before_turn(messages=messages)
         assert "untrusted reference data" in messages[0].content
-        await loop._review_and_store("editing persistence", HarnessResult(
-            output_text="done", messages=[Message(role="assistant", content="done")]))
+        loop.capture("editing persistence", [Message(role="assistant", content="done")])
+        await loop.wait()
 
     asyncio.run(run())
     context = records(root / "learning/context.jsonl")
-    assert {item["kind"] for item in context} == {"queried", "injected", "reflection"}
-    lessons = records(root / "learning/lessons.jsonl")
-    assert lessons[0]["kind"] == "post_run_review"
-    assert lessons[0]["worked"] == ["focused pytest"]
-    assert store.load() == []  # archive is not automatically promoted to durable memory
+    assert {item["kind"] for item in context} == {"queried", "injected", "capture"}
+    assert "Test persistence" in store.query("persistence")
+    assert store.pending_jobs() == []
+    assert store.load() == []  # raw lessons are not the new retrieval source
 
 
 def test_child_memory_tools_do_not_rebind_parent_store(tmp_path):
     persistence = JsonlPersistence(tmp_path / "sessions")
     parent_store = LearningStore(tmp_path, session_dir=persistence.session_dir("parent"))
     parent_tool = MemoryTool(tmp_path, store=parent_store)
-    child = SimpleNamespace(session_id="child", tools={"memory": parent_tool})
+    child = SimpleNamespace(session_id="child", tools={"memory": parent_tool}, registry=object(), model_id="fake:test")
     addon = SessionMemoryAddon(lambda sid: LearningStore(tmp_path, session_dir=persistence.session_dir(sid)))
     addon.attach(child)
     child.tools["memory"].run("add", text="Child learned to verify changes")

@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any, Mapping
 
-from rich.markup import escape
+from textual.content import Content
 
 from coding_agent.tui.transcript.messages import clip_text, compact_json
 
@@ -48,23 +48,23 @@ def header_command(reason: str, summary: str, limit: int) -> str:
     return summary
 
 
-def tool_header_text(label: str, target: str, status: str) -> str:
-    """Render markup with status color on the tool name and muted target."""
+def tool_header_text(label: str, target: str, status: str) -> Content:
+    """Status-colored tool name plus a muted target, without parsing the target as markup."""
     color = {
         "preparing": "#d7a84b",
         "running": "#d7a84b",
         "done": "#72a57a",
         "failed": "#d66b73",
     }.get(status, "#9aa7b2")
-    head = f"[bold {color}]{escape(label)}[/bold {color}]"
-    if not target:
-        return head
-    return f"{head} [#9aa7b2]{escape(target)}[/]"
+    parts: list[tuple[str, str]] = [(label, f"bold {color}")]
+    if target:
+        parts.append((f" {target}", "#9aa7b2"))
+    return Content.assemble(*parts)
 
 
 def header_target(summary: str) -> str:
     """Show the protocol value beside the verb: path, command, or query."""
-    text = summary.strip()
+    text = " ".join(str(summary or "").split())
     if not text:
         return ""
     head, _, rest = text.partition(" ")

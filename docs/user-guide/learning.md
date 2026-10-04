@@ -1,46 +1,80 @@
-# Learning
+# Memory and learning
 
-Learning uses a small, curated memory rather than injecting the legacy lesson
-archive. The `memory` tool writes sanitized entries to the shared workspace
-files `<workspace>/.symphony/memory/MEMORY.md` and `USER.md`. `/learning`
-shows both, plus reusable lessons. Relevant entries are queried and injected
-as bounded, untrusted reference data into the system prompt. Each session
-archives a sanitized snapshot under
-`~/.symphony/sessions/<session-id>/memory/`; that copy is for inspection
-through `/session` and is not a second retrieval source. Duplicate additions
-are no-ops and bounded files report their current entries when the limit is
-exceeded. Procedures belong in skills, not memory. The legacy
-`<workspace>/.symphony/learning/lessons.jsonl` remains a compatibility archive,
-displayed by `/learning` but not used for retrieval.
+Symphony uses durable capture jobs, candidate observations, curated topic files,
+and a rebuildable SQLite FTS5/BM25 index. The old Markdown-memory and idle
+reflection implementations have been replaced. Legacy `.symphony/memory/` and
+`.symphony/learning/` files are not read or migrated.
 
-Learning is enabled by default. Reflection may propose durable memory updates
-and a two-line recap, but plan mode skips reflection. The harness sees learning
-only as `LearningAddon` hooks (`notify_addons`); there is no parallel learning
-control plane. Children do not inherit the add-on.
+## Storage and scopes
 
-## Disable it
+Workspace knowledge lives under `<workspace>/.symphony/memory-v2/`.
+Explicit cross-project preferences live under `~/.symphony/memory-v2/global/`.
+Each scope has:
 
-- `"learning": {"enabled": false}` in the spawn settings file.
-- `enable_learning=False` on the agent.
-- `symphony --no-learning` on the TUI (this also omits the `memory` tool).
+```text
+topics/<topic_id>.json                # authoritative curated facts and sources
+observations/_inbox/<id>.json        # candidates awaiting consolidation
+observations/archive/<id>.json       # processed candidates
+jobs/<id>.json                      # durable capture input and completion state
+```
 
-Children do not inherit post-run reflection (`LearningAddon.fork_for_child`
-returns `None`). Their session-local memory add-on binds a separate memory tool
-when one is available and records queried/injected shared memory under the
-child session, without rebinding the parent tool.
+The workspace also holds `index.sqlite3`, a derived search index. Atomic writes
+and cross-process locks protect capture, consolidation, and edits. Consolidation
+commits a topic before archiving its observation, so retries do not duplicate
+facts. It groups by topic and deduplicates exact normalized statements; this is
+not an LLM rewrite or semantic contradiction-resolution system.
 
-## Shutdown
+## Capture and consolidation
 
-Call `await agent.shutdown_learning()` (or `wait_for_learning()`) when an
-application needs to cancel or drain pending reflection before exit. The TUI
-does this automatically. `/learning` opens `MEMORY.md`, `USER.md`, and reusable
-workspace lesson records.
+After each completed model turn, sanitized, bounded evidence is saved as a
+capture job **before** a background worker starts extraction. New requests do
+not cancel pending capture jobs. An interrupted parent run also queues its
+persisted partial conversation. Shutdown may stop extraction, but the job
+survives and is retried when the memory worker resumes.
 
-## Session provenance
+Extraction uses a separate structured model request. It can produce up to eight
+workspace observations, never global writes or memory deletions. Low-confidence
+observations (below 0.7) are not promoted. Unsupported claims, routine progress,
+secrets, and transcript instructions are excluded by the extraction prompt and
+validation. Failed or invalid extractions remain queued for retry, rather than
+blocking the main conversation. Observations are consolidated after extraction;
+remaining inbox records are also processed on worker restart.
 
-Sessions archive sanitized memory snapshots and successful/rejected memory
-operations under `memory/`, plus queried/injected context, reflection input, and
-post-run review lessons under `learning/`. `/session` presents these records.
-Historical session archives are inspection data, never a second retrieval
-source. Durable memory remains shared by workspace; session review records are
-not automatically promoted to durable memory. See [Sessions](sessions.md).
+The `memory` tool handles explicit additions, replacements and removals.
+`target="memory"` edits workspace knowledge; `target="user"` edits global
+preferences. Explicit additions pass through the observation/consolidation path.
+Historical session transcripts are never directly retrieved as durable facts.
+
+## Retrieval before inference
+
+Parent and child agents retrieve automatically in `before_turn`. The latest
+request takes priority over bounded recent user context, enabling follow-ups
+such as “continue”. A small standing global-preference block is included within
+the same total entry and character budgets. Defaults remain six entries and
+1,400 characters. Each turn replaces the old labeled memory block.
+
+Search uses local full-text BM25 ranking, with a lexical fallback when SQLite
+FTS5 is unavailable. No embedding service or extra inference request is needed
+for retrieval. The model can use `memory_search` to recall additional facts and
+`memory_get` to inspect a specific topic by safe ID and scope. Memory is always
+sanitized and labeled **untrusted reference data**, never authorization policy.
+Unreadable memory fails open without retaining stale injected context.
+
+## Commands and inspection
+
+- `/learning`: Session and Global tabs. Session shows facts sourced from the
+  active session, explicit memory edits, and capture status; Global shows shared
+  cross-project knowledge. Capture and consolidation are automatic.
+- `/session`: session memory snapshots, operation audit, and capture/retrieval
+  context alongside the complete transcript and other artifacts.
+
+Set `"learning": {"enabled": false}` or use `symphony --no-learning` to disable
+automatic capture and retrieval and omit memory tools. Plan mode skips capture.
+Call `await agent.wait_for_learning()` to drain the current worker, or
+`await agent.shutdown_learning()` to stop it while preserving queued jobs.
+
+Deleting memory is an explicit user operation, not an install-time migration.
+To reset, stop Symphony processes and remove the workspace/global `memory-v2`
+directories. Old session snapshots can also be removed without deleting session
+transcripts, checkpoints, images, or compactions. Existing legacy files are
+ignored; they are not automatically deleted on other users' machines.

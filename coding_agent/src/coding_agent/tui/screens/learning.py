@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.console import Group
 from rich.text import Text
 from textual.containers import Container, Horizontal
-from textual.widgets import Static
+from textual.widgets import Static, TabbedContent, TabPane
 
 from coding_agent.learning import LearningStore, Lesson
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
@@ -65,7 +65,7 @@ class LearningCard(Container):
 
 # --- learning.py ---
 class LearningModal(ModalBase[None]):
-    """Fullscreen modal showing stored learnings as scannable cards."""
+    """Memory inspector separating current-session provenance from global facts."""
 
     CSS = LEARNING_MODAL_CSS
 
@@ -83,32 +83,31 @@ class LearningModal(ModalBase[None]):
 
     def compose(self):  # type: ignore[no-untyped-def]
         store = self.store or LearningStore(self.workspace, session_id=self.session_id)
-        memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
-        user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
-        session = self.session_id or "workspace"
+        session = self.session_id or store.session_id
+        self.store = store
         with Container(id="learning-pane", classes="modal-pane"):
             with Horizontal(id="learning-header"):
                 yield Static("learning", id="learning-title")
                 yield Static(
-                    f"session {session[:8]}",
+                    f"session {session[:8]}" if session else "no active session",
                     id="learning-counter",
                 )
                 yield ModalCloseButton("esc  close", id="modal-close")
-            with ModalScroll(id="learning-body", classes="modal-body"):
-                yield Static("workspace  ·  MEMORY.md", classes="learning-section")
-                yield Static(memory.strip() or "(empty)", classes="learning-content", markup=False)
-                yield Static("shared  ·  USER.md", classes="learning-section")
-                yield Static(user.strip() or "(empty)", classes="learning-content", markup=False)
-                yield Static("workspace lessons", classes="learning-section")
-                lessons = list(reversed(store.load()))
-                if not lessons:
-                    yield Static("(empty)", classes="learning-content", markup=False)
-                for index, lesson in enumerate(lessons, 1):
-                    yield LearningCard(lesson, index)
-                if store.session_dir is not None:
-                    yield Static("session archive  ·  /session", classes="learning-section")
+            with TabbedContent(initial="memory-session", id="learning-tabs"):
+                with TabPane("Session", id="memory-session"):
+                    with ModalScroll(id="session-memory-body", classes="modal-body"):
+                        yield Static(
+                            store.scoped_markdown("session", session_id=session),
+                            id="session-memory-content", classes="learning-content", markup=False,
+                        )
+                with TabPane("Global", id="memory-global"):
+                    with ModalScroll(id="global-memory-body", classes="modal-body"):
+                        yield Static(
+                            store.scoped_markdown("global"),
+                            id="global-memory-content", classes="learning-content", markup=False,
+                        )
             yield Static(
-                "↑↓ scroll   ·   Esc close",
+                "click tabs to switch   ·   ↑↓ scroll   ·   Esc close",
                 id="learning-hint",
                 classes="modal-footer",
             )

@@ -1,4 +1,4 @@
-"""Lightweight post-run learning helpers."""
+"""Durable capture, observation consolidation, and curated-topic recall."""
 
 from coding_agent.learning.addon import LearningAddon, strip_memory_context
 from coding_agent.learning.loop import LearningLoop, LearningReview, two_line_summary

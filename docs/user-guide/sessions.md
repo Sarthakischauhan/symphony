@@ -20,11 +20,11 @@ uv run --package symphony-code symphony --resume
   compactions/             # individually inspectable summary snapshots
   memory/
     MEMORY.md              # sanitized snapshot of shared workspace memory
-    USER.md                # sanitized snapshot of shared user context
+    USER.md                # sanitized snapshot of global preferences
     operations.jsonl       # successful and rejected memory operations
   learning/
-    lessons.jsonl          # sanitized lessons produced by this session
-    context.jsonl          # queried/injected memory and reflection context
+    captures.jsonl         # durable capture job and observation provenance
+    context.jsonl          # queried/injected topics and extraction evidence
   run.json                 # detached-run pid, arguments, and workspace
   run.log                  # detached-run stdout/stderr
 ```
@@ -57,16 +57,17 @@ collected into the global session directory. No manual conversion is required.
   every compaction summary, session memory snapshots and operation history,
   learning/context records, child links, lifecycle events, and image previews.
   The stdio transport exposes the same command as a text report.
-- `/learning` shows current workspace `MEMORY.md`, `USER.md`, and reusable lessons.
+- `/learning` shows curated workspace/global topics and pending capture/inbox counts.
 - `/context` breaks down only the active model context by role.
 
-Durable memory remains shared within a workspace at `.symphony/memory/`, and
-reusable lessons remain at `.symphony/learning/lessons.jsonl`. Sessions archive
-provenance without turning historical memory into a second retrieval source.
-Relevant current memory is sanitized, bounded, and labeled as untrusted
-reference data before injection. Session records are never promoted to trusted
-instructions. Post-run reflection retains the existing learning setting and
-idle scheduling behavior.
+Durable knowledge lives in workspace `.symphony/memory-v2/` topic files, with
+cross-project preferences under `~/.symphony/memory-v2/global/`. Every completed
+turn queues bounded sanitized capture evidence durably; a background worker
+extracts candidate observations, then consolidation groups and deduplicates
+facts into curated topics. Interrupted jobs survive shutdown and resume later.
+Only curated topics are retrieved, via a local full-text index. Historical
+session transcripts and snapshots are inspection data, not retrieval sources.
+See [Memory and learning](learning.md) for scope, ingestion, and retrieval rules.
 
 ## Continuing interrupted runs
 

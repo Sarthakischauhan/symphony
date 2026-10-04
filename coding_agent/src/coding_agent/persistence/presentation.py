@@ -80,7 +80,7 @@ async def session_report(agent: Any) -> str:
                       f"Created: {item.get('created_at', '')}; through transcript sequence {item.get('through_seq', '')}",
                       "", str(summary), ""])
     for name in ("memory/MEMORY.md", "memory/USER.md", "memory/operations.jsonl",
-                 "learning/context.jsonl", "learning/lessons.jsonl"):
+                 "learning/context.jsonl", "learning/captures.jsonl", "learning/lessons.jsonl"):
         path = root / name
         lines.extend([f"## {name}", "", _read_text(root, path).strip() if path.is_file() else "(empty)", ""])
     lines.extend(["## Child sessions", ""])

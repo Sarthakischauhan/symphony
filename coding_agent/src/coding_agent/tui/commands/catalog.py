@@ -127,7 +127,7 @@ SLASH_COMMANDS = (
     SlashCommand("dashboard", "Show live agents and their CPU, memory, and disk"),
     SlashCommand("context", "Inspect active model context"),
     SlashCommand("session", "Inspect session images, compactions, memory, and recorded events"),
-    SlashCommand("learning", "Open markdown-rendered agent learnings"),
+    SlashCommand("learning", "Browse curated memory topics and pending captures"),
     SlashCommand("installed", "View installed skills and plugins"),
     SlashCommand("diff", "Open the current workspace diff in a modal"),
     SlashCommand("clear", "Clear the visible transcript"),

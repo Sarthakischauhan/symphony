@@ -100,7 +100,7 @@ agent your shell:
 Plan mode is a gated planning phase, not a sandbox: `bash` is allowed and shell
 writes are not scanned. Its tool gate blocks `write_file` and `patch` except for
 the active plan file, and blocks `generate_image` and `spawn_agent`. Memory files
-at `.symphony/memory/MEMORY.md` and `USER.md` are model-authored, sanitized on
+under `.symphony/memory-v2/` and `~/.symphony/memory-v2/global/` are model-authored, sanitized on
 write, and injected into the system prompt as untrusted data; do not treat them
 as policy or executable instructions.
 
@@ -125,3 +125,11 @@ Session identifiers reject traversal and artifact paths reject symlinks. Remote
 image URLs are stored as references, not fetched by persistence. Back up or
 delete the entire directory, and note that migration retains the original flat
 JSONL as a compatibility backup.
+
+Memory capture persists sanitized bounded evidence before background extraction.
+Extraction may propose workspace observations only, not global changes or
+removals. Only validated observations with confidence at least 0.7 are
+consolidated; confidence is model-reported, not a proof of truth. Curated topics
+remain untrusted reference data. Explicit memory edits can change global user
+preferences; cross-project scope should be used deliberately. The local search
+index is derived from topic files, never raw session transcripts.
