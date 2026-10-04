@@ -59,7 +59,7 @@ class ToolCallWidget(Collapsible):
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._body = self._make_body()
-        self._tool_label = Static(classes="tool-call-label", markup=True)
+        self._tool_label = Static(classes="tool-call-label", markup=False)
         self.call_id = call_id
         self.tool_name = tool_name
         self.arguments: dict[str, Any] = {}
@@ -194,7 +194,7 @@ class ToolCallWidget(Collapsible):
         self._styled_status = self.status
 
     def _refresh_header(self, label: str, summary: str) -> None:
-        target = header_target(summary) or summary.strip()
+        target = header_target(summary)
         values = (label, target, self.status)
         if values == self._header_values:
             return
@@ -328,7 +328,7 @@ class BashToolWidget(ToolCallWidget):
     """Bash-specific row with command and lifecycle status on one line."""
 
     def __init__(self, call_id: str, tool_name: str) -> None:
-        self._bash_label = Static(classes="bash-tool-label", markup=True)
+        self._bash_label = Static(classes="bash-tool-label", markup=False)
         super().__init__(call_id, tool_name)
         self.add_class("bash-tool")
         self._body.add_class("bash-tool-body")

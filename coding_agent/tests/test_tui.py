@@ -83,7 +83,9 @@ from coding_agent.tui.tools import (
     make_tool_widget,
 )
 from coding_agent.tui.tools.activity import COMPLETION_VERBS
+from coding_agent.tui.tools.labels import header_target, tool_header_text
 from coding_agent.tui.tools.snapshots import ThoughtSnapshot
+from coding_agent.tui.transcript.messages import clip_text
 from coding_agent.tui.chrome import (
     ComposerOverlay,
     TopBar,
@@ -2058,6 +2060,41 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
             await pilot.pause()
             assert "Bash" in summary.render().plain
             assert "git diff --check" in summary.render().plain
+
+    asyncio.run(_run())
+
+
+def test_tool_header_text_keeps_truncated_markup_literal() -> None:
+    command = "echo [link=" + "a" * 200
+    target = header_target(clip_text(command, 180))
+    content = tool_header_text("Bash", target, "preparing")
+    assert content.plain.startswith("Bash echo [link=")
+    assert "[/]" not in content.plain
+    assert "\n" not in header_target("uv run python - <<'PY'\nprint('[/]')\nPY")
+
+
+def test_bash_header_renders_command_markup_literally(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    command = (
+        "uv run python - <<'PY'\n"
+        "from coding_agent.tui.tools.calls import BashToolWidget\n"
+        "print('[link=' + 'x' * 200)\n"
+        "print('[/]')\n"
+        "PY"
+    )
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.add_tool("bash-1", "bash")
+            app.update_tool("bash-1", arguments={"command": command}, status="preparing")
+            await pilot.pause()
+            label = str(app.query_one(".bash-tool-label").render())
+            assert label.startswith("Bash uv run python - <<'PY' from coding_agent.tui.tools.calls import")
+            assert "[link=" in label
 
     asyncio.run(_run())
 

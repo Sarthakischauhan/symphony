@@ -18,6 +18,8 @@ _ENV_ASSIGN = re.compile(
 )
 _NEEDS_QUOTES = re.compile(r"""[\s#"\\']""")
 _ENV_FILE_MODE = 0o600
+# Track only values this loader owns; inherited process overrides stay authoritative.
+_LOADED_ENV: dict[str, str] = {}
 
 
 def global_env_path() -> Path:
@@ -29,13 +31,18 @@ def workspace_env_path(workspace: str | Path) -> Path:
     return Path(workspace).expanduser().resolve() / ".env"
 
 
-def load_provider_env(workspace: str | Path) -> None:
+def load_provider_env(workspace: str | Path, *, reload: bool = False) -> None:
     """Load provider keys into the process.
 
     Precedence is process env > workspace `.env` (if present) >
     `~/.symphony/.env`. Files are merged weakest-first, then applied with
     `setdefault` so already-set process env always wins.
     """
+    if reload:
+        for name, value in tuple(_LOADED_ENV.items()):
+            if os.environ.get(name) == value:
+                os.environ.pop(name, None)
+            _LOADED_ENV.pop(name, None)
     merged: dict[str, str] = {}
     global_path = global_env_path()
     workspace_path = workspace_env_path(workspace)
@@ -43,7 +50,9 @@ def load_provider_env(workspace: str | Path) -> None:
     if workspace_path.resolve() != global_path:
         merged.update(_dotenv_entries(workspace_path))
     for name, value in merged.items():
-        os.environ.setdefault(name, value)
+        if name not in os.environ:
+            os.environ[name] = value
+            _LOADED_ENV[name] = value
 
 
 def save_provider_key(provider_id: str, api_key: str) -> ProviderSpec:

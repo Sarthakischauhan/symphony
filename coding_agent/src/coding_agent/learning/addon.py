@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import sqlite3
 from typing import Any, Callable, Optional
 
 from core_ai.content import text_from_content
 from core_ai.types import Message
 from core_harness.addons import Addon
 
+from coding_agent.learning.sanitize import sanitize_memory
 from coding_agent.learning.loop import LearningLoop
-from coding_agent.learning.store import MEMORY_CONTEXT_PREFIX
+from coding_agent.learning.store import MEMORY_CONTEXT_PREFIX, LearningStore
 
 
-LEARNING_IDLE_DELAY_SECONDS = 120.0
+logger = logging.getLogger(__name__)
+
+LEARNING_IDLE_DELAY_SECONDS = 0.0
 
 _MEMORY_BLOCK = re.compile(
     r"\n*" + re.escape(MEMORY_CONTEXT_PREFIX) + r"(?:\n[^\n]+)*"
@@ -31,25 +36,46 @@ def apply_memory_context(content: str, context: str) -> str:
     return f"{base}\n\n{context}" if context else base
 
 
-def _has_desired_memory(content: str, context: str) -> bool:
-    """True when the system text already carries the exact queried block."""
-    if context:
-        return context in content
-    return MEMORY_CONTEXT_PREFIX not in content
+def inject_memory(store: LearningStore, messages: list[Any], *, limit: int, max_chars: int) -> None:
+    """Refresh bounded reference data immediately before a model turn."""
+    # User-authored context only: assistant guesses and tool output are not
+    # allowed to steer durable-memory retrieval. Exclude synthetic compactions.
+    from core_harness.context import COMPACTED_CONTEXT_MARK
+
+    users = [text_from_content(message.content) for message in messages
+             if isinstance(message, Message) and message.role == "user"
+             and not text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK)]
+    task = users[-1] if users else ""
+    recent = "\n".join(sanitize_memory(text, max_chars=400) for text in users[-4:-1])[:1200]
+    try:
+        context = store.query(task, limit=limit, max_chars=max_chars,
+                              recent_context=recent, include_preferences=True)
+    except (OSError, UnicodeError, ValueError, sqlite3.Error):
+        logger.warning("Memory retrieval unavailable; continuing without memory", exc_info=True)
+        context = ""
+    for message in messages:
+        if isinstance(message, Message) and message.role == "system":
+            message.content = apply_memory_context(text_from_content(message.content), context)
+            try:
+                store.archive_context("injected", task, context)
+            except (OSError, UnicodeError, ValueError, sqlite3.Error):
+                logger.warning("Memory context archival unavailable", exc_info=True)
+            break
+
+
+def capture_memory(loop: LearningLoop, task: str, messages: list[Any]) -> None:
+    """Memory I/O must never turn a successful agent turn into a failure."""
+    try:
+        loop.capture(task, messages)
+    except (OSError, UnicodeError, ValueError, sqlite3.Error):
+        logger.warning("Memory capture unavailable; agent turn continues", exc_info=True)
 
 
 class LearningAddon(Addon):
-    """Inject relevant memory each turn and schedule post-run reflection.
+    """Retrieve curated topics before inference and durably capture each turn.
 
-    Observe/record only through Addon hooks (`notify_addons`). There is no
-    parallel learning control plane in the harness.
-
-    Review waits ``LEARNING_IDLE_DELAY_SECONDS`` (two minutes) after a run
-    finishes with no further run. A new user message cancels that review
-    (pending delay or in-flight) so ``run_summary`` is not shown.
-
-    Children do not inherit this add-on. Plan-mode runs can skip review via
-    ``should_review`` while still receiving memory through ``before_turn``.
+    Capture input is persisted before background extraction. New user messages
+    never discard pending jobs. Children bind their own capture loop.
     """
 
     name = "learning"
@@ -69,24 +95,8 @@ class LearningAddon(Addon):
         """Replace the labeled memory block on the current turn's system message."""
         if not self.should_inject():
             return
-        messages = payload.get("messages") or []
-        task = next(
-            (text_from_content(message.content) for message in reversed(messages)
-             if isinstance(message, Message) and message.role == "user"),
-            "",
-        )
-        context = self.loop.store.query(
-            task,
-            limit=self.loop.context_limit,
-            max_chars=self.loop.context_max_chars,
-        )
-        for message in messages:
-            if isinstance(message, Message) and message.role == "system":
-                current = text_from_content(message.content)
-                if _has_desired_memory(current, context):
-                    return
-                message.content = apply_memory_context(current, context)
-                break
+        inject_memory(self.loop.store, payload.get("messages") or [],
+                      limit=self.loop.context_limit, max_chars=self.loop.context_max_chars)
 
     def fork_for_child(self, parent_harness: Any) -> None:
         """Skip inherit: child runs do not observe or record learning."""
@@ -94,18 +104,63 @@ class LearningAddon(Addon):
         return None
 
     async def before_run(self, **payload: Any) -> None:
-        del payload
-        self.loop.cancel()
+        self.task = next((text_from_content(m.content) for m in reversed(payload.get("messages") or [])
+                          if isinstance(m, Message) and m.role == "user"), str(payload.get("task") or ""))
+        self.loop.resume()
+
+    async def after_turn(self, **payload: Any) -> None:
+        if self.should_review():
+            capture_memory(self.loop, getattr(self, "task", ""), payload.get("messages") or [])
 
     async def after_run(self, **payload: Any) -> None:
-        if not self.should_review():
+        if self.should_review() and payload.get("result") is not None:
+            capture_memory(self.loop, getattr(self, "task", ""), payload["result"].messages)
+
+    async def on_compact(self, **payload: Any) -> None:
+        if self.should_review() and payload.get("messages"):
+            capture_memory(self.loop, getattr(self, "task", ""), payload["messages"])
+
+
+class SessionMemoryAddon(Addon):
+    """Bind child-local memory tools without inheriting parent reflection tasks."""
+
+    name = "session_memory"
+
+    def __init__(
+        self, store_factory: Callable[[str], LearningStore], *,
+        context_limit: int = 6, context_max_chars: int = 1400,
+        should_inject: bool = True,
+    ) -> None:
+        self.store_factory = store_factory
+        self.context_limit = context_limit
+        self.context_max_chars = context_max_chars
+        self.should_inject = should_inject
+
+    def attach(self, harness: Any) -> None:
+        from coding_agent.tools.memory import MemoryTool
+        from coding_agent.tools.memory_search import MemorySearchTool
+        from coding_agent.tools.memory_get import MemoryGetTool
+
+        self.store = self.store_factory(harness.session_id)
+        self.loop = LearningLoop(self.store, registry=harness.registry, model_id=harness.model_id)
+        # The harness normally shares tool objects with its parent. Replace only
+        # memory so concurrent children cannot rebind the parent's store.
+        for name, tool in list(harness.tools.items()):
+            if isinstance(tool, (MemoryTool, MemorySearchTool, MemoryGetTool)):
+                harness.tools[name] = type(tool)(tool.workspace, store=self.store)
+
+    async def before_turn(self, **payload: Any) -> None:
+        if not self.should_inject:
             return
-        result = payload.get("result")
-        if result is None:
-            return
-        self.loop.schedule(
-            str(payload.get("task") or ""),
-            result,
-            emit=payload.get("emit"),
-            delay_seconds=LEARNING_IDLE_DELAY_SECONDS,
-        )
+        inject_memory(self.store, payload.get("messages") or [],
+                      limit=self.context_limit, max_chars=self.context_max_chars)
+
+    async def before_run(self, **payload: Any) -> None:
+        self.task = next((text_from_content(m.content) for m in reversed(payload.get("messages") or [])
+                          if isinstance(m, Message) and m.role == "user"), str(payload.get("task") or ""))
+        if self.should_inject:
+            self.loop.resume()
+
+    async def after_turn(self, **payload: Any) -> None:
+        if self.should_inject:
+            capture_memory(self.loop, getattr(self, "task", ""), payload.get("messages") or [])

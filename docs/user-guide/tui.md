@@ -126,7 +126,7 @@ screen uses the parent's thought titles, tool widgets, 10-tool/final-completion
 folding, and usage footer. **Esc** or **q** returns to the parent without
 stopping the child; **Ctrl+X** inside the child screen cancels that child.
 
-Each child has a separate JSONL file under `~/.symphony/sessions/`, linked to
+Each child has a separate directory under `~/.symphony/sessions/`, linked to
 the parent session. Resuming the
 parent restores its child list and transcripts. Closing the app stops its
 background children; after an unclean exit, unfinished saved children appear
@@ -138,3 +138,11 @@ not automatically restart execution.
 </div>
 
 The full command list is on [Slash commands](../reference/slash-commands.md).
+
+## Session archive
+
+`/session` opens the complete session artifact inspector: saved compactions,
+checkpoint and protocol state, memory snapshots and operation history, learning
+records, lifecycle events, child links, and archived image previews. `/learning`
+also displays reusable workspace lessons alongside `MEMORY.md` and `USER.md`.
+See [Sessions](sessions.md) for the directory layout and legacy migration.

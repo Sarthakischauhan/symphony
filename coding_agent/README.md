@@ -57,7 +57,9 @@ print((await agent.run("Fix the failing test")).output_text)
 
 The agent asks before bash, overwrite, or a broad patch. Approval rules live
 in `coding_agent.approvals`; the TUI only renders the question. Sessions
-persist in `~/.symphony/sessions/<session_id>.jsonl` (`--resume`).
+persist in `~/.symphony/sessions/<session_id>/` (`--resume`), with transcripts,
+images, compaction summaries, checkpoints, and memory/learning provenance.
+`/session` inspects the complete archive; legacy flat JSONL sessions migrate on access.
 
 Subagents run in the background by default and return results automatically to
 the parent runtime. Press **Ctrl+G** to inspect their saved or live transcripts,

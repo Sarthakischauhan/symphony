@@ -14,8 +14,9 @@ from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
 from coding_agent.persistence import JsonlPersistence, register_active, release_active, sessions_dir
+from coding_agent.resources.usage import process_alive
 from coding_agent.run.detach import detach
-from coding_agent.run.interrupted import interrupted_session, resume_note, stop_orphaned_jobs
+from coding_agent.run.interrupted import detached_run_pid, interrupted_session, resume_note, stop_orphaned_jobs
 from coding_agent.run.log_sink import LogLineSink
 
 
@@ -73,11 +74,16 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
 
 
 def continue_interrupted(workspace: Path, *, model: Optional[str] = None) -> int:
-    found = asyncio.run(interrupted_session(JsonlPersistence(sessions_dir(workspace))))
+    persistence = JsonlPersistence(sessions_dir(workspace))
+    found = asyncio.run(interrupted_session(persistence))
     if found is None:
         print("nothing to continue: the most recent session was not interrupted mid-run")
         return 0
     summary, checkpoint = found
+    pid = detached_run_pid(persistence, summary.session_id)
+    if pid is not None and process_alive(pid):
+        print(f"refusing to continue: detached run pid {pid} is still alive", file=sys.stderr)
+        return 1
     stopped = stop_orphaned_jobs(checkpoint.metadata.get("background_jobs"))
     print(f"continuing interrupted session {summary.session_id} unattended", flush=True)
     return run_task(workspace, resume_note(summary, checkpoint, stopped), model=model, session_id=summary.session_id)

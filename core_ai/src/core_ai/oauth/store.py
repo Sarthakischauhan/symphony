@@ -14,6 +14,9 @@ _DIR_MODE = 0o700
 
 
 def oauth_dir() -> Path:
+    override = os.environ.get("SYMPHONY_HOME", "").strip()
+    if override:
+        return (Path(override).expanduser() / "oauth").resolve()
     return (Path.home() / ".symphony" / "oauth").expanduser().resolve()
 
 

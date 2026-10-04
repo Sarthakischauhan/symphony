@@ -167,8 +167,12 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
             if not isinstance(request_id, str) or not request_id:
                 write_frame({"type": "error", "message": "command/list requires request_id"})
                 continue
-            write_frame({"type": "commands", "request_id": request_id,
-                         "commands": command_catalog(), "protocol_version": PROTOCOL_VERSION})
+            try:
+                write_frame({"type": "commands", "request_id": request_id,
+                             "commands": command_catalog(workspace), "protocol_version": PROTOCOL_VERSION})
+            except Exception as exc:
+                write_frame({"type": "error", "request_id": request_id,
+                             "message": f"{type(exc).__name__}: {exc}"})
         elif kind == "answer":
             pending = sink.pending.get(command.get("request_id"))
             if pending and not pending.done():
@@ -182,11 +186,21 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
                 write_frame({"type": "error", "message": "prompt is required"})
                 continue
 
-            async def execute(task: str, attachments: Sequence[str]) -> None:
+            effort = command.get("reasoning_effort")
+            async def execute(task: str, attachments: Sequence[str], effort: str | None) -> None:
                 try:
-                    name = task[1:].split(None, 1)[0].lower() if task.startswith("/") else ""
-                    if name in {item["name"] for item in command_catalog()} and not attachments:
-                        result = await execute_command(agent, task)
+                    if effort is not None:
+                        from coding_agent.tui.commands.catalog import EFFORTS
+                        if effort not in EFFORTS:
+                            raise ValueError(f"Unsupported reasoning effort: {effort}")
+                        agent.harness.reasoning_effort = None if effort == "default" else effort
+                    stripped = task.lstrip()
+                    parts = stripped[1:].split(None, 1) if stripped.startswith("/") else []
+                    name = parts[0].lower() if parts else ""
+                    if name in {item["name"] for item in command_catalog()}:
+                        if attachments:
+                            raise ValueError("Slash commands do not accept image attachments")
+                        result = await execute_command(agent, stripped)
                         write_frame({"type": "event", "event": "text_delta", "payload": {"delta": result}})
                     else:
                         await agent.run(user_content(task, attachments))
@@ -201,7 +215,7 @@ async def serve(workspace: Path, model: str | None, session_id: str | None, *, u
             if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
                 write_frame({"type": "error", "message": "attachments must be a list of paths"})
                 continue
-            run = asyncio.create_task(execute(prompt, paths))
+            run = asyncio.create_task(execute(prompt, paths, effort))
         else:
             write_frame({"type": "error", "message": f"invalid command: {kind}"})
 

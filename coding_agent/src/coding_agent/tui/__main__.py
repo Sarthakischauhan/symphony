@@ -65,6 +65,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in {"--version", "-V"}:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            value = version("symphony-code")
+        except PackageNotFoundError:
+            value = "unknown"
+        print(f"symphony {value}")
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "stdio":
+        from coding_agent.protocols.stdio import main as stdio_main
+
+        raise SystemExit(stdio_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "bench":
         from coding_agent.bench.cli import main as bench_main
 

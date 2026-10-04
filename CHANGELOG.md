@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Replaced legacy Markdown memory and idle reflection with durable per-turn
+  capture jobs, candidate observation inboxes, deduplicated workspace/global
+  topics, and SQLite FTS5/BM25 recall. Automatic pre-model retrieval shares
+  bounded recent-context/preference injection across parent and child turns.
+  Added `memory_search`, `memory_get`, and Session/Global memory UI tabs; queued jobs survive
+  shutdown. Old memory files are ignored rather than silently migrated.
+
+- Sessions now own `~/.symphony/sessions/<session_id>/` bundles containing the
+  append-only transcript, versioned metadata, checkpoints, content-addressed
+  images, compaction history, memory operations and snapshots, session learning
+  provenance, stdio state, and detached-run files. Legacy flat transcripts remain
+  readable and migrate on access. `/session` inspects these artifacts in the
+  TUI and stdio; `/learning` also displays workspace lessons.
+
 - Sessions a live Symphony process still owns are recorded under
   `~/.symphony/active` and left out of `symphony --resume`. The picker only
   lists closed conversations. `/dashboard` opens a subagent-style list of

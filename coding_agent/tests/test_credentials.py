@@ -154,3 +154,17 @@ def test_load_provider_env_reads_global_when_workspace_missing(
 
     assert os.environ["OPENAI_API_KEY"] == "from-global"
     assert not workspace_env_path(tmp_path).exists()
+
+
+def test_reload_updates_file_values_but_preserves_process_overrides(tmp_path, monkeypatch):
+    import coding_agent.credentials as credentials
+    monkeypatch.setattr(credentials, "_LOADED_ENV", {})
+    path = tmp_path / ".env"
+    path.write_text("OPENAI_API_KEY=first\nANTHROPIC_API_KEY=file\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "process")
+    load_provider_env(tmp_path)
+    assert os.environ["OPENAI_API_KEY"] == "first"
+    path.write_text("OPENAI_API_KEY=second\nANTHROPIC_API_KEY=changed\n")
+    load_provider_env(tmp_path, reload=True)
+    assert os.environ["OPENAI_API_KEY"] == "second"
+    assert os.environ["ANTHROPIC_API_KEY"] == "process"

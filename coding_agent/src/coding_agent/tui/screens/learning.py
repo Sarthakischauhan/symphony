@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.console import Group
 from rich.text import Text
 from textual.containers import Container, Horizontal
-from textual.widgets import Static
+from textual.widgets import Static, TabbedContent, TabPane
 
 from coding_agent.learning import LearningStore, Lesson
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
@@ -65,33 +65,49 @@ class LearningCard(Container):
 
 # --- learning.py ---
 class LearningModal(ModalBase[None]):
-    """Fullscreen modal showing stored learnings as scannable cards."""
+    """Memory inspector separating current-session provenance from global facts."""
 
     CSS = LEARNING_MODAL_CSS
 
-    def __init__(self, workspace: Path) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        session_id: str | None = None,
+        store: LearningStore | None = None,
+    ) -> None:
         super().__init__()
         self.workspace = workspace
+        self.session_id = session_id
+        self.store = store
 
     def compose(self):  # type: ignore[no-untyped-def]
-        store = LearningStore(self.workspace)
-        memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
-        user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
+        store = self.store or LearningStore(self.workspace, session_id=self.session_id)
+        session = self.session_id or store.session_id
+        self.store = store
         with Container(id="learning-pane", classes="modal-pane"):
             with Horizontal(id="learning-header"):
                 yield Static("learning", id="learning-title")
                 yield Static(
-                    "durable memory",
+                    f"session {session[:8]}" if session else "no active session",
                     id="learning-counter",
                 )
                 yield ModalCloseButton("esc  close", id="modal-close")
-            with ModalScroll(id="learning-body", classes="modal-body"):
-                yield Static("MEMORY.md", classes="learning-section")
-                yield Static(memory or "(empty)", classes="learning-content")
-                yield Static("USER.md", classes="learning-section")
-                yield Static(user or "(empty)", classes="learning-content")
+            with TabbedContent(initial="memory-session", id="learning-tabs"):
+                with TabPane("Session", id="memory-session"):
+                    with ModalScroll(id="session-memory-body", classes="modal-body"):
+                        yield Static(
+                            store.scoped_markdown("session", session_id=session),
+                            id="session-memory-content", classes="learning-content", markup=False,
+                        )
+                with TabPane("Global", id="memory-global"):
+                    with ModalScroll(id="global-memory-body", classes="modal-body"):
+                        yield Static(
+                            store.scoped_markdown("global"),
+                            id="global-memory-content", classes="learning-content", markup=False,
+                        )
             yield Static(
-                "↑↓ scroll   ·   Esc close",
+                "click tabs to switch   ·   ↑↓ scroll   ·   Esc close",
                 id="learning-hint",
                 classes="modal-footer",
             )

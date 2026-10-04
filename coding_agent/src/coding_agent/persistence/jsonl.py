@@ -1,6 +1,6 @@
 """JSONL persistence for coding-agent sessions.
 
-One append-only file per session under ``.sessions/<session_id>.jsonl``.
+One append-only transcript per session under ``<root>/<session_id>/transcript.jsonl``.
 The transcript is the source of truth: conversation messages are stored as
 typed events and compaction stores a snapshot event. Runtime context is
 reconstructed from those events; no separate context file is written.
@@ -8,15 +8,21 @@ reconstructed from those events; no separate context file is written.
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import json
+import os
 import re
 import shutil
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Union
 
+from coding_agent.persistence.artifacts import append_bytes, publish, safe_path, snapshot
+from coding_agent.persistence.images import archive, hydrate
 from core_ai.content import text_from_content
 from core_ai.types import Message
 from core_harness import Checkpoint
@@ -50,11 +56,11 @@ def sessions_dir(workspace: Union[str, Path] | None = None) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     if workspace is not None:
         legacy = Path(workspace).expanduser().resolve() / ".sessions"
-        if legacy.is_dir() and legacy != target:
+        if legacy.is_dir() and not legacy.is_symlink() and legacy != target:
             try:
                 for source in legacy.iterdir():
                     destination = target / source.name
-                    if source.is_file() and not destination.exists():
+                    if source.is_file() and not source.is_symlink() and not destination.exists() and not destination.is_symlink():
                         shutil.move(str(source), str(destination))
                 if not any(legacy.iterdir()):
                     legacy.rmdir()
@@ -83,23 +89,244 @@ class JsonlPersistence:
         self._lock = threading.Lock()
         self._event_keys: Dict[str, set[tuple[str, int]]] = {}
         self._entries: Dict[str, List[Dict[str, Any]]] = {}
+        self._marks: Dict[str, int] = {}
+        self._held: Dict[str, list[int]] = {}
         # Product fields (goal, todo, live background jobs) merged into every
         # checkpoint so an interrupted run can be continued later.
         self.checkpoint_metadata: Callable[[], Dict[str, Any]] = dict
 
-    def _path(self, session_id: str) -> Path:
-        if not _SESSION_ID.match(session_id):
+    def session_dir(self, session_id: str) -> Path:
+        """Return a validated session artifact directory (without creating it)."""
+        if session_id in {".", ".."} or not _SESSION_ID.fullmatch(session_id):
             raise ValueError(f"invalid session_id: {session_id!r}")
-        return self.root / f"{session_id}.jsonl"
+        return safe_path(self.root, session_id)
 
-    def _read_entries(self, session_id: str) -> List[Dict[str, Any]]:
-        cached = self._entries.get(session_id)
-        if cached is not None:
-            return cached
+    def _path(self, session_id: str) -> Path:
+        return safe_path(self.session_dir(session_id), "transcript.jsonl")
+
+    def _acquire_session(self, session_id: str) -> None:
+        held = self._held.get(session_id)
+        if held is not None:
+            held[1] += 1
+            return
+        directory = self.session_dir(session_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        lock_path = safe_path(directory, ".lock")
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except BaseException:
+            os.close(fd)
+            raise
+        self._held[session_id] = [fd, 1]
+
+    def _release_session(self, session_id: str) -> None:
+        held = self._held[session_id]
+        held[1] -= 1
+        if held[1] == 0:
+            fd = held[0]
+            del self._held[session_id]
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+    @contextmanager
+    def _session_lock(self, session_id: str) -> Iterator[None]:
+        """Exclusive cross-process lock for migrate and append."""
+        self._acquire_session(session_id)
+        try:
+            yield
+        finally:
+            self._release_session(session_id)
+
+    def _metadata_path(self, session_id: str) -> Path:
+        return safe_path(self.session_dir(session_id), "metadata.json")
+
+    def _read_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
+        path = self._metadata_path(session_id)
+        if not path.exists():
+            return None
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"session bundle metadata unreadable: {session_id}") from exc
+        if not isinstance(saved, dict):
+            raise ValueError(f"session bundle metadata unreadable: {session_id}")
+        return saved
+
+    def _require_version(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Refuse a bundle whose version is missing or not 1."""
+        meta = self._read_metadata(session_id)
+        transcript = self._path(session_id)
+        has_body = transcript.is_file() and not transcript.is_symlink() and transcript.stat().st_size > 0
+        if meta is None:
+            if has_body:
+                raise ValueError(f"session bundle version missing: {session_id}")
+            return None
+        if meta.get("version") != 1:
+            raise ValueError(f"unsupported session bundle version: {meta.get('version')!r}")
+        return meta
+
+    def _write_metadata(self, session_id: str, metadata: Dict[str, Any]) -> None:
+        snapshot(self._metadata_path(session_id), {**metadata, "version": 1, "session_id": session_id})
+
+    def _ensure_metadata(self, session_id: str) -> Dict[str, Any]:
+        meta = self._require_version(session_id)
+        if meta is not None:
+            return meta
+        created = _utc_now()
+        meta = {"version": 1, "session_id": session_id, "created_at": created, "updated_at": created}
+        self._write_metadata(session_id, meta)
+        return meta
+
+    def _legacy_path(self, session_id: str) -> Path:
+        return safe_path(self.root, f"{session_id}.jsonl")
+
+    def _mark(self, path: Path) -> int:
+        if not path.is_file() or path.is_symlink():
+            return -1
+        return path.stat().st_size
+
+    @staticmethod
+    def _parse_legacy(raw: bytes) -> tuple[int, List[Dict[str, Any]]]:
+        skipped = 0
+        entries: List[Dict[str, Any]] = []
+        for raw_line in raw.decode("utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                skipped += 1
+                continue
+            if isinstance(item, dict):
+                entries.append(item)
+            else:
+                skipped += 1
+        return skipped, entries
+
+    @staticmethod
+    def _strip_imported_jobs(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Drop background job pids that arrived in an unvalidated legacy file."""
+        if entry.get("type") != "checkpoint":
+            return entry
+        metadata = entry.get("metadata")
+        if not isinstance(metadata, dict) or "background_jobs" not in metadata:
+            return entry
+        return {**entry, "metadata": {key: value for key, value in metadata.items() if key != "background_jobs"}}
+
+    def _quarantine_legacy(self, session_id: str, raw: bytes, skipped: int) -> None:
+        digest = hashlib.sha256(raw).hexdigest()
+        dest = safe_path(self.session_dir(session_id), "quarantine", f"{digest}.jsonl")
+        if not dest.is_file():
+            publish(dest, raw)
+        meta = self._read_metadata(session_id) or {
+            "version": 1, "session_id": session_id, "created_at": _utc_now(),
+        }
+        meta["quarantine"] = {"sha256": digest, "skipped_lines": skipped, "bytes": len(raw)}
+        self._write_metadata(session_id, meta)
+
+    def _remember_legacy(self, session_id: str, raw: bytes) -> None:
+        meta = self._ensure_metadata(session_id)
+        meta["legacy_import"] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+        self._write_metadata(session_id, meta)
+
+    @staticmethod
+    def _entry_key(entry: Dict[str, Any]) -> tuple[Any, ...]:
+        seq = entry.get("seq")
+        if isinstance(seq, int) and not isinstance(seq, bool):
+            return ("seq", entry.get("type"), seq)
+        return ("json", json.dumps(entry, sort_keys=True, ensure_ascii=False))
+
+    def _encode(self, entries: List[Dict[str, Any]]) -> bytes:
+        return "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in entries).encode("utf-8")
+
+    def _publish_transcript(self, session_id: str, entries: List[Dict[str, Any]]) -> None:
+        """Publish a transcript only while it is still empty. Never replace appended bytes."""
         path = self._path(session_id)
-        if not path.is_file():
-            self._entries[session_id] = []
-            return self._entries[session_id]
+        if path.is_symlink():
+            raise ValueError(f"unsafe artifact symlink: {path}")
+        if path.is_file() and path.stat().st_size > 0:
+            return
+        self._ensure_metadata(session_id)
+        publish(path, self._encode(entries))
+        self._entries.pop(session_id, None)
+        self._marks.pop(session_id, None)
+
+    def _sync_legacy(self, session_id: str) -> None:
+        """Fold a newer flat JSONL into the bundle. Do not replace an appended transcript."""
+        legacy = self._legacy_path(session_id)
+        if not legacy.exists():
+            return
+        if legacy.is_symlink() or not legacy.is_file():
+            return
+        raw = legacy.read_bytes()
+        path = self._path(session_id)
+        transcript_size = path.stat().st_size if path.is_file() and not path.is_symlink() else 0
+        meta = self._read_metadata(session_id)
+        if transcript_size > 0:
+            if meta is None or meta.get("version") != 1:
+                raise ValueError(
+                    f"session bundle version missing: {session_id}" if meta is None
+                    else f"unsupported session bundle version: {meta.get('version')!r}"
+                )
+        recorded = meta.get("legacy_import") if isinstance(meta, dict) else None
+        if not isinstance(recorded, dict) or not isinstance(recorded.get("bytes"), int):
+            if transcript_size <= 0:
+                self._import_legacy_bytes(session_id, raw, raw)
+            elif legacy.stat().st_mtime > path.stat().st_mtime:
+                self._import_legacy_bytes(session_id, raw, raw, only_missing=True)
+            else:
+                self._remember_legacy(session_id, raw)
+            return
+        cursor = recorded["bytes"]
+        if cursor < 0 or cursor > len(raw):
+            self._note_rejected_legacy(session_id, raw)
+            return
+        prefix = raw[:cursor]
+        if hashlib.sha256(prefix).hexdigest() != recorded.get("sha256"):
+            self._note_rejected_legacy(session_id, raw)
+            return
+        if len(raw) == cursor:
+            return
+        self._import_legacy_bytes(session_id, raw, raw[cursor:])
+
+    def _note_rejected_legacy(self, session_id: str, raw: bytes) -> None:
+        skipped, _entries = self._parse_legacy(raw)
+        if skipped:
+            self._quarantine_legacy(session_id, raw, skipped)
+        digest = hashlib.sha256(raw).hexdigest()
+        meta = self._ensure_metadata(session_id)
+        legacy_import = dict(meta.get("legacy_import") or {})
+        legacy_import["rejected_sha256"] = digest
+        meta["legacy_import"] = legacy_import
+        self._write_metadata(session_id, meta)
+
+    def _import_legacy_bytes(
+        self, session_id: str, raw: bytes, chunk: bytes, *, only_missing: bool = False
+    ) -> None:
+        skipped, entries = self._parse_legacy(chunk)
+        if skipped:
+            self._quarantine_legacy(session_id, raw, skipped)
+            entries = [self._strip_imported_jobs(entry) for entry in entries]
+        entries = archive(entries, self.session_dir(session_id))
+        path = self._path(session_id)
+        transcript_size = path.stat().st_size if path.is_file() and not path.is_symlink() else 0
+        if transcript_size <= 0 and not only_missing:
+            self._publish_transcript(session_id, entries)
+        elif entries:
+            if only_missing:
+                existing = {self._entry_key(entry) for entry in self._load_transcript(path)}
+                entries = [entry for entry in entries if self._entry_key(entry) not in existing]
+            if entries:
+                self._append_entries(session_id, entries)
+        self._remember_legacy(session_id, raw)
+
+    def _load_transcript(self, path: Path) -> List[Dict[str, Any]]:
+        if not path.is_file() or path.is_symlink():
+            return []
         entries: List[Dict[str, Any]] = []
         with path.open(encoding="utf-8") as handle:
             for raw in handle:
@@ -112,18 +339,58 @@ class JsonlPersistence:
                     continue
                 if isinstance(item, dict):
                     entries.append(item)
-        self._entries[session_id] = entries
         return entries
+
+    def _artifacts(
+        self, session_id: str, entries: List[Dict[str, Any]], *, updated: bool = True
+    ) -> None:
+        metadata = self._require_version(session_id) or {}
+        directory = self.session_dir(session_id)
+        created = next((item.get("created_at") for item in entries
+                        if item.get("type") == "header"), None) or _utc_now()
+        self._write_metadata(session_id, {
+            **metadata, "version": 1, "session_id": session_id,
+            "created_at": metadata.get("created_at") or created,
+            "updated_at": _utc_now() if updated else metadata.get("updated_at", created),
+        })
+        for entry in entries:
+            if entry.get("type") in {"compaction", "compacted"}:
+                seq = entry.get("seq", 0)
+                if isinstance(seq, bool) or not isinstance(seq, int):
+                    continue
+                snapshot(safe_path(directory, "compactions", f"{seq}.json"), {**entry, "version": 1})
+            elif entry.get("type") == "checkpoint":
+                snapshot(safe_path(directory, "checkpoint.json"),
+                         {key: value for key, value in {**entry, "version": 1}.items()
+                          if key != "messages"})
+
+    def _read_entries(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._session_lock(session_id):
+            self._sync_legacy(session_id)
+            self._require_version(session_id)
+            path = self._path(session_id)
+            mark = self._mark(path)
+            entries = self._load_transcript(path) if mark >= 0 else []
+            if mark >= 0:
+                self._artifacts(session_id, entries, updated=False)
+            self._entries[session_id] = entries
+            self._marks[session_id] = mark
+            return entries
 
     def _append_entries(self, session_id: str, entries: List[Dict[str, Any]]) -> None:
         if not entries:
             return
-        path = self._path(session_id)
-        with path.open("a", encoding="utf-8") as handle:
-            for entry in entries:
-                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        cached = self._entries.setdefault(session_id, [])
-        cached.extend(entries)
+        with self._session_lock(session_id):
+            self._ensure_metadata(session_id)
+            path = self._path(session_id)
+            mark = self._mark(path)
+            if session_id not in self._entries or self._marks.get(session_id) != mark:
+                self._entries[session_id] = self._load_transcript(path) if mark >= 0 else []
+            entries = archive(entries, self.session_dir(session_id))
+            append_bytes(path, self._encode(entries))
+            self._entries[session_id].extend(entries)
+            self._marks[session_id] = path.stat().st_size
+            self._artifacts(session_id, entries)
 
     def _next_seq(self, entries: List[Dict[str, Any]]) -> int:
         return max((int(entry.get("seq", 0)) for entry in entries if str(entry.get("seq", "0")).isdigit()), default=0) + 1
@@ -242,7 +509,7 @@ class JsonlPersistence:
         session_id = str(payload.get("session_id") or "")
         if not session_id:
             return
-        with self._lock:
+        with self._lock, self._session_lock(session_id):
             entries = self._read_entries(session_id)
             keys = self._remember_event_keys(session_id, entries)
             run_id = payload.get("run_id")
@@ -322,7 +589,7 @@ class JsonlPersistence:
         """
         if not session_id:
             return []
-        with self._lock:
+        with self._lock, self._session_lock(session_id):
             entries = self._read_entries(session_id)
             return self._append_collection_overlays(
                 session_id, entries, run_id=run_id, keys=keys
@@ -389,7 +656,8 @@ class JsonlPersistence:
     async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
         with self._lock:
             entries = self._read_entries(session_id)
-        return apply_collection(self._journal_events(entries))
+        return apply_collection([(kind, hydrate(payload, self.session_dir(session_id)))
+                                 for kind, payload in self._journal_events(entries)])
 
     async def load_children(self, *, parent_session_id: str) -> list[dict[str, Any]]:
         with self._lock:
@@ -426,9 +694,10 @@ class JsonlPersistence:
         session_id: str,
         messages: List[Message],
     ) -> None:
-        incoming = [self._message_payload(message) for message in messages]
-        with self._lock:
+        with self._lock, self._session_lock(session_id):
             entries = self._read_entries(session_id)
+            incoming = archive([self._message_payload(message) for message in messages],
+                               self.session_dir(session_id))
             stored = [self._canonical_payload(item) for item in self._messages_from(entries)]
             if not entries:
                 header = self._header(session_id)
@@ -477,6 +746,7 @@ class JsonlPersistence:
             next_seq = self._next_seq(entries)
             boundary = {
                 "type": "compaction",
+                "version": 1,
                 "seq": next_seq,
                 "through_seq": previous_seq,
                 "summary": summary,
@@ -494,24 +764,38 @@ class JsonlPersistence:
         """Load the reconstructed model context (runtime view)."""
         with self._lock:
             entries = self._read_entries(session_id)
-        return [Message.model_validate(payload) for payload in self._messages_from(entries)]
+        return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._messages_from(entries)]
 
     async def load_transcript(self, *, session_id: str) -> List[Message]:
         """Load the complete persisted transcript for the TUI/history view."""
         with self._lock:
             entries = self._read_entries(session_id)
-        return [Message.model_validate(payload) for payload in self._transcript_messages(entries)]
+        return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._transcript_messages(entries)]
 
     async def list_sessions(self) -> List[SessionSummary]:
         """List parent sessions, newest first. Child session files are omitted."""
         with self._lock:
             child_ids: set[str] = set()
             summaries: List[tuple[float, SessionSummary]] = []
-            for path in self.root.glob("*.jsonl"):
-                if path.name.endswith(".jsonl.tmp"):
+            paths: Dict[str, Path] = {}
+            for candidate in self.root.iterdir():
+                if candidate.is_symlink():
                     continue
-                session_id = path.stem
-                if not _SESSION_ID.match(session_id):
+                if candidate.is_file() and candidate.name.endswith(".jsonl") and not candidate.name.endswith(".tmp"):
+                    paths.setdefault(candidate.name[: -len(".jsonl")], candidate)
+                elif candidate.is_dir():
+                    transcript = candidate / "transcript.jsonl"
+                    if transcript.is_file() and not transcript.is_symlink():
+                        paths[candidate.name] = transcript
+            for session_id, path in paths.items():
+                if session_id in {".", ".."} or not _SESSION_ID.fullmatch(session_id):
+                    continue
+                if not path.is_file() or path.is_symlink():
+                    continue
+                try:
+                    self.session_dir(session_id)
+                    safe_path(self.root, str(path.relative_to(self.root)))
+                except ValueError:
                     continue
                 # The picker only needs file metadata and the first user
                 # message. Do not decode every JSON object in large transcripts.
@@ -564,12 +848,12 @@ class JsonlPersistence:
         payload = checkpoint.model_dump()
         payload.pop("messages", None)
         payload["metadata"] = {**self.checkpoint_metadata(), **payload["metadata"]}
-        with self._lock:
+        with self._lock, self._session_lock(checkpoint.session_id):
             entries = self._read_entries(checkpoint.session_id)
             outgoing: List[Dict[str, Any]] = []
             if not entries:
                 outgoing.append(self._header(checkpoint.session_id))
-            outgoing.append({"type": "checkpoint", **payload})
+            outgoing.append({"type": "checkpoint", "version": 1, **payload})
             self._append_entries(checkpoint.session_id, outgoing)
 
     async def load_checkpoint(self, *, session_id: str) -> Optional[Checkpoint]:
@@ -581,9 +865,16 @@ class JsonlPersistence:
                 latest = entry
         if latest is None:
             return None
-        payload = {key: value for key, value in latest.items() if key != "type"}
+        payload = hydrate({key: value for key, value in latest.items() if key != "type"}, self.session_dir(session_id))
         payload.setdefault("session_id", session_id)
         payload["messages"] = [
-            Message.model_validate(message) for message in self._messages_from(entries)
+            Message.model_validate(hydrate(message, self.session_dir(session_id))) for message in self._messages_from(entries)
         ]
         return Checkpoint.model_validate(payload)
+
+    async def load_compactions(self, session_id: str) -> List[Dict[str, Any]]:
+        """Return compaction boundaries in transcript order, with hydrated content."""
+        with self._lock:
+            entries = self._read_entries(session_id)
+            return [hydrate(entry, self.session_dir(session_id)) for entry in entries
+                    if entry.get("type") in {"compaction", "compacted"}]

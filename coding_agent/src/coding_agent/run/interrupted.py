@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 from typing import Optional
@@ -9,6 +10,7 @@ from typing import Optional
 from core_harness import Checkpoint
 
 from coding_agent.persistence import JsonlPersistence, SessionSummary
+from coding_agent.persistence.artifacts import safe_path
 
 
 async def interrupted_session(persistence: JsonlPersistence) -> Optional[tuple[SessionSummary, Checkpoint]]:
@@ -20,6 +22,26 @@ async def interrupted_session(persistence: JsonlPersistence) -> Optional[tuple[S
     if checkpoint is None or checkpoint.status != "running":
         return None
     return sessions[0], checkpoint
+
+
+def detached_run_pid(persistence: JsonlPersistence, session_id: str) -> Optional[int]:
+    """Pid recorded for a detached run, if run.json has one."""
+    try:
+        path = safe_path(persistence.session_dir(session_id), "run.json")
+    except ValueError:
+        return None
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    pid = payload.get("pid")
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
+        return None
+    return pid
 
 
 def stop_orphaned_jobs(jobs: object) -> list[str]:

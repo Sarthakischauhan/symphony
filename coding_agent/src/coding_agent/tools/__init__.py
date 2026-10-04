@@ -12,6 +12,8 @@ from coding_agent.tools.bash import BashArgs, BashTool
 from coding_agent.tools.bash_jobs import BashJobs
 from coding_agent.tools.generate_image import GenerateImageArgs, GenerateImageTool
 from coding_agent.tools.memory import MemoryArgs, MemoryTool
+from coding_agent.tools.memory_search import MemorySearchTool
+from coding_agent.tools.memory_get import MemoryGetTool
 from coding_agent.tools.patch import PatchArgs, PatchTool
 from coding_agent.tools.enter_plan_mode import EnterPlanModeTool
 from coding_agent.tools.exit_plan_mode import ExitPlanModeTool
@@ -24,6 +26,8 @@ TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
     WriteFileTool,
     GenerateImageTool,
     MemoryTool,
+    MemorySearchTool,
+    MemoryGetTool,
     PatchTool,
     BashTool,
     SearchTool,
@@ -45,6 +49,7 @@ def build_tools(
     learning_enabled: bool = False,
     unattended: bool = False,
     bash_jobs: BashJobs | None = None,
+    learning_store: object | None = None,
 ) -> List[Tool]:
     tools_config = config or ToolsConfig()
     configured = {
@@ -52,9 +57,12 @@ def build_tools(
         BashTool: {"config": tools_config.bash, "jobs": bash_jobs},
         ReadFileTool: {"config": tools_config.read_file},
         SearchTool: {"config": tools_config.search},
+        MemoryTool: {"store": learning_store},
+        MemorySearchTool: {"store": learning_store},
+        MemoryGetTool: {"store": learning_store},
     }
     classes = TOOL_CLASSES if learning_enabled else tuple(
-        tool for tool in TOOL_CLASSES if tool is not MemoryTool
+        tool for tool in TOOL_CLASSES if tool not in {MemoryTool, MemorySearchTool, MemoryGetTool}
     )
     return [
         tool_class(workspace, **configured.get(tool_class, {})).as_harness_tool()

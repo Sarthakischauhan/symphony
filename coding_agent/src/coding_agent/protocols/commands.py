@@ -9,12 +9,44 @@ from typing import Any
 
 from coding_agent.config import ensure_spawn_settings, symphony_dir
 from coding_agent.personalities import load_personalities
-from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS
+from coding_agent.persistence.jsonl import JsonlPersistence
+from coding_agent.persistence.artifacts import publish, safe_path
+from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
 
 
-def catalog() -> list[dict[str, str]]:
+def catalog(workspace: Path | None = None) -> list[dict[str, Any]]:
+    choices = {
+        "personality": [
+            {"value": item.id, "label": item.name, "description": item.description or ""}
+            for item in load_personalities()
+        ],
+        "mode": [{"value": item.id, "label": item.label, "description": item.description} for item in MODE_CATALOG],
+        "effort": [{"value": item.id, "label": item.label, "description": item.description} for item in EFFORT_CATALOG],
+        "jev": [{"value": value, "label": value.title(), "description": description} for value, description in
+                [("on", "Enable the finish rule"), ("off", "Disable the finish rule"), ("toggle", "Toggle the finish rule")]],
+    }
+    descriptions = {
+        "provider": "Show provider setup instructions",
+        "langfuse": "Show telemetry setup instructions",
+        "clear": "Show how to clear the transcript in Zeron",
+        "quit": "Show how to exit Zeron",
+        "dashboard": "List active Symphony agents",
+        "reload": "Reload configuration and environment for the live agent",
+    }
+    if workspace is not None:
+        from coding_agent.plan import PlanStore
+        root = Path(workspace).resolve()
+        plans = []
+        for path in PlanStore(root).list_paths():
+            try:
+                value = str(path.resolve().relative_to(root))
+            except ValueError:
+                continue
+            plans.append({"value": value, "label": path.stem, "description": "Saved workspace plan"})
+        choices["plans"] = plans
     return [
-        {"name": item.name, "description": item.description, "inputHint": item.argument}
+        {"name": item.name, "description": descriptions.get(item.name, item.description),
+         "inputHint": item.argument, "options": choices.get(item.name, [])}
         for item in SLASH_COMMANDS
     ]
 
@@ -26,9 +58,31 @@ def _state_path(session_id: str) -> Path:
     return symphony_dir() / "protocols" / f"{uuid.UUID(session_id)}.json"
 
 
+def _agent_state_path(agent: Any) -> Path:
+    try:
+        persistence = agent.persistence
+    except AttributeError:
+        return _state_path(agent.session_id)
+    if not isinstance(persistence, JsonlPersistence):
+        return _state_path(agent.session_id)
+
+    path = safe_path(persistence.session_dir(agent.session_id), "state.json")
+    if not path.exists():
+        try:
+            legacy = _state_path(agent.session_id)
+        except ValueError:
+            # JSONL sessions also support non-UUID identifiers.
+            return path
+        if legacy.is_file():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            publish(path, legacy.read_bytes())
+            legacy.unlink()
+    return path
+
+
 def load_state(agent: Any) -> None:
     try:
-        path = _state_path(agent.session_id)
+        path = _agent_state_path(agent)
     except ValueError:
         return
     if not path.exists():
@@ -43,11 +97,11 @@ def load_state(agent: Any) -> None:
 
 
 def _save_state(agent: Any, **changes: str) -> None:
-    path = _state_path(agent.session_id)
+    path = _agent_state_path(agent)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     data.update(changes)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    publish(path, (json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
 
 def _git_diff(workspace: Path) -> str:
@@ -60,8 +114,9 @@ def _git_diff(workspace: Path) -> str:
 
 async def execute(agent: Any, value: str) -> str:
     """Execute a command without sending it to a model."""
-    command, _, argument = value[1:].partition(" ")
-    command, argument = command.lower(), argument.strip()
+    parts = value.strip()[1:].split(None, 1)
+    command = parts[0].lower() if parts else ""
+    argument = parts[1].strip() if len(parts) > 1 else ""
     if command in {"help"}:
         return "\n".join(f"{item.usage} — {item.description}" for item in SLASH_COMMANDS)
     if command == "status":
@@ -70,6 +125,10 @@ async def execute(agent: Any, value: str) -> str:
             f"Mode: {agent.mode}\nPersonality: {agent.config.personality}\n"
             f"Effort: {agent.harness.reasoning_effort or 'default'}"
         )
+    if command == "session":
+        from coding_agent.persistence.presentation import session_report
+
+        return await session_report(agent)
     if command == "context":
         report = await agent.context_report()
         return str(report)
@@ -90,7 +149,7 @@ async def execute(agent: Any, value: str) -> str:
             return f"Current effort: {agent.harness.reasoning_effort or 'default'}. Options: {', '.join(EFFORTS)}."
         if argument.lower() not in EFFORTS:
             return f"Unknown effort. Options: {', '.join(EFFORTS)}."
-        agent.harness.reasoning_effort = None if argument == "default" else argument.lower()
+        agent.harness.reasoning_effort = None if argument.lower() == "default" else argument.lower()
         _save_state(agent, effort=argument.lower())
         return f"Reasoning effort: {argument.lower()}."
     if command == "personality":
@@ -109,7 +168,7 @@ async def execute(agent: Any, value: str) -> str:
         else:
             enabled = value not in {"off", "false", "disable", "0"}
         settings: dict[str, Any] = {"enabled": enabled}
-        if argument and value not in {"on", "enable", "true", "1", "off", "false", "disable", "0"}:
+        if argument and value not in {"on", "enable", "true", "1", "off", "false", "disable", "0", "toggle"}:
             settings["rule"] = argument
         agent.config = ensure_spawn_settings(agent.workspace, overrides={"evaluation": settings})
         agent.apply_system_prompt()
@@ -126,9 +185,16 @@ async def execute(agent: Any, value: str) -> str:
         paths = agent.plan_store.list_paths()
         return "\n".join(str(path.relative_to(agent.workspace)) for path in paths) or "No saved plans."
     if command == "learning":
-        from coding_agent.learning.store import LearningStore
+        try:
+            store = agent.learning_store
+        except AttributeError:
+            store = None
+        if store is None:
+            from coding_agent.learning.store import LearningStore
 
-        return LearningStore(agent.workspace).to_markdown()
+            # Lightweight protocol hosts/tests may not expose the agent's store.
+            store = LearningStore(agent.workspace)
+        return store.to_markdown()
     if command == "installed":
         skills = [item.name for item in agent.skill_registry.skills]
         plugins = [str(getattr(item, "name", item)) for item in agent.loaded_plugins]
@@ -140,11 +206,16 @@ async def execute(agent: Any, value: str) -> str:
         entries = sorted(root.iterdir()) if root.exists() else []
         return "\n".join(path.name for path in entries) or "No active agents."
     if command == "reload":
-        return "Symphony reloads its configuration each time Zeron starts a turn."
+        from coding_agent.credentials import load_provider_env
+
+        load_provider_env(agent.workspace, reload=True)
+        agent.config = ensure_spawn_settings(agent.workspace)
+        agent.apply_system_prompt()
+        return "Reloaded Symphony configuration and environment for this session."
     if command == "provider":
         return "Configure a provider with its API key in Symphony's environment, then use /model."
     if command == "langfuse":
-        return "Configure Langfuse credentials in ~/.symphony/.env; Symphony loads them on the next turn."
+        return "Configure Langfuse credentials in Symphony's .env, then restart the session to initialize telemetry."
     if command == "new":
         return "Use Zeron's /zeron:new to open a fresh conversation."
     if command == "clear":

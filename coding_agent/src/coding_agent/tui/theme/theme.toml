@@ -1292,7 +1292,21 @@ LearningModal {
     background: #171b1c;
 }
 
-#learning-body {
+#learning-tabs {
+    height: 1fr;
+    background: #0A0A0A;
+}
+
+#learning-tabs ContentSwitcher {
+    height: 1fr;
+}
+
+#learning-tabs TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
+#session-memory-body, #global-memory-body {
     height: 1fr;
     padding: 0;
     background: #0A0A0A;
@@ -1303,6 +1317,24 @@ LearningModal {
     height: 2;
     content-align: center middle;
     color: #737b7f;
+    background: #0A0A0A;
+}
+
+.learning-section {
+    width: 100%;
+    height: auto;
+    margin: 1 1 0 1;
+    color: #8eafc2;
+    text-style: bold;
+    background: #0A0A0A;
+}
+
+.learning-content {
+    width: 100%;
+    height: auto;
+    margin: 0 1 1 1;
+    padding: 0 1;
+    color: #bdbdbd;
     background: #0A0A0A;
 }
 

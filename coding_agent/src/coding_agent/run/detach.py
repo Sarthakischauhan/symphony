@@ -9,14 +9,16 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from coding_agent.persistence import sessions_dir
+from coding_agent.persistence import JsonlPersistence, sessions_dir
+from coding_agent.persistence.artifacts import publish
 
 
 def detach(run_argv: list[str], workspace: Path) -> int:
-    """Re-exec ``run`` minus ``--detach`` with a pre-generated session id; write ``<sid>.run.json``."""
+    """Re-exec ``run`` minus ``--detach`` with a pre-generated session id; write ``<sid>/run.json``."""
     session_id = str(uuid.uuid4())
-    root = sessions_dir(workspace)
-    log_path = root / f"{session_id}.run.log"
+    root = JsonlPersistence(sessions_dir(workspace)).session_dir(session_id)
+    root.mkdir(parents=True, exist_ok=True)
+    log_path = root / "run.log"
     command = [sys.executable, "-m", "coding_agent.tui", "run", *run_argv, "--session-id", session_id]
     with log_path.open("ab") as log:
         proc = subprocess.Popen(
@@ -30,6 +32,6 @@ def detach(run_argv: list[str], workspace: Path) -> int:
         "argv": command,
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    (root / f"{session_id}.run.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    publish(root / "run.json", (json.dumps(info, indent=2) + "\n").encode("utf-8"))
     print(f"pid {proc.pid}\nlog {log_path}\nsession {session_id}")
     return 0

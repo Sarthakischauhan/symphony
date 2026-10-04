@@ -93,14 +93,14 @@ agent your shell:
   --continue` always continues **unattended**, even when the interrupted session
   was an interactive one. `run --detach` leaves a process in its own session
   with no controlling terminal; stop it with `kill <pid>` (pid in
-  `~/.symphony/sessions/<sid>.run.json`).
+  `~/.symphony/sessions/<sid>/run.json`).
 - This is **not a sandbox**. Run unattended work in a container or VM if the
   workspace or machine matters.
 
 Plan mode is a gated planning phase, not a sandbox: `bash` is allowed and shell
 writes are not scanned. Its tool gate blocks `write_file` and `patch` except for
 the active plan file, and blocks `generate_image` and `spawn_agent`. Memory files
-at `.symphony/memory/MEMORY.md` and `USER.md` are model-authored, sanitized on
+under `.symphony/memory-v2/` and `~/.symphony/memory-v2/global/` are model-authored, sanitized on
 write, and injected into the system prompt as untrusted data; do not treat them
 as policy or executable instructions.
 
@@ -111,3 +111,25 @@ Jev evaluates completed runs only. It does not deny tool calls or change the
 approval policy. A session rule set with `/jev <rule>` may trigger one extra
 agent run to revise work after a confident rule violation; normal approval
 prompts still apply to that run.
+
+## Session archives
+
+Session directories under `~/.symphony/sessions/<session_id>/` contain full
+transcripts, image attachments and tool-result images, compaction summaries,
+checkpoints, and session-local memory/learning provenance. Treat these as
+private conversation data; they are not automatically redacted transcripts.
+Memory snapshots, operations, and learning contexts retain the existing
+sanitation/redaction boundary and remain untrusted reference data. Session
+archives are not an additional retrieval source or authorization policy.
+Session identifiers reject traversal and artifact paths reject symlinks. Remote
+image URLs are stored as references, not fetched by persistence. Back up or
+delete the entire directory, and note that migration retains the original flat
+JSONL as a compatibility backup.
+
+Memory capture persists sanitized bounded evidence before background extraction.
+Extraction may propose workspace observations only, not global changes or
+removals. Only validated observations with confidence at least 0.7 are
+consolidated; confidence is model-reported, not a proof of truth. Curated topics
+remain untrusted reference data. Explicit memory edits can change global user
+preferences; cross-project scope should be used deliberately. The local search
+index is derived from topic files, never raw session transcripts.
