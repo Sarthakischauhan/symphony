@@ -136,3 +136,67 @@ def test_goal_survives_forced_manual_compaction(tmp_path: Path) -> None:
 def test_resume_continue_without_sessions_says_so(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert continue_interrupted(tmp_path) == 0
     assert "nothing to continue" in capsys.readouterr().out
+
+
+def test_continue_refuses_while_detached_pid_is_alive(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import os
+    import subprocess
+
+    from core_harness import Checkpoint
+
+    from coding_agent.persistence.artifacts import publish
+
+    live = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    orphan = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        async def setup() -> None:
+            store = JsonlPersistence(sessions_dir(tmp_path))
+            await store.save_checkpoint(checkpoint=Checkpoint(
+                session_id="s", turn=1, status="running",
+                metadata={"goal": "g", "background_jobs": {"job": orphan.pid}},
+            ))
+            publish(
+                store.session_dir("s") / "run.json",
+                (json.dumps({"pid": live.pid, "session_id": "s"}) + "\n").encode(),
+            )
+
+        asyncio.run(setup())
+        assert continue_interrupted(tmp_path) == 1
+        os.kill(live.pid, 0)
+        os.kill(orphan.pid, 0)
+        assert f"detached run pid {live.pid} is still alive" in capsys.readouterr().err
+    finally:
+        live.kill()
+        orphan.kill()
+
+
+def test_continue_allows_a_dead_detached_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    from core_harness import Checkpoint
+
+    from coding_agent.persistence.artifacts import publish
+
+    orphan = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        async def setup() -> None:
+            store = JsonlPersistence(sessions_dir(tmp_path))
+            await store.save_checkpoint(checkpoint=Checkpoint(
+                session_id="s", turn=1, status="running",
+                metadata={"goal": "g", "background_jobs": {"job": orphan.pid}},
+            ))
+            publish(
+                store.session_dir("s") / "run.json",
+                (json.dumps({"pid": 2**30, "session_id": "s"}) + "\n").encode(),
+            )
+
+        asyncio.run(setup())
+        monkeypatch.setattr("coding_agent.run.cli.run_task", lambda *_args, **_kwargs: 0)
+        assert continue_interrupted(tmp_path) == 0
+        assert orphan.wait(timeout=5) == -9
+    finally:
+        orphan.kill()

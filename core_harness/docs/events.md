@@ -114,6 +114,23 @@ discard partial output from the failed attempt.
 }
 ```
 
+## `tool_call_arguments`
+
+A complete argument JSON snapshot from the provider. Replace accumulated
+`tool_call_delta` fragments for this call; do not append. Providers may emit
+the same snapshot more than once, or emit a snapshot without prior deltas.
+
+```json
+{
+  "event_type": "tool_call_arguments",
+  "payload": {
+    "turn": 0,
+    "tool_call_id": "call-123",
+    "arguments": "{\"city\": \"San Francisco\"}"
+  }
+}
+```
+
 ## `usage`
 
 ```json
@@ -464,4 +481,3 @@ may not emit them yet; consumers should accept them as pass-through.
 | `config_changed` | Runtime config change |
 | `jev_decision` | Jev critic decision |
 | `child_progress` | Background child progress |
-

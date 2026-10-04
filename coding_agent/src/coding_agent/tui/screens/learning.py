@@ -82,12 +82,10 @@ class LearningModal(ModalBase[None]):
         self.store = store
 
     def compose(self):  # type: ignore[no-untyped-def]
-        store = getattr(self, "store", None) or LearningStore(
-            self.workspace, session_id=self.session_id
-        )
+        store = self.store or LearningStore(self.workspace, session_id=self.session_id)
         memory = store.memory_path.read_text(encoding="utf-8") if store.memory_path.exists() else ""
         user = store.user_path.read_text(encoding="utf-8") if store.user_path.exists() else ""
-        session = self.session_id or "this session"
+        session = self.session_id or "workspace"
         with Container(id="learning-pane", classes="modal-pane"):
             with Horizontal(id="learning-header"):
                 yield Static("learning", id="learning-title")
@@ -97,10 +95,18 @@ class LearningModal(ModalBase[None]):
                 )
                 yield ModalCloseButton("esc  close", id="modal-close")
             with ModalScroll(id="learning-body", classes="modal-body"):
-                yield Static("this session  ·  MEMORY.md", classes="learning-section")
-                yield Static(memory.strip() or "(empty)", classes="learning-content")
+                yield Static("workspace  ·  MEMORY.md", classes="learning-section")
+                yield Static(memory.strip() or "(empty)", classes="learning-content", markup=False)
                 yield Static("shared  ·  USER.md", classes="learning-section")
-                yield Static(user.strip() or "(empty)", classes="learning-content")
+                yield Static(user.strip() or "(empty)", classes="learning-content", markup=False)
+                yield Static("workspace lessons", classes="learning-section")
+                lessons = list(reversed(store.load()))
+                if not lessons:
+                    yield Static("(empty)", classes="learning-content", markup=False)
+                for index, lesson in enumerate(lessons, 1):
+                    yield LearningCard(lesson, index)
+                if store.session_dir is not None:
+                    yield Static("session archive  ·  /session", classes="learning-section")
             yield Static(
                 "↑↓ scroll   ·   Esc close",
                 id="learning-hint",

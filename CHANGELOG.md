@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Sessions now own `~/.symphony/sessions/<session_id>/` bundles containing the
+  append-only transcript, versioned metadata, checkpoints, content-addressed
+  images, compaction history, memory operations and snapshots, session learning
+  provenance, stdio state, and detached-run files. Legacy flat transcripts remain
+  readable and migrate on access. `/session` inspects these artifacts in the
+  TUI and stdio; `/learning` also displays workspace lessons.
+
 - Sessions a live Symphony process still owns are recorded under
   `~/.symphony/active` and left out of `symphony --resume`. The picker only
   lists closed conversations. `/dashboard` opens a subagent-style list of

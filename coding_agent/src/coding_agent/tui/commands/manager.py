@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from core_ai import get_model, get_provider
 from coding_agent.agent import build_agent
+from coding_agent.persistence.jsonl import JsonlPersistence
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.langfuse import ensure_langfuse_installed
@@ -409,7 +410,11 @@ def start_new_session(app: Any) -> None:
     agent.harness.session_id = session_id
     store = getattr(agent, "learning_store", None)
     if store is not None and hasattr(store, "bind_session"):
-        store.bind_session(session_id)
+        persistence = getattr(agent, "persistence", None)
+        session_dir = None
+        if persistence is not None and hasattr(persistence, "session_dir"):
+            session_dir = persistence.session_dir(session_id)
+        store.bind_session(session_id, session_dir)
     register = getattr(app, "_register_active_session", None)
     if callable(register):
         register()
@@ -516,12 +521,26 @@ class CommandManager:
             app.action_dashboard()
         elif command == "context":
             await show_context(app)
+        elif command == "session":
+            if app._agent is None:
+                app.add_notice(OFFLINE_HINT, "error")
+            else:
+                from coding_agent.persistence.presentation import session_report
+                from coding_agent.tui.screens.session import SessionModal
+
+                store = app._agent.persistence
+                root = store.session_dir(app._agent.session_id) if isinstance(store, JsonlPersistence) else None
+                app.push_screen(SessionModal(await session_report(app._agent), root))
         elif command == "learning":
             agent = getattr(app, "_agent", None)
+            try:
+                learned = agent.learning_store if agent is not None else None
+            except AttributeError:
+                learned = None
             app.push_screen(LearningModal(
                 app.workspace,
                 session_id=getattr(agent, "session_id", None),
-                store=getattr(agent, "learning_store", None),
+                store=learned,
             ))
         elif command in {"installed", "extensions", "plugins", "skills"}:
             agent = app._agent

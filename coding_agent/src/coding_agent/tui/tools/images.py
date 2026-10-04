@@ -15,7 +15,7 @@ from rich.text import Text
 from textual.containers import Container
 from textual.widgets import Static
 
-from core_ai.content import IMAGE_MIME_BY_SUFFIX, image_part, normalize_content
+from core_ai.content import IMAGE_MIME_BY_SUFFIX, image_part, normalize_content, sniff_image_media_type
 from core_ai.types import Content
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import IMAGE_MODAL_CSS
@@ -58,7 +58,7 @@ class ImageAttachment:
         return cls(
             marker=marker,
             filename=path.name,
-            media_type=IMAGE_MIME_TYPES.get(suffix, "image/png"),
+            media_type=sniff_image_media_type(payload, filename=path.name) or IMAGE_MIME_TYPES.get(suffix, "image/png"),
             data=base64.b64encode(payload).decode("ascii"),
             path=str(path),
         )

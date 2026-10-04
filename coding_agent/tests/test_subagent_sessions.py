@@ -7,10 +7,60 @@ from types import SimpleNamespace
 from coding_agent.persistence import JsonlPersistence
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.runtime.sink import HarnessEvent
-from coding_agent.tui.runtime.subagent import SubagentScreen, SubagentTasksScreen
+from coding_agent.tui.runtime.subagent import SubagentRecord, SubagentScreen, SubagentTasksScreen
 from coding_agent.tui.tools import CompletedRunSummary, ToolCallSummary, ToolCallWidget
 from coding_agent.tui.tools.activity import COMPLETION_VERBS
 from coding_agent.tui.transcript import AssistantMessage, UserMessage
+from coding_agent.tui.transcript.messages import Notice
+
+
+def test_child_tool_argument_snapshots_replace_streamed_json() -> None:
+    record = SubagentRecord(agent_id="child", parent_id="parent", label="Inspector", prompt="Inspect")
+    call = {"tool_call_id": "read-1", "tool_name": "read_file"}
+    record.ingest("tool_call_started", call)
+    record.ingest("tool_call_delta", {**call, "delta": '{"path":"stale.py"}'})
+    for _ in range(2):
+        record.ingest("tool_call_arguments", {**call, "arguments": '{"path":"actual.py"}'})
+    assert len(record.tools) == 1
+    assert record.tools[0]["raw_arguments"] == '{"path":"actual.py"}'
+    assert record.tools[0]["arguments"] == {"path": "actual.py"}
+    assert record.tools[0]["summary"] == '{"path": "actual.py"}'
+
+
+def test_gpt_snapshots_keep_tools_in_one_uninterrupted_widget_group(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            for index in range(2):
+                call = {"turn": index, "tool_call_id": f"call-{index}", "tool_name": "bash"}
+                app.on_harness_event(HarnessEvent("tool_call_started", call))
+                app.on_harness_event(HarnessEvent("tool_call_delta", {**call, "delta": '{"command":'}))
+                for _ in range(2):
+                    app.on_harness_event(HarnessEvent("tool_call_arguments", {
+                        **call, "arguments": '{"command":"git diff --stat"}',
+                    }))
+                app.on_harness_event(HarnessEvent("tool_execution_started", {
+                    **call, "arguments": {"command": "git diff --stat"},
+                }))
+                await pilot.pause()
+                widget = app._tools[call["tool_call_id"]]
+                assert isinstance(widget, ToolCallWidget)
+                assert widget.arguments == {"command": "git diff --stat"}
+                assert widget.status == "running"
+                app.on_harness_event(HarnessEvent("tool_execution_completed", {
+                    **call, "status": "success", "result": "1 file changed",
+                }))
+            app.on_harness_event(HarnessEvent("text_delta", {"delta": "Done"}))
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
+            assert not any("tool_call_arguments" in str(item.render()) for item in app.query(Notice))
+            summaries = [item for item in app.query(ToolCallSummary) if item.count]
+            assert [item.count for item in summaries] == [2]
+            assert not list(app.query(ToolCallWidget))
+
+    asyncio.run(run())
 
 
 def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_path: Path) -> None:

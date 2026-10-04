@@ -32,7 +32,7 @@ uv run --package symphony-code symphony run --unattended [--detach] [--model ID]
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--unattended` | required | Acknowledges auto-approval (see `SECURITY.md`) |
-| `--detach` | off | Re-exec in a new session with stdin closed, print pid, log path, and session id, write `~/.symphony/sessions/<sid>.run.json`, and exit. Output goes to `<sid>.run.log`. No daemon manager: stop it with `kill <pid>`. |
+| `--detach` | off | Re-exec in a new session with stdin closed, print pid, log path, and session id, write `~/.symphony/sessions/<sid>/run.json`, and exit. Output goes to `<sid>/run.log`. No daemon manager: stop it with `kill <pid>`. |
 | `--model ID` | `last_model` / first available | `provider:model` id |
 | `--workspace PATH` | `.` | Working directory |
 | `--session-id ID` | new uuid | Session id to write |

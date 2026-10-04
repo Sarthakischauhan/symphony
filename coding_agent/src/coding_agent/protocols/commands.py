@@ -9,6 +9,8 @@ from typing import Any
 
 from coding_agent.config import ensure_spawn_settings, symphony_dir
 from coding_agent.personalities import load_personalities
+from coding_agent.persistence.jsonl import JsonlPersistence
+from coding_agent.persistence.artifacts import publish, safe_path
 from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
 
 
@@ -33,8 +35,15 @@ def catalog(workspace: Path | None = None) -> list[dict[str, Any]]:
     }
     if workspace is not None:
         from coding_agent.plan import PlanStore
-        choices["plans"] = [{"value": str(path.relative_to(workspace)), "label": path.stem,
-                              "description": "Saved workspace plan"} for path in PlanStore(workspace).list_paths()]
+        root = Path(workspace).resolve()
+        plans = []
+        for path in PlanStore(root).list_paths():
+            try:
+                value = str(path.resolve().relative_to(root))
+            except ValueError:
+                continue
+            plans.append({"value": value, "label": path.stem, "description": "Saved workspace plan"})
+        choices["plans"] = plans
     return [
         {"name": item.name, "description": descriptions.get(item.name, item.description),
          "inputHint": item.argument, "options": choices.get(item.name, [])}
@@ -49,9 +58,31 @@ def _state_path(session_id: str) -> Path:
     return symphony_dir() / "protocols" / f"{uuid.UUID(session_id)}.json"
 
 
+def _agent_state_path(agent: Any) -> Path:
+    try:
+        persistence = agent.persistence
+    except AttributeError:
+        return _state_path(agent.session_id)
+    if not isinstance(persistence, JsonlPersistence):
+        return _state_path(agent.session_id)
+
+    path = safe_path(persistence.session_dir(agent.session_id), "state.json")
+    if not path.exists():
+        try:
+            legacy = _state_path(agent.session_id)
+        except ValueError:
+            # JSONL sessions also support non-UUID identifiers.
+            return path
+        if legacy.is_file():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            publish(path, legacy.read_bytes())
+            legacy.unlink()
+    return path
+
+
 def load_state(agent: Any) -> None:
     try:
-        path = _state_path(agent.session_id)
+        path = _agent_state_path(agent)
     except ValueError:
         return
     if not path.exists():
@@ -66,11 +97,11 @@ def load_state(agent: Any) -> None:
 
 
 def _save_state(agent: Any, **changes: str) -> None:
-    path = _state_path(agent.session_id)
+    path = _agent_state_path(agent)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     data.update(changes)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    publish(path, (json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
 
 def _git_diff(workspace: Path) -> str:
@@ -94,6 +125,10 @@ async def execute(agent: Any, value: str) -> str:
             f"Mode: {agent.mode}\nPersonality: {agent.config.personality}\n"
             f"Effort: {agent.harness.reasoning_effort or 'default'}"
         )
+    if command == "session":
+        from coding_agent.persistence.presentation import session_report
+
+        return await session_report(agent)
     if command == "context":
         report = await agent.context_report()
         return str(report)
@@ -150,11 +185,15 @@ async def execute(agent: Any, value: str) -> str:
         paths = agent.plan_store.list_paths()
         return "\n".join(str(path.relative_to(agent.workspace)) for path in paths) or "No saved plans."
     if command == "learning":
-        store = getattr(agent, "learning_store", None)
+        try:
+            store = agent.learning_store
+        except AttributeError:
+            store = None
         if store is None:
             from coding_agent.learning.store import LearningStore
 
-            store = LearningStore(agent.workspace, session_id=getattr(agent, "session_id", None))
+            # Lightweight protocol hosts/tests may not expose the agent's store.
+            store = LearningStore(agent.workspace)
         return store.to_markdown()
     if command == "installed":
         skills = [item.name for item in agent.skill_registry.skills]

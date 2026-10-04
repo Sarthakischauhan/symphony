@@ -249,7 +249,7 @@ All package docs live under **[`docs/`](./docs/README.md)**:
 | [Configuration](./docs/user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
 | [Tools](./docs/user-guide/tools.md) | Workspace tool surface |
 | [Learning](./docs/user-guide/learning.md) | Post-run reflection |
-| [Sessions](./docs/user-guide/sessions.md) | JSONL resume |
+| [Sessions](./docs/user-guide/sessions.md) | Session bundles, images, compaction, and resume |
 | [Architecture](./docs/developer-guide/architecture.md) | How the packages fit |
 | [Changelog](./CHANGELOG.md) | 0.1.0 first-release notes |
 | [Events](./docs/developer-guide/events.md) | Control-plane catalog |
