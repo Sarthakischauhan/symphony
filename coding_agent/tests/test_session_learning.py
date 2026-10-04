@@ -25,7 +25,9 @@ def test_memory_operations_and_lessons_are_session_owned_and_sanitized(tmp_path)
     MemoryTool(tmp_path, store=a).run("add", text="Use focused pytest tests; token=private-value")
     MemoryTool(tmp_path, store=b).run("add", target="user", text="Prefers concise responses")
     assert "focused pytest" in b.query("pytest tests")
-    assert not (first / "memory/MEMORY.md").exists()
+    assert "focused pytest" in (first / "memory/MEMORY.md").read_text()
+    assert not (second / "memory/MEMORY.md").exists()
+    assert "private-value" not in (first / "memory/MEMORY.md").read_text()
     assert "private-value" not in (tmp_path / ".symphony/memory/MEMORY.md").read_text()
     assert records(first / "memory/operations.jsonl")[0]["target"] == "memory"
     assert records(second / "memory/operations.jsonl")[0]["target"] == "user"

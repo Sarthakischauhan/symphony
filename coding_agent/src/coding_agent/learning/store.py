@@ -104,14 +104,42 @@ class LearningStore:
         except OSError:
             return ""
 
-    def write_session_memory(self, text: str) -> None:
-        """Replace this session's MEMORY.md. Does not change global memory."""
+    def _session_entries(self) -> list[str]:
+        return [
+            line[2:].strip()
+            for line in self.read_session_memory().splitlines()
+            if line.startswith("- ") and line[2:].strip()
+        ]
+
+    def _write_session_entries(self, entries: list[str]) -> None:
         path = self.session_memory_path
         if path is None:
-            raise ValueError("session memory requires a session directory")
-        clean = sanitize_memory(text, max_chars=3000)
+            return
+        rendered = "# Session memory\n\n" + "\n".join(f"- {entry}" for entry in entries) + "\n"
+        if len(rendered) > 3000:
+            rendered = sanitize_memory(rendered, max_chars=3000)
+            if not rendered.endswith("\n"):
+                rendered += "\n"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(clean if clean.endswith("\n") or not clean else clean + "\n", encoding="utf-8")
+        path.write_text(rendered, encoding="utf-8")
+
+    def _record_session_change(self, action: str, *, target: str, text: str = "", match: str = "") -> None:
+        """Keep a session-local note of a memory change without changing retrieval."""
+        if self.session_memory_path is None or target != "memory":
+            return
+        entries = self._session_entries()
+        if action == "add":
+            clean = sanitize_text(text.strip(), max_chars=600)
+            if clean and clean.casefold() not in {entry.casefold() for entry in entries}:
+                entries.append(clean)
+        elif action == "remove":
+            entries = [entry for entry in entries if match not in entry]
+        elif action == "replace":
+            replacement = sanitize_text(text.strip(), max_chars=600)
+            entries = [replacement if match and match in entry else entry for entry in entries if replacement]
+        else:
+            return
+        self._write_session_entries(entries)
 
     def archive_memory_snapshot(self) -> None:
         """Copy sanitized shared USER.md into the session for inspection only.
@@ -180,6 +208,7 @@ class LearningStore:
                 })
                 raise
             self.archive_memory_snapshot()
+            self._record_session_change(action, target=target, text=text, match=match)
             self._archive_record("memory/operations.jsonl", {
                 "action": sanitize_text(action), "target": sanitize_text(target),
                 "text": sanitize_text(text, max_chars=600), "match": sanitize_text(match, max_chars=600),

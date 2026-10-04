@@ -439,12 +439,10 @@ def test_session_archive_does_not_fork_live_memory(tmp_path: Path) -> None:
     assert "pytest" in first.memory_path.read_text(encoding="utf-8")
     assert "pytest" in second.memory_path.read_text(encoding="utf-8")
     assert "concise" in second.user_path.read_text(encoding="utf-8")
-    assert not (first_dir / "memory" / "MEMORY.md").exists()
+    assert "pytest" in first.read_session_memory()
+    assert "pytest" not in second.read_session_memory()
+    assert "concise" not in first.read_session_memory()
     assert "concise" in (first_dir / "memory" / "USER.md").read_text(encoding="utf-8")
-    first.write_session_memory("- Only this session uses pytest -q\n")
-    assert "Only this session" in first.read_session_memory()
-    assert "Only this session" not in second.read_session_memory()
-    assert "Only this session" not in first.query("pytest session")
     assert "pytest" in second.query("fix the Python tests")
 
 
