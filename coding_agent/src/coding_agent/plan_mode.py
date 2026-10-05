@@ -12,7 +12,7 @@ class PlanModeState:
     approved: bool = False
     plan_path: str | None = None
     allowed_tools: set[str] = field(default_factory=lambda: {
-        "read_file", "search", "ask_user", "bash", "memory",
+        "read_file", "search", "skill", "ask_user", "bash", "memory",
         "enter_plan_mode", "exit_plan_mode",
     })
 

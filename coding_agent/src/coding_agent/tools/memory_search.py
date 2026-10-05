@@ -18,7 +18,7 @@ class MemorySearchTool(WorkspaceTool):
     args_model = MemorySearchArgs
 
     def __init__(self, workspace: str | Path, *, store: LearningStore | None = None):
-        super().__init__(workspace)
+        super().__init__(workspace, parallel=True)
         self.learning_store = store
 
     def run(self, query: str, limit: int = 6) -> str:

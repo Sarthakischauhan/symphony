@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from coding_agent.extension_args import ExtensionArg, render_args
+from coding_agent.extension_args import ExtensionArg
+
+CATALOG_DESCRIPTION_CHARS = 160
 
 
 @dataclass(frozen=True)
@@ -20,9 +22,11 @@ class Skill:
     args: tuple[ExtensionArg, ...] = ()
 
     def catalog_line(self) -> str:
-        """One prompt line: id, description, path, and the loaded args."""
-        line = f"- {self.skill_id}: {self.description} (SKILL.md: {self.root / 'SKILL.md'})"
-        return f"{line} [args: {render_args(self.args)}]" if self.args else line
+        """One short prompt line: id and description. The body loads via the skill tool."""
+        description = self.description
+        if len(description) > CATALOG_DESCRIPTION_CHARS:
+            description = description[: CATALOG_DESCRIPTION_CHARS - 1].rstrip() + "…"
+        return f"- {self.skill_id}: {description}"
 
     @property
     def resources(self) -> tuple[str, ...]:

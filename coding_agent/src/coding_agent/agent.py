@@ -371,7 +371,7 @@ class CodingAgent:
         skills = ""
         if self.config.skills.enabled and self.skill_registry.skills:
             lines = [
-                "Available skills (read the listed SKILL.md with read_file when relevant):"
+                "Available skills (load one with the skill tool when it applies):"
             ]
             lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
             skills = "\n".join(lines)
