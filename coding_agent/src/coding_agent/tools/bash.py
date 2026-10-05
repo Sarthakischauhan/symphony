@@ -22,8 +22,9 @@ class BashArgs(ToolArgsModel):
     command: str = Field(
         default="",
         description=(
-            "Shell command to run with cwd set to the working directory "
-            "(e.g. 'python -m pytest', 'ls -la'). Required for action=run."
+            "Shell command to run with cwd set to the working directory. Pipelines, &&, loops, "
+            "and heredoc scripts are fine (e.g. 'python -m pytest -q 2>&1 | tail -20', "
+            "'rg -l foo | xargs wc -l'). Required for action=run."
         ),
     )
     timeout: int = Field(
@@ -49,10 +50,16 @@ class BashArgs(ToolArgsModel):
 class BashTool(WorkspaceTool):
     name = "bash"
     description = (
-        "Run a shell command in the working directory and return combined "
-        "stdout/stderr. Use for builds, tests, git, package managers, and other CLI work. "
+        "Run a shell command (bash) in the working directory and return combined stdout/stderr. "
+        "Reach for this early and often: one well-built command usually beats many small tool calls. "
+        "Use pipelines and chaining (rg -n 'TODO' src | head -50, git log --oneline -20 && git status, "
+        "ls -R | wc -l), loops, heredocs, and short inline scripts (python - <<'EOF' ... EOF) to explore, "
+        "count, compare, transform, and verify in a single call. Prefer it for builds, tests, git, "
+        "package managers, codebase surveys, and quick checks; keep read_file for reading a file you "
+        "will edit and patch/write_file for edits. "
         "Non-zero exits are returned as text (prefixed with exit=N), not as a tool failure. "
-        "Timeouts include captured output. Output is capped to the last bytes. "
+        "Timeouts include captured output. Output is capped to the last bytes, so filter or limit "
+        "noisy output in the command itself. "
         "Child processes are killed as a group according to the configured limits."
     )
     args_model = BashArgs

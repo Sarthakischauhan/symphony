@@ -93,7 +93,7 @@ planning turn); `/plans` opens the searchable picker of saved plans.
 
 ## Approvals
 
-Product policy (`coding_agent.approvals`) decides which tools need a prompt;
+Product policy (`coding_agent.addon.approvals`) decides which tools need a prompt;
 the TUI only renders the question. Default `approvals.mode` is `ask`. Choose
 **Allow once**, **Deny**, or **Always allow**. Always-allow is a **run-level**
 override — it applies to the current run and its children, and does not

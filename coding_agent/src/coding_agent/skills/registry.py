@@ -10,7 +10,7 @@ from coding_agent.skills.frontmatter import SKILL_NAME, read_front_matter
 from coding_agent.skills.models import Skill, SkillDiagnostic
 
 logger = logging.getLogger(__name__)
-_MAX_FILE_BYTES = 128_000
+MAX_SKILL_FILE_BYTES = 128_000
 
 
 def bundled_skills_root() -> Path:
@@ -98,7 +98,7 @@ def _parents_from(root: Path, path: Path) -> list[Path]:
 def _parse_skill(origin: str, root: Path, document: Path) -> Skill:
     if not SKILL_NAME.fullmatch(root.name):
         raise ValueError("skill directory name must be one identifier segment")
-    if document.stat().st_size > _MAX_FILE_BYTES:
+    if document.stat().st_size > MAX_SKILL_FILE_BYTES:
         raise ValueError("SKILL.md exceeds the 128000 byte limit")
     text = document.read_text(encoding="utf-8").lstrip("\ufeff").replace("\r\n", "\n")
     meta = read_front_matter(text)
@@ -106,4 +106,4 @@ def _parse_skill(origin: str, root: Path, document: Path) -> Skill:
                  root=root, origin=origin, args=meta.args)
 
 
-__all__ = ["SkillRegistry", "bundled_skills_root"]
+__all__ = ["MAX_SKILL_FILE_BYTES", "SkillRegistry", "bundled_skills_root"]

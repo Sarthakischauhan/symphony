@@ -7,7 +7,7 @@ from pathlib import Path
 from textual.app import App
 from textual.widgets import Static
 
-from coding_agent.extension_args import ExtensionArg
+from coding_agent.skills.args import ExtensionArg
 from coding_agent.plugins import LoadedPlugin, PluginConfig
 from coding_agent.plugins.manager import PluginManager
 from coding_agent.skills import Skill

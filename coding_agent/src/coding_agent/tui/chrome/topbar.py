@@ -17,7 +17,7 @@ from core_ai.providers.catalog import (
     provider_auth_preference,
     provider_has_oauth,
 )
-from coding_agent.paths import project_root
+from coding_agent.personalities import project_root
 
 CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3

@@ -175,7 +175,7 @@ def test_generate_image_widget_summarizes_and_opens_preview(tmp_path: Path) -> N
 
 
 def test_generate_image_overwrite_asks_for_approval(tmp_path: Path) -> None:
-    from coding_agent.approvals import ApprovalPolicy
+    from coding_agent.addon.approvals import ApprovalPolicy
 
     (tmp_path / "icon.png").write_bytes(PNG_1X1)
     plane = TextualEventSink(workspace=tmp_path)
@@ -233,6 +233,8 @@ def test_search_skips_ignored_dirs_and_sniffs_a_prefix(tmp_path: Path, monkeypat
             handle.read = limited_read  # type: ignore[method-assign]
         return handle
 
+    # The prefix sniff belongs to the Python walker; ripgrep does its own.
+    monkeypatch.setattr("coding_agent.tools.search.find_rg", lambda: None)
     monkeypatch.setattr(Path, "open", tracking_open)
     result = SearchTool(tmp_path).run(query="needle")
     assert "keep.py:1:needle" in result
@@ -421,7 +423,7 @@ def test_bash_cancel_kills_process_group(tmp_path: Path) -> None:
 
 
 def test_control_plane_approval_policy_and_always_allow(tmp_path: Path) -> None:
-    from coding_agent.approvals import ApprovalAddon, ApprovalPolicy
+    from coding_agent.addon.approvals import ApprovalAddon, ApprovalPolicy
 
     (tmp_path / "existing.txt").write_text("old", encoding="utf-8")
     plane = TextualEventSink(workspace=tmp_path)

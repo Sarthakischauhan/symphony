@@ -58,7 +58,7 @@ print((await agent.run("Fix the failing test")).output_text)
 | [Slash commands](../reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
 
 The agent asks before bash, overwrite, or a broad patch. Approval rules live
-in `coding_agent.approvals`; the TUI only renders the question. Sessions
+in `coding_agent.addon.approvals`; the TUI only renders the question. Sessions
 persist in `~/.symphony/sessions/<session_id>/` bundles containing transcripts,
 images, compaction summaries, checkpoints, and memory/learning provenance.
 `/session` inspects the archive; legacy flat JSONL sessions migrate on access.

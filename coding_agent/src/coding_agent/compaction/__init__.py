@@ -1,19 +1,27 @@
 """Model-backed conversation compaction for the coding agent.
 
 The harness owns the ``Compactor`` protocol and the keep/drop rule
-(``plan_keep_drop``). ``InferenceCompactor`` implements that protocol on top
-of the same rule and writes the compacted-context message with the active
-model; ``AiCompactionAddon`` mounts it on the harness so both auto-compaction
-(before each model turn) and ``/compact`` run through it. coding_agent never
-mounts the harness template compactor.
+(``plan_keep_drop``). ``InferenceCompactor`` implements that protocol and
+writes the compacted-context message with the active model. The add-on that
+mounts it lives in ``coding_agent.addon.compaction`` so this package does not
+import the add-on layer while it is still loading.
 """
 
-from coding_agent.compaction.addon import AiCompactionAddon, ai_compaction_from_config
+from __future__ import annotations
+
+from typing import Any
+
+from coding_agent._lazy import resolve
 from coding_agent.compaction.compactor import InferenceCompactor
 from coding_agent.compaction.transcript import (
     build_compacted_message,
     render_dropped_turns,
 )
+
+_ADDON_EXPORTS = {
+    "AiCompactionAddon": ("coding_agent.addon.compaction", "AiCompactionAddon"),
+    "ai_compaction_from_config": ("coding_agent.addon.compaction", "ai_compaction_from_config"),
+}
 
 __all__ = [
     "AiCompactionAddon",
@@ -22,3 +30,7 @@ __all__ = [
     "build_compacted_message",
     "render_dropped_turns",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    return resolve(globals(), name, _ADDON_EXPORTS)

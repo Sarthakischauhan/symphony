@@ -89,7 +89,7 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
 
 - `ask` — interactive gates for bash, overwrite, and broad patches.
 - `always_allow` — every tool call is authorized without a prompt.
-- Rules live in `coding_agent.approvals`; the TUI only renders the question.
+- Rules live in `coding_agent.addon.approvals`; the TUI only renders the question.
 - TUI **Always allow** is per-run, including child agents, and does not persist.
 - `deny` / `allow` are fnmatch patterns matched on the bash command, or on the
   path for `write_file`, `patch`, and `generate_image`. `deny` is checked first

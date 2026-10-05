@@ -17,6 +17,7 @@ from coding_agent.tui.commands import (
     toggle_mode,
 )
 from coding_agent.tui.composer.input import Composer, PromptInput, mode_label
+from coding_agent.tui.composer.input import QueuedTurn
 from coding_agent.tui.composer.slash_menu import SlashMenu
 from coding_agent.tui.screens.file_selector import (
     active_file_mention,
@@ -41,10 +42,11 @@ class ComposerSurface:
                 await self._answer_question(approval_menu.selected_value)
                 if text:
                     user_content = build_user_content(text, images)
+                    turn = QueuedTurn(user_content, text, pasted_chunks, images)
                     if self._busy:
-                        self.queue_turn((user_content, text, pasted_chunks, images))
+                        self.queue_turn(turn)
                     else:
-                        self._start_turn(user_content, text, pasted_chunks, images)
+                        self._start_turn(turn)
                 return
             await self._answer_question(self._submitted_question_answer(text))
             return
@@ -64,12 +66,12 @@ class ComposerSurface:
         if self._busy:
             # Do not disable the editor while the harness is working: a follow-up
             # can be prepared and submitted, then is dispatched FIFO afterward.
-            self.queue_turn((user_content, text, pasted_chunks, images))
+            self.queue_turn(QueuedTurn(user_content, text, pasted_chunks, images))
             return
 
-        self._start_turn(user_content, text, pasted_chunks, images)
+        self._start_turn(QueuedTurn(user_content, text, pasted_chunks, images))
 
-    def _start_turn(self, user_content, text, pasted_chunks, images) -> None:
+    def _start_turn(self, turn: QueuedTurn) -> None:
         self._run_generation += 1
         self.sink.reset_cancel()
         self._assistant = None
@@ -78,29 +80,27 @@ class ComposerSurface:
         self._process = None
         self._tools = {}
         self._mount_transcript(
-            UserMessage(text, pasted_chunks=pasted_chunks, images=images)
+            UserMessage(turn.text, pasted_chunks=turn.pasted_chunks, images=turn.images)
         )
         self.set_thinking("Thinking…")
         if self.mode == "plan":
             self._plan_run_active = True
         self._busy = True
         self._set_status("")
-        self.run_agent(user_content)
+        self.run_agent(turn.content)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id not in {"queued-send-now", "queued-edit"} or not self._queued_turns:
             return
         prompt = self.query_one("#prompt", PromptInput)
         if event.button.id == "queued-edit":
-            _user_content, text, _pasted_chunks, _images = self.pop_queued_turn()
-            prompt.load_text(text)
+            prompt.load_text(self.pop_queued_turn().text)
             prompt.submit_on_enter = True
             prompt.disabled = False
             prompt.focus()
             return
         if not self._busy:
-            user_content, text, pasted_chunks, images = self.pop_queued_turn()
-            self._start_turn(user_content, text, pasted_chunks, images)
+            self._start_turn(self.pop_queued_turn())
             return
         # Interrupt the in-flight run and leave the prompt queued. The
         # cancelled worker starts it from ``finally`` only after the previous

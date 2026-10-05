@@ -57,7 +57,7 @@ flowchart TD
 
 The harness is a library loop: tools, model, compaction, and an event sink
 for UIs. It does not authorize tools or cancel runs. Product approval lives
-in `coding_agent.approvals.ApprovalAddon` (`before_tool`). Cancel a run by
+in `coding_agent.addon.approvals.ApprovalAddon` (`before_tool`). Cancel a run by
 cancelling the `asyncio.Task` awaiting `CoreHarness.run`. To attach product
 behavior (Learning, Langfuse, Jev), see
 [Extending the harness](./extending.md).
@@ -128,15 +128,17 @@ core_harness/src/core_harness/
 
 coding_agent/src/coding_agent/
   agent.py            # CodingAgent + default_addons
-  approvals.py        # product policy; TUI only renders the question
   config.py           # .symphony/config.json model
   credentials.py      # ~/.symphony/.env handling
   prompts.py          # system + plan-mode prompts
-  plan.py             # plan mode (.symphony/plans/)
+  plan.py             # saved plans (.symphony/plans/)
+  addon/              # product harness add-ons (approval, plan, compact, learn, jev, langfuse, skills)
+  protocols/stdio/    # JSONL host transport: frames, catalog, command loop
   tools/              # one file per workspace tool
-  compaction/         # AiCompactionAddon + InferenceCompactor
-  learning/           # after-run reflection, lesson store, run_summary
-  langfuse/           # optional LangfuseAddon: run/turn/tool traces
+  compaction/         # InferenceCompactor (mounted by addon/compaction.py)
+  learning/           # lesson store, capture loop, run_summary
+  langfuse/           # Langfuse install + serializers
+  evaluation/         # Jev critic policy, handlers, evaluators
   persistence/        # JSONL sessions
   tui/                # Textual app, driven by CP events
 

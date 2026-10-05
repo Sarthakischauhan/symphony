@@ -6,14 +6,13 @@ from unittest.mock import Mock
 
 from core_ai.types import Message, StreamEvent
 from coding_agent.agent import CodingAgent
-from coding_agent.learning.addon import LearningAddon
+from coding_agent.addon.learning import LearningAddon
 from coding_agent.learning.loop import LearningLoop
 from coding_agent.learning.store import LearningStore
 from coding_agent.persistence import JsonlPersistence
-from coding_agent.protocols.commands import execute
+from coding_agent.protocols.stdio.commands import execute
 from coding_agent.tools import build_tools
-from coding_agent.tools.memory_get import MemoryGetTool
-from coding_agent.tools.memory_search import MemorySearchTool
+from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool
 
 
 def test_memory_search_get_and_disabled_registration(tmp_path):

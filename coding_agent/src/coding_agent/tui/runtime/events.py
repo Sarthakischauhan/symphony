@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
+from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
 from coding_agent.evaluation.state import bound_text
 from coding_agent.persistence.collection import is_collected
@@ -215,7 +215,7 @@ class EventPresenter:
         self._last_chrome = snapshot
         self._set_status(self.state.status_line(workspace=self.workspace))
 
-    def handle(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def handle(self, event_type: str, payload: Optional[Mapping[str, Any]] = None) -> None:
         payload = payload or {}
         if event_type in {"collected", "run_completed_meta"} or is_collected(payload):
             # Mid-run work already folded into the completed-run collection.
@@ -319,7 +319,7 @@ class EventPresenter:
         return text
 
     # Run lifecycle
-    def _on_run_started(self, payload: Dict[str, Any]) -> None:
+    def _on_run_started(self, payload: Mapping[str, Any]) -> None:
         self.state.reset_for_run(model_id=str(payload.get("model_id") or self.state.model_id))
         self._started_at = time.monotonic()
         self._started_ts = payload.get("ts")
@@ -339,7 +339,7 @@ class EventPresenter:
         self._flush_scheduled = False
         self.view.set_thinking("Thinking…")
 
-    def _on_run_completed(self, payload: Dict[str, Any]) -> None:
+    def _on_run_completed(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         stored = payload.get("elapsed_seconds")
         if isinstance(stored, (int, float)):
@@ -401,7 +401,7 @@ class EventPresenter:
             if callable(add_update):
                 add_update(toast)
 
-    def _on_run_summary(self, payload: Dict[str, Any]) -> None:
+    def _on_run_summary(self, payload: Mapping[str, Any]) -> None:
         summary = str(payload.get("summary") or "").strip()
         if not summary:
             return
@@ -421,7 +421,7 @@ class EventPresenter:
             f" · {tools} tool call{'s' if tools != 1 else ''}"
         )
 
-    def _on_run_failed(self, payload: Dict[str, Any]) -> None:
+    def _on_run_failed(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         self.state.phase = "idle"
         self.state.detail = "failed"
@@ -429,7 +429,7 @@ class EventPresenter:
         self.view.add_notice(str(payload.get("message") or payload), "error")
         self.view.finish_process("Stopped with an error", collapse=False)
 
-    def _on_run_cancelled(self, payload: Dict[str, Any]) -> None:
+    def _on_run_cancelled(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         self.state.phase = "idle"
         self.state.detail = "cancelled"
@@ -439,7 +439,7 @@ class EventPresenter:
             self.view.add_notice(str(reason), "warning")
         self.view.finish_process("Cancelled")
 
-    def _on_run_limit_exceeded(self, payload: Dict[str, Any]) -> None:
+    def _on_run_limit_exceeded(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         self.state.phase = "idle"
         self.state.detail = "limit exceeded"
@@ -450,21 +450,21 @@ class EventPresenter:
         self.view.finish_process("Stopped at a run limit", collapse=False)
 
     # Turns and streaming
-    def _on_turn_started(self, payload: Dict[str, Any]) -> None:
+    def _on_turn_started(self, payload: Mapping[str, Any]) -> None:
         turn = int(payload.get("turn") or 0)
         self._model_turns.add(turn)
         self.state.begin_turn(turn)
         self._assistant_open = False
         self.view.set_churning(turn)
 
-    def _on_turn_completed(self, payload: Dict[str, Any]) -> None:
+    def _on_turn_completed(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         self.state.detail = "running tools" if payload.get("had_tool_calls") else "finishing"
         if not payload.get("had_tool_calls"):
             self.view.finish_assistant()
             self._assistant_open = False
 
-    def _on_model_retry_scheduled(self, payload: Dict[str, Any]) -> None:
+    def _on_model_retry_scheduled(self, payload: Mapping[str, Any]) -> None:
         retry_after = float(payload.get("retry_after") or 0.0)
         attempt = int(payload.get("attempt") or 1)
         reason = str(payload.get("reason") or "rate_limit")
@@ -501,7 +501,7 @@ class EventPresenter:
             f"{working} · retrying in {delay} · attempt {attempt}"
         )
 
-    def _on_text_delta(self, payload: Dict[str, Any]) -> None:
+    def _on_text_delta(self, payload: Mapping[str, Any]) -> None:
         delta = str(payload.get("delta") or "")
         if not delta:
             return
@@ -513,7 +513,7 @@ class EventPresenter:
         self._assistant_open = True
         self._buffer_assistant(self.state.stream_text, new=is_new)
 
-    def _on_reasoning_delta(self, payload: Dict[str, Any]) -> None:
+    def _on_reasoning_delta(self, payload: Mapping[str, Any]) -> None:
         delta = str(payload.get("delta") or "")
         if not delta:
             return
@@ -551,7 +551,7 @@ class EventPresenter:
         self._reasoning_parts.clear()
 
     # Tools
-    def _on_tool_call_started(self, payload: Dict[str, Any]) -> None:
+    def _on_tool_call_started(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         self.view.finish_assistant()
         self._assistant_open = False
@@ -565,7 +565,7 @@ class EventPresenter:
         # Do not mount an empty widget yet. The authoritative tool name and
         # complete arguments arrive with tool_execution_started.
 
-    def _on_tool_call_delta(self, payload: Dict[str, Any]) -> None:
+    def _on_tool_call_delta(self, payload: Mapping[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
         delta = str(payload.get("delta") or "")
         self._tool_argument_chunks.setdefault(call_id, []).append(delta)
@@ -575,7 +575,7 @@ class EventPresenter:
         self.state.tool_args_preview = tail
         self._pending_tool_paints[call_id] = None
 
-    def _on_tool_call_arguments(self, payload: Dict[str, Any]) -> None:
+    def _on_tool_call_arguments(self, payload: Mapping[str, Any]) -> None:
         # Responses API completion events carry a full snapshot, sometimes
         # twice. Replace the streamed fragments rather than appending it.
         call_id = str(payload.get("tool_call_id") or "tool")
@@ -588,7 +588,7 @@ class EventPresenter:
         self.state.tool_args_preview = raw[-80:]
         self._pending_tool_paints[call_id] = None
 
-    def _on_tool_execution_started(self, payload: Dict[str, Any]) -> None:
+    def _on_tool_execution_started(self, payload: Mapping[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
         self._tool_executions.add(call_id)
         name = str(payload.get("tool_name") or self._tool_names.get(call_id, "tool"))
@@ -604,7 +604,7 @@ class EventPresenter:
             status="running",
         )
 
-    def _on_tool_execution_completed(self, payload: Dict[str, Any]) -> None:
+    def _on_tool_execution_completed(self, payload: Mapping[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
         self.state.phase = "thinking"
         self.state.detail = f"finished {payload.get('tool_name') or 'tool'}"
@@ -619,15 +619,15 @@ class EventPresenter:
         self._tool_argument_tails.pop(call_id, None)
 
     # Metrics and context
-    def _on_usage(self, payload: Dict[str, Any]) -> None:
+    def _on_usage(self, payload: Mapping[str, Any]) -> None:
         self._usage_estimated |= bool(payload.get("estimated", False))
         self.state.update_usage(payload)
         self.view.set_thinking(self._usage_text())
 
-    def _on_context(self, payload: Dict[str, Any]) -> None:
+    def _on_context(self, payload: Mapping[str, Any]) -> None:
         self.state.update_context(payload)
 
-    def _on_context_warning(self, payload: Dict[str, Any]) -> None:
+    def _on_context_warning(self, payload: Mapping[str, Any]) -> None:
         left = payload.get("context_left")
         message = (
             f"Context is running low · {left:,} tokens left"
@@ -636,7 +636,7 @@ class EventPresenter:
         )
         self.view.add_notice(message, "warning")
 
-    def _on_compaction_started(self, payload: Dict[str, Any]) -> None:
+    def _on_compaction_started(self, payload: Mapping[str, Any]) -> None:
         self.state.detail = "compacting context"
         # The started event only knows the before-count. Keep the same toast
         # wording while representing the in-progress state rather than claiming
@@ -649,7 +649,7 @@ class EventPresenter:
         else:
             self.view.add_notice(text, "success")
 
-    def _on_compaction_completed(self, payload: Dict[str, Any]) -> None:
+    def _on_compaction_completed(self, payload: Mapping[str, Any]) -> None:
         self.state.update_after_compaction(payload)
         if payload.get("manual"):
             self.state.detail = "ready"
@@ -660,30 +660,30 @@ class EventPresenter:
             # Keep lightweight presenter test doubles and older integrations working.
             self.view.add_notice(_compaction_notice(payload), "success")
 
-    def _on_paused(self, payload: Dict[str, Any]) -> None:
+    def _on_paused(self, payload: Mapping[str, Any]) -> None:
         self.state.phase = "paused"
         self.state.detail = "paused"
         self.view.set_thinking("Paused")
 
-    def _on_resumed(self, payload: Dict[str, Any]) -> None:
+    def _on_resumed(self, payload: Mapping[str, Any]) -> None:
         self.state.phase = "thinking"
         self.state.detail = "resumed"
         self.view.set_thinking("Resuming…")
 
-    def _on_message_injected(self, payload: Dict[str, Any]) -> None:
+    def _on_message_injected(self, payload: Mapping[str, Any]) -> None:
         if payload.get("source") == "subagent":
             return  # The child's lifecycle card already presents this result.
         role = payload.get("role", "user")
         content = preview_text(payload.get("content", ""))
         self.view.add_notice(f"Injected {role} message · {content}")
 
-    def _on_waiting_for_children(self, payload: Dict[str, Any]) -> None:
+    def _on_waiting_for_children(self, payload: Mapping[str, Any]) -> None:
         count = len(payload.get("child_ids") or [])
         self.state.phase = "waiting"
         self.state.detail = f"waiting for {count} subagent{'s' if count != 1 else ''}"
         self.view.set_working(self.state.detail)
 
-    def _on_question_asked(self, payload: Dict[str, Any]) -> None:
+    def _on_question_asked(self, payload: Mapping[str, Any]) -> None:
         self.state.phase = "paused"
         self.state.detail = "waiting for user"
         question = str(payload.get("question") or "")

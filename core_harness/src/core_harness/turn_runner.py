@@ -3,19 +3,53 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional
 
 from core_harness.models import TurnResult, UsageTotals
 
 
 
+from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
-from core_harness.context import HarnessState, estimate_prompt_tokens, message_size_breakdown
+from core_harness.context import (
+    COMPACTED_CONTEXT_MARK,
+    HarnessState,
+    estimate_prompt_tokens,
+    message_size_breakdown,
+)
 from core_harness.events import EventSink
 from core_harness.errors import HarnessLimitExceeded
 from core_harness.tools import Tool
 from core_harness.timing import mono_now, with_started
+
+
+def with_turn_context(
+    messages: List[Message],
+    context: Optional[Mapping[str, str]],
+) -> List[Message]:
+    """Return the request for one model call with per-turn context added.
+
+    Add-ons fill ``context`` (keyed by add-on, e.g. ``"memory"``) during
+    ``before_turn``. The blocks are sent as one user message placed right
+    before the latest real user message. The system message is never touched,
+    so its bytes stay identical across turns and the provider's prefix cache
+    keeps hitting. The returned list is a copy used only for this request:
+    ``messages`` (what is persisted and shown) does not change.
+    """
+    blocks = [text for text in (context or {}).values() if text]
+    if not blocks:
+        return messages
+    note = Message(role="user", content="\n\n".join(blocks))
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role != "user":
+            continue
+        if text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK):
+            continue
+        return [*messages[:index], note, *messages[index:]]
+    start = 1 if messages and messages[0].role == "system" else 0
+    return [*messages[:start], note, *messages[start:]]
 
 
 async def _ignore_addon_hook(_hook: str, **_payload: Any) -> None:
@@ -96,13 +130,21 @@ class TurnRunner:
         turn: int,
         usage: UsageTotals,
         context_left: Optional[int],
+        context: Optional[Mapping[str, str]] = None,
     ) -> TurnResult:
-        """Process one turn and mutate ``messages`` with its results."""
+        """Process one turn and mutate ``messages`` with its results.
+
+        ``context`` holds per-turn blocks from ``before_turn`` add-ons. They are
+        added to this request only (see :func:`with_turn_context`).
+        """
         estimated_message_tokens = await self.maybe_compact_turn(
             messages,
             turn=turn,
             context_left=context_left,
         )
+        request = with_turn_context(messages, context)
+        if request is not messages:
+            estimated_message_tokens = estimate_prompt_tokens(request)
         self._turn_started_mono = mono_now()
         await self.emit(
             "turn_started",
@@ -114,13 +156,13 @@ class TurnRunner:
 
         streamed = await stream_model_turn(
             self,
-            messages,
+            request,
             turn=turn,
             usage=usage,
             estimated_message_tokens=estimated_message_tokens,
         )
         context_left, message_sizes = await self.emit_context(
-            messages,
+            request,
             turn=turn,
             budget_tokens=streamed.budget_tokens,
             estimated_message_tokens=estimated_message_tokens,

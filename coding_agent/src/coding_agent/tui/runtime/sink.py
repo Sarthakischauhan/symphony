@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Sequence, Union
 from textual.message import Message
 
 from core_harness import EventSink, ControlPlaneEventType
-from coding_agent.approvals import ApprovalPolicy
+from coding_agent.addon.approvals import ApprovalPolicy
 from coding_agent.config import ApprovalConfig, ensure_spawn_settings
 
 

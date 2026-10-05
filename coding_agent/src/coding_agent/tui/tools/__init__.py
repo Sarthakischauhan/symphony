@@ -7,9 +7,10 @@ from coding_agent.tui.tools.calls import (
     PatchDiffWidget,
     ReadFileWidget,
     ToolCallWidget,
+    diff_stats,
     make_tool_widget,
+    make_unified_diff,
 )
-from coding_agent.tui.tools.diff import diff_stats, make_unified_diff
 from coding_agent.tui.tools.images import (
     IMAGE_MARKER_RE,
     ImageAttachment,
@@ -17,7 +18,7 @@ from coding_agent.tui.tools.images import (
     build_user_content,
     display_from_content,
     dropped_image_paths,
-    render_half_block,
+    textual_image,
 )
 from coding_agent.tui.tools.snapshots import (
     CompletedRunSummary,
@@ -46,5 +47,5 @@ __all__ = [
     "make_tool_widget",
     "make_unified_diff",
     "snapshot_from_call",
-    "render_half_block",
+    "textual_image",
 ]

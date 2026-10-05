@@ -28,7 +28,7 @@ from coding_agent.evaluation.protocol import (
 )
 from coding_agent.evaluation.state import bound_text, build_run_state
 from coding_agent.plan import PlanStore
-from coding_agent.plan_mode import PlanModeState
+from coding_agent.addon.plan import PlanModeState
 
 logger = logging.getLogger(__name__)
 

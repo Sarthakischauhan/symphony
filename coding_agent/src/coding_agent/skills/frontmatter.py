@@ -12,7 +12,7 @@ import re
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from coding_agent.extension_args import Description, ExtensionArgs
+from coding_agent.skills.args import Description, ExtensionArgs
 
 SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)

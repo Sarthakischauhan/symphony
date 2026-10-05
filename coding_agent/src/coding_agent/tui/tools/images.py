@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Sequence
 from urllib.parse import unquote, urlparse
 
-from rich.style import Style
 from rich.text import Text
 from textual.containers import Container
+from textual.widget import Widget
 from textual.widgets import Static
 
 from core_ai.content import IMAGE_MIME_BY_SUFFIX, image_part, normalize_content, sniff_image_media_type
@@ -137,63 +137,14 @@ def display_from_content(content: Content) -> tuple[str, tuple[ImageAttachment, 
     return "".join(chunks).strip(), tuple(images)
 
 
-def render_half_block(
-    payload: bytes,
-    *,
-    max_width: int = 88,
-    max_rows: int = 28,
-) -> Text:
-    """Render image bytes as a Unicode half-block preview."""
-    if not payload:
-        return Text("No image data to preview.", style="#888888")
-    try:
-        from PIL import Image
-    except ImportError:
-        return Text("Install Pillow to preview images in the terminal.", style="#888888")
+def textual_image(payload: bytes, *, widget_id: str | None = None) -> Widget:
+    """Render image bytes with textual-image, which picks the terminal's best protocol."""
+    from textual_image.widget import Image as TextualImage
 
-    try:
-        with Image.open(io.BytesIO(payload)) as source:
-            image = _to_rgb(source)
-            width, height = image.size
-            scale = min(max_width / max(width, 1), (max_rows * 2) / max(height, 1))
-            new_width = max(1, int(width * scale))
-            new_height = max(2, int(height * scale))
-            if new_height % 2:
-                new_height += 1
-            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            pixels = image.load()
-    except Exception as exc:  # noqa: BLE001
-        return Text(f"Could not render image ({exc}).", style="#c67b82")
-
-    preview = Text()
-    for y in range(0, new_height, 2):
-        for x in range(new_width):
-            upper = pixels[x, y]
-            lower = pixels[x, y + 1] if y + 1 < new_height else (13, 13, 13)
-            preview.append(
-                "▀",
-                style=Style(color=_hex(upper), bgcolor=_hex(lower)),
-            )
-        preview.append("\n")
-    return preview
-
-
-def _to_rgb(image: object) -> object:
-    from PIL import Image
-
-    assert isinstance(image, Image.Image)
-    if image.mode == "RGB":
-        return image.copy()
-    background = Image.new("RGB", image.size, (13, 13, 13))
-    if image.mode in {"RGBA", "LA"}:
-        rgba = image.convert("RGBA")
-        background.paste(rgba, mask=rgba.split()[-1])
-        return background
-    return image.convert("RGB")
-
-
-def _hex(pixel: tuple[int, int, int]) -> str:
-    return f"#{pixel[0]:02x}{pixel[1]:02x}{pixel[2]:02x}"
+    image = TextualImage(io.BytesIO(payload) if payload else None, id=widget_id)
+    image.styles.max_width = 88
+    image.styles.max_height = 28
+    return image
 
 
 def _split_path_tokens(text: str) -> list[str]:
@@ -265,7 +216,7 @@ class ImageModal(ModalBase[None]):
             yield ModalCloseButton("Esc", id="modal-close")
             yield Static(self._title(), id="image-title")
             with ModalScroll(id="content-body", classes="modal-body"):
-                yield Static(self._preview(), id="image-preview")
+                yield textual_image(self.attachment.decoded(), widget_id="image-preview")
             yield Static("↑↓ scroll   ·   Esc close", classes="modal-footer")
 
     def _title(self) -> Text:
@@ -283,9 +234,6 @@ class ImageModal(ModalBase[None]):
         if size is not None:
             bits.insert(0, f"{size[0]}×{size[1]}")
         return "  ·  ".join(bits)
-
-    def _preview(self) -> Text:
-        return render_half_block(self.attachment.decoded())
 
 
 def _image_size(payload: bytes) -> tuple[int, int] | None:

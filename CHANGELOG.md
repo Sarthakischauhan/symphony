@@ -97,7 +97,7 @@ Three packages on PyPI: `symphony-core`, `symphony-harness`, `symphony-code`.
 - Workspace tools: `read_file`, `write_file`, `patch`, `search`, `bash`,
   `generate_image`, `ask_user`, `spawn_agent`.
 - Textual TUI, plan mode, JSONL sessions under `.sessions/`.
-- Approval policy lives in `coding_agent.approvals`; the TUI only renders the
+- Approval policy lives in `coding_agent.addon.approvals`; the TUI only renders the
   question. Children still run without per-tool prompts (see `SECURITY.md`).
 - Post-run learning into `.symphony/learning/lessons.jsonl`.
 

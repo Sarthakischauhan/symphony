@@ -30,6 +30,7 @@ from core_harness.context import (
 from coding_agent.agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LearningConfig
 from coding_agent.tui.app import CodingAgentApp
+from coding_agent.tui.composer import QueuedTurn
 from coding_agent.tui.commands import (
     EFFORT_CATALOG,
     ModelOption,
@@ -57,7 +58,7 @@ from coding_agent.tui.tools import (
     build_user_content,
     display_from_content,
     dropped_image_paths,
-    render_half_block,
+    textual_image,
 )
 from coding_agent.tui.screens import (
     ContentModal,
@@ -229,7 +230,7 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
             app._run_generation = 1
             app.run_agent("first")
             await pilot.pause()
-            app.queue_turn(("second", "second", (), ()))
+            app.queue_turn(QueuedTurn("second", "second", (), ()))
             await pilot.pause()
             app.query_one("#queued-send-now").press()
             for _ in range(40):
@@ -272,7 +273,7 @@ def test_queued_follow_up_starts_after_current_run_finishes(
             app._run_generation = 1
             app.run_agent("first")
             await pilot.pause()
-            app.queue_turn(("second", "second", (), ()))
+            app.queue_turn(QueuedTurn("second", "second", (), ()))
             await pilot.pause()
             assert started == ["first"]
             gate.set()
@@ -308,7 +309,7 @@ def test_escape_keeps_queued_follow_up(
             app._run_generation = 1
             app.run_agent("first")
             await pilot.pause()
-            app.queue_turn(("second", "second", (), ()))
+            app.queue_turn(QueuedTurn("second", "second", (), ()))
             await pilot.press("escape")
             for _ in range(20):
                 await pilot.pause()
@@ -318,7 +319,7 @@ def test_escape_keeps_queued_follow_up(
                 raise AssertionError("escape did not stop the in-flight turn")
             assert started == ["first"]
             assert app._queued_turns
-            assert app._queued_turns[0][1] == "second"
+            assert app._queued_turns[0].text == "second"
 
     asyncio.run(_run())
 
@@ -334,7 +335,7 @@ def test_approval_keeps_composer_follow_up_and_queued_turn(
             await pilot.pause()
             prompt = app.query_one("#prompt", PromptInput)
             prompt.load_text("then run the linter")
-            app.queue_turn(("queued", "queued follow-up", (), ()))
+            app.queue_turn(QueuedTurn("queued", "queued follow-up", (), ()))
             await pilot.pause()
             app.sink._get_question_future("approval-keep")
             app._busy = True
@@ -351,7 +352,7 @@ def test_approval_keeps_composer_follow_up_and_queued_turn(
             await pilot.pause()
             assert prompt.value == "then run the linter"
             assert app._queued_turns
-            assert app._queued_turns[0][1] == "queued follow-up"
+            assert app._queued_turns[0].text == "queued follow-up"
             assert app.query_one("#queued-prompt-row").display
 
             menu = app.query_one("#approval-menu", SlashMenu)
@@ -359,7 +360,7 @@ def test_approval_keeps_composer_follow_up_and_queued_turn(
             await pilot.pause()
             assert prompt.value == "then run the linter"
             assert app._queued_turns
-            assert app._queued_turns[0][1] == "queued follow-up"
+            assert app._queued_turns[0].text == "queued follow-up"
             assert not prompt.disabled
 
     asyncio.run(_run())
@@ -2332,7 +2333,7 @@ def test_reasoning_and_queued_prompt_render_markup_literally(
                 {"turn": 0, "summary_index": 0, "delta": content, "text": content},
             )
             app._presenter.flush_stream_paints()
-            app.queue_turn((content, content, (), ()))
+            app.queue_turn(QueuedTurn(content, content, (), ()))
             await pilot.pause()
 
             thought = app.query_one(ReasoningWidget)
@@ -2667,7 +2668,7 @@ def test_approval_enter_submits_highlighted_always_allow(
             await pilot.pause()
             assert app.sink.approvals.mode == "ask"
 
-            from coding_agent.approvals import ApprovalAddon
+            from coding_agent.addon.approvals import ApprovalAddon
 
             addon = ApprovalAddon(tmp_path, app.sink)
             approval = asyncio.create_task(
@@ -3380,9 +3381,12 @@ def test_display_from_content_rebuilds_clickable_markers() -> None:
     assert images[0].marker == "[Image 1]"
 
 
-def test_half_block_preview_renders_unicode_blocks() -> None:
-    preview = render_half_block(PNG_1X1, max_width=8, max_rows=4)
-    assert "▀" in preview.plain
+def test_textual_image_renders_bytes() -> None:
+    from textual_image.widget import Image as TextualImage
+
+    preview = textual_image(PNG_1X1)
+    assert isinstance(preview, TextualImage)
+    assert preview.image is not None
 
 
 def test_subagent_card_opens_nested_session_screen(

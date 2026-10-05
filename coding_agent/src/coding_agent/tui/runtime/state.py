@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Optional
+from typing import Literal, Mapping, Optional
 
 Phase = Literal["idle", "thinking", "streaming", "tool", "paused"]
 
@@ -76,7 +76,7 @@ class UiRunState:
         self.reasoning_text += delta
         self.detail = "reasoning"
 
-    def update_usage(self, payload: Dict[str, Any]) -> None:
+    def update_usage(self, payload: Mapping[str, object]) -> None:
         m = self.metrics
         m.prompt_tokens = int(payload.get("prompt_tokens") or 0)
         m.completion_tokens = int(payload.get("completion_tokens") or 0)
@@ -96,7 +96,7 @@ class UiRunState:
         m.context_left = max(limit - m.tokens_used, 0)
         m.utilization = min(m.tokens_used / limit, 1.0)
 
-    def update_context(self, payload: Dict[str, Any]) -> None:
+    def update_context(self, payload: Mapping[str, object]) -> None:
         m = self.metrics
         limit = payload.get("context_limit")
         left = payload.get("context_left")
@@ -107,7 +107,7 @@ class UiRunState:
         util = payload.get("utilization")
         m.utilization = float(util) if util is not None else None
 
-    def update_after_compaction(self, payload: Dict[str, Any]) -> bool:
+    def update_after_compaction(self, payload: Mapping[str, object]) -> bool:
         """Re-derive context metrics from a ``compaction_completed`` payload.
 
         The harness reports the post-compact prompt size as an estimate; the

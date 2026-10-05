@@ -1,4 +1,4 @@
-"""Harness add-on that injects memory and reflects on a completed run."""
+"""Harness add-on that adds memory to each request and reflects on a completed run."""
 
 from __future__ import annotations
 
@@ -26,18 +26,27 @@ _MEMORY_BLOCK = re.compile(
 
 
 def strip_memory_context(content: str) -> str:
-    """Remove previously injected labeled memory blocks from system text."""
+    """Remove labeled memory blocks from text (older builds wrote them into system)."""
     return _MEMORY_BLOCK.sub("", content).rstrip()
 
 
-def apply_memory_context(content: str, context: str) -> str:
-    """Write ``context`` in place of any prior labeled memory block."""
-    base = strip_memory_context(content)
-    return f"{base}\n\n{context}" if context else base
+MEMORY_CONTEXT_KEY = "memory"
 
 
-def inject_memory(store: LearningStore, messages: list[Any], *, limit: int, max_chars: int) -> None:
-    """Refresh bounded reference data immediately before a model turn."""
+def inject_memory(
+    store: LearningStore,
+    messages: list[Any],
+    *,
+    limit: int,
+    max_chars: int,
+    context: Optional[dict[str, str]] = None,
+) -> str:
+    """Retrieve bounded reference data for the next model call.
+
+    The block goes into the per-turn ``context`` the harness sends as a user
+    message next to the latest task. It never edits the system message, so
+    the system prefix stays byte-identical across turns. Returns the block.
+    """
     # User-authored context only: assistant guesses and tool output are not
     # allowed to steer durable-memory retrieval. Exclude synthetic compactions.
     from core_harness.context import COMPACTED_CONTEXT_MARK
@@ -48,19 +57,21 @@ def inject_memory(store: LearningStore, messages: list[Any], *, limit: int, max_
     task = users[-1] if users else ""
     recent = "\n".join(sanitize_memory(text, max_chars=400) for text in users[-4:-1])[:1200]
     try:
-        context = store.query(task, limit=limit, max_chars=max_chars,
-                              recent_context=recent, include_preferences=True)
+        memory = store.query(task, limit=limit, max_chars=max_chars,
+                             recent_context=recent, include_preferences=True)
     except (OSError, UnicodeError, ValueError, sqlite3.Error):
         logger.warning("Memory retrieval unavailable; continuing without memory", exc_info=True)
-        context = ""
-    for message in messages:
-        if isinstance(message, Message) and message.role == "system":
-            message.content = apply_memory_context(text_from_content(message.content), context)
-            try:
-                store.archive_context("injected", task, context)
-            except (OSError, UnicodeError, ValueError, sqlite3.Error):
-                logger.warning("Memory context archival unavailable", exc_info=True)
-            break
+        memory = ""
+    if context is not None:
+        if memory:
+            context[MEMORY_CONTEXT_KEY] = memory
+        else:
+            context.pop(MEMORY_CONTEXT_KEY, None)
+    try:
+        store.archive_context("injected", task, memory)
+    except (OSError, UnicodeError, ValueError, sqlite3.Error):
+        logger.warning("Memory context archival unavailable", exc_info=True)
+    return memory
 
 
 def capture_memory(loop: LearningLoop, task: str, messages: list[Any]) -> None:
@@ -92,11 +103,12 @@ class LearningAddon(Addon):
         self.should_inject = should_inject or (lambda: True)
 
     async def before_turn(self, **payload: Any) -> None:
-        """Replace the labeled memory block on the current turn's system message."""
+        """Put memory in this turn's request context; the system message is left alone."""
         if not self.should_inject():
             return
         inject_memory(self.loop.store, payload.get("messages") or [],
-                      limit=self.loop.context_limit, max_chars=self.loop.context_max_chars)
+                      limit=self.loop.context_limit, max_chars=self.loop.context_max_chars,
+                      context=payload.get("context"))
 
     def fork_for_child(self, parent_harness: Any) -> None:
         """Skip inherit: child runs do not observe or record learning."""
@@ -137,9 +149,7 @@ class SessionMemoryAddon(Addon):
         self.should_inject = should_inject
 
     def attach(self, harness: Any) -> None:
-        from coding_agent.tools.memory import MemoryTool
-        from coding_agent.tools.memory_search import MemorySearchTool
-        from coding_agent.tools.memory_get import MemoryGetTool
+        from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
 
         self.store = self.store_factory(harness.session_id)
         self.loop = LearningLoop(self.store, registry=harness.registry, model_id=harness.model_id)
@@ -153,7 +163,8 @@ class SessionMemoryAddon(Addon):
         if not self.should_inject:
             return
         inject_memory(self.store, payload.get("messages") or [],
-                      limit=self.context_limit, max_chars=self.context_max_chars)
+                      limit=self.context_limit, max_chars=self.context_max_chars,
+                      context=payload.get("context"))
 
     async def before_run(self, **payload: Any) -> None:
         self.task = next((text_from_content(m.content) for m in reversed(payload.get("messages") or [])

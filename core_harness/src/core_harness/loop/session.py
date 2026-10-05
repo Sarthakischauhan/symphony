@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from itertools import count
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
@@ -104,12 +104,16 @@ async def run_session(
             turn_runner.remaining_runtime = remaining
             turn_runner.deadline = deadline
             await _deliver_child_results(harness, messages, turn)
-            await harness.notify_addons("before_turn", turn=turn, messages=messages)
+            # Per-turn context (e.g. memory) goes into the request, never into
+            # the system message, so the system prefix stays byte-identical.
+            turn_context: Dict[str, str] = {}
+            await harness.notify_addons("before_turn", turn=turn, messages=messages, context=turn_context)
             result = await turn_runner.run(
                 messages,
                 turn=turn,
                 usage=usage,
                 context_left=context_left,
+                context=turn_context,
             )
             await harness.notify_addons(
                 "after_turn",

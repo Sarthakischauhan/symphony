@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import shutil
+import subprocess
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic import Field
 
@@ -150,6 +153,15 @@ def _display_path(path: Path, base: Path) -> str:
 DEFAULT_SEARCH_CONFIG = SearchConfig()
 
 
+def find_rg() -> Optional[str]:
+    """Path to ripgrep, or ``None`` so search falls back to the Python walker."""
+    return shutil.which("rg")
+
+
+class RgUnavailable(Exception):
+    """ripgrep could not run this query; use the Python walker instead."""
+
+
 class SearchArgs(ToolArgsModel):
     query: str = Field(..., min_length=1, description="Text or regular expression to search for.")
     mode: str = Field(default="content", description="Search mode: 'content' or 'files'.")
@@ -164,13 +176,17 @@ class SearchArgs(ToolArgsModel):
     max_line_chars: int = Field(default=DEFAULT_SEARCH_CONFIG.default_max_line_chars, ge=1)
 
 
+def _strip_dot(path: str) -> str:
+    return path[2:] if path.startswith("./") else path
+
+
 class SearchTool(WorkspaceTool):
     name = "search"
     description = (
         "Search file names or text content. Returns file paths for mode=files "
         "and path:line:content for mode=content. Supports literal or regex queries, "
         "path/glob scoping, case-insensitive matching, and bounded output. "
-        "Relative paths start at the working directory."
+        "Relative paths start at the working directory. Uses ripgrep when installed."
     )
     args_model = SearchArgs
 
@@ -181,7 +197,7 @@ class SearchTool(WorkspaceTool):
         config: SearchConfig = DEFAULT_SEARCH_CONFIG,
     ) -> None:
         self.config = config
-        super().__init__(workspace)
+        super().__init__(workspace, parallel=True)
         properties = self.parameters["properties"]
         properties["max_results"]["default"] = config.default_max_results
         properties["max_line_chars"]["default"] = config.default_max_line_chars
@@ -221,9 +237,117 @@ class SearchTool(WorkspaceTool):
 
         limit = max(1, max_results)
         line_cap = max(1, max_line_chars)
-        results: list[str] = []
         base = root if root.is_dir() else root.parent
 
+        rg = find_rg() if root.is_dir() else None
+        if rg is not None:
+            try:
+                results = self._rg_search(
+                    rg, root, mode=mode, query=query, glob=glob, regex=regex,
+                    case_insensitive=case_insensitive, matcher=matcher,
+                    limit=limit, line_cap=line_cap,
+                )
+            except RgUnavailable:
+                results = self._python_search(root, base, mode, glob, matcher, limit, line_cap)
+        else:
+            results = self._python_search(root, base, mode, glob, matcher, limit, line_cap)
+
+        if not results:
+            return f"no {mode} matches for {query!r}"
+        suffix = " (capped)" if len(results) >= limit else ""
+        return f"{len(results)} {mode} matches{suffix}\n" + "\n".join(results)
+
+    def _rg_search(
+        self,
+        rg: str,
+        root: Path,
+        *,
+        mode: str,
+        query: str,
+        glob: str,
+        regex: bool,
+        case_insensitive: bool,
+        matcher: re.Pattern,
+        limit: int,
+        line_cap: int,
+    ) -> list[str]:
+        """Search ``root`` (a directory) with ripgrep. Output matches the Python walker.
+
+        ripgrep already skips hidden files, binary files, and gitignored paths;
+        ``--no-require-git`` applies .gitignore outside a git checkout too, and
+        the default skip directories are excluded explicitly.
+        """
+        command = [rg, "--color=never", "--sort=path", "--no-require-git", "--no-messages"]
+        for name in sorted(DEFAULT_SKIP_DIRS):
+            command += ["--glob", f"!{name}/"]
+        if glob:
+            command += ["--glob", glob]
+        if mode == "files":
+            command.append("--files")
+        else:
+            command += ["--line-number", "--with-filename", "--no-heading", "--null"]
+            if case_insensitive:
+                command.append("--ignore-case")
+            if not regex:
+                command.append("--fixed-strings")
+            command += ["--regexp", query]
+        command.append(".")
+
+        results: list[str] = []
+        try:
+            process = subprocess.Popen(
+                command, cwd=root, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            raise RgUnavailable(str(exc)) from exc
+        if process.stdout is None:
+            process.kill()
+            process.wait()
+            raise RgUnavailable("rg produced no output stream")
+        capped = False
+        try:
+            for raw in process.stdout:
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if mode == "files":
+                    relative = _strip_dot(line)
+                    if not matcher.search(relative):
+                        continue
+                    results.append(relative)
+                else:
+                    path, sep, rest = line.partition("\0")
+                    line_no, sep2, content = rest.partition(":")
+                    if not sep or not sep2 or not line_no.isdigit():
+                        continue
+                    content = content.rstrip()
+                    if len(content) > line_cap:
+                        content = content[:line_cap] + "…"
+                    results.append(f"{_strip_dot(path)}:{line_no}:{content}")
+                if len(results) >= limit:
+                    capped = True
+                    break
+        finally:
+            if capped:
+                process.kill()
+            process.stdout.close()
+            code = process.wait()
+        # 0 = matches, 1 = no matches. Anything else (e.g. a regex ripgrep
+        # does not support) falls back to Python's re semantics.
+        if not capped and code not in (0, 1):
+            raise RgUnavailable(f"rg exited with {code}")
+        return results
+
+    def _python_search(
+        self,
+        root: Path,
+        base: Path,
+        mode: str,
+        glob: str,
+        matcher: re.Pattern,
+        limit: int,
+        line_cap: int,
+    ) -> list[str]:
+        results: list[str] = []
         if mode == "files":
             for file_path in self._iter_files(root, glob, base):
                 relative = _display_path(file_path, base)
@@ -245,29 +369,23 @@ class SearchTool(WorkspaceTool):
                         break
                 if len(results) >= limit:
                     break
-
-        if not results:
-            return f"no {mode} matches for {query!r}"
-        suffix = " (capped)" if len(results) >= limit else ""
-        return f"{len(results)} {mode} matches{suffix}\n" + "\n".join(results)
+        return results
 
     def _iter_files(self, root: Path, glob_pattern: str, base: Path):
         if root.is_file():
             yield from self._yield_file(root, glob_pattern, base)
             return
-        stack = [root]
-        while stack:
-            current = stack.pop()
-            try:
-                children = sorted(current.iterdir(), key=lambda path: path.name, reverse=True)
-            except OSError:
+        # Depth-first in path order, the same order as ``rg --sort=path``.
+        try:
+            children = sorted(root.iterdir(), key=lambda path: path.name)
+        except OSError:
+            return
+        for child in children:
+            if child.is_dir():
+                if self._searchable_dir(child, base):
+                    yield from self._iter_files(child, glob_pattern, base)
                 continue
-            for child in children:
-                if child.is_dir():
-                    if self._searchable_dir(child, base):
-                        stack.append(child)
-                    continue
-                yield from self._yield_file(child, glob_pattern, base)
+            yield from self._yield_file(child, glob_pattern, base)
 
     def _yield_file(self, candidate: Path, glob_pattern: str, base: Path):
         if not candidate.is_file() or not self._searchable(candidate, base):
