@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from difflib import unified_diff
 from pathlib import Path
 import re
 from time import monotonic
@@ -17,7 +18,6 @@ from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.motion import enter_row
 from coding_agent.tui.tools.activity import parse_activity, strip_activity_json, take_activity
-from coding_agent.tui.tools.diff import make_unified_diff, patch_summary
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.tools.labels import (
     TOOL_LABELS,
@@ -439,3 +439,35 @@ def make_tool_widget(call_id: str, tool_name: str) -> ToolCallWidget:
     if tool_name == "patch":
         return PatchDiffWidget(call_id, tool_name)
     return ToolCallWidget(call_id, tool_name)
+
+
+def make_unified_diff(old: str, new: str, path: str) -> list[str]:
+    """Build display-ready unified diff lines for an exact-text edit."""
+    if not old and not new:
+        return []
+    lines = list(
+        unified_diff(
+            old.splitlines(),
+            new.splitlines(),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            lineterm="",
+        )
+    )
+    return lines[2:] if len(lines) >= 2 else lines
+
+
+def diff_stats(diff: list[str]) -> tuple[int, int]:
+    """Count additions and deletions in display-ready diff lines."""
+    additions = sum(line.startswith("+") and not line.startswith("+++") for line in diff)
+    deletions = sum(line.startswith("-") and not line.startswith("---") for line in diff)
+    return int(additions), int(deletions)
+
+
+def patch_summary(path: str, diff: list[str]) -> str:
+    """Path plus +/− counts for a patch card header."""
+    if not diff:
+        return path
+    additions, deletions = diff_stats(diff)
+    stats = f"+{additions} -{deletions}"
+    return f"{path} {stats}" if path else stats

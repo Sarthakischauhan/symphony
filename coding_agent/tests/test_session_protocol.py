@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from coding_agent.persistence.jsonl import JsonlPersistence
-from coding_agent.protocols import commands
+from coding_agent.protocols.stdio import commands
 
 SESSION_ID = "0876c78a-9f47-4bd5-a495-a8e912c3757c"
 

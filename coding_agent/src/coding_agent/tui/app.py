@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -19,7 +19,7 @@ from coding_agent.persistence.active import register_active, release_active
 from coding_agent.plan import PlanStore
 from coding_agent.tui.chrome import ComposerOverlay, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
-from coding_agent.tui.composer import Composer, PromptInput, QueuedPrompt, SlashMenu
+from coding_agent.tui.composer import Composer, PromptInput, QueuedPrompt, QueuedTurn, SlashMenu
 from coding_agent.tui.composer.surface import ComposerSurface
 from coding_agent.tui.runtime import (
     EventPresenter,
@@ -92,7 +92,7 @@ class CodingAgentApp(
         self.enable_learning = enable_learning
         self.enable_jev = enable_jev
         self.jev_rule = ""
-        overrides: dict = {}
+        overrides: dict[str, Any] = {}
         if enable_learning is not None:
             overrides["learning"] = {"enabled": enable_learning}
         if enable_jev is not None:
@@ -110,15 +110,15 @@ class CodingAgentApp(
         self._agent: Optional[CodingAgent] = None
         self._busy = False
         # Prompts submitted while a turn is running are dispatched FIFO.
-        self._queued_turns: list[tuple[object, str, tuple[str, ...], tuple[object, ...]]] = []
+        self._queued_turns: list[QueuedTurn] = []
         self._init_runtime_state()
 
-    def queue_turn(self, turn: tuple[object, str, tuple[str, ...], tuple[object, ...]]) -> None:
+    def queue_turn(self, turn: QueuedTurn) -> None:
         """Add a follow-up prompt and refresh the queue control."""
         self._queued_turns.append(turn)
         self.query_one("#queued-prompt-row", QueuedPrompt).refresh_queue(self._queued_turns)
 
-    def pop_queued_turn(self):
+    def pop_queued_turn(self) -> QueuedTurn:
         """Remove and return the oldest queued prompt."""
         turn = self._queued_turns.pop(0)
         self.query_one("#queued-prompt-row", QueuedPrompt).refresh_queue(self._queued_turns)

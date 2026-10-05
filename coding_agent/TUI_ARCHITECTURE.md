@@ -227,7 +227,7 @@ later events update it.
 - Provider streaming cancellation is observed promptly through the shared cancel event;
   tool cancellation still depends on the active tool returning or observing cancellation.
 - An unbound `TextualEventSink` drops emitted events rather than buffering them.
-- Approval rules live in `coding_agent.approvals.ApprovalPolicy`. The TUI
+- Approval rules live in `coding_agent.addon.approvals.ApprovalPolicy`. The TUI
   plane renders the question and returns the answer; it does not decide
   which tools need a prompt.
 

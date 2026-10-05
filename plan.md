@@ -106,7 +106,7 @@ and `~` paths are allowed:
   `LangfuseAddon` (silent without Langfuse keys / SDK), optional `JevAddon`,
   and `LearningAddon` when a `LearningLoop` is passed. Children skip
   learning (`fork_for_child` returns `None`; spawn `addon_factory` omits it).
-- Approvals (`coding_agent.approvals.ApprovalPolicy` + `ApprovalConfig`):
+- Approvals (`coding_agent.addon.approvals.ApprovalPolicy` + `ApprovalConfig`):
   ask before `bash`, overwrite, or a broad patch; `always_allow` mode;
   allow-once answers. The TUI renders the question; it does not own the
   rules. Children still run without per-tool prompts (`SECURITY.md`).

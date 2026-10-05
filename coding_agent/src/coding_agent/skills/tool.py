@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import Field
 
-from coding_agent.extension_args import render_args
+from coding_agent.skills.args import render_args
 from coding_agent.skills.registry import MAX_SKILL_FILE_BYTES, SkillRegistry
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 

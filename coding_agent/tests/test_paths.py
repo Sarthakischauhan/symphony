@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.paths import project_root
+from coding_agent.personalities import project_root
 from coding_agent.personalities import discover_personalities_path, load_personalities
 
 CATALOG_IDS = ["direct", "bad_boy", "caveman", "precise", "warm"]

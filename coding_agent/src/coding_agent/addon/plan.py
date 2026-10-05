@@ -1,9 +1,13 @@
-"""Explicit plan-mode state and harness tool gate."""
+"""Explicit plan-mode state and the harness tool gate that enforces it."""
+
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
 from core_harness.addons.addon import Addon
+
 
 @dataclass
 class PlanModeState:
@@ -22,6 +26,7 @@ class PlanModeState:
 
     def set_plan_path(self, path: str | None) -> None:
         self.plan_path = str(Path(path).expanduser().resolve()) if path else None
+
     def approve(self) -> None:
         if not self.active:
             raise RuntimeError("no active plan")
@@ -32,9 +37,11 @@ class PlanModeState:
             self.reset()
         elif mode == "plan" and not self.active:
             self.begin()
+
     def reset(self) -> None:
         self.active = self.approved = False
         self.plan_path = None
+
     def permits(self, tool_name: str, *, target: str | None = None) -> bool:
         if not self.active or self.approved or tool_name in self.allowed_tools:
             return True
@@ -48,16 +55,23 @@ class PlanModeState:
                 return False
         return False
 
+
 class PlanModeAddon(Addon):
     name = "plan-mode"
+
     def __init__(self, state: PlanModeState) -> None:
         self.state = state
+
     async def before_tool(self, *, tool_name: str, **kwargs: Any) -> Optional[str]:
         args = kwargs.get("arguments") or kwargs.get("args") or {}
         target = args.get("path") if isinstance(args, dict) else None
         if self.state.permits(tool_name, target=target):
             return None
         return "plan mode is active: approve the plan before using implementation tools"
+
     def fork_for_child(self, parent_harness: Any) -> None:
         del parent_harness
         return None
+
+
+__all__ = ["PlanModeAddon", "PlanModeState"]

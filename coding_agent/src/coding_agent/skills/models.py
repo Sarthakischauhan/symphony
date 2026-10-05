@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from coding_agent.extension_args import ExtensionArg
+from coding_agent.skills.args import ExtensionArg
 
 CATALOG_DESCRIPTION_CHARS = 160
 

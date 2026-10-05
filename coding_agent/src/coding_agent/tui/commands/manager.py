@@ -4,14 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from pathlib import Path
 from typing import Any, Iterable
 
-from core_ai import get_model, get_provider
+from core_ai import find_provider, get_model, get_provider
+from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.agent import build_agent
 from coding_agent.persistence.jsonl import JsonlPersistence
+from coding_agent.persistence.presentation import session_images
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.langfuse import ensure_langfuse_installed
+from textual.containers import Container
+from textual.widgets import Static
+
+from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
+from coding_agent.tui.theme import CONTENT_MODAL_CSS
+from coding_agent.tui.tools.images import ImageAttachment, textual_image
 from coding_agent.tui.screens import (
     ContextModal,
     DiffModal,
@@ -19,8 +28,8 @@ from coding_agent.tui.screens import (
     LangfuseSetupScreen,
     LearningModal,
     PlanModal,
+    ProviderOnboardScreen,
 )
-from coding_agent.tui.commands.provider import open_provider_onboard
 from coding_agent.tui.commands.catalog import (
     EFFORT_CATALOG,
     MODE_CATALOG,
@@ -34,7 +43,32 @@ from coding_agent.tui.commands.catalog import (
     personality_options,
 )
 
-# --- langfuse.py ---
+class SessionModal(ModalBase[None]):
+    """Durable session archive, including images saved beside the transcript."""
+
+    CSS = CONTENT_MODAL_CSS
+
+    def __init__(self, report: str, root: Path | None = None) -> None:
+        super().__init__()
+        self.report = report
+        self.root = root
+
+    def compose(self):  # type: ignore[no-untyped-def]
+        with Container(id="content-pane", classes="modal-pane"):
+            yield ModalCloseButton("Esc", id="modal-close")
+            yield Static("Session archive", id="content-title")
+            with ModalScroll(id="content-body", classes="modal-body"):
+                yield Static(self.report, markup=False)
+                for index, path in enumerate(session_images(self.root) if self.root else [], 1):
+                    yield Static(f"Image {index} · {path.name}", markup=False)
+                    try:
+                        image = ImageAttachment.from_path(path, f"[Image {index}]")
+                        yield textual_image(image.decoded())
+                    except OSError:
+                        yield Static("Image is unavailable.")
+            yield Static("↑↓ scroll   ·   Esc close", classes="modal-footer")
+
+
 def open_langfuse_setup(app: Any) -> None:
     """Install the optional SDK if needed, then collect Langfuse credentials."""
     app.run_worker(_open_langfuse_setup(app), exclusive=False)
@@ -526,7 +560,6 @@ class CommandManager:
                 app.add_notice(OFFLINE_HINT, "error")
             else:
                 from coding_agent.persistence.presentation import session_report
-                from coding_agent.tui.screens.session import SessionModal
 
                 store = app._agent.persistence
                 root = store.session_dir(app._agent.session_id) if isinstance(store, JsonlPersistence) else None
@@ -598,3 +631,43 @@ class CommandManager:
 
     def on_plan_action(self, action: str | None) -> None:
         on_plan_action(self.app, action)
+
+
+def open_provider_onboard(app: Any, argument: str = "") -> None:
+    initial = None
+    if argument:
+        selected = find_provider(argument)
+        if selected is None:
+            app.add_notice(
+                f"Unknown provider: {argument}. Choose {', '.join(spec.id for spec in PROVIDERS)}.",
+                "warning",
+            )
+            return
+        initial = selected.id
+    app.push_screen(
+        ProviderOnboardScreen(app.workspace, initial_provider=initial),
+        lambda providers: on_provider_onboard(app, providers),
+    )
+
+
+def on_provider_onboard(app: Any, providers: tuple[str, ...] | None) -> None:
+    if providers is None:
+        app.query_one("#prompt").focus()
+        return
+    current = set(configured_provider_ids())
+    if not current:
+        if app._agent is None:
+            app.add_notice(OFFLINE_HINT, "warning")
+        return
+    app.run_worker(reload_after_provider(app), exclusive=False)
+
+
+async def reload_after_provider(app: Any) -> None:
+    from coding_agent.tui.commands.manager import reload_project
+
+    await reload_project(app)
+    current = configured_provider_ids()
+    if not current:
+        return
+    labels = ", ".join(get_provider(provider_id).label for provider_id in current)
+    app.add_update(f"Providers ready · {labels}. Use /model to switch.")

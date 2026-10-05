@@ -149,9 +149,7 @@ class SessionMemoryAddon(Addon):
         self.should_inject = should_inject
 
     def attach(self, harness: Any) -> None:
-        from coding_agent.tools.memory import MemoryTool
-        from coding_agent.tools.memory_search import MemorySearchTool
-        from coding_agent.tools.memory_get import MemoryGetTool
+        from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
 
         self.store = self.store_factory(harness.session_id)
         self.loop = LearningLoop(self.store, registry=harness.registry, model_id=harness.model_id)

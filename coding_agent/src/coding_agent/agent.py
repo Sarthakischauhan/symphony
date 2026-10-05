@@ -23,8 +23,17 @@ from core_harness.addons.persistence import PersistenceAddon
 from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
-from coding_agent.approvals import ApprovalAddon
-from coding_agent.compaction import ai_compaction_from_config
+from coding_agent.addon import (
+    ApprovalAddon,
+    LearningAddon,
+    PlanModeAddon,
+    PlanModeState,
+    SessionMemoryAddon,
+    SkillsAddon,
+    ai_compaction_from_config,
+    jev_from_config,
+    langfuse_from_config,
+)
 from coding_agent.config import (
     CompactionConfig,
     EvaluationConfig,
@@ -33,20 +42,15 @@ from coding_agent.config import (
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
-from coding_agent.evaluation import JEV_SYSTEM_SEGMENT, jev_from_config
-from coding_agent.langfuse import langfuse_from_config
-from coding_agent.learning import LearningAddon, LearningLoop, LearningStore
-from coding_agent.learning.addon import SessionMemoryAddon
-from coding_agent.tools.memory import MemoryTool
-from coding_agent.tools.memory_search import MemorySearchTool
-from coding_agent.tools.memory_get import MemoryGetTool
+from coding_agent.evaluation import JEV_SYSTEM_SEGMENT
+from coding_agent.learning import LearningLoop, LearningStore
+from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
 from coding_agent.persistence import JsonlPersistence, sessions_dir
 from coding_agent.personalities import compose_system_prompt
 from coding_agent.plan import PlanStore
-from coding_agent.plan_mode import PlanModeAddon, PlanModeState
 from coding_agent.plugins import LoadedPlugin, PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
-from coding_agent.skills import SkillRegistry, SkillsAddon, bundled_skills_root
+from coding_agent.skills import SkillRegistry, bundled_skills_root
 from coding_agent.tools import BashJobs, EnterPlanModeTool, ExitPlanModeTool, build_tools
 
 AgentMode = Literal["build", "plan"]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 from textual import work
 from textual.widgets import Static
@@ -67,7 +67,7 @@ class TurnSurface:
         await load_session_history(self._agent, self)
         await self.restore_subagents()
 
-    def _collect_run_events(self, payload: dict) -> None:
+    def _collect_run_events(self, payload: Mapping[str, Any]) -> None:
         """Tag mid-run journal events as collected after the final output."""
         agent = getattr(self, "_agent", None)
         store = getattr(agent, "persistence", None)
@@ -160,14 +160,7 @@ class TurnSurface:
             if dispatch_queued:
                 # Skip the idle chrome/focus pass — it forced a full layout
                 # immediately before the next turn mounted more widgets.
-                user_content, text, pasted_chunks, images = self.pop_queued_turn()
-                self.call_after_refresh(
-                    self._start_turn,
-                    user_content,
-                    text,
-                    pasted_chunks,
-                    images,
-                )
+                self.call_after_refresh(self._start_turn, self.pop_queued_turn())
                 return
             if self._presenter is not None:
                 self._ui_state.phase = "paused" if child_question_pending else "idle"

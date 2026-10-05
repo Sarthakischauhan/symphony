@@ -125,7 +125,7 @@ def test_slash_command_does_not_call_the_model(monkeypatch):
 
 
 def test_mode_command_survives_a_new_stdio_process(monkeypatch, tmp_path):
-    from coding_agent.protocols import commands
+    from coding_agent.protocols.stdio import commands
 
     monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path)
 
@@ -145,7 +145,7 @@ def test_mode_command_survives_a_new_stdio_process(monkeypatch, tmp_path):
 
 
 def test_protocol_catalog_includes_dynamic_argument_choices(monkeypatch, tmp_path):
-    from coding_agent.protocols import commands
+    from coding_agent.protocols.stdio import commands
     monkeypatch.setattr(commands, "load_personalities", lambda: [
         SimpleNamespace(id="custom", name="Custom personality", description="Workspace choice")
     ])
@@ -161,7 +161,7 @@ def test_protocol_catalog_includes_dynamic_argument_choices(monkeypatch, tmp_pat
 
 
 def test_personality_command_accepts_whitespace_and_applies_prompt(monkeypatch, tmp_path):
-    from coding_agent.protocols import commands
+    from coding_agent.protocols.stdio import commands
     applied = []
     monkeypatch.setattr(commands, "load_personalities", lambda: [
         SimpleNamespace(id="precise", name="Precise", description="Careful")
@@ -193,7 +193,7 @@ def test_command_attachments_are_rejected_without_inference(monkeypatch):
 
 
 def test_reload_refreshes_live_agent_configuration(monkeypatch, tmp_path):
-    from coding_agent.protocols import commands
+    from coding_agent.protocols.stdio import commands
     import coding_agent.credentials as credentials
     called = []
     monkeypatch.setattr(credentials, "load_provider_env", lambda workspace, **kwargs: called.append("env"))

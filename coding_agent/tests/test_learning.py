@@ -23,7 +23,7 @@ from coding_agent.learning import (
     strip_memory_context,
     two_line_summary,
 )
-from coding_agent.learning.addon import LEARNING_IDLE_DELAY_SECONDS
+from coding_agent.addon.learning import LEARNING_IDLE_DELAY_SECONDS
 
 
 def _result() -> HarnessResult:
@@ -203,7 +203,7 @@ def test_after_run_hook_emits_summary_on_the_control_plane(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "coding_agent.learning.addon.LEARNING_IDLE_DELAY_SECONDS",
+        "coding_agent.addon.learning.LEARNING_IDLE_DELAY_SECONDS",
         0.0,
     )
 

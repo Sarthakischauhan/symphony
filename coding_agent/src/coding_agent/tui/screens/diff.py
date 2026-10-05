@@ -14,7 +14,7 @@ from textual.widgets import Static
 
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import DIFF_MODAL_CSS
-from coding_agent.tui.tools.diff import diff_stats
+from coding_agent.tui.tools.calls import diff_stats
 
 
 _HUNK_RE = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)")

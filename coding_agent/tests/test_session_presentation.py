@@ -11,7 +11,7 @@ from textual.app import App
 from coding_agent.learning import LearningStore
 from coding_agent.persistence import JsonlPersistence
 from coding_agent.persistence.presentation import session_images, session_report
-from coding_agent.tui.screens.session import SessionModal
+from coding_agent.tui.commands.manager import SessionModal
 
 
 def test_archive_report_and_image_gallery_survive_compaction(tmp_path):

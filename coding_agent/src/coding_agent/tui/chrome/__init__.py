@@ -1,13 +1,13 @@
 """App chrome: the top bar and footer that frame the transcript and composer."""
 
 from coding_agent.tui.chrome.footer import (
+    ComposerOverlay,
     context_percent,
     footer_hint,
     footer_segments,
     phase_label,
     render_footer,
 )
-from coding_agent.tui.chrome.overlay import ComposerOverlay
 from coding_agent.tui.chrome.topbar import (
     TopBar,
     display_workspace_path,

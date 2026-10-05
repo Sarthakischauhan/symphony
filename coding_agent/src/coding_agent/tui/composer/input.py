@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +13,20 @@ from textual.message import Message
 from textual.widgets import Button, Static, TextArea
 
 from coding_agent.tui.screens.modal import ContentModal
+from core_ai.types import Content
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal, dropped_image_paths
 from coding_agent.tui.transcript import UserMessage
+
+
+@dataclass(frozen=True)
+class QueuedTurn:
+    """Composer submission: model content, visible text, pastes, and images."""
+
+    content: Content
+    text: str
+    pasted_chunks: tuple[str, ...]
+    images: tuple[ImageAttachment, ...]
+
 
 class PromptInput(TextArea):
     """Multiline prompt editor with compact handling for large pastes and images."""
@@ -178,12 +192,12 @@ class QueuedPrompt(Container):
         yield Button("Send now", id="queued-send-now", variant="default")
         yield Button("Edit", id="queued-edit", variant="default")
 
-    def refresh_queue(self, queued) -> None:
+    def refresh_queue(self, queued: Sequence[QueuedTurn]) -> None:
         visible = bool(queued)
         if self.display != visible:
             self.display = visible
         if queued:
-            self.query_one("#queued-prompt-text", Static).update(queued[0][1])
+            self.query_one("#queued-prompt-text", Static).update(queued[0].text)
 
 
 class Composer(Container):

@@ -6,7 +6,7 @@ from core_ai.types import Message
 from core_harness.context import COMPACTED_CONTEXT_MARK
 
 from coding_agent.learning import LearningAddon, LearningLoop, LearningStore, MEMORY_CONTEXT_PREFIX
-from coding_agent.learning.addon import SessionMemoryAddon, inject_memory
+from coding_agent.addon.learning import SessionMemoryAddon, inject_memory
 
 
 def test_follow_up_retrieves_recent_topic_and_preferences(tmp_path):

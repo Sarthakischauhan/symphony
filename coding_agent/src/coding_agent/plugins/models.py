@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Any, NamedTuple
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from coding_agent.extension_args import fold_whitespace
+from coding_agent.skills.args import fold_whitespace
 
 class PluginConfig(BaseModel):
     """One plugin entry from config or discovery; strict so typos are reported."""

@@ -207,7 +207,7 @@ silently migrated. Deletion is an explicit user action, never an install hook.
 
 | File | Responsibility |
 | --- | --- |
-| [`learning/addon.py`](../../coding_agent/src/coding_agent/learning/addon.py) | Pre-turn injection and capture lifecycle hooks |
+| [`addon/learning.py`](../../coding_agent/src/coding_agent/addon/learning.py) | Pre-turn injection and capture lifecycle hooks |
 | [`learning/loop.py`](../../coding_agent/src/coding_agent/learning/loop.py) | Durable enqueue, background extraction, validation and retry |
 | [`learning/prompts.py`](../../coding_agent/src/coding_agent/learning/prompts.py) | Evidence-only extraction prompt |
 | [`learning/store.py`](../../coding_agent/src/coding_agent/learning/store.py) | Jobs, observations, topics, consolidation, search and scoped presentation |

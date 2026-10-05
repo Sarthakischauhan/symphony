@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -21,6 +22,8 @@ from coding_agent.tui.motion import enter_row, reveal, settle_row
 from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.theme import SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.tools.images import IMAGE_MARKER_RE, ImageAttachment, ImageModal
+
+_MERMAID_FENCE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
 # Accent glyph that opens every user prompt in the transcript (mock: purple `>`).
 USER_PROMPT_GLYPH = ">"
@@ -305,8 +308,9 @@ class AssistantMessage(SelectableStatic):
             self._markdown = None
             body: object = Text(content or " ")
         else:
-            self._markdown = themed_markdown(content or " ")
-            body = self._markdown
+            prose, diagrams = render_mermaid(content or " ")
+            self._markdown = themed_markdown(prose)
+            body = Group(self._markdown, *diagrams) if diagrams else self._markdown
         self._invalidate_render_cache(layout=True)
         self.update(Group(body))
 
@@ -318,6 +322,25 @@ class AssistantMessage(SelectableStatic):
 
     def archive_text(self) -> str:
         return self.message_text
+
+def render_mermaid(content: str) -> tuple[str, tuple[Text, ...]]:
+    """Replace ```mermaid fences with termaid diagrams. The rest stays markdown."""
+    diagrams: list[Text] = []
+
+    def draw(match: re.Match[str]) -> str:
+        source = match.group(1).strip()
+        if not source:
+            return match.group(0)
+        try:
+            from termaid import render_rich
+
+            diagrams.append(render_rich(source))
+        except Exception as exc:  # noqa: BLE001
+            diagrams.append(Text(f"Could not render diagram ({exc}).", style="#c67b82"))
+        return ""
+
+    return _MERMAID_FENCE.sub(draw, content).strip() or " ", tuple(diagrams)
+
 
 def _overlaps(start: int, end: int, occupied: Sequence[tuple[int, int]]) -> bool:
     return any(

@@ -1,6 +1,10 @@
 """Optional Jev critic mode for coding-agent runs."""
 
-from coding_agent.evaluation.addon import JevAddon, jev_from_config
+from __future__ import annotations
+
+from typing import Any
+
+from coding_agent._lazy import resolve
 from coding_agent.evaluation.evaluators import (
     LLMEvaluator,
     MockEvaluator,
@@ -26,6 +30,11 @@ from coding_agent.evaluation.protocol import (
     START_QUESTIONS,
 )
 from coding_agent.evaluation.state import RunState, build_run_state, clip_text
+
+_ADDON_EXPORTS = {
+    "JevAddon": ("coding_agent.addon.evaluation", "JevAddon"),
+    "jev_from_config": ("coding_agent.addon.evaluation", "jev_from_config"),
+}
 
 __all__ = [
     "CONTINUE_NORMALLY",
@@ -53,3 +62,7 @@ __all__ = [
     "dispatch",
     "jev_from_config",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    return resolve(globals(), name, _ADDON_EXPORTS)
