@@ -18,13 +18,15 @@ def test_follow_up_retrieves_recent_topic_and_preferences(tmp_path):
                 Message(role="user", content="Fix persistence migration"),
                 Message(role="assistant", content="Ruby bundler advice"),
                 Message(role="user", content="continue")]
-    inject_memory(store, messages, limit=6, max_chars=1400)
-    assert "exclusive lock" in messages[0].content
-    assert "concise responses" in messages[0].content
-    assert "pinned version" not in messages[0].content
-    assert messages[0].content.count(MEMORY_CONTEXT_PREFIX) == 1
-    inject_memory(store, messages, limit=6, max_chars=1400)
-    assert messages[0].content.count(MEMORY_CONTEXT_PREFIX) == 1
+    context: dict[str, str] = {}
+    inject_memory(store, messages, limit=6, max_chars=1400, context=context)
+    assert "exclusive lock" in context["memory"]
+    assert "concise responses" in context["memory"]
+    assert "pinned version" not in context["memory"]
+    assert context["memory"].count(MEMORY_CONTEXT_PREFIX) == 1
+    inject_memory(store, messages, limit=6, max_chars=1400, context=context)
+    assert context["memory"].count(MEMORY_CONTEXT_PREFIX) == 1
+    assert messages[0].content == "Base policy"
 
 
 def test_budget_dedup_and_current_intent_priority(tmp_path):
@@ -47,9 +49,11 @@ def test_budget_dedup_and_current_intent_priority(tmp_path):
 def test_unavailable_memory_removes_stale_block_without_blocking_turn(tmp_path):
     store = LearningStore(tmp_path)
     store.query = Mock(side_effect=OSError("unreadable memory"))
-    messages = [Message(role="system", content="Base policy\n\n" + MEMORY_CONTEXT_PREFIX + "\n- stale"),
+    messages = [Message(role="system", content="Base policy"),
                 Message(role="user", content="continue")]
-    inject_memory(store, messages, limit=6, max_chars=1400)
+    context = {"memory": MEMORY_CONTEXT_PREFIX + "\n- stale"}
+    assert inject_memory(store, messages, limit=6, max_chars=1400, context=context) == ""
+    assert context == {}
     assert messages[0].content == "Base policy"
 
 
@@ -65,9 +69,11 @@ def test_parent_and_child_hooks_share_bounded_query_and_filter_synthetic_history
     child = SessionMemoryAddon(lambda sid: store)
     child.store = store
 
+    context: dict[str, str] = {}
+
     async def run():
-        await LearningAddon(loop).before_turn(messages=messages)
-        await child.before_turn(messages=messages)
+        await LearningAddon(loop).before_turn(messages=messages, context=context)
+        await child.before_turn(messages=messages, context=context)
     asyncio.run(run())
     assert store.query.call_count == 2
     for call in store.query.call_args_list:
@@ -75,7 +81,8 @@ def test_parent_and_child_hooks_share_bounded_query_and_filter_synthetic_history
         assert len(call.kwargs["recent_context"]) <= 1202
         assert "synthetic" not in call.kwargs["recent_context"]
         assert call.kwargs["include_preferences"] is True
-    assert "concise" in messages[0].content
+    assert "concise" in context["memory"]
+    assert messages[0].content == "Base policy"
 
 
 def test_preferences_resanitized_before_automatic_injection(tmp_path):

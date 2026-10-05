@@ -54,8 +54,10 @@ def test_injected_context_and_reflection_are_archived_without_new_trusted_source
         loop = LearningLoop(store, registry=Registry(), model_id="fake:test")
         messages = [Message(role="system", content="Base policy"),
                     Message(role="user", content="editing persistence")]
-        await LearningAddon(loop).before_turn(messages=messages)
-        assert "untrusted reference data" in messages[0].content
+        context: dict[str, str] = {}
+        await LearningAddon(loop).before_turn(messages=messages, context=context)
+        assert "untrusted reference data" in context["memory"]
+        assert messages[0].content == "Base policy"
         loop.capture("editing persistence", [Message(role="assistant", content="done")])
         await loop.wait()
 

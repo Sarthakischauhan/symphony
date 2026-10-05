@@ -233,6 +233,8 @@ def test_search_skips_ignored_dirs_and_sniffs_a_prefix(tmp_path: Path, monkeypat
             handle.read = limited_read  # type: ignore[method-assign]
         return handle
 
+    # The prefix sniff belongs to the Python walker; ripgrep does its own.
+    monkeypatch.setattr("coding_agent.tools.search.find_rg", lambda: None)
     monkeypatch.setattr(Path, "open", tracking_open)
     result = SearchTool(tmp_path).run(query="needle")
     assert "keep.py:1:needle" in result

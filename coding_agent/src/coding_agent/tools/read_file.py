@@ -58,7 +58,7 @@ class ReadFileTool(WorkspaceTool):
         config: ReadFileConfig = DEFAULT_READ_FILE_CONFIG,
     ) -> None:
         self.config = config
-        super().__init__(workspace)
+        super().__init__(workspace, parallel=True)
 
     def run(
         self, path: str, offset: int = 1, limit: int = 0

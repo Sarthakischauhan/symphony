@@ -81,6 +81,16 @@ def _system_text(messages: list[Message]) -> str:
     return str(system.content)
 
 
+def _memory_text(messages: list[Message]) -> str:
+    """The per-turn memory note: a user message right before the latest task."""
+    notes = [m for m in messages if m.role == "user" and str(m.content).startswith(MEMORY_CONTEXT_PREFIX)]
+    assert len(notes) == 1
+    index = messages.index(notes[0])
+    assert messages[index + 1].role == "user"
+    assert MEMORY_CONTEXT_PREFIX not in _system_text(messages)
+    return str(notes[0].content)
+
+
 def test_reflection_is_scheduled_and_saved(tmp_path: Path) -> None:
     async def scenario():
         store = LearningStore(tmp_path)
@@ -235,9 +245,9 @@ def test_run_embeds_durable_memory_once(tmp_path: Path) -> None:
         assert MEMORY_CONTEXT_PREFIX not in agent.harness.system_prompt
 
     asyncio.run(scenario())
-    system = _system_text(registry.turns[0])
-    assert system.count(MEMORY_CONTEXT_PREFIX) == 1
-    assert "pytest" in system
+    memory = _memory_text(registry.turns[0])
+    assert memory.count(MEMORY_CONTEXT_PREFIX) == 1
+    assert "pytest" in memory
 
 
 def test_second_run_reinjects_durable_memory(tmp_path: Path) -> None:
@@ -258,12 +268,13 @@ def test_second_run_reinjects_durable_memory(tmp_path: Path) -> None:
     asyncio.run(scenario())
     assert len(registry.turns) == 2
     for messages in registry.turns:
-        system = _system_text(messages)
-        assert system.count(MEMORY_CONTEXT_PREFIX) == 1
-        assert "pytest" in system
+        memory = _memory_text(messages)
+        assert memory.count(MEMORY_CONTEXT_PREFIX) == 1
+        assert "pytest" in memory
+    assert _system_text(registry.turns[0]) == _system_text(registry.turns[1])
 
 
-def test_before_turn_replaces_memory_block(tmp_path: Path) -> None:
+def test_before_turn_replaces_memory_block_without_touching_system(tmp_path: Path) -> None:
     store = LearningStore(tmp_path)
     store.memory_operation("add", text="Prefer pytest -q for Python unit suites")
     store.memory_operation("add", text="Lock the bundler version for Ruby gems")
@@ -274,21 +285,56 @@ def test_before_turn_replaces_memory_block(tmp_path: Path) -> None:
         Message(role="user", content="fix the Python pytest suite"),
     ]
 
-    async def scenario() -> str:
-        await addon.before_turn(messages=messages)
-        first = str(messages[0].content)
+    async def scenario() -> tuple[str, str]:
+        first: dict[str, str] = {}
+        await addon.before_turn(messages=messages, context=first)
         messages[1] = Message(role="user", content="fix the Ruby bundler lock")
-        await addon.before_turn(messages=messages)
-        return first
+        second: dict[str, str] = {}
+        await addon.before_turn(messages=messages, context=second)
+        return first["memory"], second["memory"]
 
-    first = asyncio.run(scenario())
-    second = str(messages[0].content)
+    first, second = asyncio.run(scenario())
+    assert messages[0].content == "You are a coding assistant."
     assert first.count(MEMORY_CONTEXT_PREFIX) == 1
     assert "pytest" in first
     assert "bundler" not in first
     assert second.count(MEMORY_CONTEXT_PREFIX) == 1
     assert "bundler" in second
     assert "pytest" not in second
+
+
+def test_system_bytes_stable_across_turns_when_memory_and_task_change(tmp_path: Path) -> None:
+    """Memory rides in a user message after the system prefix; system bytes never move."""
+    store = LearningStore(tmp_path)
+    store.memory_operation("add", text="Prefer pytest -q for Python unit suites")
+    registry = SplitRegistry()
+
+    async def scenario() -> list[Message]:
+        agent = CodingAgent(
+            registry=registry,  # type: ignore[arg-type]
+            model_id="test:model",
+            workspace=tmp_path,
+            tools=[],
+        )
+        await agent.run("fix the Python pytest suite")
+        store.memory_operation("add", text="Lock the bundler version for Ruby gems")
+        await agent.run("fix the Ruby bundler lock")
+        return await agent.persistence.load_conversation(session_id=agent.session_id)
+
+    persisted = asyncio.run(scenario())
+    assert len(registry.turns) == 2
+    first, second = registry.turns
+    assert first[0].role == "system" and second[0].role == "system"
+    assert first[0].content == second[0].content
+    assert MEMORY_CONTEXT_PREFIX not in str(first[0].content)
+    assert "pytest" in _memory_text(first)
+    assert "bundler" in _memory_text(second)
+    # The old note is gone from the second request: history up to it is unchanged.
+    assert [str(m.content) for m in second].count(_memory_text(first)) == 0
+    assert second[-2].content == _memory_text(second)
+    assert second[-1].content == "fix the Ruby bundler lock"
+    # Memory is request-only; the stored conversation never contains it.
+    assert all(MEMORY_CONTEXT_PREFIX not in str(m.content) for m in persisted)
 
 
 def test_strip_memory_context_removes_stacked_blocks() -> None:
@@ -327,9 +373,9 @@ def test_learning_config_overrides_reach_injection(tmp_path: Path) -> None:
         return agent.learning_loop.context_limit
 
     asyncio.run(scenario())
-    system = _system_text(registry.turns[0])
-    assert system.count(MEMORY_CONTEXT_PREFIX) == 1
-    bullets = [line for line in system.splitlines() if line.startswith("- ")]
+    memory = _memory_text(registry.turns[0])
+    assert memory.count(MEMORY_CONTEXT_PREFIX) == 1
+    bullets = [line for line in memory.splitlines() if line.startswith("- ")]
     memory_bullets = [line for line in bullets if "pytest" in line or "pytest-cov" in line]
     assert len(memory_bullets) == 1
 
@@ -358,12 +404,12 @@ def test_plan_mode_skips_learning_hook(tmp_path: Path) -> None:
         )
         await agent.run("plan a Python test change")
         await agent.wait_for_learning()
-        return review.calls, _system_text(registry.turns[0])
+        return review.calls, _memory_text(registry.turns[0])
 
-    calls, system = asyncio.run(scenario())
+    calls, memory = asyncio.run(scenario())
     assert calls == 0
-    assert system.count(MEMORY_CONTEXT_PREFIX) == 1
-    assert "pytest" in system
+    assert memory.count(MEMORY_CONTEXT_PREFIX) == 1
+    assert "pytest" in memory
 
 
 def test_learning_cancel_finishes_pending_reflection(tmp_path: Path) -> None:

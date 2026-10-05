@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -19,13 +20,19 @@ class WorkspaceTool(Tool, ABC):
     description: str
     args_model: ClassVar[Type[BaseModel]]
 
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(self, workspace: str | Path, *, parallel: bool = False) -> None:
+        """``parallel`` marks a read-only tool the harness may batch with others.
+
+        The harness caps a batch at ``max_parallel_tool_calls``; tools that write
+        or run commands must leave this ``False`` so they stay serial.
+        """
         self.workspace = Path(workspace).expanduser().resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         super().__init__(
             name=type(self).name,
             description=type(self).description,
             parameters=self.parameters_schema(),
+            parallel=parallel,
         )
 
     def resolve_path(self, path: str) -> Path:
@@ -96,10 +103,12 @@ class WorkspaceTool(Tool, ABC):
         run_signature = inspect.signature(self.run)
         accepts_sink = "sink" in run_signature.parameters
         validated = self.validate_args(**self.prepare_args(args))
-        result = self.run(
-            **validated.model_dump(),
-            **({"sink": sink} if accepts_sink else {}),
-        )
+        kwargs = {**validated.model_dump(), **({"sink": sink} if accepts_sink else {})}
+        if self.parallel and not inspect.iscoroutinefunction(self.run):
+            # Parallel tools run off the event loop so a batch actually overlaps.
+            result = await asyncio.to_thread(self.run, **kwargs)
+        else:
+            result = self.run(**kwargs)
         if inspect.isawaitable(result):
             result = await result
         return result
