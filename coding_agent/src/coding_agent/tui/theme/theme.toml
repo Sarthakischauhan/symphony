@@ -77,10 +77,9 @@ Screen {
 #topbar {
     width: 100%;
     height: 2;
-    padding: 0 $space-page;
+    padding: $space-block $space-page 0 $space-page;
     color: $foreground;
-    background: $panel;
-    border-bottom: solid $panel-edge;
+    background: $background;
 }
 
 #transcript {
@@ -671,14 +670,13 @@ composer = '''
     pointer: pointer;
 }
 
-/* Footer: phase and path on the left, context meter centered, key chips right. */
+/* Footer: workspace and context meter on the left, keyboard hint on the right. */
 #status {
     width: 100%;
     height: 2;
-    padding: 0 $space-page;
-    background: $panel;
+    padding: $space-block $space-page 0 $space-page;
+    background: $background;
     color: $foreground;
-    border-top: solid $panel-edge;
 }
 
 #approval-menu.permission-menu {

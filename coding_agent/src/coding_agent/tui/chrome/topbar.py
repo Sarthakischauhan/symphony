@@ -1,8 +1,7 @@
-"""Top bar: a powerline strip of branch, auth, and the selected model.
+"""Top bar: branch on the left, auth and model on the right.
 
-The look borrows from Claude Code status-line mods (ccstatusline, claude-hud):
-chevron segments, a short model name, and a dirty-worktree mark. Context
-utilisation stays in the footer.
+Color is foreground only. Background fills and powerline arrows render as
+blocks that cover the glyphs in a plain terminal font, so the row stays text.
 """
 
 from __future__ import annotations
@@ -29,8 +28,6 @@ from coding_agent.tui.theme import SYMPHONY_COLORS
 CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3
 BRANCH_ICON = "⎇"
-POWERLINE_RIGHT = ""
-POWERLINE_SOFT = ""
 
 
 def display_workspace_path(workspace: Path, home: Optional[Path] = None) -> str:
@@ -108,16 +105,6 @@ def topbar_text(*, workspace: str = "", branch: str = "", model: str = "") -> Te
     if model:
         clusters.append(short_model_name(model))
     return Text(CLUSTER_GAP.join(clusters), no_wrap=True)
-
-
-def _powerline(label: str, fg: str, bg: str, *, next_bg: str = "") -> Text:
-    """One chevron segment. The arrow carries this fill into the next color."""
-    segment = Text(f" {label} ", style=f"bold {fg} on {bg}", no_wrap=True)
-    arrow_fg = bg if next_bg else SYMPHONY_COLORS["muted"]
-    arrow_bg = next_bg or ""
-    style = f"{arrow_fg} on {arrow_bg}" if arrow_bg else arrow_fg
-    segment.append(POWERLINE_RIGHT, style=style)
-    return segment
 
 
 class TopBar(Static):
@@ -206,11 +193,9 @@ class TopBar(Static):
         which makes narrow terminals crop the entire header.
         """
         branch_label = self._branch
-        if branch_label and self._dirty:
-            branch_label = f"{branch_label} *"
         if self._label:
             branch_label = (
-                f"{branch_label} {POWERLINE_SOFT} {self._label}"
+                f"{branch_label}  ›  {self._label}"
                 if branch_label
                 else self._label
             )
@@ -221,8 +206,10 @@ class TopBar(Static):
         # Narrow terminals keep the provider prefix so the model stays identifiable.
         if width >= 48:
             model = short_model_name(model)
-        right_plain = f" {auth}  {model} " if auth else f" {model} "
-        model_width = min(cell_len(right_plain) + 1, max(width // 2, 1))
+        right_plain = (
+            f"{auth}{AUTH_MODEL_GAP}{model}" if auth else model
+        )
+        model_width = min(cell_len(right_plain), max(width // 2, 1))
         row = Table.grid(expand=True, padding=0)
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         row.add_column(
@@ -233,32 +220,15 @@ class TopBar(Static):
         )
         left = Text(no_wrap=True, overflow="ellipsis")
         if branch_label:
-            left.append_text(
-                _powerline(
-                    f"{BRANCH_ICON} {branch_label}",
-                    "#1a1208",
-                    SYMPHONY_COLORS["number"],
-                    next_bg=SYMPHONY_COLORS["surface"],
-                )
-            )
-            left.append(" symphony", style=SYMPHONY_COLORS["subtext"])
-        elif self._label:
-            left.append_text(
-                _powerline(
-                    self._label,
-                    SYMPHONY_COLORS["foreground"],
-                    SYMPHONY_COLORS["surface"],
-                )
-            )
+            left.append(f"{BRANCH_ICON} ", style=f"bold {SYMPHONY_COLORS['number']}")
+            left.append(branch_label, style=SYMPHONY_COLORS["foreground"])
+            if self._dirty:
+                left.append(" *", style=f"bold {SYMPHONY_COLORS['number']}")
         right = Text(no_wrap=True, overflow="ellipsis")
-        if auth or model:
-            pieces = [piece for piece in (auth, model) if piece]
-            right.append_text(
-                _powerline(
-                    "  ".join(pieces),
-                    "#140e22",
-                    SYMPHONY_COLORS["accent"],
-                )
-            )
+        if auth:
+            right.append(auth, style=SYMPHONY_COLORS["subtext"])
+            right.append(AUTH_MODEL_GAP)
+        if model:
+            right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
         row.add_row(left, right)
         return row

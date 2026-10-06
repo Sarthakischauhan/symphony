@@ -110,24 +110,6 @@ def _phase_style(phase: str) -> str:
     return f"bold {SYMPHONY_COLORS['string']}"
 
 
-def _hint_chips(hint: str) -> Text:
-    """Turn a keyboard hint into small key chips without splitting the words.
-
-    Each triple-space separated clause stays intact (`esc cancel`) so the
-    footer still reads as the old hint, just sitting on a chip.
-    """
-    chips = Text(no_wrap=True)
-    parts = [part.strip() for part in hint.split("   ") if part.strip()]
-    for index, part in enumerate(parts):
-        if index:
-            chips.append("  ")
-        chips.append(
-            f" {part} ",
-            style=f"bold {SYMPHONY_COLORS['foreground']} on {SYMPHONY_COLORS['overlay']}",
-        )
-    return chips
-
-
 @dataclass(frozen=True)
 class ResponsiveFooter:
     """Rich renderable which preserves useful footer content as width changes."""
@@ -175,10 +157,11 @@ class ResponsiveFooter:
         phase_cost = (len(phase) + 3) if phase else 0
         remaining = available - len(usage.plain) - len(SEGMENT_SEPARATOR) - phase_cost
         if phase and remaining >= 0:
-            prefix.append(f" {phase} ", style=_phase_style(self.state.phase))
-            prefix.append("│", style=SYMPHONY_COLORS["edge"])
+            prefix.append(phase, style=_phase_style(self.state.phase))
         if self.workspace and remaining >= 8:
-            prefix.append(f" {self.workspace} ", style=SYMPHONY_COLORS["muted"])
+            if prefix.plain:
+                prefix.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
+            prefix.append(self.workspace, style=SYMPHONY_COLORS["muted"])
 
         table = Table.grid(expand=True, padding=0)
         if prefix.plain:
@@ -188,8 +171,12 @@ class ResponsiveFooter:
         else:
             table.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         table.add_column(justify="right", overflow="ellipsis", no_wrap=True)
-        right = Text(" " * gap, overflow="ellipsis", no_wrap=True)
-        right.append_text(_hint_chips(self.hint))
+        right = Text(
+            f"{gap * ' '}{self.hint}",
+            style=SYMPHONY_COLORS["subtext"],
+            overflow="ellipsis",
+            no_wrap=True,
+        )
         if prefix.plain:
             separator = Text(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
             table.add_row(prefix, separator, usage, right)
