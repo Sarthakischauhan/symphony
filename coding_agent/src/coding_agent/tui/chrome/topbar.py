@@ -58,13 +58,17 @@ def read_git_branch(workspace: Path) -> str:
 
 
 def read_git_dirty(workspace: Path) -> bool:
-    """True when the worktree has uncommitted changes. Never raises."""
+    """True when the worktree has uncommitted changes. Never raises.
+
+    ``git status`` walks the worktree, so callers on the UI thread should not
+    run this on a short interval. The top bar probes it from a thread worker.
+    """
     try:
         probe = subprocess.run(
-            ["git", "-C", str(workspace), "status", "--porcelain"],
+            ["git", "-C", str(workspace), "status", "--porcelain", "--untracked-files=no"],
             capture_output=True,
             text=True,
-            timeout=0.4,
+            timeout=1.5,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
@@ -118,25 +122,62 @@ class TopBar(Static):
         self._auth = ""
         self._workspace: Optional[Path] = None
         self._branch_timer = None
+        self._dirty_probe = False
         super().__init__(*args, **kwargs)
 
     def on_mount(self) -> None:
-        """Poll Git's HEAD so checkouts made outside the TUI appear promptly."""
+        """Poll Git's HEAD so checkouts made outside the TUI appear promptly.
+
+        The branch itself is a tiny HEAD read. The dirty mark needs
+        ``git status``, which is slow enough to hitch the UI, so that probe
+        runs on a thread and only every couple of seconds.
+        """
         self._branch_timer = self.set_interval(0.5, self._refresh_branch)
+        self._dirty_timer = self.set_interval(2.0, self._schedule_dirty_probe)
 
     def on_unmount(self) -> None:
         if self._branch_timer is not None:
             self._branch_timer.stop()
             self._branch_timer = None
+        dirty_timer = getattr(self, "_dirty_timer", None)
+        if dirty_timer is not None:
+            dirty_timer.stop()
+            self._dirty_timer = None
 
     def _refresh_branch(self) -> None:
         if self._workspace is None:
             return
         branch = read_git_branch(self._workspace)
-        dirty = read_git_dirty(self._workspace) if branch else False
-        if branch == self._branch and dirty == self._dirty:
+        if branch == self._branch:
             return
         self._branch = branch
+        if not branch:
+            self._dirty = False
+        self.update(self._render_row(max(self.content_size.width, 1)))
+
+    def _schedule_dirty_probe(self) -> None:
+        """Start one background dirty check. Skip when the last one is running."""
+        if self._workspace is None or not self._branch or self._dirty_probe:
+            return
+        self._dirty_probe = True
+        self.run_worker(
+            self._probe_dirty,
+            name="git-dirty",
+            group="git-dirty",
+            exclusive=True,
+            thread=True,
+            exit_on_error=False,
+        )
+
+    def _probe_dirty(self) -> None:
+        workspace = self._workspace
+        dirty = read_git_dirty(workspace) if workspace is not None else False
+        self.app.call_from_thread(self._apply_dirty, dirty)
+
+    def _apply_dirty(self, dirty: bool) -> None:
+        self._dirty_probe = False
+        if dirty == self._dirty:
+            return
         self._dirty = dirty
         self.update(self._render_row(max(self.content_size.width, 1)))
 
@@ -150,7 +191,6 @@ class TopBar(Static):
     ) -> None:
         self._workspace = workspace
         branch = read_git_branch(workspace)
-        dirty = read_git_dirty(workspace) if branch else False
         model = model or ""
         if not auth and model:
             provider = find_provider(model.split(":", 1)[0])
@@ -167,14 +207,12 @@ class TopBar(Static):
                     auth = "👤 signed in"
         if (
             branch == self._branch
-            and dirty == self._dirty
             and model == self._model
             and label == self._label
             and auth == self._auth
         ):
             return
         self._branch = branch
-        self._dirty = dirty
         self._model = model
         self._label = label
         self._auth = auth
