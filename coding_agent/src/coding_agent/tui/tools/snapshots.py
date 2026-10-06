@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from rich.text import Text
-from textual import events
 
 from coding_agent.tui.motion import settle_row
 from coding_agent.tui.tools.activity import (
@@ -18,7 +17,7 @@ from coding_agent.tui.tools.activity import (
     parse_activity,
     same_activity_group,
 )
-from coding_agent.tui.tools.labels import header_target, tool_detail, tool_label
+from coding_agent.tui.tools.labels import tool_detail, tool_label
 from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
 
 
@@ -83,15 +82,14 @@ def snapshot_from_call(
     )
 
 
-class ToolCallSummary(SelectableStatic, can_focus=True):
-    """A compact disclosure containing non-interactive tool snapshots."""
+class ToolCallSummary(SelectableStatic, can_focus=False):
+    """A display-only Explored row summarizing folded tool and thought snapshots."""
 
     def __init__(
         self, calls: Sequence[ToolCallSnapshot | ThoughtSnapshot] | None = None
     ) -> None:
         self.calls: list[ToolCallSnapshot] = []
         self.entries: list[ToolCallSnapshot | ThoughtSnapshot] = []
-        self.is_expanded = False
         super().__init__(classes="tool-call-summary", markup=False)
         for call in calls or ():
             if isinstance(call, ThoughtSnapshot):
@@ -132,33 +130,14 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         failed = sum(call.status == "failed" for call in self.calls)
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")
-        if not self.is_expanded:
-            thought = next(
-                (entry for entry in self.entries if isinstance(entry, ThoughtSnapshot)),
-                None,
-            )
-            if thought is not None and thought.content:
-                preview = clip_text(" ".join(thought.content.split()), 96)
-                text.append(f"\n  {preview}", style="#858585")
-            return text
-        for call in self.entries:
-            if isinstance(call, ThoughtSnapshot):
-                text.append(f"\n  {call.title}", style="bold #8ab4cf")
-                if call.content:
-                    preview = clip_text(" ".join(call.content.split()), 220)
-                    text.append(f"\n     {preview}", style="#858585")
-                continue
-            text.append("\n")
-            self._append_tool_line(text, call)
+        thought = next(
+            (entry for entry in self.entries if isinstance(entry, ThoughtSnapshot)),
+            None,
+        )
+        if thought is not None and thought.content:
+            preview = clip_text(" ".join(thought.content.split()), 96)
+            text.append(f"\n  {preview}", style="#858585")
         return text
-
-    @staticmethod
-    def _append_tool_line(text: Text, call: ToolCallSnapshot) -> None:
-        color = "#d66b73" if call.status == "failed" else "#72a57a"
-        text.append(f"  {call.label}", style=f"bold {color}")
-        target = header_target(call.detail)
-        if target:
-            text.append(f" {target}", style="#9aa7b2")
 
     @property
     def call_ids(self) -> list[str]:
@@ -202,20 +181,6 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         if layout:
             self.refresh(layout=True)
 
-    def toggle(self) -> None:
-        self.is_expanded = not self.is_expanded
-        self.refresh(layout=True)
-
-    def on_click(self, event: events.Click) -> None:
-        event.stop()
-        self.toggle()
-
-    def on_key(self, event: events.Key) -> None:
-        if event.key in {"enter", "space"}:
-            event.stop()
-            event.prevent_default()
-            self.toggle()
-
     def snapshot_text(self) -> str:
         return "\n\n".join(call.as_text() for call in self.calls)
 
@@ -255,15 +220,4 @@ class CompletedRunSummary(ToolCallSummary):
             text.append(f" for {self._duration}", style="#a2adb8")
         if self._detail:
             text.append(f" · {self._detail}", style="#a2adb8")
-        if not self.is_expanded:
-            return text
-        for call in self.entries:
-            if isinstance(call, ThoughtSnapshot):
-                text.append(f"\n  {call.title}", style="bold #8ab4cf")
-                if call.content:
-                    preview = clip_text(" ".join(call.content.split()), 220)
-                    text.append(f"\n     {preview}", style="#858585")
-                continue
-            text.append("\n")
-            self._append_tool_line(text, call)
         return text

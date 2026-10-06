@@ -6,6 +6,10 @@
 #
 # [css.variables] maps Textual `$name` declarations onto [colors] keys so
 # chrome CSS and Rich tokens stay on one palette.
+#
+# [css.spacing] holds the TUI spacing scale in terminal cells. Each key
+# becomes a Textual `$space-<key>` variable; chrome, tools, and composer CSS
+# use those variables instead of literal margin/padding numbers.
 
 [colors]
 background = "#0A0A0A"
@@ -46,6 +50,20 @@ panel-light = "overlay"
 panel-edge = "edge"
 panel-edge-focus = "panel_edge_focus"
 
+[css.spacing]
+# Left/right inset of the top bar, transcript, composer, and footer.
+page = 3
+# Indent of timeline text: the column after the `>` prompt glyph.
+gutter = 3
+# Blank rows between transcript blocks (messages, tools, thoughts).
+block = 1
+# Blank rows before a run summary card.
+section = 2
+# Inner padding of compact controls (composer, menus, labels).
+inset = 1
+# Inner padding of panels (composer overlay, run summary).
+inset-wide = 2
+
 [css]
 chrome = '''
 Screen {
@@ -57,7 +75,7 @@ Screen {
 #topbar {
     width: 100%;
     height: 2;
-    padding: 1 3 0 3;
+    padding: $space-block $space-page 0 $space-page;
     color: $muted-dim;
     background: $background;
 }
@@ -65,7 +83,7 @@ Screen {
 #transcript {
     width: 100%;
     height: 1fr;
-    padding: 0 3 1 3;
+    padding: 0 $space-page $space-block $space-page;
     /* Keep scrollbars out of the way until the user interacts with them. */
     scrollbar-size: 1 1;
     scrollbar-size-vertical: 1;
@@ -82,7 +100,7 @@ Screen {
     height: 1fr;
     min-height: 10;
     margin: 0;
-    padding: 0 2;
+    padding: 0 $space-inset-wide;
     color: $muted;
 }
 
@@ -90,24 +108,24 @@ Screen {
     width: 100%;
     height: auto;
     margin: 0;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
 }
 
-/* Textual spacing is measured in terminal cells rather than pixels. Add one
-   row only at conversation boundaries; spacing every nested timeline widget
-   makes Thought, tool, and status margins stack into large empty bands. */
+/* Textual spacing is measured in terminal cells rather than pixels. Blocks
+   use $space-block above and below; Textual collapses adjacent vertical
+   margins, so neighbouring blocks share one blank row instead of stacking. */
 .user-message {
-    margin: 1 0 0 0;
+    margin: $space-block 0 0 0;
     background: $background;
     /* The `>` occupies the shared 3-cell gutter; prompt text starts with tools. */
     padding: 0;
 }
 
 .run-summary {
-    margin: 2 0 0 1;
+    margin: $space-section 0 0 $space-inset;
     background: $background;
     border-left: solid #9b7bc3;
-    padding: 1 2;
+    padding: $space-inset $space-inset-wide;
     color: #c2b5cf;
 }
 
@@ -115,7 +133,7 @@ Screen {
    event-loop animation driver rather than blocking streamed output. */
 
 .assistant-message {
-    margin: 1 0 1 0;
+    margin: $space-block 0;
     background: $background;
     color: $foreground;
 }
@@ -125,7 +143,7 @@ Screen {
     max-width: 72;
     height: 1;
     margin: 0;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: $muted;
 }
 
@@ -141,18 +159,18 @@ Screen {
     width: auto;
     height: 1;
     margin: 0;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: #5f6a62;
 }
 
+/* Live "Thinking…" and completed "Thought" blocks get the same block margin
+   as tool rows. */
 .reasoning-block {
     width: 100%;
     height: auto;
     min-width: 100%;
-    margin: 0;
+    margin: $space-block 0;
     padding: 0;
-    padding-bottom: 0;
-    padding-left: 0;
     color: #5b9bd5;
     background: $background;
     border: none;
@@ -175,7 +193,7 @@ Screen {
 .reasoning-header {
     width: auto;
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     background: transparent;
     pointer: pointer;
 }
@@ -196,7 +214,7 @@ Screen {
 .reasoning-label {
     width: auto;
     height: 1;
-    padding-right: 1;
+    padding-right: $space-inset;
     color: #5b9bd5;
     background: transparent;
 }
@@ -211,7 +229,6 @@ Screen {
 
 .reasoning-block.is-complete {
     opacity: 1;
-    margin-top: 1;
 }
 
 .reasoning-block.is-complete .reasoning-label,
@@ -247,7 +264,7 @@ Screen {
 .reasoning-text {
     width: 100%;
     height: auto;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: #6e6e6e;
 }
 
@@ -258,52 +275,22 @@ Screen {
 }
 '''
 tools = '''
+/* Tool rows are display-only: one status-colored header line with no click,
+   focus, or expand state. */
 .tool-call {
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 0 0 1 0;
+    margin: $space-block 0;
     padding: 0;
-    padding-bottom: 0;
-    padding-left: 0;
     background: $background;
-    border: none;
-    border-top: none;
-    pointer: pointer;
-}
-
-.tool-call:focus-within {
-    background: $background;
-}
-
-.tool-call > CollapsibleTitle {
-    width: 1;
-    height: 0;
-    padding: 0;
-    color: transparent;
-    background: transparent;
-}
-
-.bash-tool > CollapsibleTitle {
-    display: none;
 }
 
 .tool-call-header {
     width: auto;
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     background: transparent;
-    pointer: pointer;
-}
-
-.tool-call-header:hover,
-.tool-call-header:focus {
-    background: transparent;
-}
-
-.tool-call-header:hover .tool-call-label,
-.tool-call-header:focus .tool-call-label {
-    text-style: bold;
 }
 
 .tool-call-label {
@@ -328,121 +315,16 @@ tools = '''
     color: #d66b73;
 }
 
-.tool-call.status-preparing > CollapsibleTitle,
-.tool-call.status-running > CollapsibleTitle {
-    color: #d7a84b;
-}
-
-.tool-call.status-done > CollapsibleTitle {
-    color: #72a57a;
-}
-
-.tool-call.status-failed > CollapsibleTitle {
-    color: #d66b73;
-}
-
-.tool-call > Contents {
-    /* Align expanded output with the opening bracket in the tool header. */
-    padding: 0 0 0 3;
-}
-
-.bash-tool {
-    padding: 0;
-    padding-bottom: 0;
-    border: none;
-    border-top: none;
-}
-
-.bash-tool-header {
-    width: auto;
-    height: 1;
-    padding: 0 0 0 3;
-    background: transparent;
-    pointer: pointer;
-}
-
-.bash-tool-header:hover,
-.bash-tool-header:focus {
-    background: transparent;
-}
-
-.bash-tool-header:hover .bash-tool-label,
-.bash-tool-header:focus .bash-tool-label {
-    text-style: bold;
-}
-
-.bash-tool-label {
-    width: auto;
-    height: 1;
-    color: #9aa7b2;
-    background: transparent;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.bash-tool.status-preparing .bash-tool-label,
-.bash-tool.status-running .bash-tool-label {
-    color: #d7a84b;
-}
-
-.bash-tool.status-done .bash-tool-label {
-    color: #72a57a;
-}
-
-.bash-tool.status-failed .bash-tool-label {
-    color: #d66b73;
-}
-
-.bash-tool-body {
-    width: 100%;
-    height: auto;
-    padding: 0 1 0 3;
-    color: #777777;
-    background: $background;
-}
-
-.bash-tool.-collapsed .bash-tool-body {
-    display: none;
-}
-
-.diff-tool {
-    margin: 0;
-    padding: 0;
-    padding-bottom: 0;
-    background: $background;
-    border: none;
-    border-top: none;
-}
-
-/* Keep collapsed Update cards visually consistent with the timeline while
-   retaining strong line-level colors when the diff is expanded. */
-.diff-tool > Contents,
-.diff-tool .tool-call-header {
-    background: $background;
-}
-
-.diff-tool .tool-call-header:hover,
-.diff-tool .tool-call-header:focus {
-    background: transparent;
-}
-
+/* Explored / completed-run fold: a display-only summary row. */
 .tool-call-summary {
     width: 1fr;
     height: auto;
-    margin: 1 0 0 0;
-    padding: 0 0 0 3;
+    margin: $space-block 0;
+    padding: 0 0 0 $space-gutter;
     color: #a2adb8;
     background: transparent;
-    opacity: 0.72;
-    pointer: pointer;
+    opacity: 0.85;
     border: none;
-}
-
-.tool-call-summary:hover,
-.tool-call-summary:focus {
-    background: transparent;
-    opacity: 1;
-    text-style: bold;
 }
 '''
 composer = '''
@@ -450,8 +332,8 @@ composer = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 1 0 0 0;
-    padding: 0 0 0 3;
+    margin: $space-block 0 0 0;
+    padding: 0 0 0 $space-gutter;
     color: $muted;
 }
 
@@ -461,8 +343,8 @@ composer = '''
     width: 1fr;
     height: auto;
     min-height: 2;
-    margin: 0 3;
-    padding: 0 1;
+    margin: 0 $space-page;
+    padding: 0 $space-inset;
     layout: vertical;
     background: $background;
     border: round $panel-edge;
@@ -485,7 +367,7 @@ composer = '''
     height: auto;
     min-height: 1;
     max-height: 10;
-    padding: 0 1;
+    padding: 0 $space-inset;
     border: none;
     background: $background;
     color: $foreground;
@@ -511,7 +393,7 @@ composer = '''
 #composer-mode {
     width: auto;
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: $accent;
     background: $background;
 }
@@ -545,7 +427,7 @@ composer = '''
     width: auto;
     height: 1fr;
     min-width: 9;
-    padding: 0 1;
+    padding: 0 $space-inset;
     border: none;
     background: $background;
     color: $accent;
@@ -560,8 +442,8 @@ composer = '''
     width: 1fr;
     height: auto;
     min-height: 4;
-    margin: 0 3 1 3;
-    padding: 1 2;
+    margin: 0 $space-page $space-block $space-page;
+    padding: $space-inset $space-inset-wide;
     background: $panel-light;
     border-left: thick $string;
     color: $foreground;
@@ -572,8 +454,8 @@ composer = '''
     width: 1fr;
     height: auto;
     max-height: 10;
-    margin: 0 3;
-    padding: 1 1 0 1;
+    margin: 0 $space-page;
+    padding: $space-inset $space-inset 0 $space-inset;
     background: $panel;
     border: round $panel-edge;
     overflow-y: auto;
@@ -610,7 +492,7 @@ composer = '''
 #status {
     width: 100%;
     height: 2;
-    padding: 1 3 0 3;
+    padding: $space-block $space-page 0 $space-page;
     background: $background;
     color: $muted-dim;
 }
@@ -620,15 +502,15 @@ composer = '''
     max-width: 100%;
     height: auto;
     max-height: 14;
-    margin: 0 0 1 0;
+    margin: 0 0 $space-block 0;
     offset-x: 0;
-    padding: 1 1 0 1;
+    padding: $space-inset $space-inset 0 $space-inset;
     border: round $panel-edge;
     background: $background;
 }
 
 #approval-menu.permission-menu > .option-list--option {
-    padding: 0 1;
+    padding: 0 $space-inset;
     background: $background;
 }
 
@@ -647,15 +529,15 @@ composer = '''
 #slash-menu.file-menu {
     width: 1fr;
     max-height: 12;
-    margin: 0 3 1 3;
-    padding: 1 1 0 1;
+    margin: 0 $space-page $space-block $space-page;
+    padding: $space-inset $space-inset 0 $space-inset;
     background: $panel;
     border: round $panel-edge;
 }
 
 #slash-menu.file-menu > .option-list--option,
 #slash-menu.file-menu > .option-list--option-disabled {
-    padding: 0 1;
+    padding: 0 $space-inset;
     background: $panel;
 }
 

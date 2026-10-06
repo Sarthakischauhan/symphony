@@ -129,16 +129,16 @@ turns, and on terminal paths rather than only once at the end.
 
 High-frequency text, reasoning, and tool-argument deltas share one throttled paint
 boundary. Assistant and reasoning bodies remain plain text while streaming, then receive
-their full Markdown rendering once complete. Tool cards update fixed one-line fields
-without requesting layout and build expandable bodies only when opened.
+their full Markdown rendering once complete. Tool cards are display-only one-line rows
+(no click, focus, or expand state) that update their header without requesting layout.
 
 Live tool cards stay in the transcript while their stretch is active.
 When assistant text, thinking, or another non-tool widget arrives, that
 consecutive stretch folds into one `Explored` snapshot row. Tools after
 the interruption start a new stretch. Activity-labeled rows partition on
 `activity.group`; without a group, different reasons still fold together
-via `bool(reason)`. Interactive cards (generated images,
-subagents) stay mounted until the run finalizes. Completed thoughts fold
+via `bool(reason)`. Generated-image and subagent cards stay mounted
+until the run finalizes; open a child transcript with Ctrl+G. Completed thoughts fold
 into their own Explored row, retaining only titles. When a run finishes,
 mid-run journal events are tagged `collected: true` (append-only overlay).
 The presenter and history loader honour that sticky flag: collected work

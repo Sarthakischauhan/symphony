@@ -23,8 +23,8 @@ from coding_agent.tui.transcript import (
     UserMessage,
     TranscriptSurface,
 )
-from coding_agent.tui.tools import BashToolHeader, ToolCallWidget
-from coding_agent.tui.transcript import clip_text, compact_json, preview_text
+from coding_agent.tui.tools import ToolCallWidget
+from coding_agent.tui.transcript import compact_json, preview_text
 
 
 @dataclass
@@ -146,8 +146,8 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
     # the first user message and the child run uses the normal process cards.
     CSS = APP_CSS + """
     SubagentScreen { border: round #484F58; }
-    #child-heading { height: 2; padding: 0 3; color: #a2adb8; }
-    #child-back { height: 1; padding: 0 3; color: #737373; }
+    #child-heading { height: 2; padding: 0 $space-gutter; color: #a2adb8; }
+    #child-back { height: 1; padding: 0 $space-gutter; color: #737373; }
     """
     BINDINGS = [
         Binding("escape,q", "close_modal", "Back to parent", show=False, priority=True),
@@ -258,7 +258,7 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
 
 
 class SubagentWidget(ToolCallWidget):
-    """Clickable parent-transcript row for a child agent."""
+    """Display-only parent-transcript row for a child agent (open it with Ctrl+G)."""
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self.record: Optional[SubagentRecord] = None
@@ -280,18 +280,6 @@ class SubagentWidget(ToolCallWidget):
             )
         )
 
-    def _body_rows(self) -> list[Any]:
-        prompt = (
-            self.record.prompt
-            if self.record
-            else str(self.arguments.get("prompt") or "")
-        )
-        rows: list[Any] = []
-        if prompt:
-            rows.append(Text(clip_text(prompt, 240), style="#8aa8a5"))
-        rows.append(Text("↳  click to open child transcript", style="underline #7186c7"))
-        return rows
-
     def bind(self, record: SubagentRecord) -> None:
         self.record = record
         if self not in record._widgets:
@@ -302,17 +290,6 @@ class SubagentWidget(ToolCallWidget):
         if self.record is not None:
             self.status = {"completed": "done", "running": "running"}.get(self.record.status, "failed")
         super().refresh_content()
-
-    def on_bash_tool_header_toggle(self, event: BashToolHeader.Toggle) -> None:
-        event.stop()
-        self.open_screen()
-
-    def open_screen(self) -> bool:
-        if self.record is None:
-            self.app.notify("Child is starting; its session will be available shortly.")
-            return False
-        self.app.open_subagent(self.record)
-        return True
 
 
 class SubagentSurface:

@@ -36,6 +36,8 @@ SYMPHONY_COLOR_KEYS = (
     "subtext",
 )
 
+SPACING_PREFIX = "space-"
+
 CSS_SECTIONS = ("chrome", "tools", "composer", "resume", "onboard")
 MODAL_SECTIONS = (
     "base",
@@ -60,6 +62,7 @@ class ThemeDocument:
 
     source: str
     colors: dict[str, str]
+    spacing: dict[str, int]
     chrome_css: str
     tools_css: str
     composer_css: str
@@ -115,14 +118,16 @@ def load_theme(path: Path | None = None) -> ThemeDocument:
     colors = color_tokens(document)
     css = _table(document, "css", source=source)
     variables = _string_table(_table(css, "variables", source=source, label="css.variables"))
+    spacing = spacing_tokens(css)
     sections = {name: _css_string(css, name, source=source) for name in CSS_SECTIONS}
     modal = _table(css, "modal", source=source, label="css.modal")
     modal_css = {name: _css_string(modal, name, source=source, label=f"css.modal.{name}") for name in MODAL_SECTIONS}
-    chrome = textual_variable_block(colors, variables) + sections["chrome"]
+    chrome = textual_variable_block(colors, variables) + spacing_variable_block(spacing) + sections["chrome"]
     base = modal_css["base"]
     return ThemeDocument(
         source=source,
         colors={key: colors[key] for key in SYMPHONY_COLOR_KEYS},
+        spacing=spacing,
         chrome_css=chrome,
         tools_css=sections["tools"],
         composer_css=sections["composer"],
@@ -169,6 +174,32 @@ def textual_variable_block(colors: Mapping[str, str], variables: Mapping[str, st
         if token not in colors:
             raise ThemeConfigError(f"[css.variables].{name} refers to unknown color {token!r}")
         lines.append(f"${name}: {colors[token]};")
+    return "\n".join(lines) + "\n\n"
+
+
+def spacing_tokens(css: Mapping[str, Any]) -> dict[str, int]:
+    """Return [css.spacing] as cell counts; a theme without the table has no tokens."""
+    table = css.get("spacing")
+    if table is None:
+        return {}
+    if not isinstance(table, dict):
+        raise ThemeConfigError("theme.toml [css.spacing] must be a table")
+    tokens: dict[str, int] = {}
+    for key, cells in table.items():
+        if isinstance(cells, bool) or not isinstance(cells, int) or cells < 0:
+            raise ThemeConfigError(
+                f"theme.toml [css.spacing].{key} must be a non-negative integer"
+            )
+        tokens[str(key)] = cells
+    return tokens
+
+
+def spacing_variable_block(spacing: Mapping[str, int]) -> str:
+    """Render spacing tokens as Textual `$space-<name>: <cells>;` declarations."""
+    if not spacing:
+        return ""
+    lines = ["/* Spacing scale in terminal cells. Values live in theme.toml [css.spacing]. */"]
+    lines.extend(f"${SPACING_PREFIX}{name}: {cells};" for name, cells in spacing.items())
     return "\n".join(lines) + "\n\n"
 
 

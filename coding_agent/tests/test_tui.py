@@ -871,7 +871,7 @@ def test_dropped_image_becomes_clickable_chip(
     asyncio.run(_run())
 
 
-def test_generate_image_tool_chip_opens_modal(
+def test_generate_image_tool_row_is_display_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -901,14 +901,10 @@ def test_generate_image_tool_chip_opens_modal(
             await pilot.pause()
             widget = app._tools["img-1"]
             assert isinstance(widget, GenerateImageWidget)
-            assert not widget.collapsed
-            assert widget.open_preview()
-            await pilot.pause()
-            assert isinstance(app.screen, ImageModal)
-            title = app.screen.query_one("#image-title", Static).content
-            title_text = title.plain if hasattr(title, "plain") else str(title)
-            assert "icon.png" in title_text
-            await pilot.press("escape")
+            assert str(widget.query_one(".tool-call-label").render()) == "Image icon.png"
+            assert not widget.can_focus
+            assert not hasattr(widget, "open_preview")
+            await pilot.click(widget.query_one(".tool-call-header"))
             await pilot.pause()
             assert not isinstance(app.screen, ImageModal)
 
@@ -1421,13 +1417,11 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
     view = View()
     asyncio.run(load_session_history(agent, view))
     summary = next(widget for widget in view.mounted if isinstance(widget, CompletedRunSummary))
-    summary.toggle()
-    rendered = summary.render().plain
-    assert rendered.startswith("Percolated for 12s")
-    assert "Read history.py" in rendered
-    assert "Update labels.py" in rendered
-    assert rendered.count("\n  Read") == 1
-    assert rendered.count("\n  Update") == 1
+    assert summary.render().plain == "Percolated for 12s"
+    assert [(call.label, call.detail) for call in summary.calls] == [
+        ("Read", "history.py"),
+        ("Update", "labels.py"),
+    ]
 
 
 def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
@@ -1490,11 +1484,8 @@ def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
     assert "ReasoningWidget" not in kinds
     summary = next(widget for widget in view.mounted if isinstance(widget, ToolCallSummary))
     assert any(isinstance(entry, ThoughtSnapshot) for entry in summary.entries)
-    summary.toggle()
-    rendered = summary.render().plain
-    assert "Thought" in rendered
-    assert "src/app.py" in rendered
-    assert "Read app.py" in rendered
+    assert "I should inspect src/app.py first." in summary.render().plain
+    assert [(call.label, call.detail) for call in summary.calls] == [("Read", "src/app.py")]
 
 
 def test_text_then_tools_then_text_keeps_stream_order(
@@ -1905,11 +1896,11 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert len(thought_entries) == 1
             assert "Inspecting the requested file" in thought_entries[0].content
             assert "Choosing an implementation" in thought_entries[0].content
+            assert summary.calls[0].detail == "src/app.py"
+            rendered_summary = summary.render().plain
             await pilot.click(summary)
             await pilot.pause()
-            assert summary.is_expanded
-            assert "Read app.py" in summary.render().plain
-            assert "Inspecting the requested file" in summary.render().plain
+            assert summary.render().plain == rendered_summary
 
     asyncio.run(_run())
 
@@ -2013,7 +2004,7 @@ def test_tui_labels_ssl_mac_retry(
     asyncio.run(_run())
 
 
-def test_bash_tool_uses_timeline_header_with_right_aligned_status(
+def test_bash_tool_is_a_display_only_timeline_row(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2031,23 +2022,19 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
             await pilot.pause()
 
             bash = app.query_one(BashToolWidget)
-            assert "Bash git diff --check" in str(bash.query_one(".bash-tool-label").render())
+            assert "Bash git diff --check" in str(bash.query_one(".tool-call-label").render())
             assert bash.status == "running"
             assert not list(bash.query("CollapsibleTitle"))
-
-            header = bash.query_one(".bash-tool-header")
             assert not list(bash.query(".tool-call-bracket"))
-            assert not list(bash.query(".bash-tool-status"))
+            assert not bash.can_focus
+            assert not any(node.can_focus for node in bash.walk_children())
+
+            header = bash.query_one(".tool-call-header")
+            height = bash.region.height
             await pilot.click(header)
             await pilot.pause()
-            assert not bash.collapsed
-            assert bash.query_one(".bash-tool-body").display
-
-            header.focus()
-            await pilot.press("space")
-            await pilot.pause()
-            assert bash.collapsed
-            assert not bash.query_one(".bash-tool-body").display
+            assert bash.region.height == height == 1
+            assert app.focused is not bash
 
             app.update_tool("bash-1", status="done", result="clean")
             await pilot.pause()
@@ -2057,10 +2044,8 @@ def test_bash_tool_uses_timeline_header_with_right_aligned_status(
             assert not list(app.query(BashToolWidget))
             summary = app.query_one(ToolCallSummary)
             assert summary.call_ids == ["bash-1"]
-            await pilot.click(summary)
-            await pilot.pause()
-            assert "Bash" in summary.render().plain
-            assert "git diff --check" in summary.render().plain
+            assert summary.calls[0].label == "Bash"
+            assert "git diff --check" in summary.calls[0].detail
 
     asyncio.run(_run())
 
@@ -2093,7 +2078,7 @@ def test_bash_header_renders_command_markup_literally(
             app.add_tool("bash-1", "bash")
             app.update_tool("bash-1", arguments={"command": command}, status="preparing")
             await pilot.pause()
-            label = str(app.query_one(".bash-tool-label").render())
+            label = str(app.query_one(".tool-call-label").render())
             assert label.startswith("Bash uv run python - <<'PY' from coding_agent.tui.tools.calls import")
             assert "[link=" in label
 
@@ -2137,22 +2122,8 @@ def test_tool_timeline_columns_align_across_widget_types(
                 app._tools[call_id]
                 for call_id in ("search-1", "read-1", "patch-1", "bash-1")
             ]
-            headers = [
-                widget.query_one(
-                    ".bash-tool-header"
-                    if isinstance(widget, BashToolWidget)
-                    else ".tool-call-header"
-                )
-                for widget in widgets
-            ]
-            labels = [
-                widget.query_one(
-                    ".bash-tool-label"
-                    if isinstance(widget, BashToolWidget)
-                    else ".tool-call-label"
-                )
-                for widget in widgets
-            ]
+            headers = [widget.query_one(".tool-call-header") for widget in widgets]
+            labels = [widget.query_one(".tool-call-label") for widget in widgets]
 
             assert len({header.region.x for header in headers}) == 1
             assert len({label.region.x for label in labels}) == 1
@@ -2165,7 +2136,7 @@ def test_tool_timeline_columns_align_across_widget_types(
     asyncio.run(_run())
 
 
-def test_tool_updates_keep_rows_stable_until_manually_expanded(
+def test_tool_updates_keep_rows_one_line_high(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2178,7 +2149,6 @@ def test_tool_updates_keep_rows_stable_until_manually_expanded(
             await pilot.pause()
             widget = app.query_one(PatchDiffWidget)
             heights = [widget.region.height]
-            assert widget.collapsed
 
             arguments = {
                 "path": "src/app.py",
@@ -2188,16 +2158,15 @@ def test_tool_updates_keep_rows_stable_until_manually_expanded(
             app.update_tool("patch-1", arguments=arguments)
             await pilot.pause()
             heights.append(widget.region.height)
-            assert widget.collapsed
 
             app.update_tool("patch-1", arguments=arguments, status="running")
             await pilot.pause()
             heights.append(widget.region.height)
-            assert widget.collapsed
 
             app.update_tool("patch-1", status="done", result="patched src/app.py")
             await pilot.pause()
-            assert len(set(heights)) == 1
+            heights.append(widget.region.height)
+            assert set(heights) == {1}
             assert list(app.query(PatchDiffWidget))
             app.set_assistant("Patched the file.", new=True)
             await pilot.pause()
@@ -2206,6 +2175,44 @@ def test_tool_updates_keep_rows_stable_until_manually_expanded(
             app.update_tool("patch-1", status="done", result="patched src/app.py")
             await pilot.pause()
             assert isinstance(app._tools["patch-1"], ToolCallSummary)
+
+    asyncio.run(_run())
+
+
+def test_tool_and_thought_blocks_get_one_row_margin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    block = (1, 0, 1, 0)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_reasoning("Checking the loader.")
+            await pilot.pause()
+            thought = app.query_one(ReasoningWidget)
+            assert tuple(thought.styles.margin) == block
+
+            app.finish_reasoning()
+            app.add_tool("read-1", "read_file")
+            app.update_tool("read-1", arguments={"path": "src/app.py"}, status="running")
+            app.add_tool("bash-1", "bash")
+            app.update_tool("bash-1", arguments={"command": "pytest -q"}, status="running")
+            await pilot.pause()
+
+            assert thought.has_class("is-complete")
+            assert tuple(thought.styles.margin) == block
+            tools = list(app.query(ToolCallWidget))
+            assert [tool.call_id for tool in tools] == ["read-1", "bash-1"]
+            for tool in tools:
+                assert tuple(tool.styles.margin) == block
+                assert not tool.can_focus
+                assert not tool.allow_focus_children()
+            # Adjacent margins collapse to one blank row between blocks.
+            read, bash = tools
+            assert bash.region.y - read.region.bottom == 1
+            assert read.region.y - thought.region.bottom == 1
 
     asyncio.run(_run())
 
@@ -3284,7 +3291,6 @@ def test_patch_events_render_a_specialized_diff_widget(
             widget = app.query_one(PatchDiffWidget)
             diff = widget._diff()
             assert widget.status == "running"
-            assert widget.collapsed
             assert widget.arguments["path"] == "src/greeting.py"
             assert diff_stats(diff) == (2, 2)
             assert '-    return "hello"' in diff
@@ -3294,12 +3300,8 @@ def test_patch_events_render_a_specialized_diff_widget(
             assert "+2 -2" in header
             assert not list(widget.query(".tool-call-status"))
             assert not list(widget.query(".tool-call-command"))
-
-            widget.scroll_visible()
-            await pilot.pause()
-            await pilot.click(widget.query_one("CollapsibleTitle"))
-            await pilot.pause()
-            assert not widget.collapsed
+            assert not list(widget.query("CollapsibleTitle"))
+            assert widget.region.height == 1
 
             app._presenter.handle(
                 "tool_execution_completed",
@@ -3316,9 +3318,8 @@ def test_patch_events_render_a_specialized_diff_widget(
             assert not list(app.query(PatchDiffWidget))
             summary = app.query_one(ToolCallSummary)
             assert summary.call_ids == ["patch-1"]
-            await pilot.click(summary)
-            await pilot.pause()
-            assert "Update greeting.py" in summary.render().plain
+            assert summary.calls[0].label == "Update"
+            assert summary.calls[0].detail == "src/greeting.py +2 -2"
 
     asyncio.run(_run())
 
@@ -3389,7 +3390,7 @@ def test_textual_image_renders_bytes() -> None:
     assert preview.image is not None
 
 
-def test_subagent_card_opens_nested_session_screen(
+def test_subagent_row_is_display_only_and_child_screen_still_opens(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -3454,7 +3455,12 @@ def test_subagent_card_opens_nested_session_screen(
 
             widget.scroll_visible()
             await pilot.pause()
+            assert not widget.can_focus
             assert await pilot.click(widget.query_one(".tool-call-header"))
+            await pilot.pause()
+            assert not isinstance(app.screen, SubagentScreen)
+
+            app.open_subagent(widget.record)
             await pilot.pause()
             assert isinstance(app.screen, SubagentScreen)
             assert app.screen.record.label == "inspect auth"
@@ -3775,7 +3781,6 @@ def test_final_output_folds_remaining_tools(
             assert len(summaries) == 1
             summary = summaries[0]
             assert summary.count == 12
-            assert not summary.is_expanded
             rendered = summary.render().plain
             verb = rendered.split(" for ", 1)[0]
             assert verb in COMPLETION_VERBS
@@ -3792,7 +3797,7 @@ def test_final_output_folds_remaining_tools(
     asyncio.run(_run())
 
 
-def test_explored_renders_folded_tool_snapshots_inline(
+def test_explored_row_is_display_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -3819,15 +3824,19 @@ def test_explored_renders_folded_tool_snapshots_inline(
             assert closed.startswith("Explored · 3 tools")
             assert "[" not in closed
             assert "]" not in closed
+            assert [call.detail for call in summary.calls] == [
+                "src/f0.py",
+                "src/f1.py",
+                "src/f2.py",
+            ]
+            assert not summary.can_focus
 
+            height = summary.region.height
             assert await pilot.click(summary)
             await pilot.pause()
-            rendered = summary.render().plain
-            assert rendered.startswith("Explored · 3 tools")
-            assert "Read f0.py" in rendered
-            assert "Read f1.py" in rendered
-            assert "Read f2.py" in rendered
-            assert "Read 2 lines" not in rendered
+            assert summary.render().plain == closed
+            assert summary.region.height == height
+            assert app.focused is not summary
 
     asyncio.run(_run())
 

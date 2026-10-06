@@ -121,15 +121,12 @@ def reconcile_live_tools(
     folds into one Explored row. Tools after the interruption start a new
     stretch. ``limit < 1`` disables compaction; stretch size is not capped.
     Finalization folds remaining stretches, interactive cards, and completed
-    thoughts, and closes expanded batches.
+    thoughts.
     """
     if timeline is None or (limit is not None and limit < 1):
         return
 
     snapshot, replace, remove = _timeline_ops(timeline)
-    if final:
-        _collapse_expanded_summaries(snapshot())
-
     previous: tuple[int, ...] | None = None
     while True:
         items = snapshot()
@@ -257,14 +254,6 @@ def _timeline_ops(
         items.remove(old)
 
     return snapshot, replace, remove
-
-
-def _collapse_expanded_summaries(items: Sequence[Any]) -> None:
-    from coding_agent.tui.tools.snapshots import ToolCallSummary
-
-    for item in items:
-        if isinstance(item, ToolCallSummary) and item.is_expanded:
-            item.toggle()
 
 
 def _fold_batch(

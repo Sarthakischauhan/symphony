@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from coding_agent.tui.theme.load import (
     ThemeConfigError,
     load_theme,
     packaged_theme_path,
+    spacing_tokens,
+    spacing_variable_block,
     user_theme_path,
 )
 
@@ -91,6 +94,51 @@ def test_missing_color_token_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(ThemeConfigError, match="background"):
         load_theme(broken)
+
+
+def test_spacing_tokens_become_textual_variables() -> None:
+    theme = load_theme(packaged_theme_path())
+    assert theme.spacing == {
+        "page": 3,
+        "gutter": 3,
+        "block": 1,
+        "section": 2,
+        "inset": 1,
+        "inset-wide": 2,
+    }
+    for name, cells in theme.spacing.items():
+        assert f"$space-{name}: {cells};" in theme.chrome_css
+    assert "$space-gutter" in theme.tools_css
+
+
+def test_app_spacing_uses_tokens_not_literal_cells() -> None:
+    theme = load_theme(packaged_theme_path())
+    rules = re.findall(
+        r"^\s*(?:margin|padding)(?:-[a-z]+)?:\s*([^;]*);",
+        theme.app_css,
+        re.MULTILINE,
+    )
+    assert rules
+    literal = [value for value in rules if re.search(r"(?<![\w$-])[1-9]\d*\b", value)]
+    assert literal == []
+
+
+@pytest.mark.parametrize("value", ['"3"', "-1", "1.5", "true"])
+def test_spacing_token_must_be_a_non_negative_integer(tmp_path: Path, value: str) -> None:
+    broken = tmp_path / "theme.toml"
+    broken.write_text(
+        packaged_theme_path()
+        .read_text(encoding="utf-8")
+        .replace("gutter = 3", f"gutter = {value}", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises(ThemeConfigError, match=r"\[css.spacing\].gutter"):
+        load_theme(broken)
+
+
+def test_theme_without_spacing_table_declares_no_spacing_variables() -> None:
+    assert spacing_tokens({}) == {}
+    assert spacing_variable_block({}) == ""
 
 
 def test_themed_markdown_uses_loaded_palette() -> None:

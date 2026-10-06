@@ -1,7 +1,6 @@
 """Tool-call widgets and image attachments for the TUI."""
 
 from coding_agent.tui.tools.calls import (
-    BashToolHeader,
     BashToolWidget,
     GenerateImageWidget,
     PatchDiffWidget,
@@ -28,7 +27,6 @@ from coding_agent.tui.tools.snapshots import (
 )
 
 __all__ = [
-    "BashToolHeader",
     "BashToolWidget",
     "CompletedRunSummary",
     "GenerateImageWidget",
