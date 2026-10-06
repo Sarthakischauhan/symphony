@@ -273,10 +273,13 @@ def test_bash_card_identity_is_stable_across_output_and_status(
             _start_bash(app, "bash-1")
             await pilot.pause()
             card = app.query_one(BashToolWidget)
-            tail = card.query_one(".bash-tool-tail", Static)
+            assert not card.query(".bash-tool-tail")  # mounts with the first output
             before = _timeline(app)
 
-            for line in range(20):
+            _bash_output(app, "bash-1", 0)
+            await pilot.pause()
+            tail = card.query_one(".bash-tool-tail", Static)
+            for line in range(1, 20):
                 _bash_output(app, "bash-1", line)
                 await pilot.pause()
                 assert app.query_one(BashToolWidget) is card

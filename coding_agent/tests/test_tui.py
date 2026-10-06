@@ -2054,6 +2054,7 @@ def test_bash_card_uses_timeline_header_and_stays_after_the_stretch(
             assert not list(app.query(ToolCallSummary))
 
             header = bash.query_one(".bash-tool-header")
+            assert not bash.query(".bash-tool-body")  # mounts on the first expand
             await pilot.click(header)
             await pilot.pause()
             assert not bash.collapsed

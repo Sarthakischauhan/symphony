@@ -351,10 +351,18 @@ class BashToolWidget(ToolCallWidget):
         self._body.add_class("bash-tool-body")
 
     def compose(self):  # type: ignore[no-untyped-def]
+        # The tail mounts with the first output and the result body on the
+        # first expand, so a finished, folded card is just its header line.
         with BashToolHeader(classes="bash-tool-header"):
             yield self._bash_label
-        yield self._tail
-        yield self._body
+        if self._live_tail():
+            yield self._tail
+        if not self.collapsed:
+            yield self._body
+
+    @property
+    def _composed(self) -> bool:
+        return self._bash_label.is_attached
 
     def append_output(self, chunk: str) -> None:
         """Take one streamed output chunk; only the tail's text changes."""
@@ -373,8 +381,15 @@ class BashToolWidget(ToolCallWidget):
         lines = self._live_tail()
         if lines:
             self._tail.update("\n".join(lines), layout=False)
+            if self._composed and not self._tail.is_attached:
+                self.mount(self._tail, after=0)
         if bool(lines) != self._tail.display:
             self._tail.display = bool(lines)
+
+    def _watch_collapsed(self, collapsed: bool) -> None:
+        if not collapsed and self._composed and not self._body.is_attached:
+            self.mount(self._body)
+        super()._watch_collapsed(collapsed)
 
     def refresh_content(self) -> None:
         target = header_target(clip_text(self._summary(), 180))
