@@ -1,8 +1,8 @@
 """Top bar: branch on the left, lab mark and model on the right.
 
-The lab mark is the published Simple Icons SVG, rasterized to a 32px PNG and
-drawn two terminal cells wide. Terminals without a graphics protocol still
-get the one-letter fallback.
+The mark is a single colored glyph. A terminal image widget was tried for the
+real SVG and rejected: assigning its image refreshes layout, and doing that
+from resize made the whole UI relayout forever, which froze scrolling.
 """
 
 from __future__ import annotations
@@ -15,10 +15,7 @@ from rich.cells import cell_len
 from rich.table import Table
 from rich.text import Text
 from textual import events
-from textual.app import ComposeResult
-from textual.containers import Horizontal
 from textual.widgets import Static
-from textual_image.widget import Image as TerminalImage
 
 from coding_agent.personalities import project_root
 from coding_agent.tui.theme import SYMPHONY_COLORS
@@ -27,16 +24,15 @@ CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3
 BRANCH_ICON = "⎇"
 
-# Letter fallbacks, in the published Simple Icons brand color (2026-10-06).
-# Labs with a ``logos/<provider>.png`` draw that instead. OpenAI and xAI do
-# not publish a Simple Icons slug, so they stay a letter.
-LOGO_DIR = Path(__file__).with_name("logos")
+# One glyph in the published Simple Icons brand color (2026-10-06).
+# Distinctive marks where a single character can carry the logo; a letter
+# otherwise. OpenAI and xAI publish no Simple Icons slug.
 PROVIDER_MARKS: dict[str, tuple[str, str]] = {
-    "anthropic": ("A", "#D97757"),
-    "claude": ("A", "#D97757"),
+    "anthropic": ("✶", "#D97757"),
+    "claude": ("✶", "#D97757"),
     "openai": ("O", "#10A37F"),
-    "gemini": ("G", "#8E75B2"),
-    "google": ("G", "#8E75B2"),
+    "gemini": ("✦", "#8E75B2"),
+    "google": ("✦", "#8E75B2"),
     "grok": ("X", "#EDEDED"),
     "xai": ("X", "#EDEDED"),
     "ollama": ("O", "#EDEDED"),
@@ -108,17 +104,6 @@ def provider_key(model: str) -> str:
     return model.split(":", 1)[0].lower() if model else ""
 
 
-def provider_logo(model: str) -> Optional[Path]:
-    """Rasterized lab mark, or None when this provider has no shipped PNG."""
-    key = provider_key(model)
-    if key == "google":
-        key = "gemini"
-    if key == "claude":
-        key = "anthropic"
-    path = LOGO_DIR / f"{key}.png"
-    return path if path.is_file() else None
-
-
 def provider_mark(model: str) -> tuple[str, str]:
     """A one-cell lab mark and its brand color for a ``provider:model`` id."""
     provider = provider_key(model)
@@ -157,7 +142,7 @@ def topbar_text(*, workspace: str = "", branch: str = "", model: str = "") -> Te
     return Text(CLUSTER_GAP.join(clusters), no_wrap=True)
 
 
-class TopBar(Horizontal):
+class TopBar(Static):
     """Header with the branch on the left and the lab mark plus model on the right."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -170,11 +155,6 @@ class TopBar(Horizontal):
         self._branch_timer = None
         self._dirty_probe = False
         super().__init__(*args, **kwargs)
-
-    def compose(self) -> ComposeResult:
-        yield Static("", id="topbar-branch")
-        yield TerminalImage(None, id="topbar-logo")
-        yield Static("", id="topbar-model")
 
     def on_mount(self) -> None:
         """Poll Git's HEAD so checkouts made outside the TUI appear promptly.
@@ -204,7 +184,7 @@ class TopBar(Horizontal):
         self._branch = branch
         if not branch:
             self._dirty = False
-        self._paint()
+        self.update(self._render_row(max(self.content_size.width, 1)))
 
     def _schedule_dirty_probe(self) -> None:
         """Start one background dirty check. Skip when the last one is running."""
@@ -230,7 +210,7 @@ class TopBar(Horizontal):
         if dirty == self._dirty:
             return
         self._dirty = dirty
-        self._paint()
+        self.update(self._render_row(max(self.content_size.width, 1)))
 
     def set_context(
         self,
@@ -254,29 +234,16 @@ class TopBar(Horizontal):
         self._model = model
         self._label = label
         self._auth = auth
-        self._paint()
+        self.update(self._render_row(max(self.content_size.width, 1)))
 
     def on_resize(self, event: events.Resize) -> None:
-        """Rebudget the model whenever the terminal changes width."""
-        self._paint(max(event.size.width - self.styles.gutter.width, 1))
+        """Rebudget the model whenever the terminal changes width.
 
-    def _paint(self, width: int | None = None) -> None:
-        """Refresh the branch text, the tiny logo, and the model name."""
-        if not self.is_mounted:
-            return
-        width = width or max(self.content_size.width, 1)
-        branch = self.query_one("#topbar-branch", Static)
-        logo = self.query_one("#topbar-logo", TerminalImage)
-        model_widget = self.query_one("#topbar-model", Static)
-        branch.update(self._branch_text())
-        path = provider_logo(self._model)
-        if path is None:
-            logo.display = False
-            logo.image = None
-        else:
-            logo.image = str(path)
-            logo.display = True
-        model_widget.update(self._model_text(width, logo=path is not None))
+        This only replaces renderable text. It must not refresh layout: a
+        layout refresh from resize re-enters this handler and freezes scroll.
+        """
+        content_width = max(event.size.width - self.styles.gutter.width, 1)
+        self.update(self._render_row(content_width))
 
     def _branch_text(self) -> Text:
         branch_label = self._branch
@@ -292,24 +259,23 @@ class TopBar(Horizontal):
                 left.append(" *", style=f"bold {SYMPHONY_COLORS['number']}")
         return left
 
-    def _model_text(self, width: int, *, logo: bool) -> Text:
+    def _model_text(self, width: int) -> Text:
         model = self._model
         if width >= 48:
             model = short_model_name(model)
         right = Text(no_wrap=True, overflow="ellipsis")
         if not model:
             return right
-        if not logo:
-            mark, mark_color = provider_mark(self._model)
-            right.append(mark, style=f"bold {mark_color}")
-            right.append(" ")
+        mark, mark_color = provider_mark(self._model)
+        right.append(mark, style=f"bold {mark_color}")
+        right.append(" ")
         right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
         return right
 
     def _render_row(self, width: int) -> Table:
-        """Plain-text row for tests. A shipped PNG replaces the letter on screen."""
+        """Text row. Width budgets keep a narrow terminal from cropping the header."""
         row = Table.grid(expand=True, padding=0)
-        model = self._model_text(width, logo=provider_logo(self._model) is not None)
+        model = self._model_text(width)
         model_width = min(max(cell_len(model.plain), 1), max(width // 2, 1))
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         row.add_column(

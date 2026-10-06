@@ -495,12 +495,12 @@ def test_topbar_renders_branch_and_right_aligned_model(
             await pilot.pause()
             topbar = app.query_one(TopBar)
             topbar.set_context(tmp_path, "anthropic:claude-sonnet-5")
-            rendered = _render_plain(topbar._render_row(80), width=80).rstrip("\n")
+            rendered = _render_plain(topbar.content, width=80).rstrip("\n")
             assert "⎇ main" in rendered
             assert "claude-sonnet-5" in rendered
+            assert "✶" in rendered
             assert "anthropic:" not in rendered
             assert display_workspace_path(tmp_path) not in rendered
-            assert topbar.query_one("#topbar-logo").display is True
 
     asyncio.run(_run())
 
@@ -518,7 +518,7 @@ def test_topbar_rebudgets_columns_after_terminal_resize(tmp_path: Path) -> None:
             await pilot.resize_terminal(32, 30)
             await pilot.pause()
             topbar = app.query_one(TopBar)
-            rendered = _render_plain(topbar._render_row(26), width=26).rstrip("\n")
+            rendered = _render_plain(topbar.content, width=26).rstrip("\n")
             assert "feature" in rendered
             assert "anthropic" in rendered
             assert len(rendered) <= 26
@@ -542,14 +542,13 @@ def test_topbar_shows_lab_mark_instead_of_auth_emoji(
                 "grok:grok-4-fast",
                 auth="👤 signed in",
             )
-            rendered = _render_plain(topbar._render_row(80), width=80).rstrip("\n")
+            rendered = _render_plain(topbar.content, width=80).rstrip("\n")
             assert "👤" not in rendered
             assert "signed in" not in rendered
             assert "🔑" not in rendered
             # xAI publishes no Simple Icons slug, so the letter stands in.
             assert rendered.rstrip().endswith("X grok-4-fast")
             assert "grok:" not in rendered
-            assert topbar.query_one("#topbar-logo").display is False
 
     asyncio.run(_run())
 

@@ -80,29 +80,6 @@ Screen {
     padding: $space-block $space-page 0 $space-page;
     color: $foreground;
     background: $background;
-    layout: horizontal;
-    align: left middle;
-}
-
-/* Two cells: a terminal cell is about twice as tall as it is wide, so a
-   square 32px logo lands as a tiny mark instead of a picture row. */
-#topbar-branch {
-    width: 1fr;
-    height: 1;
-    content-align: left middle;
-}
-
-#topbar-logo {
-    width: 2;
-    height: 1;
-    margin: 0 $space-inset;
-    background: $background;
-}
-
-#topbar-model {
-    width: auto;
-    height: 1;
-    content-align: right middle;
 }
 
 #transcript {

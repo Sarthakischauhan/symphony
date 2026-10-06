@@ -50,6 +50,3 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "coding_agent"
-# Lab marks rasterized from Simple Icons SVGs. They sit next to the module
-# source, so the wheel needs them listed explicitly.
-source-include = ["coding_agent/src/coding_agent/tui/chrome/logos/**"]
