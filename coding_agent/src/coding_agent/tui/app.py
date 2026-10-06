@@ -32,6 +32,7 @@ from coding_agent.tui.screens.ask import QuestionSurface
 from coding_agent.tui.screens.file_selector import WorkspaceFileIndex
 from coding_agent.tui.screens.onboard import OnboardApp
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
+from coding_agent.tui.theme.load import ThemeConfigError, apply_theme, load_theme, theme_signature
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import (
     AssistantMessage,
@@ -145,6 +146,8 @@ class CodingAgentApp(
         self._stream_flush_timer = None
         self._run_generation = 0
         self._topbar_model: Optional[str] = None
+        self._theme_signature = theme_signature()
+        self._theme_timer = None
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
@@ -200,9 +203,34 @@ class CodingAgentApp(
         self._register_active_session()
         topbar.set_context(self.workspace, self._ui_state.model_id)
         self._presenter.refresh_chrome()
+        self._theme_timer = self.set_interval(0.5, self._reload_theme_if_changed)
         if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
+
+    def _reload_theme_if_changed(self) -> None:
+        """Repaint when ~/.symphony/theme.toml (or the packaged fallback) changes.
+
+        A half-written or invalid file is ignored so a save in progress does
+        not blank the running session. The previous theme stays up.
+        """
+        signature = theme_signature()
+        if signature is None or signature == self._theme_signature:
+            return
+        try:
+            document = load_theme()
+        except (OSError, ThemeConfigError):
+            return
+        apply_theme(document)
+        self._theme_signature = signature
+        # reparse() rereads whatever is already stored. Replace that source
+        # first, or an edit to the CSS body never reaches the widgets.
+        self.stylesheet.source.clear()
+        self.stylesheet.add_source(document.app_css, is_default_css=True)
+        self.stylesheet.reparse()
+        self.stylesheet.update(self.screen)
+        self.refresh(repaint=True, layout=True)
+        self._set_status("")
 
     def _cancel_active_run(self, reason: str) -> None:
         """Stop the exclusive agent-turn worker. Group must match ``run_agent``."""

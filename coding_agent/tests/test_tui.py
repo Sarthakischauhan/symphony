@@ -651,6 +651,56 @@ def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_theme_edit_repaints_without_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from coding_agent.tui.theme.load import SYMPHONY_COLORS as shared
+    from coding_agent.tui.theme.load import (
+        apply_theme,
+        load_theme,
+        packaged_theme_path,
+        user_theme_path,
+    )
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    home_theme = user_theme_path()
+    home_theme.parent.mkdir(parents=True)
+    home_theme.write_text(packaged_theme_path().read_text(encoding="utf-8"), encoding="utf-8")
+
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.query_one("#topbar").styles.background.hex == "#0A0A0A"
+            home_theme.write_text(
+                home_theme.read_text(encoding="utf-8").replace(
+                    'background = "#0A0A0A"',
+                    'background = "#123456"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            app._reload_theme_if_changed()
+            await pilot.pause()
+            assert shared["background"] == "#123456"
+            assert app.query_one("#topbar").styles.background.hex == "#123456"
+            assert app.query_one("#status").styles.background.hex == "#123456"
+
+            # A broken save must not replace the theme that is already on screen.
+            home_theme.write_text("this is not toml", encoding="utf-8")
+            app._reload_theme_if_changed()
+            await pilot.pause()
+            assert shared["background"] == "#123456"
+            assert app.query_one("#topbar").styles.background.hex == "#123456"
+
+    try:
+        asyncio.run(_run())
+    finally:
+        apply_theme(load_theme(packaged_theme_path()))
+
+
 def _render_plain(renderable: Any, *, width: int) -> str:
     import io
 

@@ -141,6 +141,37 @@ def test_theme_without_spacing_table_declares_no_spacing_variables() -> None:
     assert spacing_variable_block({}) == ""
 
 
+def test_apply_theme_updates_the_shared_color_dict() -> None:
+    from coding_agent.tui.theme.load import SYMPHONY_COLORS as shared
+    from coding_agent.tui.theme.load import apply_theme
+
+    original = dict(shared)
+    edited = load_theme(packaged_theme_path())
+    edited.colors["accent"] = "#112233"
+    apply_theme(edited)
+    try:
+        assert shared["accent"] == "#112233"
+        assert shared is not original
+    finally:
+        restored = load_theme(packaged_theme_path())
+        apply_theme(restored)
+        assert shared["accent"] == original["accent"]
+
+
+def test_theme_signature_changes_when_the_file_is_rewritten(tmp_path: Path) -> None:
+    from coding_agent.tui.theme.load import theme_signature
+
+    theme = tmp_path / "theme.toml"
+    theme.write_text(packaged_theme_path().read_text(encoding="utf-8"), encoding="utf-8")
+    before = theme_signature(theme)
+    theme.write_text(theme.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    after = theme_signature(theme)
+    assert before is not None
+    assert after is not None
+    assert before[0] == after[0]
+    assert before[1] != after[1]
+
+
 def test_themed_markdown_uses_loaded_palette() -> None:
     rendered = themed_markdown("hello")
     assert rendered.markup == "hello"
