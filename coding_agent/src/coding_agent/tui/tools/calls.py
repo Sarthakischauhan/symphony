@@ -342,9 +342,10 @@ class BashToolWidget(ToolCallWidget):
         self._bash_label = Static(classes="bash-tool-label", markup=False)
         self._tail = Static(classes="bash-tool-tail", markup=False)
         self._tail.display = False
+        # A fixed window: new chunks repaint the tail without a layout pass.
+        self._tail.styles.height = LIVE_OUTPUT_TAIL_LINES
         self._tail_lines: deque[str] = deque(maxlen=LIVE_OUTPUT_TAIL_LINES)
         self._partial_line = ""
-        self._tail_height = 0
         super().__init__(call_id, tool_name)
         self.add_class("bash-tool")
         self._body.add_class("bash-tool-body")
@@ -372,10 +373,9 @@ class BashToolWidget(ToolCallWidget):
         lines = self._live_tail()
         if lines:
             text = Text("\n".join(lines), no_wrap=True, overflow="ellipsis")
-            self._tail.update(text, layout=len(lines) != self._tail_height)
-        if bool(lines) != bool(self._tail_height):
+            self._tail.update(text, layout=False)
+        if bool(lines) != self._tail.display:
             self._tail.display = bool(lines)
-        self._tail_height = len(lines)
 
     def refresh_content(self) -> None:
         target = header_target(clip_text(self._summary(), 180))

@@ -409,10 +409,10 @@ tools = '''
     color: #d66b73;
 }
 
-/* A running Bash card's streamed output tail, under its header. */
+/* A running Bash card's streamed output tail, under its header. Its height
+   is the fixed LIVE_OUTPUT_TAIL_LINES window set in tools/calls.py. */
 .bash-tool-tail {
     width: 100%;
-    height: auto;
     padding: 0 $space-inset 0 $space-gutter;
     color: $muted;
     background: transparent;

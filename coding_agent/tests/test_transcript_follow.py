@@ -269,6 +269,8 @@ def test_bash_card_identity_is_stable_across_output_and_status(
                 await pilot.pause()
                 assert app.query_one(BashToolWidget) is card
                 assert card.query_one(".bash-tool-tail", Static) is tail
+                # A fixed window from the first chunk, so chunks never change its height.
+                assert tail.region.height == LIVE_OUTPUT_TAIL_LINES
             assert tail.display
             shown = str(tail.render()).splitlines()
             assert shown == [f"collected {line} items" for line in range(20 - LIVE_OUTPUT_TAIL_LINES, 20)]
