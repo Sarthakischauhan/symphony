@@ -478,6 +478,8 @@ def test_read_git_branch_reads_head_without_git_binary(tmp_path: Path) -> None:
 def test_topbar_text_joins_branch_and_model_with_airy_gap() -> None:
     line = topbar_text(workspace="~/src/symphony", branch="main", model="gpt-5.6")
     assert line.plain == "⎇ main    gpt-5.6"
+    prefixed = topbar_text(branch="main", model="anthropic:claude-sonnet-5")
+    assert prefixed.plain == "⎇ main    claude-sonnet-5"
     assert topbar_text(workspace="~/src/symphony").plain == ""
 
 
@@ -494,8 +496,10 @@ def test_topbar_renders_branch_and_right_aligned_model(
             topbar = app.query_one(TopBar)
             topbar.set_context(tmp_path, "anthropic:claude-sonnet-5")
             rendered = _render_plain(topbar.content, width=80).rstrip("\n")
-            assert rendered.startswith("⎇ main")
-            assert rendered.endswith("anthropic:claude-sonnet-5")
+            assert "⎇ main" in rendered
+            assert "claude-sonnet-5" in rendered
+            assert "✶" not in rendered
+            assert "anthropic:" not in rendered
             assert display_workspace_path(tmp_path) not in rendered
 
     asyncio.run(_run())
@@ -522,7 +526,7 @@ def test_topbar_rebudgets_columns_after_terminal_resize(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_topbar_spaces_auth_badge_from_model_using_cell_width(
+def test_topbar_shows_lab_mark_instead_of_auth_emoji(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".git").mkdir()
@@ -539,8 +543,18 @@ def test_topbar_spaces_auth_badge_from_model_using_cell_width(
                 auth="👤 signed in",
             )
             rendered = _render_plain(topbar.content, width=80).rstrip("\n")
-            assert "👤 signed in   grok:grok-4-fast" in rendered
-            assert rendered.endswith("👤 signed in   grok:grok-4-fast")
+            assert "👤" not in rendered
+            assert "signed in" not in rendered
+            assert "🔑" not in rendered
+            assert rendered.rstrip().endswith("grok-4-fast")
+            assert not rendered.rstrip().endswith("X grok-4-fast")
+            assert "grok:" not in rendered
+
+            # No agent is configured here, so the click reports that instead of
+            # opening an empty picker. The hit has to land on the model side.
+            await pilot.click("#topbar", offset=(70, 0))
+            await pilot.pause()
+            assert any("offline" in str(notice.render()).lower() for notice in app.query(".notice"))
 
     asyncio.run(_run())
 
@@ -585,7 +599,9 @@ def test_render_footer_shows_context_meter_and_right_aligned_hint() -> None:
     assert line.endswith("esc cancel")
 
     state.phase = "streaming"
-    assert _render_plain(render_footer(state, hint="esc cancel"), width=80).startswith("working")
+    streaming = _render_plain(render_footer(state, hint="esc cancel"), width=100)
+    assert streaming.lstrip().startswith("streaming")
+    assert "65% context" in streaming
 
 
 def test_footer_separates_usage_from_hint_with_long_workspace() -> None:
@@ -597,7 +613,8 @@ def test_footer_separates_usage_from_hint_with_long_workspace() -> None:
             width=width,
         ).rstrip("\n")
         assert "6% context" in line
-        assert line.endswith("22,082/400,000   esc cancel")
+        assert "22,082/400,000" in line
+        assert line.rstrip().endswith("esc cancel")
 
 
 def test_footer_preserves_context_and_hint_at_narrow_widths() -> None:
@@ -642,6 +659,56 @@ def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
             assert "esc deny" in _footer_text(app)
 
     asyncio.run(_run())
+
+
+def test_theme_edit_repaints_without_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from coding_agent.tui.theme.load import SYMPHONY_COLORS as shared
+    from coding_agent.tui.theme.load import (
+        apply_theme,
+        load_theme,
+        packaged_theme_path,
+        user_theme_path,
+    )
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    home_theme = user_theme_path()
+    home_theme.parent.mkdir(parents=True)
+    home_theme.write_text(packaged_theme_path().read_text(encoding="utf-8"), encoding="utf-8")
+
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.query_one("#topbar").styles.background.hex == "#0A0A0A"
+            home_theme.write_text(
+                home_theme.read_text(encoding="utf-8").replace(
+                    'background = "#0A0A0A"',
+                    'background = "#123456"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            app._reload_theme_if_changed()
+            await pilot.pause()
+            assert shared["background"] == "#123456"
+            assert app.query_one("#topbar").styles.background.hex == "#123456"
+            assert app.query_one("#status").styles.background.hex == "#123456"
+
+            # A broken save must not replace the theme that is already on screen.
+            home_theme.write_text("this is not toml", encoding="utf-8")
+            app._reload_theme_if_changed()
+            await pilot.pause()
+            assert shared["background"] == "#123456"
+            assert app.query_one("#topbar").styles.background.hex == "#123456"
+
+    try:
+        asyncio.run(_run())
+    finally:
+        apply_theme(load_theme(packaged_theme_path()))
 
 
 def _render_plain(renderable: Any, *, width: int) -> str:

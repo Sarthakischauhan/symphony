@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 SEGMENT_SEPARATOR = "   |   "
 IDLE_HINT = "esc cancel"
 QUESTION_HINT = "↵ approve   ↑↓ choose   esc deny"
+# Context stays a left-to-right block meter. These thresholds only recolor it,
+# the same way claude-hud warns as the window fills.
+CONTEXT_WARN = 70
+CONTEXT_CRITICAL = 85
 
 
 def footer_hint(*, question_pending: bool) -> str:
@@ -69,10 +73,15 @@ def context_bar(state: UiRunState, *, width: int = 18) -> Text:
     limit = metrics.context_limit
     count = f"{tokens:,}/{limit:,}" if limit is not None else f"{tokens:,}"
     result = Text()
-    # Usage fills from left to right; the remaining capacity uses the lighter
-    # muted theme tone so the meter stays visible without competing with the
-    # accent-filled portion.
-    result.append("█" * filled, style=SYMPHONY_COLORS["accent"])
+    # Usage fills from left to right. The glyph run is unchanged; only the
+    # fill color steps from accent to warning to critical as the window fills.
+    if percent >= CONTEXT_CRITICAL:
+        fill = SYMPHONY_COLORS["keyword"]
+    elif percent >= CONTEXT_WARN:
+        fill = SYMPHONY_COLORS["number"]
+    else:
+        fill = SYMPHONY_COLORS["accent"]
+    result.append("█" * filled, style=fill)
     result.append("░" * (width - filled), style=SYMPHONY_COLORS["muted_dim"])
     result.append(f" {count}")
     return result
@@ -82,7 +91,23 @@ def phase_label(state: UiRunState) -> str:
     """Quiet left-hand activity word; empty while idle so the footer stays clean."""
     if state.phase == "idle":
         return ""
-    return "paused" if state.phase == "paused" else "working"
+    labels = {
+        "thinking": "thinking",
+        "streaming": "streaming",
+        "tool": "tool",
+        "paused": "paused",
+    }
+    return labels.get(state.phase, "working")
+
+
+def _phase_style(phase: str) -> str:
+    if phase == "paused":
+        return f"bold {SYMPHONY_COLORS['keyword']}"
+    if phase == "tool":
+        return f"bold {SYMPHONY_COLORS['number']}"
+    if phase == "thinking":
+        return f"bold {SYMPHONY_COLORS['function']}"
+    return f"bold {SYMPHONY_COLORS['string']}"
 
 
 @dataclass(frozen=True)
@@ -127,9 +152,12 @@ class ResponsiveFooter:
 
         prefix = Text(no_wrap=True)
         phase = phase_label(self.state)
-        remaining = available - len(usage.plain) - len(SEGMENT_SEPARATOR)
-        if phase and remaining >= len(phase):
-            prefix.append(phase)
+        # Phase and path are leftovers. They must not steal width from the
+        # context meter, or a live run drops the progress bar.
+        phase_cost = (len(phase) + 3) if phase else 0
+        remaining = available - len(usage.plain) - len(SEGMENT_SEPARATOR) - phase_cost
+        if phase and remaining >= 0:
+            prefix.append(phase, style=_phase_style(self.state.phase))
         if self.workspace and remaining >= 8:
             if prefix.plain:
                 prefix.append(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
@@ -143,7 +171,12 @@ class ResponsiveFooter:
         else:
             table.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         table.add_column(justify="right", overflow="ellipsis", no_wrap=True)
-        right = Text(f"{gap * ' '}{self.hint}", overflow="ellipsis", no_wrap=True)
+        right = Text(
+            f"{gap * ' '}{self.hint}",
+            style=SYMPHONY_COLORS["subtext"],
+            overflow="ellipsis",
+            no_wrap=True,
+        )
         if prefix.plain:
             separator = Text(SEGMENT_SEPARATOR, style=SYMPHONY_COLORS["edge"])
             table.add_row(prefix, separator, usage, right)

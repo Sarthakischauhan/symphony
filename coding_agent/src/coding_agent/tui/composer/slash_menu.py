@@ -19,6 +19,7 @@ from coding_agent.tui.commands.catalog import (
     SlashCommand,
 )
 from coding_agent.tui.screens.file_selector import FileOption
+from coding_agent.tui.theme import SYMPHONY_COLORS
 
 
 class SlashMenu(OptionList):
@@ -285,13 +286,7 @@ class SlashMenu(OptionList):
         if self._files:
             return [self._file_row(file) for file in self._files]
         if self._models:
-            return [
-                self._described_row(
-                    f"{'●' if model.id == self._current_model else '○'} {model.id:<27}",
-                    model.description,
-                )
-                for model in self._models
-            ]
+            return [self._model_row(model) for model in self._models]
         if self._personalities:
             return [
                 self._described_row(
@@ -328,6 +323,19 @@ class SlashMenu(OptionList):
             self._described_row(f"{command.usage:<22}", command.description)
             for command in self._commands
         ]
+
+    def _model_row(self, model: ModelOption) -> Text:
+        """Active model gets a mark. The rest stay plain so the list can scroll."""
+        current = model.id == self._current_model
+        name = model.label or model.id.split(":", 1)[-1]
+        provider = model.id.split(":", 1)[0]
+        row = Text("  ▸ " if current else "    ", style=f"bold {SYMPHONY_COLORS['accent']}")
+        row.append(name, style="bold #ededed" if current else "#d0d0d0")
+        row.append(f"   {provider}", style="#737373")
+        if model.description and model.description != provider:
+            detail = model.description.split("·", 1)[-1].strip()
+            row.append(f"  {detail}", style="#5f5f5f")
+        return row
 
     @staticmethod
     def _described_row(label: str, description: str) -> Text:

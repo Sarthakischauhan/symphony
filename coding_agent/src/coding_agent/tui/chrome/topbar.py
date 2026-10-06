@@ -1,7 +1,13 @@
-"""Top bar showing only the current Git branch and selected model."""
+"""Top bar: branch on the left, lab mark and model on the right.
+
+The mark is a single colored glyph. A terminal image widget was tried for the
+real SVG and rejected: assigning its image refreshes layout, and doing that
+from resize made the whole UI relayout forever, which froze scrolling.
+"""
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,13 +17,8 @@ from rich.text import Text
 from textual import events
 from textual.widgets import Static
 
-from core_ai.providers.catalog import (
-    find_provider,
-    provider_api_key,
-    provider_auth_preference,
-    provider_has_oauth,
-)
 from coding_agent.personalities import project_root
+from coding_agent.tui.theme import SYMPHONY_COLORS
 
 CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3
@@ -51,6 +52,31 @@ def read_git_branch(workspace: Path) -> str:
     return head[:7]
 
 
+def read_git_dirty(workspace: Path) -> bool:
+    """True when the worktree has uncommitted changes. Never raises.
+
+    ``git status`` walks the worktree, so callers on the UI thread should not
+    run this on a short interval. The top bar probes it from a thread worker.
+    """
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(workspace), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(probe.stdout.strip())
+
+
+def short_model_name(model: str) -> str:
+    """Drop the provider prefix so the pill reads like a Claude status line."""
+    name = model.split(":", 1)[-1] if model else ""
+    return name or model
+
+
 def _locate_git_dir(start: Path) -> Optional[Path]:
     root = project_root(start)
     if root is None:
@@ -71,35 +97,47 @@ def _locate_git_dir(start: Path) -> Optional[Path]:
 
 
 def topbar_text(*, workspace: str = "", branch: str = "", model: str = "") -> Text:
-    """Render only branch and model; workspace remains a compatibility argument."""
+    """Render branch and model; workspace remains a compatibility argument."""
     clusters: list[str] = []
     if branch:
         clusters.append(f"{BRANCH_ICON} {branch}")
     if model:
-        clusters.append(model)
+        clusters.append(short_model_name(model))
     return Text(CLUSTER_GAP.join(clusters), no_wrap=True)
 
 
 class TopBar(Static):
-    """Header with the branch on the left and active model on the right."""
+    """Header with the branch on the left and the lab mark plus model on the right."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._branch = ""
+        self._dirty = False
         self._model = ""
         self._label = ""
         self._auth = ""
         self._workspace: Optional[Path] = None
         self._branch_timer = None
+        self._dirty_probe = False
         super().__init__(*args, **kwargs)
 
     def on_mount(self) -> None:
-        """Poll Git's HEAD so checkouts made outside the TUI appear promptly."""
+        """Poll Git's HEAD so checkouts made outside the TUI appear promptly.
+
+        The branch itself is a tiny HEAD read. The dirty mark needs
+        ``git status``, which is slow enough to hitch the UI, so that probe
+        runs on a thread and only every couple of seconds.
+        """
         self._branch_timer = self.set_interval(0.5, self._refresh_branch)
+        self._dirty_timer = self.set_interval(2.0, self._schedule_dirty_probe)
 
     def on_unmount(self) -> None:
         if self._branch_timer is not None:
             self._branch_timer.stop()
             self._branch_timer = None
+        dirty_timer = getattr(self, "_dirty_timer", None)
+        if dirty_timer is not None:
+            dirty_timer.stop()
+            self._dirty_timer = None
 
     def _refresh_branch(self) -> None:
         if self._workspace is None:
@@ -108,6 +146,34 @@ class TopBar(Static):
         if branch == self._branch:
             return
         self._branch = branch
+        if not branch:
+            self._dirty = False
+        self.update(self._render_row(max(self.content_size.width, 1)))
+
+    def _schedule_dirty_probe(self) -> None:
+        """Start one background dirty check. Skip when the last one is running."""
+        if self._workspace is None or not self._branch or self._dirty_probe:
+            return
+        self._dirty_probe = True
+        self.run_worker(
+            self._probe_dirty,
+            name="git-dirty",
+            group="git-dirty",
+            exclusive=True,
+            thread=True,
+            exit_on_error=False,
+        )
+
+    def _probe_dirty(self) -> None:
+        workspace = self._workspace
+        dirty = read_git_dirty(workspace) if workspace is not None else False
+        self.app.call_from_thread(self._apply_dirty, dirty)
+
+    def _apply_dirty(self, dirty: bool) -> None:
+        self._dirty_probe = False
+        if dirty == self._dirty:
+            return
+        self._dirty = dirty
         self.update(self._render_row(max(self.content_size.width, 1)))
 
     def set_context(
@@ -121,20 +187,12 @@ class TopBar(Static):
         self._workspace = workspace
         branch = read_git_branch(workspace)
         model = model or ""
-        if not auth and model:
-            provider = find_provider(model.split(":", 1)[0])
-            if provider is not None:
-                # Provider construction prefers an explicit API key over a
-                # stored subscription token, so report the credential actually
-                # selected by the runtime.
-                preference = provider_auth_preference(provider)
-                if preference == "oauth" and provider_has_oauth(provider):
-                    auth = "👤 signed in"
-                elif provider_api_key(provider):
-                    auth = "🔑 API key"
-                elif provider_has_oauth(provider):
-                    auth = "👤 signed in"
-        if branch == self._branch and model == self._model and label == self._label and auth == self._auth:
+        if (
+            branch == self._branch
+            and model == self._model
+            and label == self._label
+            and auth == self._auth
+        ):
             return
         self._branch = branch
         self._model = model
@@ -143,33 +201,54 @@ class TopBar(Static):
         self.update(self._render_row(max(self.content_size.width, 1)))
 
     def on_resize(self, event: events.Resize) -> None:
-        """Rebudget both columns whenever the terminal changes width."""
+        """Rebudget the model whenever the terminal changes width.
+
+        This only replaces renderable text. It must not refresh layout: a
+        layout refresh from resize re-enters this handler and freezes scroll.
+        """
         content_width = max(event.size.width - self.styles.gutter.width, 1)
         self.update(self._render_row(content_width))
 
-    def _render_row(self, width: int) -> Table:
-        """Build the row for the widget's current width.
-
-        Both sides are deliberately allowed to ellipsize. Without explicit
-        width budgets Rich treats the no-wrap model and branch as indivisible,
-        which makes narrow terminals crop the entire header.
-        """
-        left = self._branch
+    def _branch_text(self) -> Text:
+        branch_label = self._branch
         if self._label:
-            left = (
-                f"{left}  ›  subagent  ›  {self._label}"
-                if left
-                else f"subagent  ›  {self._label}"
+            branch_label = (
+                f"{branch_label}  ›  {self._label}" if branch_label else self._label
             )
-        # Budget by terminal cells, not Python len(): emoji badges are one
-        # codepoint but two columns, and under-counting cramps/truncates the model.
-        right = (
-            f"{self._auth}{AUTH_MODEL_GAP}{self._model}"
-            if self._auth
-            else self._model
-        )
-        model_width = min(cell_len(right), max(width // 2, 1))
+        left = Text(no_wrap=True, overflow="ellipsis")
+        if branch_label:
+            left.append(f"{BRANCH_ICON} ", style=f"bold {SYMPHONY_COLORS['number']}")
+            left.append(branch_label, style=SYMPHONY_COLORS["foreground"])
+            if self._dirty:
+                left.append(" *", style=f"bold {SYMPHONY_COLORS['number']}")
+        return left
+
+    def _model_text(self, width: int) -> Text:
+        model = self._model
+        if width >= 48:
+            model = short_model_name(model)
+        if not model:
+            return Text()
+        return Text(model, style=f"bold {SYMPHONY_COLORS['accent']}", no_wrap=True, overflow="ellipsis")
+
+    def on_click(self, event: events.Click) -> None:
+        """The model name is the right-hand cluster. Clicking it opens /model.
+
+        The branch occupies the left of the row, so a click past the midpoint
+        is the model. Opening the existing picker avoids a second modal.
+        """
+        if not self._model or event.x < max(self.content_size.width // 2, 1):
+            return
+        event.stop()
+        show = getattr(self.app, "show_model_picker", None)
+        if callable(show):
+            show()
+
+    def _render_row(self, width: int) -> Table:
+        """Text row. Width budgets keep a narrow terminal from cropping the header."""
         row = Table.grid(expand=True, padding=0)
+        model = self._model_text(width)
+        model_width = min(max(cell_len(model.plain), 1), max(width // 2, 1))
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         row.add_column(
             justify="right",
@@ -177,17 +256,5 @@ class TopBar(Static):
             no_wrap=True,
             max_width=model_width,
         )
-        branch = Text(
-            f"{BRANCH_ICON} {left}" if left else "",
-            overflow="ellipsis",
-            no_wrap=True,
-        )
-        row.add_row(
-            branch,
-            Text(
-                right,
-                overflow="ellipsis",
-                no_wrap=True,
-            ),
-        )
+        row.add_row(self._branch_text(), model)
         return row

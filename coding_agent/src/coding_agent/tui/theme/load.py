@@ -260,7 +260,10 @@ def _css_string(
 
 _DEFAULT = load_theme()
 
-SYMPHONY_COLORS = _DEFAULT.colors
+# Mutable on purpose. Chrome reads these keys while it paints, so a live
+# reload can replace the values without restarting the process. Do not
+# rebind the dict; callers hold this same object.
+SYMPHONY_COLORS = dict(_DEFAULT.colors)
 CHROME_CSS = _DEFAULT.chrome_css
 TOOLS_CSS = _DEFAULT.tools_css
 COMPOSER_CSS = _DEFAULT.composer_css
@@ -276,3 +279,43 @@ PLAN_MODAL_CSS = _DEFAULT.plan_modal_css
 CONTEXT_MODAL_CSS = _DEFAULT.context_modal_css
 PROVIDER_MODAL_CSS = _DEFAULT.provider_modal_css
 APP_CSS = _DEFAULT.app_css
+
+
+def apply_theme(document: ThemeDocument) -> None:
+    """Publish a parsed theme into the module globals the running TUI holds.
+
+    ``SYMPHONY_COLORS`` is updated in place so widgets that imported the dict
+    see the new tokens on their next paint. CSS strings are replaced for the
+    next ``stylesheet`` read; already-mounted screens must reassign theirs.
+    """
+    SYMPHONY_COLORS.clear()
+    SYMPHONY_COLORS.update(document.colors)
+    global CHROME_CSS, TOOLS_CSS, COMPOSER_CSS, RESUME_CSS, ONBOARD_CSS
+    global MODAL_BASE_CSS, CONTENT_MODAL_CSS, IMAGE_MODAL_CSS, DIFF_MODAL_CSS
+    global EXTENSIONS_MODAL_CSS, LEARNING_MODAL_CSS, PLAN_MODAL_CSS
+    global CONTEXT_MODAL_CSS, PROVIDER_MODAL_CSS, APP_CSS
+    CHROME_CSS = document.chrome_css
+    TOOLS_CSS = document.tools_css
+    COMPOSER_CSS = document.composer_css
+    RESUME_CSS = document.resume_css
+    ONBOARD_CSS = document.onboard_css
+    MODAL_BASE_CSS = document.modal_base_css
+    CONTENT_MODAL_CSS = document.content_modal_css
+    IMAGE_MODAL_CSS = document.image_modal_css
+    DIFF_MODAL_CSS = document.diff_modal_css
+    EXTENSIONS_MODAL_CSS = document.extensions_modal_css
+    LEARNING_MODAL_CSS = document.learning_modal_css
+    PLAN_MODAL_CSS = document.plan_modal_css
+    CONTEXT_MODAL_CSS = document.context_modal_css
+    PROVIDER_MODAL_CSS = document.provider_modal_css
+    APP_CSS = document.app_css
+
+
+def theme_signature(path: Path | None = None) -> tuple[str, int] | None:
+    """Identity of the theme file currently in effect, or None when unreadable."""
+    try:
+        resolved = resolve_theme_path(path)
+        stat = resolved.stat()
+    except (OSError, ThemeConfigError):
+        return None
+    return (str(resolved), stat.st_mtime_ns)
