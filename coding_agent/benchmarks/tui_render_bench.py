@@ -16,6 +16,16 @@ Then it times, with ``time.perf_counter``:
   relayout  full relayout of the screen and repaint
   scroll    scroll the transcript to the top, then to the end, repainting
 
+``--live`` measures a streamed turn instead (``--tools`` repeatable, default
+10 and 50): five prior turns of history, then one live turn whose tool calls
+each go started -> running -> done through the event presenter, with
+assistant text chunks after every five calls, then run end. Per tool call it
+reports the wall time of one tool update (event plus repaint), the transcript
+rebuild passes (``reconcile_live_tools`` calls, where that path exists), the
+``refresh(layout=True)`` requests (all, and those on mounted widgets) and
+widgets mounted/removed (counted the way the render repro's churn probe does),
+and the screen layout passes; plus the run-end time.
+
 Animations are off (``TEXTUAL_ANIMATIONS=none``) so row fade-ins do not count.
 The first run is a warm-up and is discarded. Times are in milliseconds.
 """
@@ -24,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import collections
 import os
 import statistics
 import sys
@@ -31,6 +42,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
+from typing import Any, Callable
 
 CHECKOUT_SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(CHECKOUT_SRC))
@@ -41,9 +53,19 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="tui-bench-home-")
 os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 from textual.containers import VerticalScroll  # noqa: E402
+from textual.pilot import Pilot  # noqa: E402
+from textual.screen import Screen  # noqa: E402
+from textual.widget import Widget  # noqa: E402
 
 from coding_agent.tui.app import CodingAgentApp  # noqa: E402
+from coding_agent.tui.composer import QueuedTurn  # noqa: E402
 from coding_agent.tui.tools.snapshots import ToolCallSummary  # noqa: E402
+from coding_agent.tui.transcript import surface as transcript_surface  # noqa: E402
+
+try:
+    from coding_agent.tui.transcript.live_tools import reconcile_live_tools  # noqa: E402
+except ImportError:  # removed when the transcript started updating rows in place
+    reconcile_live_tools = None
 
 SIZE = (110, 40)
 METRICS = ("mount", "append", "toggle", "relayout", "scroll")
@@ -149,14 +171,168 @@ async def bench(rows: int, group: int, runs: int, *, raw: bool) -> None:
     summarise(rows, samples, raw=raw)
 
 
+LIVE_METRICS = (
+    "ms/update",
+    "rebuilds/call",
+    "relayouts/call",
+    "mounted-relayouts/call",
+    "layouts/call",
+    "mounted/call",
+    "removed/call",
+    "run-end ms",
+)
+HISTORY_TURNS = 5
+HISTORY_TOOLS = 6
+TEXT_EVERY = 5
+TEXT_CHUNKS = 3
+COUNTS: collections.Counter[str] = collections.Counter()
+
+
+def count_render_work() -> None:
+    """Count mounts, removals, layout requests and layout passes (bench only)."""
+    mount, remove, refresh = Widget.mount, Widget.remove, Widget.refresh
+    layout = Screen._refresh_layout
+
+    def counted_mount(self: Widget, *widgets: Widget, **kwargs: Any) -> Any:
+        COUNTS["mounted"] += len(widgets)
+        return mount(self, *widgets, **kwargs)
+
+    def counted_remove(self: Widget) -> Any:
+        COUNTS["removed"] += 1
+        return remove(self)
+
+    def counted_refresh(self: Widget, *args: Any, layout: bool = False, **kwargs: Any) -> Any:
+        COUNTS["relayouts"] += layout
+        COUNTS["mounted-relayouts"] += layout and self.is_mounted
+        return refresh(self, *args, layout=layout, **kwargs)
+
+    def counted_layout(self: Screen[Any], *args: Any, **kwargs: Any) -> None:
+        COUNTS["layouts"] += 1
+        layout(self, *args, **kwargs)
+
+    Widget.mount, Widget.remove, Widget.refresh = counted_mount, counted_remove, counted_refresh
+    Screen._refresh_layout = counted_layout
+    if reconcile_live_tools is not None:
+        rebuild = reconcile_live_tools
+
+        def counted_rebuild(*args: Any, **kwargs: Any) -> Any:
+            COUNTS["rebuilds"] += 1
+            return rebuild(*args, **kwargs)
+
+        transcript_surface.reconcile_live_tools = counted_rebuild
+
+
+def start_turn(app: CodingAgentApp, prompt: str) -> Callable[[str, dict[str, Any]], None]:
+    """Open a turn the way the composer does, and return its event feed."""
+    app._start_turn(QueuedTurn(prompt, prompt, (), ()))
+    assert app._presenter is not None
+    handle = app._presenter.handle
+    handle("run_started", {"model_id": "bench:model"})
+    handle("turn_started", {"turn": 0, "message_count": 2})
+    return handle
+
+
+def tool_events(call_id: str, index: int) -> list[tuple[str, dict[str, Any]]]:
+    name, arguments = TOOLS[index % len(TOOLS)]
+    call = {"tool_call_id": call_id, "tool_name": name}
+    return [
+        ("tool_call_started", call),
+        ("tool_execution_started", {**call, "arguments": arguments(index)}),
+        ("tool_execution_completed", {**call, "result": "ok", "status": "success"}),
+    ]
+
+
+def stream_text(app: CodingAgentApp, handle: Callable[[str, dict[str, Any]], None], batch: int) -> None:
+    for chunk in range(TEXT_CHUNKS):
+        handle("text_delta", {"turn": 0, "delta": f"Batch {batch}, note {chunk}. "})
+    assert app._presenter is not None
+    app._presenter.flush_stream_paints()
+
+
+async def history(app: CodingAgentApp, pilot: Pilot[None]) -> None:
+    for turn in range(HISTORY_TURNS):
+        handle = start_turn(app, f"earlier question {turn}")
+        for index in range(HISTORY_TOOLS):
+            for event, payload in tool_events(f"h{turn}-{index}", index):
+                handle(event, payload)
+        stream_text(app, handle, turn)
+        handle("run_completed", {"output_text": f"Earlier answer {turn}."})
+        await pilot.pause()
+
+
+async def run_live_once(tools: int) -> dict[str, float]:
+    workspace = Path(tempfile.mkdtemp(prefix="tui-bench-ws-"))
+    app = CodingAgentApp(workspace=workspace)
+    app.run_agent = lambda content: None  # the bench feeds events itself
+    async with app.run_test(size=SIZE) as pilot:
+        await pilot.pause()
+        await history(app, pilot)
+        handle = start_turn(app, "the live question")
+        await pilot.pause()
+        totals: collections.Counter[str] = collections.Counter()
+        update_seconds = 0.0
+        for index in range(tools):
+            for event, payload in tool_events(f"live-{index}", index):
+                COUNTS.clear()
+                start = perf_counter()
+                handle(event, payload)
+                await pilot.pause()
+                update_seconds += perf_counter() - start
+                totals.update(COUNTS)
+            if (index + 1) % TEXT_EVERY == 0:
+                stream_text(app, handle, index)
+                await pilot.pause()
+        start = perf_counter()
+        handle("run_completed", {"output_text": "Final answer."})
+        await pilot.pause()
+        run_end = perf_counter() - start
+    updates = tools * len(tool_events("", 0))
+    return {
+        "ms/update": update_seconds * 1000 / updates,
+        "rebuilds/call": totals["rebuilds"] / tools,
+        "relayouts/call": totals["relayouts"] / tools,
+        "mounted-relayouts/call": totals["mounted-relayouts"] / tools,
+        "layouts/call": totals["layouts"] / tools,
+        "mounted/call": totals["mounted"] / tools,
+        "removed/call": totals["removed"] / tools,
+        "run-end ms": run_end * 1000,
+    }
+
+
+async def bench_live(tools: int, runs: int, *, raw: bool) -> None:
+    await run_live_once(tools)
+    print(f"tools={tools} history_turns={HISTORY_TURNS} (warm-up discarded)")
+    samples: dict[str, list[float]] = {name: [] for name in LIVE_METRICS}
+    for _ in range(runs):
+        for name, value in (await run_live_once(tools)).items():
+            samples[name].append(value)
+    for name in LIVE_METRICS:
+        values = samples[name]
+        print(
+            f"tools={tools:<4} {name:<22} median={statistics.median(values):8.2f}"
+            f"  min={min(values):8.2f}  max={max(values):8.2f}  n={len(values)}"
+        )
+        if raw:
+            print(f"raw tools={tools} {name} " + " ".join(f"{value:.3f}" for value in values))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--rows", type=int, action="append", help="tool rows (repeatable); default 50 and 200")
     parser.add_argument("--group", type=int, default=10, help="tool rows per Explored group")
     parser.add_argument("--runs", type=int, default=7, help="timed runs after the warm-up")
     parser.add_argument("--raw", action="store_true", help="also print every sample")
+    parser.add_argument("--live", action="store_true", help="measure a streamed live turn instead")
+    parser.add_argument(
+        "--tools", type=int, action="append", help="live-turn tool calls (repeatable); default 10 and 50"
+    )
     args = parser.parse_args()
     print(f"checkout src: {CHECKOUT_SRC}")
+    if args.live:
+        count_render_work()
+        for tools in args.tools or (10, 50):
+            asyncio.run(bench_live(tools, args.runs, raw=args.raw))
+        return
     for rows in args.rows or (50, 200):
         asyncio.run(bench(rows, args.group, args.runs, raw=args.raw))
 

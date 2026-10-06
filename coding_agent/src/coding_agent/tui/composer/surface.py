@@ -79,6 +79,8 @@ class ComposerSurface:
         self._reasoning = None
         self._process = None
         self._tools = {}
+        self._tool_groups = {}
+        self._open_tool_group = None
         self._mount_transcript(
             UserMessage(turn.text, pasted_chunks=turn.pasted_chunks, images=turn.images)
         )

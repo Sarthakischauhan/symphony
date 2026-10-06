@@ -13,7 +13,6 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from coding_agent.tui.motion import reveal
 from coding_agent.tui.theme import CONTENT_MODAL_CSS
 
 ResultT = TypeVar("ResultT")
@@ -56,13 +55,6 @@ class ModalBase(ModalScreen[ResultT], Generic[ResultT]):
     BINDINGS = [
         Binding("escape", "close_modal", "Close", show=False, priority=True),
     ]
-
-    def on_mount(self) -> None:
-        """Fade the backdrop and lift the modal pane into place."""
-        reveal(self, duration=0.12)
-        pane = next(iter(self.query(".modal-pane")), None)
-        if isinstance(pane, Container):
-            reveal(pane, duration=0.2, offset_y=1)
 
     def action_close_modal(self) -> None:
         dismiss_overlay(self)

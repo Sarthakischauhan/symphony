@@ -1,20 +1,27 @@
-"""Transcript mounting and follow-tail mixed into CodingAgentApp."""
+"""Transcript mounting mixed into CodingAgentApp.
+
+Every transcript entry is mounted once and then updated in place. Groupable
+tool calls become rows of one ``ToolCallSummary`` per consecutive stretch (the
+render-time grouping fx does in ``tool_group_projection.zig``), so a status
+change only re-renders that group's text. Following the newest output is
+Textual's scroll anchor on ``#transcript``.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from textual import events
 from textual.containers import VerticalScroll
+from textual.geometry import Offset
 from textual.widget import Widget
 
 from coding_agent.tui.chrome.footer import ComposerOverlay
-from coding_agent.tui.transcript.live_tools import LIVE_TOOL_WIDGET_LIMIT, reconcile_live_tools
 from coding_agent.tui.transcript.messages import (
     AssistantMessage,
     Notice,
     RunSummary,
-    UserMessage,
+    SelectableStatic,
     Welcome,
 )
 from coding_agent.tui.transcript.process import (
@@ -24,81 +31,50 @@ from coding_agent.tui.transcript.process import (
     ThinkingStatus,
 )
 
+if TYPE_CHECKING:
+    # tools.* imports transcript.messages, so the runtime imports stay local.
+    from coding_agent.tui.tools.calls import ToolCallWidget
+    from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary
+
+
+class TranscriptScroll(VerticalScroll):
+    """The transcript viewport: anchored to its newest content.
+
+    Textual keeps an anchored widget at the bottom through every layout,
+    releases the anchor when the reader scrolls up, and restores it when they
+    scroll back to the end.
+    """
+
+    def on_mount(self) -> None:
+        self.anchor()
+
+    @property
+    def scroll_offset(self) -> Offset:
+        """Keep short transcripts top-aligned while anchored.
+
+        While anchored, Textual parks ``scroll_y`` at ``content - viewport``,
+        which is negative until the transcript fills the screen and would push
+        the first rows down to the composer.
+        """
+        offset = super().scroll_offset
+        return Offset(offset.x, max(0, offset.y))
+
 
 class TranscriptSurface:
     """TranscriptView implementation mixed into CodingAgentApp."""
 
-    def _follow_transcript_tail(
-        self, transcript: VerticalScroll, *, was_at_end: bool
-    ) -> None:
-        """Keep following live output unless the user has scrolled away."""
-        if not was_at_end:
-            return
-        self._pending_scroll_end = True
-        if getattr(self, "_scroll_end_scheduled", False):
-            return
-        self._scroll_end_scheduled = True
-        self.call_after_refresh(self._flush_transcript_scroll_end)
-
-    def _flush_transcript_scroll_end(self) -> None:
-        self._scroll_end_scheduled = False
-        if not getattr(self, "_pending_scroll_end", False):
-            return
-        self._pending_scroll_end = False
-        transcript = self.query_one("#transcript", VerticalScroll)
-        transcript.scroll_end(animate=False)
-
     def _mount_transcript(self, widget: Widget) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
-        was_at_end = transcript.is_vertical_scroll_end
         welcome = self.query(".welcome")
         if welcome:
             welcome.first().remove()
-        if isinstance(widget, UserMessage):
-            turn = TranscriptTurn(widget)
-            self._transcript_turns.append(turn)
-            self._current_transcript_turn = turn
-            transcript.mount(widget)
-            self._compact_transcript()
-        elif self._current_transcript_turn is not None:
-            self._current_transcript_turn.add_item(widget)
-            transcript.mount(widget)
-        else:
-            transcript.mount(widget)
-        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-
-    def _compact_transcript(self, *, final: bool = False) -> None:
-        """Condense completed tool widgets without hiding conversation turns."""
-        limit = getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT)
-        if limit < 0:
-            return
-
-        seen_process = False
-        for turn in self._transcript_turns:
-            reconcile_live_tools(turn, limit=limit, final=final)
-            for item in turn.timeline_items():
-                if isinstance(item, RunProcess):
-                    tools = self._tools if item is self._process else None
-                    reconcile_live_tools(
-                        item, tools, limit=limit, final=final or item.completed
-                    )
-                    if item is self._process:
-                        seen_process = True
-        if not seen_process and self._process is not None:
-            reconcile_live_tools(
-                self._process,
-                self._tools,
-                limit=limit,
-                final=final or self._process.completed,
-            )
+        transcript.mount(widget)
 
     def finalize_transcript_history(self) -> None:
-        """Apply condensation and freeze completed message renders."""
-        self._compact_transcript(final=True)
+        """Freeze completed message renders after restoring history."""
         for message in self.query(".message"):
-            freeze = getattr(message, "freeze_render", None)
-            if freeze is not None:
-                freeze()
+            if isinstance(message, SelectableStatic):
+                message.freeze_render()
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         if new or self._assistant is None:
@@ -111,17 +87,12 @@ class TranscriptSurface:
                 self._mount_process_item(self._assistant)
             else:
                 self._mount_transcript(self._assistant)
-                self._compact_transcript()
         else:
-            transcript = self.query_one("#transcript", VerticalScroll)
-            was_at_end = transcript.is_vertical_scroll_end
             self._assistant.set_content(text, streaming=True)
-            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def finish_assistant(self) -> None:
         if self._assistant is not None:
             self._assistant.finish_stream()
-            self._compact_transcript()
 
     def invalidate_workspace_caches(self) -> None:
         index = getattr(self, "_file_index", None)
@@ -155,14 +126,17 @@ class TranscriptSurface:
             self._process.place_thinking_last()
 
     def _mount_process_item(self, widget: Widget) -> None:
-        transcript = self.query_one("#transcript", VerticalScroll)
-        was_at_end = transcript.is_vertical_scroll_end
+        """Append a run timeline entry; anything but a tool row ends the open group."""
         if self._process is None:
             self.set_thinking("Thinking…")
         assert self._process is not None
+        self._close_tool_group()
         self._process.add_item(widget)
-        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-        self._compact_transcript()
+
+    def _close_tool_group(self) -> None:
+        if self._open_tool_group is not None:
+            self._open_tool_group.close()
+            self._open_tool_group = None
 
     def set_reasoning(self, text: str, *, new: bool = False) -> None:
         if new or self._reasoning is None:
@@ -171,33 +145,57 @@ class TranscriptSurface:
             self._reasoning = ReasoningWidget(text)
             self._mount_process_item(self._reasoning)
         else:
-            transcript = self.query_one("#transcript", VerticalScroll)
-            was_at_end = transcript.is_vertical_scroll_end
             self._reasoning.set_content(text)
-            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
 
     def finish_reasoning(self) -> None:
         if self._reasoning is None:
             return
         self._reasoning.complete()
         self._reasoning = None
-        if self._process is not None:
-            reconcile_live_tools(
-                self._process,
-                self._tools,
-                limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
-                final=self._process.completed,
-            )
-        self._compact_transcript()
 
     def add_tool(self, call_id: str, name: str) -> None:
+        self._show_tool(self._new_tool(call_id, name))
+
+    def _new_tool(self, call_id: str, name: str) -> ToolCallWidget:
         from coding_agent.tui.tools.calls import make_tool_widget
 
         if self._thinking is not None:
             self._thinking.set_visible(False)
-        widget = make_tool_widget(call_id, name, workspace=self.workspace)
-        self._tools[call_id] = widget
-        self._mount_process_item(widget)
+        tool = make_tool_widget(call_id, name, workspace=self.workspace)
+        self._tools[call_id] = tool
+        return tool
+
+    def _show_tool(self, tool: ToolCallWidget) -> None:
+        """Mount an interactive card once, or place/update a row in its group."""
+        if tool.keep_in_transcript:
+            if not tool.is_attached:
+                self._mount_process_item(tool)
+            return
+        snapshot = tool.snapshot()
+        group = self._tool_groups.get(tool.call_id)
+        if group is not None and not (
+            group is self._open_tool_group and group.rejects_last(snapshot)
+        ):
+            group.update_call(snapshot)
+            return
+        if group is not None:
+            # Activity arrived with the arguments and no longer matches the
+            # stretch this call joined while it was still preparing.
+            group.remove_call(tool.call_id)
+        group = self._tool_group_for(snapshot)
+        group.add_call(snapshot)
+        self._tool_groups[tool.call_id] = group
+
+    def _tool_group_for(self, snapshot: ToolCallSnapshot) -> ToolCallSummary:
+        from coding_agent.tui.tools.snapshots import ToolCallSummary
+
+        group = self._open_tool_group
+        if group is not None and group.accepts(snapshot):
+            return group
+        group = ToolCallSummary(expanded=True)
+        self._mount_process_item(group)
+        self._open_tool_group = group
+        return group
 
     def update_tool(
         self,
@@ -209,37 +207,21 @@ class TranscriptSurface:
         status: str = "preparing",
         result: Any = None,
     ) -> None:
-        from coding_agent.tui.tools.snapshots import ToolCallSummary
-
-        transcript = self.query_one("#transcript", VerticalScroll)
-        was_at_end = transcript.is_vertical_scroll_end
-        widget = self._tools.get(call_id)
-        if widget is None:
-            self.add_tool(call_id, tool_name)
-            widget = self._tools[call_id]
-        if isinstance(widget, ToolCallSummary):
-            self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-            return
+        tool = self._tools.get(call_id)
+        if tool is None:
+            tool = self._new_tool(call_id, tool_name)
         if status == "running":
-            widget.set_running(arguments)
+            tool.set_running(arguments)
         elif status in {"done", "failed"}:
-            widget.set_result(result)
+            tool.set_result(result)
             if status == "failed":
-                widget.status = "failed"
-                widget.refresh_content()
-            if widget.tool_name in {"write_file", "patch", "bash"}:
+                tool.status = "failed"
+                tool.refresh_content()
+            if tool.tool_name in {"write_file", "patch", "bash"}:
                 self.invalidate_workspace_caches()
         else:
-            widget.set_arguments(arguments, raw_arguments)
-        self._follow_transcript_tail(transcript, was_at_end=was_at_end)
-        if status in {"done", "failed"}:
-            reconcile_live_tools(
-                self._process,
-                self._tools,
-                limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
-                final=self._process is not None and self._process.completed,
-            )
-            self._compact_transcript()
+            tool.set_arguments(arguments, raw_arguments)
+        self._show_tool(tool)
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)
@@ -265,32 +247,11 @@ class TranscriptSurface:
         else:
             self._mount_transcript(widget)
 
-    def finish_process(
-        self,
-        title: str,
-        *,
-        collapse: bool = True,
-        add_completion: bool = True,
-        verb: str = "",
-        duration: str = "",
-        detail: str = "",
-    ) -> None:
+    def finish_process(self, title: str) -> None:
+        """Freeze the finished run as it stands and add its completion row."""
+        self._close_tool_group()
         if self._process is not None:
-            self._process.complete(
-                title,
-                collapse=collapse,
-                add_completion=add_completion,
-                verb=verb,
-                duration=duration,
-                detail=detail,
-            )
-            reconcile_live_tools(
-                self._process,
-                self._tools,
-                limit=getattr(self, "live_tool_widget_limit", LIVE_TOOL_WIDGET_LIMIT),
-                final=True,
-            )
-        self._compact_transcript()
+            self._process.complete(title)
 
     def add_run_completion(self, title: str) -> None:
         """Place compact run metrics after the finalized assistant reply."""
@@ -307,15 +268,7 @@ class TranscriptSurface:
         transcript = self.query_one("#transcript", VerticalScroll)
         for welcome in self.query(".welcome"):
             welcome.remove()
-        for widget in widgets:
-            if isinstance(widget, UserMessage):
-                turn = TranscriptTurn(widget)
-                self._transcript_turns.append(turn)
-                self._current_transcript_turn = turn
-            elif self._current_transcript_turn is not None:
-                self._current_transcript_turn.add_item(widget)
-            transcript.mount(widget)
-        self._compact_transcript(final=True)
+        transcript.mount(*widgets)
 
     def action_copy_selection(self) -> None:
         """Copy the currently selected rendered transcript text to the clipboard."""
@@ -339,65 +292,5 @@ class TranscriptSurface:
         self._reasoning = None
         self._process = None
         self._tools.clear()
-        self._transcript_turns.clear()
-        self._current_transcript_turn = None
-
-
-class TranscriptTurn:
-    """Track one turn's root widgets without changing their display order."""
-
-    def __init__(self, first: Widget) -> None:
-        self._items = [first]
-
-    def add_item(self, widget: Widget) -> None:
-        self._items.append(widget)
-
-    def insert_item(
-        self,
-        widget: Widget,
-        *,
-        before: Widget | None = None,
-        after: Widget | None = None,
-    ) -> None:
-        """Insert a root widget while preserving surrounding turn order."""
-        if before is not None and before in self._items:
-            self._items.insert(self._items.index(before), widget)
-            return
-        if after is not None and after in self._items:
-            self._items.insert(self._items.index(after) + 1, widget)
-            return
-        self._items.append(widget)
-
-    def timeline_items(self) -> list[Widget]:
-        return list(self._items)
-
-    def replace_item(self, old: Widget, new: Widget) -> None:
-        try:
-            index = self._items.index(old)
-        except ValueError:
-            return
-        self._items[index] = new
-        if old.is_attached:
-            old.parent.mount(new, after=old)
-            old.remove()
-
-    def remove_item(self, widget: Widget) -> None:
-        if widget in self._items:
-            self._items.remove(widget)
-        if widget.is_attached:
-            widget.remove()
-
-    def tool_count(self) -> int:
-        from coding_agent.tui.tools.calls import ToolCallWidget
-        from coding_agent.tui.tools.snapshots import ToolCallSummary
-        from coding_agent.tui.transcript.process import RunProcess
-
-        count = 0
-        for item in self._items:
-            if isinstance(item, ToolCallWidget):
-                count += 1
-            elif isinstance(item, ToolCallSummary):
-                count += item.count
-            elif isinstance(item, RunProcess):
-                count += item.tool_count()
-        return count
+        self._tool_groups.clear()
+        self._open_tool_group = None
