@@ -239,7 +239,8 @@ class RunProcess(Container):
                         summary.add_call(entry, layout=False)
             elif isinstance(item, ToolCallWidget) and (
                 not item.keep_in_transcript
-                or isinstance(item, (BashToolWidget, PatchDiffWidget))
+                or isinstance(item, PatchDiffWidget)
+                or isinstance(item, BashToolWidget) and not item.arguments.get("background")
             ):
                 summary.add_call(item.snapshot(), layout=False)
             elif not (isinstance(item, AssistantMessage) and item is not final_assistant):
