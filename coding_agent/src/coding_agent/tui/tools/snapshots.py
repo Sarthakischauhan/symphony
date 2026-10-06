@@ -84,24 +84,70 @@ def snapshot_from_call(
     )
 
 
-NESTED_ROW = "tool-call-summary--row"
-NESTED_ROW_FAILED = "tool-call-summary--row-failed"
+NESTED_GUIDE = "tool-call-summary--guide"
+NESTED_VERB = "tool-call-summary--verb"
+NESTED_ARGS = "tool-call-summary--args"
 NESTED_DETAIL = "tool-call-summary--detail"
+GLYPH_DONE = "tool-call-summary--glyph-done"
+GLYPH_RUNNING = "tool-call-summary--glyph-running"
+GLYPH_FAILED = "tool-call-summary--glyph-failed"
+# fx (vercel-labs/fx) draws a tree guide in front of grouped tool rows:
+# "├" for every row but the last, "└" for the last, and "│" under a
+# non-final row when it continues onto a second line.
+GUIDE_BRANCH = "├"
+GUIDE_LAST = "└"
+GUIDE_CONTINUE = "│"
+GUIDE_END = " "
+# fx marks completed and failed calls with "●" and colours failures red;
+# calls that have not finished keep the hollow marker the live rows use.
+FINISHED_GLYPH = "●"
+PENDING_GLYPH = "○"
+ROW_GLYPHS: Mapping[str, tuple[str, str]] = {
+    "done": (FINISHED_GLYPH, GLYPH_DONE),
+    "failed": (FINISHED_GLYPH, GLYPH_FAILED),
+}
+PENDING_ROW_GLYPH = (PENDING_GLYPH, GLYPH_RUNNING)
 # Used before the widget is mounted (no stylesheet yet); TCSS supplies the
 # themed colours once it is.
-UNMOUNTED_NESTED_STYLE = Style(dim=True)
+UNMOUNTED_NESTED_STYLE = Style()
 # Nested rows stay regular weight while the focused/hovered header is bold.
 NESTED_WEIGHT = Style(bold=False)
+
+
+def row_glyph(status: str) -> tuple[str, str]:
+    """Return the status glyph and its component class for one nested row."""
+    return ROW_GLYPHS.get(status, PENDING_ROW_GLYPH)
+
+
+def detail_preview(content: str, limit: int) -> str:
+    """Collapse whitespace so a thought preview fits on one line."""
+    return clip_text(" ".join(content.split()), limit)
+
+
+def guide_glyphs(is_last: bool) -> tuple[str, str]:
+    """Return the guide for a row's first line and for its continuation."""
+    if is_last:
+        return GUIDE_LAST, GUIDE_END
+    return GUIDE_BRANCH, GUIDE_CONTINUE
 
 
 class ToolCallSummary(SelectableStatic, can_focus=True):
     """A compact disclosure containing non-interactive tool snapshots.
 
-    Expanded rows sit at the header's left edge as compact, dimmed lines
-    styled by the ``tool-call-summary--*`` component classes in theme.toml.
+    Expanded rows start at the header's left edge behind an fx-style tree
+    guide, one line each: guide, status glyph, verb, then arguments. The
+    ``tool-call-summary--*`` component classes in theme.toml colour each part.
     """
 
-    COMPONENT_CLASSES = {NESTED_ROW, NESTED_ROW_FAILED, NESTED_DETAIL}
+    COMPONENT_CLASSES = {
+        NESTED_GUIDE,
+        NESTED_VERB,
+        NESTED_ARGS,
+        NESTED_DETAIL,
+        GLYPH_DONE,
+        GLYPH_RUNNING,
+        GLYPH_FAILED,
+    }
 
     def __init__(
         self, calls: Sequence[ToolCallSnapshot | ThoughtSnapshot] | None = None
@@ -167,20 +213,35 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         return themed + NESTED_WEIGHT
 
     def _append_detail(self, text: Text, content: str, limit: int) -> None:
-        preview = clip_text(" ".join(content.split()), limit)
-        text.append(f"\n{preview}", style=self._nested_style(NESTED_DETAIL))
+        text.append(f"\n{detail_preview(content, limit)}", style=self._nested_style(NESTED_DETAIL))
 
     def _append_nested_rows(self, text: Text) -> None:
-        """One compact line per entry, flush with the group header."""
-        for entry in self.entries:
+        """One compact line per entry behind the guide, flush with the header."""
+        last_index = len(self.entries) - 1
+        for index, entry in enumerate(self.entries):
+            guide, continuation = guide_glyphs(index == last_index)
             if isinstance(entry, ThoughtSnapshot):
-                text.append(f"\n{entry.title}", style=self._nested_style(NESTED_ROW))
+                self._append_row(text, guide, "done", entry.title, "")
                 if entry.content:
-                    self._append_detail(text, entry.content, 220)
+                    self._append_continuation(text, continuation, entry.content)
                 continue
-            component = NESTED_ROW_FAILED if entry.status == "failed" else NESTED_ROW
-            line = " ".join(part for part in (entry.label, header_target(entry.detail)) if part)
-            text.append(f"\n{line}", style=self._nested_style(component))
+            self._append_row(text, guide, entry.status, entry.label, header_target(entry.detail))
+
+    def _append_row(self, text: Text, guide: str, status: str, verb: str, args: str) -> None:
+        glyph, glyph_component = row_glyph(status)
+        text.append("\n")
+        text.append(guide, style=self._nested_style(NESTED_GUIDE))
+        text.append(" ")
+        text.append(glyph, style=self._nested_style(glyph_component))
+        text.append(" ")
+        text.append(verb, style=self._nested_style(NESTED_VERB))
+        if args:
+            text.append(f" {args}", style=self._nested_style(NESTED_ARGS))
+
+    def _append_continuation(self, text: Text, guide: str, content: str) -> None:
+        text.append("\n")
+        text.append(guide, style=self._nested_style(NESTED_GUIDE))
+        text.append(f" {detail_preview(content, 220)}", style=self._nested_style(NESTED_DETAIL))
 
     @property
     def call_ids(self) -> list[str]:

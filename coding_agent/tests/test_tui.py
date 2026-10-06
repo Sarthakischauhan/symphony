@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from rich.style import Style
+from rich.text import Text
 from textual import events
 from textual.app import App
 from textual.containers import VerticalScroll
@@ -1427,8 +1428,7 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
     assert rendered.startswith("Percolated for 12s")
     assert "Read history.py" in rendered
     assert "Update labels.py" in rendered
-    assert rendered.count("\nRead") == 1
-    assert rendered.count("\nUpdate") == 1
+    assert rendered.split("\n")[1:] == ["├ ● Read history.py", "└ ● Update labels.py"]
 
 
 def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
@@ -3869,7 +3869,21 @@ def test_explored_renders_folded_tool_snapshots_inline(
     asyncio.run(_run())
 
 
-def test_expanded_explored_rows_are_flush_dim_and_collapse_again(
+def _span_colour(rendered: Text, fragment: str, after: int) -> Style:
+    """Return the style of the first span after ``after`` whose text is ``fragment``."""
+    for span in rendered.spans:
+        if span.start >= after and rendered.plain[span.start : span.end] == fragment:
+            assert isinstance(span.style, Style)
+            return span.style
+    raise AssertionError(f"no span renders {fragment!r}")
+
+
+def _hex(style: Style) -> str:
+    assert style.color is not None and style.color.triplet is not None
+    return style.color.triplet.hex.upper()
+
+
+def test_expanded_explored_rows_split_guide_glyph_verb_and_args(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -3878,13 +3892,14 @@ def test_expanded_explored_rows_are_flush_dim_and_collapse_again(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            for index in range(2):
+            for index, status in enumerate(("done", "failed")):
                 call_id = f"read-{index}"
                 app.add_tool(call_id, "read_file")
                 app.update_tool(
                     call_id, arguments={"path": f"src/f{index}.py"}, status="running"
                 )
-                app.update_tool(call_id, status="done", result="alpha")
+                result = "alpha" if status == "done" else "error: missing"
+                app.update_tool(call_id, status=status, result=result)
             app.set_assistant("Checking.", new=True)
             await pilot.pause()
 
@@ -3898,21 +3913,28 @@ def test_expanded_explored_rows_are_flush_dim_and_collapse_again(
             rendered = summary.render()
             header, *rows = rendered.plain.split("\n")
             assert header.startswith("Explored · 2 tools")
-            assert rows == ["Read f0.py", "Read f1.py"]
-            # Nested rows start at the header's left edge: no indent or tree glyph.
-            assert all(row == row.lstrip() for row in rows)
+            assert rows == ["├ ● Read f0.py", "└ ● Read f1.py"]
 
-            # Rows read smaller: dim, never bold, in the theme's muted colour,
-            # even while the focused group header is bold.
-            row_spans = [span for span in rendered.spans if span.start >= len(header)]
-            assert len(row_spans) == 2
-            for span in row_spans:
-                style = span.style
-                assert isinstance(style, Style)
-                assert style.dim
+            after = len(header)
+            muted = SYMPHONY_COLORS["muted"].upper()
+            foreground_muted = SYMPHONY_COLORS["subtext"].upper()
+            danger = SYMPHONY_COLORS["keyword"].upper()
+            guide = _span_colour(rendered, "├", after)
+            verb = _span_colour(rendered, "Read", after)
+            args = _span_colour(rendered, " f0.py", after)
+            done_glyph = _span_colour(rendered, "●", after)
+            failed_glyph = _span_colour(rendered, "●", rendered.plain.index("└"))
+            # Guide and args share the muted row tone; the verb and the done
+            # glyph sit one step brighter; a failed call's glyph is danger.
+            assert _hex(guide) == muted
+            assert _hex(args) == muted
+            assert _hex(verb) == foreground_muted
+            assert _hex(done_glyph) == foreground_muted
+            assert _hex(failed_glyph) == danger
+            # Brighter than before: not dim, and never bold under the bold header.
+            for style in (guide, verb, args, done_glyph, failed_glyph):
+                assert not style.dim
                 assert style.bold is False
-                assert style.color is not None and style.color.triplet is not None
-                assert style.color.triplet.hex.upper() == SYMPHONY_COLORS["muted"].upper()
 
             summary.focus()
             await pilot.press("enter")

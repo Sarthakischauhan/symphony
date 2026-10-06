@@ -44,6 +44,7 @@ accent = "accent"
 accent-plan = "accent_plan"
 muted = "muted"
 muted-dim = "muted_dim"
+foreground-muted = "subtext"
 string = "string"
 panel = "surface"
 panel-light = "overlay"
@@ -465,19 +466,35 @@ tools = '''
 /* Rows nested inside an expanded Explored or completed-run group start at
    the group header's left edge and read smaller: one compact, dimmed line
    each in muted theme colours. */
-.tool-call-summary > .tool-call-summary--row {
+/* Expanded group rows follow fx's grouped tool rows: a tree guide in the
+   row tone, then a status glyph, the verb, and the arguments. */
+.tool-call-summary > .tool-call-summary--guide {
     color: $muted;
-    text-style: dim;
 }
 
-.tool-call-summary > .tool-call-summary--row-failed {
+.tool-call-summary > .tool-call-summary--verb {
+    color: $foreground-muted;
+}
+
+.tool-call-summary > .tool-call-summary--args {
+    color: $muted;
+}
+
+.tool-call-summary > .tool-call-summary--glyph-done {
+    color: $foreground-muted;
+}
+
+.tool-call-summary > .tool-call-summary--glyph-running {
+    color: $accent;
+}
+
+.tool-call-summary > .tool-call-summary--glyph-failed {
     color: $danger;
-    text-style: dim;
 }
 
 .tool-call-summary > .tool-call-summary--detail {
-    color: $muted-dim;
-    text-style: dim italic;
+    color: $muted;
+    text-style: italic;
 }
 '''
 composer = '''

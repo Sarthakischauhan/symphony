@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from coding_agent.tui.motion import enter_row, settle_row
 from coding_agent.tui.tools.activity import (
     COMPLETION_VERBS,
@@ -17,6 +19,7 @@ from coding_agent.tui.tools.snapshots import (
     ThoughtSnapshot,
     ToolCallSnapshot,
     ToolCallSummary,
+    row_glyph,
     snapshot_from_call,
 )
 from coding_agent.tui.transcript.live_tools import (
@@ -376,11 +379,12 @@ def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
     assert "Read 2 lines (17 bytes)" not in rendered
 
 
-def test_expanded_summary_rows_start_at_the_header_edge() -> None:
+def test_expanded_summary_rows_hang_off_an_fx_tree_guide() -> None:
     summary = ToolCallSummary(
         (
             ToolCallSnapshot("read-1", label="Read", detail="src/app.py"),
             ThoughtSnapshot(title="Thought 1.2s", content="Checking the loader."),
+            ToolCallSnapshot("grep-1", label="Search", detail="loader", status="running"),
             ToolCallSnapshot("bash-1", label="Bash", detail="pytest -q", status="failed"),
         )
     )
@@ -388,9 +392,28 @@ def test_expanded_summary_rows_start_at_the_header_edge() -> None:
 
     header, *rows = summary.render().plain.split("\n")
     assert header.startswith("Explored")
-    assert rows == ["Read app.py", "Thought 1.2s", "Checking the loader.", "Bash pytest -q"]
-    assert all(row == row.lstrip() for row in rows)
-    assert all(not row.startswith(("└", "├", "│")) for row in rows)
+    # The guide sits at the header's left edge: "├" per row, "│" under a
+    # continued row, "└" on the last row; then status glyph, verb, args.
+    assert rows == [
+        "├ ● Read app.py",
+        "├ ● Thought 1.2s",
+        "│ Checking the loader.",
+        "├ ○ Search loader",
+        "└ ● Bash pytest -q",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "glyph", "component"),
+    [
+        ("done", "●", "tool-call-summary--glyph-done"),
+        ("failed", "●", "tool-call-summary--glyph-failed"),
+        ("running", "○", "tool-call-summary--glyph-running"),
+        ("preparing", "○", "tool-call-summary--glyph-running"),
+    ],
+)
+def test_nested_row_glyph_follows_call_status(status: str, glyph: str, component: str) -> None:
+    assert row_glyph(status) == (glyph, component)
 
 
 def test_patch_header_recovers_path_when_arguments_are_missing() -> None:
