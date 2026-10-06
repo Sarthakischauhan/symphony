@@ -20,6 +20,7 @@ from coding_agent.tui.tools.activity import (
 )
 from coding_agent.tui.tools.labels import header_target, tool_detail, tool_label
 from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
+from coding_agent.tui.transcript.thinking_markdown import thinking_plain_text
 
 
 @dataclass(frozen=True)
@@ -114,8 +115,8 @@ def verb_component(status: str) -> str:
 
 
 def detail_preview(content: str, limit: int) -> str:
-    """Collapse whitespace so a thought preview fits on one line."""
-    return clip_text(" ".join(content.split()), limit)
+    """A thought's markdown as one clipped line of plain text, markers stripped."""
+    return clip_text(thinking_plain_text(content), limit)
 
 
 def guide_glyphs(is_last: bool) -> tuple[str, str]:
@@ -244,7 +245,8 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         for index, entry in enumerate(self.entries):
             guide, continuation = guide_glyphs(index == last_index)
             if isinstance(entry, ThoughtSnapshot):
-                append_nested_row(text, styles, guide, "done", entry.title, "")
+                title = thinking_plain_text(entry.title)
+                append_nested_row(text, styles, guide, "done", title, "")
                 if entry.content:
                     append_continuation(text, styles, continuation, entry.content)
                 continue

@@ -272,6 +272,14 @@ Screen {
     color: #858585;
     opacity: 0.85;
 }
+
+/* Inline and fenced code inside thinking markdown: a step brighter than the
+   muted prose on the panel tone. Bold, italics, and headers add emphasis
+   only, so they keep the thinking colour above. */
+.reasoning-text > .reasoning-text--code {
+    color: $foreground-muted;
+    background: $panel;
+}
 '''
 tools = '''
 .tool-call {
