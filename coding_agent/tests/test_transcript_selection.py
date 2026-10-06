@@ -17,7 +17,7 @@ def test_rich_transcript_mouse_drag_highlights_and_extracts():
 
         def compose(self):
             with VerticalScroll():
-                yield AssistantMessage("Hello **world**\n\n```python\nprint('hello')\n```", enter=False)
+                yield AssistantMessage("Hello **world**\n\n```python\nprint('hello')\n```")
 
     async def run():
         app = SelectionApp()

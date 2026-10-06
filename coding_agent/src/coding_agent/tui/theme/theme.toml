@@ -6,6 +6,10 @@
 #
 # [css.variables] maps Textual `$name` declarations onto [colors] keys so
 # chrome CSS and Rich tokens stay on one palette.
+#
+# [css.spacing] holds the TUI spacing scale in terminal cells. Each key
+# becomes a Textual `$space-<key>` variable; chrome, tools, and composer CSS
+# use those variables instead of literal margin/padding numbers.
 
 [colors]
 background = "#0A0A0A"
@@ -40,11 +44,27 @@ accent = "accent"
 accent-plan = "accent_plan"
 muted = "muted"
 muted-dim = "muted_dim"
+foreground-muted = "subtext"
 string = "string"
 panel = "surface"
 panel-light = "overlay"
 panel-edge = "edge"
 panel-edge-focus = "panel_edge_focus"
+danger = "keyword"
+
+[css.spacing]
+# Left/right inset of the top bar, transcript, composer, and footer.
+page = 3
+# Indent of timeline text: the column after the `>` prompt glyph.
+gutter = 3
+# Blank rows between transcript blocks (messages, tools, thoughts).
+block = 1
+# Blank rows before a run summary card.
+section = 2
+# Inner padding of compact controls (composer, menus, labels).
+inset = 1
+# Inner padding of panels (composer overlay, run summary).
+inset-wide = 2
 
 [css]
 chrome = '''
@@ -57,7 +77,7 @@ Screen {
 #topbar {
     width: 100%;
     height: 2;
-    padding: 1 3 0 3;
+    padding: $space-block $space-page 0 $space-page;
     color: $muted-dim;
     background: $background;
 }
@@ -65,7 +85,7 @@ Screen {
 #transcript {
     width: 100%;
     height: 1fr;
-    padding: 0 3 1 3;
+    padding: 0 $space-page $space-block $space-page;
     /* Keep scrollbars out of the way until the user interacts with them. */
     scrollbar-size: 1 1;
     scrollbar-size-vertical: 1;
@@ -82,7 +102,7 @@ Screen {
     height: 1fr;
     min-height: 10;
     margin: 0;
-    padding: 0 2;
+    padding: 0 $space-inset-wide;
     color: $muted;
 }
 
@@ -90,32 +110,29 @@ Screen {
     width: 100%;
     height: auto;
     margin: 0;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
 }
 
-/* Textual spacing is measured in terminal cells rather than pixels. Add one
-   row only at conversation boundaries; spacing every nested timeline widget
-   makes Thought, tool, and status margins stack into large empty bands. */
+/* Textual spacing is measured in terminal cells rather than pixels. Blocks
+   use $space-block above and below; Textual collapses adjacent vertical
+   margins, so neighbouring blocks share one blank row instead of stacking. */
 .user-message {
-    margin: 1 0 0 0;
+    margin: $space-block 0 0 0;
     background: $background;
     /* The `>` occupies the shared 3-cell gutter; prompt text starts with tools. */
     padding: 0;
 }
 
 .run-summary {
-    margin: 2 0 0 1;
+    margin: $space-section 0 0 $space-inset;
     background: $background;
     border-left: solid #9b7bc3;
-    padding: 1 2;
+    padding: $space-inset $space-inset-wide;
     color: #c2b5cf;
 }
 
-/* RunProcess and RunSummary animate opacity on mount, using Textual's
-   event-loop animation driver rather than blocking streamed output. */
-
 .assistant-message {
-    margin: 1 0 1 0;
+    margin: $space-block 0;
     background: $background;
     color: $foreground;
 }
@@ -125,7 +142,7 @@ Screen {
     max-width: 72;
     height: 1;
     margin: 0;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: $muted;
 }
 
@@ -141,18 +158,18 @@ Screen {
     width: auto;
     height: 1;
     margin: 0;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: #5f6a62;
 }
 
+/* Live "Thinking…" and completed "Thought" blocks get the same block margin
+   as tool rows. */
 .reasoning-block {
     width: 100%;
     height: auto;
     min-width: 100%;
-    margin: 0;
+    margin: $space-block 0;
     padding: 0;
-    padding-bottom: 0;
-    padding-left: 0;
     color: #5b9bd5;
     background: $background;
     border: none;
@@ -175,7 +192,7 @@ Screen {
 .reasoning-header {
     width: auto;
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     background: transparent;
     pointer: pointer;
 }
@@ -196,7 +213,7 @@ Screen {
 .reasoning-label {
     width: auto;
     height: 1;
-    padding-right: 1;
+    padding-right: $space-inset;
     color: #5b9bd5;
     background: transparent;
 }
@@ -211,7 +228,6 @@ Screen {
 
 .reasoning-block.is-complete {
     opacity: 1;
-    margin-top: 1;
 }
 
 .reasoning-block.is-complete .reasoning-label,
@@ -247,7 +263,7 @@ Screen {
 .reasoning-text {
     width: 100%;
     height: auto;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: #6e6e6e;
 }
 
@@ -256,13 +272,21 @@ Screen {
     color: #858585;
     opacity: 0.85;
 }
+
+/* Inline and fenced code inside thinking markdown: a step brighter than the
+   muted prose on the panel tone. Bold, italics, and headers add emphasis
+   only, so they keep the thinking colour above. */
+.reasoning-text > .reasoning-text--code {
+    color: $foreground-muted;
+    background: $panel;
+}
 '''
 tools = '''
 .tool-call {
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 0 0 1 0;
+    margin: $space-block 0;
     padding: 0;
     padding-bottom: 0;
     padding-left: 0;
@@ -291,7 +315,7 @@ tools = '''
 .tool-call-header {
     width: auto;
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     background: transparent;
     pointer: pointer;
 }
@@ -343,7 +367,7 @@ tools = '''
 
 .tool-call > Contents {
     /* Align expanded output with the opening bracket in the tool header. */
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
 }
 
 .bash-tool {
@@ -356,7 +380,7 @@ tools = '''
 .bash-tool-header {
     width: auto;
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     background: transparent;
     pointer: pointer;
 }
@@ -393,10 +417,22 @@ tools = '''
     color: #d66b73;
 }
 
+/* A running Bash card's streamed output tail, under its header. Its height
+   is the fixed LIVE_OUTPUT_TAIL_LINES window set in tools/calls.py. */
+.bash-tool-tail {
+    width: 100%;
+    overflow: hidden;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    padding: 0 $space-inset 0 $space-gutter;
+    color: $muted;
+    background: transparent;
+}
+
 .bash-tool-body {
     width: 100%;
     height: auto;
-    padding: 0 1 0 3;
+    padding: 0 $space-inset 0 $space-gutter;
     color: #777777;
     background: $background;
 }
@@ -406,7 +442,6 @@ tools = '''
 }
 
 .diff-tool {
-    margin: 0;
     padding: 0;
     padding-bottom: 0;
     background: $background;
@@ -429,11 +464,10 @@ tools = '''
 .tool-call-summary {
     width: 1fr;
     height: auto;
-    margin: 1 0 0 0;
-    padding: 0 0 0 3;
+    margin: $space-block 0;
+    padding: 0 0 0 $space-gutter;
     color: #a2adb8;
     background: transparent;
-    opacity: 0.72;
     pointer: pointer;
     border: none;
 }
@@ -441,8 +475,38 @@ tools = '''
 .tool-call-summary:hover,
 .tool-call-summary:focus {
     background: transparent;
-    opacity: 1;
     text-style: bold;
+}
+
+/* Rows nested inside an expanded Explored or completed-run group start at
+   the group header's left edge and read smaller: one compact, dimmed line
+   each in muted theme colours. */
+/* Expanded group rows follow fx's grouped tool rows: a tree guide in the
+   row tone, then the verb (danger when the call failed) and the arguments. */
+.tool-call-summary > .tool-call-summary--guide {
+    color: $muted;
+}
+
+.tool-call-summary > .tool-call-summary--verb {
+    color: $foreground-muted;
+}
+
+.tool-call-summary > .tool-call-summary--args {
+    color: $muted;
+}
+
+.tool-call-summary > .tool-call-summary--verb-failed {
+    color: $danger;
+}
+
+/* A grouped call still running keeps the live card's warning tone. */
+.tool-call-summary > .tool-call-summary--verb-running {
+    color: $warning;
+}
+
+.tool-call-summary > .tool-call-summary--detail {
+    color: $muted;
+    text-style: italic;
 }
 '''
 composer = '''
@@ -450,8 +514,8 @@ composer = '''
     width: 100%;
     height: auto;
     min-height: 1;
-    margin: 1 0 0 0;
-    padding: 0 0 0 3;
+    margin: $space-block 0 0 0;
+    padding: 0 0 0 $space-gutter;
     color: $muted;
 }
 
@@ -461,8 +525,8 @@ composer = '''
     width: 1fr;
     height: auto;
     min-height: 2;
-    margin: 0 3;
-    padding: 0 1;
+    margin: 0 $space-page;
+    padding: 0 $space-inset;
     layout: vertical;
     background: $background;
     border: round $panel-edge;
@@ -485,7 +549,7 @@ composer = '''
     height: auto;
     min-height: 1;
     max-height: 10;
-    padding: 0 1;
+    padding: 0 $space-inset;
     border: none;
     background: $background;
     color: $foreground;
@@ -511,7 +575,7 @@ composer = '''
 #composer-mode {
     width: auto;
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0 0 0 $space-gutter;
     color: $accent;
     background: $background;
 }
@@ -545,7 +609,7 @@ composer = '''
     width: auto;
     height: 1fr;
     min-width: 9;
-    padding: 0 1;
+    padding: 0 $space-inset;
     border: none;
     background: $background;
     color: $accent;
@@ -560,8 +624,8 @@ composer = '''
     width: 1fr;
     height: auto;
     min-height: 4;
-    margin: 0 3 1 3;
-    padding: 1 2;
+    margin: 0 $space-page $space-block $space-page;
+    padding: $space-inset $space-inset-wide;
     background: $panel-light;
     border-left: thick $string;
     color: $foreground;
@@ -572,8 +636,8 @@ composer = '''
     width: 1fr;
     height: auto;
     max-height: 10;
-    margin: 0 3;
-    padding: 1 1 0 1;
+    margin: 0 $space-page;
+    padding: $space-inset $space-inset 0 $space-inset;
     background: $panel;
     border: round $panel-edge;
     overflow-y: auto;
@@ -610,7 +674,7 @@ composer = '''
 #status {
     width: 100%;
     height: 2;
-    padding: 1 3 0 3;
+    padding: $space-block $space-page 0 $space-page;
     background: $background;
     color: $muted-dim;
 }
@@ -620,15 +684,15 @@ composer = '''
     max-width: 100%;
     height: auto;
     max-height: 14;
-    margin: 0 0 1 0;
+    margin: 0 0 $space-block 0;
     offset-x: 0;
-    padding: 1 1 0 1;
+    padding: $space-inset $space-inset 0 $space-inset;
     border: round $panel-edge;
     background: $background;
 }
 
 #approval-menu.permission-menu > .option-list--option {
-    padding: 0 1;
+    padding: 0 $space-inset;
     background: $background;
 }
 
@@ -647,15 +711,15 @@ composer = '''
 #slash-menu.file-menu {
     width: 1fr;
     max-height: 12;
-    margin: 0 3 1 3;
-    padding: 1 1 0 1;
+    margin: 0 $space-page $space-block $space-page;
+    padding: $space-inset $space-inset 0 $space-inset;
     background: $panel;
     border: round $panel-edge;
 }
 
 #slash-menu.file-menu > .option-list--option,
 #slash-menu.file-menu > .option-list--option-disabled {
-    padding: 0 1;
+    padding: 0 $space-inset;
     background: $panel;
 }
 

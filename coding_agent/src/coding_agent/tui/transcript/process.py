@@ -8,6 +8,8 @@ import time
 from time import monotonic
 from typing import Any
 
+from rich.console import RenderableType
+from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -15,8 +17,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.motion import enter_row, reveal, settle_row
 from coding_agent.tui.transcript.messages import SelectableStatic
+from coding_agent.tui.transcript.thinking_markdown import render_thinking
 
 
 class ThinkingStatus(Static):
@@ -109,7 +111,6 @@ class ThinkingStatus(Static):
         self._churning = False
         self._working = False
         self._sync_animation_timer()
-        self.styles.opacity = 1.0
         self.update(Text(f"✻  {value}", style="#666666"))
 
     def set_churning(self, turn: int) -> None:
@@ -123,11 +124,8 @@ class ThinkingStatus(Static):
         self._render_churning()
 
     def _render_churning(self) -> None:
-        # Elapsed text only. Opacity pulses here fight transcript enter/settle
-        # and stack a new animation on every timer tick.
         elapsed = time.monotonic() - self._churning_started_at
         self.update(Text(f"{self._churning_verb} {elapsed:.1f}s", style="#858585"))
-        self.styles.opacity = 1.0
 
     def set_working(self, detail: str = "") -> None:
         """Show a moving color gradient while a model request is retrying."""
@@ -170,15 +168,13 @@ class RunProcess(Container):
         self._items: list[Widget] = [thinking]
         self._thinking = thinking
         self._completed = False
-        self.archiveable = True
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield from self._items
 
     def on_mount(self) -> None:
-        """Reveal the run and mount items queued during composition."""
-        reveal(self, duration=0.22)
+        """Mount items queued during composition."""
         pending = [item for item in self._items if item.parent is None]
         if pending:
             self.mount(*pending)
@@ -189,137 +185,30 @@ class RunProcess(Container):
             self.mount(widget)
 
     def place_thinking_last(self) -> None:
-        """Keep the live status below the work it is describing."""
-        if self._items and self._items[-1] is self._thinking:
+        """Keep the live status below the work it is describing, without remounting it."""
+        if not self._items or self._items[-1] is self._thinking:
             return
-        if not self._thinking.is_attached:
-            if self._thinking in self._items:
-                self._items.remove(self._thinking)
-            self._items.append(self._thinking)
-            return
-        try:
-            self._items.remove(self._thinking)
-        except ValueError:
-            return
+        self._items.remove(self._thinking)
+        previous = self._items[-1]
         self._items.append(self._thinking)
-        self._thinking.remove()
-        self.mount(self._thinking)
+        if self._thinking.is_attached and previous.is_attached:
+            self.move_child(self._thinking, after=previous)
 
     def timeline_items(self) -> list[Widget]:
         """Timeline order, including items not yet flushed to the DOM."""
         return list(self._items)
 
-    def replace_item(self, old: Widget, new: Widget) -> None:
-        """Swap a mounted or pending child without dropping surrounding timeline items."""
-
-        try:
-            index = self._items.index(old)
-        except ValueError:
-            return
-        self._items[index] = new
-        if old.is_attached:
-            self.mount(new, after=old)
-            old.remove()
-
-    def remove_item(self, widget: Widget) -> None:
-        if widget in self._items:
-            self._items.remove(widget)
-        if widget.is_attached:
-            widget.remove()
-
     @property
     def completed(self) -> bool:
         return self._completed
 
-    def complete(
-        self,
-        title: str,
-        *,
-        collapse: bool = True,
-        add_completion: bool = True,
-        verb: str = "",
-        duration: str = "",
-        detail: str = "",
-    ) -> None:
+    def complete(self, title: str) -> None:
+        """Freeze the finished run as it stands: hide the status, add the metrics row."""
         if self._completed:
             return
         self._completed = True
-        self.archiveable = collapse
         self._thinking.set_visible(False)
-        if collapse:
-            self.fold_into_summary(verb=verb, duration=duration, detail=detail)
-            # Keep the canonical metrics line visible as its own row. The
-            # folded timeline is a tool/thought disclosure and must not replace
-            # the process summary.
-            self.add_item(ProcessComplete(title))
-        elif add_completion:
-            self.add_item(ProcessComplete(title))
-
-    def fold_into_summary(
-        self, *, verb: str = "", duration: str = "", detail: str = ""
-    ) -> None:
-        """Replace remaining live timeline cards with a completed-run fold."""
-        from coding_agent.tui.tools.calls import ToolCallWidget
-        from coding_agent.tui.tools.snapshots import CompletedRunSummary
-        from coding_agent.tui.transcript.messages import AssistantMessage
-
-        summary = CompletedRunSummary(
-            verb=verb,
-            duration=duration,
-            detail=detail,
-        )
-        assistants: list[AssistantMessage] = []
-        for item in list(self.timeline_items()):
-            if item is self._thinking:
-                self.remove_item(item)
-                continue
-            if isinstance(item, AssistantMessage):
-                assistants.append(item)
-                continue
-            if isinstance(item, ReasoningWidget):
-                summary.add_thought(item.title, item.reasoning_text, layout=False)
-                self.remove_item(item)
-                continue
-            if isinstance(item, ToolCallWidget):
-                if getattr(item, "keep_in_transcript", False) or item.tool_name in {
-                    "generate_image",
-                    "spawn_agent",
-                }:
-                    continue
-                summary.add_call(item, layout=False)
-                self.remove_item(item)
-                continue
-            from coding_agent.tui.tools.snapshots import ThoughtSnapshot, ToolCallSummary
-
-            if isinstance(item, ToolCallSummary):
-                for entry in item.entries:
-                    if isinstance(entry, ThoughtSnapshot):
-                        summary.add_thought(entry.title, entry.content, layout=False)
-                    else:
-                        summary.add_call(entry, layout=False)
-                self.remove_item(item)
-        final_assistant = assistants[-1] if assistants else None
-        for assistant in assistants[:-1]:
-            self.remove_item(assistant)
-        if final_assistant is not None and final_assistant in self._items:
-            index = self._items.index(final_assistant)
-            self._items.insert(index, summary)
-            if final_assistant.is_attached:
-                self.mount(summary, before=final_assistant)
-            return
-        self.add_item(summary)
-
-    def tool_count(self) -> int:
-        from coding_agent.tui.tools.calls import ToolCallWidget
-        from coding_agent.tui.tools.snapshots import ToolCallSummary
-
-        count = 0
-        for item in self.timeline_items():
-            if isinstance(item, ToolCallWidget):
-                count += 1
-            elif isinstance(item, ToolCallSummary):
-                count += item.count
-        return count
+        self.add_item(ProcessComplete(title))
 
     def archive_text(self) -> str:
         from coding_agent.tui.tools.calls import ToolCallWidget
@@ -344,15 +233,12 @@ class RunProcess(Container):
 
 
 class ProcessComplete(Static):
-    """Compact completion row with a restrained reveal."""
+    """Compact completion row for a finished run."""
 
     def __init__(self, title: str) -> None:
         super().__init__(
             Text(f"✓  {title}", style="#858585"), classes="process-complete"
         )
-
-    def on_mount(self) -> None:
-        reveal(self, duration=0.16)
 
 
 class ReasoningHeader(Horizontal, can_focus=True):
@@ -371,13 +257,47 @@ class ReasoningHeader(Horizontal, can_focus=True):
             self.post_message(self.Toggle())
 
 
+REASONING_CODE = "reasoning-text--code"
+
+
+class ReasoningBody(SelectableStatic):
+    """Thinking text rendered as markdown in the muted thinking tone.
+
+    Each chunk swaps the source and re-renders this same widget; nothing is
+    remounted. While streaming, dangling markers are closed for display only.
+    The parsed renderable is kept until the source or theme changes, so
+    transcript relayouts measure it without parsing the markdown again.
+    """
+
+    COMPONENT_CLASSES = {REASONING_CODE}
+
+    def __init__(self) -> None:
+        self._source = ""
+        self._streaming = True
+        self._rendered: tuple[str, bool, Style, RenderableType] | None = None
+        super().__init__(classes="reasoning-text", markup=False)
+
+    def show_markdown(self, source: str, *, streaming: bool) -> None:
+        self._source = source
+        self._streaming = streaming
+        self._invalidate_render_cache(layout=True)
+
+    def render(self) -> RenderableType:
+        code_style = self.get_component_rich_style(REASONING_CODE, partial=True, default=Style())
+        key = (self._source, self._streaming, code_style)
+        if self._rendered is None or self._rendered[:3] != key:
+            renderable = render_thinking(self._source or " ", code_style=code_style, streaming=self._streaming)
+            self._rendered = (*key, renderable)
+        return self._rendered[3]
+
+
 class ReasoningWidget(Collapsible):
-    """A live tail-following thought that folds into the tool timeline."""
+    """A live thought whose inner scroll area is anchored to its newest text."""
 
     def __init__(self, content: str = "") -> None:
         self._summary_heading: str | None = None
         self._content_without_heading = content
-        self._body = SelectableStatic(classes="reasoning-text", markup=False)
+        self._body = ReasoningBody()
         self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
         self._label = Static("Thinking…", classes="reasoning-label", markup=False)
         self._status = Static("", classes="reasoning-status", markup=False)
@@ -426,11 +346,7 @@ class ReasoningWidget(Collapsible):
         self._summary_heading, self._content_without_heading = (
             self._extract_summary_heading(content)
         )
-        # Rich Markdown parsing is deferred until completion. During a stream,
-        # plain text is both cheaper and resilient to incomplete markup.
-        self._body.update(content or " ")
-        if self.is_mounted:
-            self._scroll.scroll_end(animate=False, force=True)
+        self._body.show_markdown(content, streaming=True)
 
     @staticmethod
     def _extract_summary_heading(content: str) -> tuple[str | None, str]:
@@ -449,8 +365,8 @@ class ReasoningWidget(Collapsible):
         return heading.strip(), content[match.end() :]
 
     def on_mount(self) -> None:
+        # Anchored, the inner area follows new text until the reader scrolls it.
         self._scroll.anchor()
-        enter_row(self, duration=0.14)
 
     @staticmethod
     def _format_duration(seconds: float) -> str:
@@ -469,12 +385,10 @@ class ReasoningWidget(Collapsible):
             self._scroll.scroll_home(animate=False, force=True)
         self._duration = max(0.0, monotonic() - self._started_at)
         completed_title = f"Thought {self._format_duration(self._duration)}"
-        body = self.reasoning_text.strip() or " "
-        self._body.update(body)
+        self._body.show_markdown(self.reasoning_text.strip(), streaming=False)
         # Keep completed reasoning expanded so the provider's streamed content
         # remains visible; the title still identifies the Thought row.
         self.collapsed = False
         self._set_visible_title(completed_title)
         self.remove_class("is-live")
         self.add_class("is-complete")
-        settle_row(self)
