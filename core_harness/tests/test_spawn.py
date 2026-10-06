@@ -139,8 +139,8 @@ def test_spawn_emits_parent_and_child_identity() -> None:
     assert "project intro" in result.output_text
 
 
-def test_spawn_depth_limit_returns_error_without_child_run() -> None:
-    registry = ScriptedRegistry([_text_turn("should not run")])
+def test_spawn_depth_does_not_stop_the_child() -> None:
+    registry = ScriptedRegistry([_text_turn("kept going")])
     plane = EventSink()
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
@@ -153,9 +153,8 @@ def test_spawn_depth_limit_returns_error_without_child_run() -> None:
         addons=[SubagentAddon()],
     )
     result = asyncio.run(harness.spawn("go deeper", label="too deep"))
-    assert result.output_text.startswith("error: spawn depth")
-    assert [event.event_type for event in plane.events] == ["agent_failed"]
-    assert registry.calls == []
+    assert result.output_text == "kept going"
+    assert registry.calls
 
 
 def test_direct_spawn_uses_shared_control_plane() -> None:
@@ -384,6 +383,36 @@ def test_make_spawn_tool_configure_merges_partial_override() -> None:
     assert any(event.event_type == "run_started" for event in child_plane.events)
 
 
+def test_spawn_drops_parent_stop_metrics() -> None:
+    registry = ScriptedRegistry([_text_turn("ok")])
+    harness = CoreHarness(
+        registry=registry,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="parent",
+        config=HarnessConfig(max_turns=4, max_tool_calls=2, max_runtime_seconds=5, max_tokens=100),
+        agent_id="parent-agent",
+        addons=[SubagentAddon()],
+    )
+    children: list[CoreHarness] = []
+    orig_init = CoreHarness.__init__
+
+    def spy(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        children.append(self)
+
+    CoreHarness.__init__ = spy  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(harness.spawn("go"))
+    finally:
+        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    child = children[-1]
+    assert result.output_text == "ok"
+    assert child.max_turns is None
+    assert child.limits.max_tool_calls is None
+    assert child.limits.max_runtime_seconds is None
+    assert child.limits.max_tokens is None
+
+
 def test_spawn_uses_requested_child_max_turns() -> None:
     registry = ScriptedRegistry([_text_turn("ok")])
     harness = CoreHarness(
@@ -413,13 +442,13 @@ def test_spawn_uses_requested_child_max_turns() -> None:
     assert turns == [3]
 
 
-def test_spawn_defaults_to_spawn_max_turns_not_parent_budget() -> None:
+def test_spawn_ignores_spawn_max_turns_unless_the_call_sets_one() -> None:
     registry = ScriptedRegistry([_text_turn("ok")])
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
-        config=HarnessConfig(max_turns=2, spawn_max_turns=8),
+        config=HarnessConfig(max_turns=2, spawn_max_turns=8, max_tool_calls=1),
         agent_id="parent-agent",
         addons=[SubagentAddon()],
     )
@@ -437,10 +466,11 @@ def test_spawn_defaults_to_spawn_max_turns_not_parent_budget() -> None:
         CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
     assert result.output_text == "ok"
     assert harness.max_turns == 2
-    assert turns == [8]
+    assert turns[-1] is None
+    assert harness.config.spawn_max_turns == 8
 
 
-def test_spawn_caps_child_max_turns() -> None:
+def test_spawn_call_max_turns_is_not_clamped() -> None:
     registry = ScriptedRegistry([_text_turn("ok")])
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
@@ -466,10 +496,10 @@ def test_spawn_caps_child_max_turns() -> None:
         CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
     assert result.output_text == "ok"
     assert harness.config.spawn_max_turns == 8
-    assert turns == [8]
+    assert turns == [10_000]
 
 
-def test_looping_child_stops_at_spawn_turn_cap() -> None:
+def test_looping_child_stops_only_when_the_call_sets_max_turns() -> None:
     registry = ScriptedRegistry(
         [_tool_turn("inspect_repo", '{"path":"README.md"}')]
     )
@@ -485,7 +515,7 @@ def test_looping_child_stops_at_spawn_turn_cap() -> None:
         addons=[SubagentAddon()],
     )
 
-    result = asyncio.run(harness.spawn("keep inspecting"))
+    result = asyncio.run(harness.spawn("keep inspecting", max_turns=8))
 
     assert "Harness exceeded max_turns=8" in result.output_text
     assert len(registry.calls) == 8
@@ -550,7 +580,7 @@ def test_spawn_honors_call_max_turns_when_no_cap() -> None:
     assert turns == [3]
 
 
-def test_spawn_clamps_call_max_turns_when_cap_set() -> None:
+def test_spawn_call_max_turns_beats_spawn_max_turns() -> None:
     registry = ScriptedRegistry([_text_turn("ok")])
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
@@ -575,7 +605,7 @@ def test_spawn_clamps_call_max_turns_when_cap_set() -> None:
     finally:
         CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
     assert result.output_text == "ok"
-    assert turns == [10]
+    assert turns == [99]
 
 
 def test_parallel_children_get_distinct_compaction_addons() -> None:

@@ -132,23 +132,22 @@ class SubagentAddon(Addon):
         """Construct the child ``CoreHarness``. Does not run it."""
         from core_harness.harness import CoreHarness
 
-        # Children get a fresh turn budget. Do not inherit the parent's remaining
-        # max_turns — a long parent run would otherwise starve every spawn.
-        # spawn_max_turns=None means no turn cliff (context compaction stops the run).
-        cap = parent.config.spawn_max_turns
-        if max_turns is not None:
-            child_turns: Optional[int] = max(1, int(max_turns))
-            if cap is not None:
-                child_turns = min(child_turns, cap)
-        elif cap is not None:
-            child_turns = cap
-        else:
-            child_turns = None
+        # Subagents are not on a turn, tool, runtime, or token budget. Compaction
+        # is the stop: the run ends when the context window cannot hold more.
+        # Only an explicit max_turns on this call caps it. spawn_max_turns does not.
+        child_turns = None if max_turns is None else max(1, int(max_turns))
         return CoreHarness(
             registry=parent.registry,
             model_id=model_id or parent.model_id,
             system_prompt=system_prompt or parent.config.subagent_system_prompt,
-            config=parent.config.model_copy(update={"max_turns": child_turns}),
+            config=parent.config.model_copy(
+                update={
+                    "max_turns": child_turns,
+                    "max_tool_calls": None,
+                    "max_runtime_seconds": None,
+                    "max_tokens": None,
+                }
+            ),
             reasoning_effort=parent.reasoning_effort,
             tools=self.child_tools(
                 parent, tools=tools, exclude_tools=exclude_tools
@@ -177,10 +176,6 @@ class SubagentAddon(Addon):
     ) -> HarnessResult:
         """Build and run a child. Parent harness owns identity and lifecycle events."""
         cfg = child_config or ChildConfig()
-        if background and sum(
-            record.status == "running" for record in parent.child_tasks.values()
-        ) >= parent.config.max_parallel_tool_calls:
-            return HarnessResult(output_text="error: child concurrency limit reached; wait for an active child", messages=[])
         model_id = model_id or cfg.model_id
         max_turns = max_turns if max_turns is not None else cfg.max_turns
         identity = await parent.begin_child(
@@ -270,9 +265,9 @@ class SubagentAddon(Addon):
                 "remaining children before finalizing your answer. No polling is needed. "
                 f"Background defaults to {default_background}. "
                 "Optionally set model_id and max_turns for that child. "
-                "Children get a fresh turn budget and do not inherit the parent's "
-                "remaining turns. When spawn_max_turns is set it caps the child; "
-                "when unset, children have no turn cliff (context limits apply). "
+                "Children are not capped by turns, tool calls, runtime, or tokens. "
+                "They run until the context window compacts them out, unless "
+                "max_turns is set on the call. "
                 "Children run without approval prompts and cannot spawn further "
                 "agents."
             ),
@@ -297,7 +292,7 @@ class SubagentAddon(Addon):
                     },
                     "max_turns": {
                         "type": "integer",
-                        "description": "Optional fresh turn cap for the child. When spawn_max_turns is set, the call is limited by it. Defaults to spawn_max_turns when set, otherwise no turn cliff (not the parent's remaining turns).",
+                        "description": "Optional turn cap. Omit it and the child runs until the context window stops it.",
                     },
                 },
                 "required": ["prompt"],
