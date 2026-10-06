@@ -421,6 +421,9 @@ tools = '''
    is the fixed LIVE_OUTPUT_TAIL_LINES window set in tools/calls.py. */
 .bash-tool-tail {
     width: 100%;
+    overflow: hidden;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
     padding: 0 $space-inset 0 $space-gutter;
     color: $muted;
     background: transparent;

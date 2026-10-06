@@ -372,8 +372,7 @@ class BashToolWidget(ToolCallWidget):
     def _refresh_tail(self) -> None:
         lines = self._live_tail()
         if lines:
-            text = Text("\n".join(lines), no_wrap=True, overflow="ellipsis")
-            self._tail.update(text, layout=False)
+            self._tail.update("\n".join(lines), layout=False)
         if bool(lines) != self._tail.display:
             self._tail.display = bool(lines)
 

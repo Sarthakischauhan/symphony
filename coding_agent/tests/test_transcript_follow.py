@@ -4,6 +4,7 @@ updates rows in place instead of remounting them."""
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 
 import pytest
@@ -287,6 +288,29 @@ def test_bash_card_identity_is_stable_across_output_and_status(
             assert card.status == "done"
             assert not tail.display
             assert "Bash pytest -q" in str(card.query_one(".bash-tool-label").render())
+
+    asyncio.run(_run())
+
+
+def test_long_bash_output_lines_are_clipped_to_one_row_each(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            _start_bash(app, "bash-1")
+            assert app._presenter is not None
+            lines = [f"line {index} " + "x" * 300 for index in range(LIVE_OUTPUT_TAIL_LINES)]
+            app._presenter.handle(
+                "tool_execution_output", {"tool_call_id": "bash-1", "delta": "\n".join(lines) + "\n"}
+            )
+            await pilot.pause()
+            screen = app.export_screenshot().replace("&#160;", " ")
+            # Each output line keeps one row, clipped with an ellipsis instead of wrapping.
+            shown = re.findall(r"line (\d) x+…", screen)
+            assert shown == [str(index) for index in range(LIVE_OUTPUT_TAIL_LINES)]
 
     asyncio.run(_run())
 
