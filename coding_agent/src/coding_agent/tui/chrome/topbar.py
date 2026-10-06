@@ -16,18 +16,37 @@ from rich.text import Text
 from textual import events
 from textual.widgets import Static
 
-from core_ai.providers.catalog import (
-    find_provider,
-    provider_api_key,
-    provider_auth_preference,
-    provider_has_oauth,
-)
 from coding_agent.personalities import project_root
 from coding_agent.tui.theme import SYMPHONY_COLORS
 
 CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3
 BRANCH_ICON = "⎇"
+
+# One-cell marks, not images. A real SVG or PNG needs a graphics protocol
+# (Kitty, iTerm, Sixel) and a widget taller than this one-line bar. These
+# colors are the published brand colors from Simple Icons (2026-10-06):
+# Claude #D97757, Gemini #8E75B2, Mistral #FA520F, DeepSeek #5786FE,
+# Qwen #6950EF, Hugging Face #FFD21E, Perplexity #1FB8CD.
+# OpenAI and xAI do not publish a Simple Icons slug, so they get a letter.
+PROVIDER_MARKS: dict[str, tuple[str, str]] = {
+    "anthropic": ("A", "#D97757"),
+    "claude": ("A", "#D97757"),
+    "openai": ("O", "#10A37F"),
+    "gemini": ("G", "#8E75B2"),
+    "google": ("G", "#8E75B2"),
+    "grok": ("X", "#EDEDED"),
+    "xai": ("X", "#EDEDED"),
+    "ollama": ("O", "#EDEDED"),
+    "openrouter": ("R", "#6467F2"),
+    "mistral": ("M", "#FA520F"),
+    "deepseek": ("D", "#5786FE"),
+    "qwen": ("Q", "#6950EF"),
+    "huggingface": ("H", "#FFD21E"),
+    "vercel": ("V", "#EDEDED"),
+    "perplexity": ("P", "#1FB8CD"),
+    "local": ("L", "#799e7c"),
+}
 
 
 def display_workspace_path(workspace: Path, home: Optional[Path] = None) -> str:
@@ -80,6 +99,15 @@ def short_model_name(model: str) -> str:
     """Drop the provider prefix so the pill reads like a Claude status line."""
     name = model.split(":", 1)[-1] if model else ""
     return name or model
+
+
+def provider_mark(model: str) -> tuple[str, str]:
+    """A one-cell lab mark and its brand color for a ``provider:model`` id."""
+    provider = model.split(":", 1)[0].lower() if model else ""
+    if provider in PROVIDER_MARKS:
+        return PROVIDER_MARKS[provider]
+    letter = provider[:1].upper() if provider else "•"
+    return (letter, SYMPHONY_COLORS["accent"])
 
 
 def _locate_git_dir(start: Path) -> Optional[Path]:
@@ -192,19 +220,6 @@ class TopBar(Static):
         self._workspace = workspace
         branch = read_git_branch(workspace)
         model = model or ""
-        if not auth and model:
-            provider = find_provider(model.split(":", 1)[0])
-            if provider is not None:
-                # Provider construction prefers an explicit API key over a
-                # stored subscription token, so report the credential actually
-                # selected by the runtime.
-                preference = provider_auth_preference(provider)
-                if preference == "oauth" and provider_has_oauth(provider):
-                    auth = "👤 signed in"
-                elif provider_api_key(provider):
-                    auth = "🔑 API key"
-                elif provider_has_oauth(provider):
-                    auth = "👤 signed in"
         if (
             branch == self._branch
             and model == self._model
@@ -238,15 +253,13 @@ class TopBar(Static):
                 else self._label
             )
         model = self._model
-        auth = self._auth
-        # Budget by terminal cells, not Python len(): emoji badges are one
-        # codepoint but two columns, and under-counting cramps/truncates the model.
+        # Budget by terminal cells, not Python len(): a wide glyph is one
+        # codepoint but two columns, and under-counting truncates the model.
         # Narrow terminals keep the provider prefix so the model stays identifiable.
         if width >= 48:
             model = short_model_name(model)
-        right_plain = (
-            f"{auth}{AUTH_MODEL_GAP}{model}" if auth else model
-        )
+        mark, _mark_color = provider_mark(self._model) if model else ("", "")
+        right_plain = f"{mark} {model}" if mark else model
         model_width = min(cell_len(right_plain), max(width // 2, 1))
         row = Table.grid(expand=True, padding=0)
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
@@ -263,10 +276,10 @@ class TopBar(Static):
             if self._dirty:
                 left.append(" *", style=f"bold {SYMPHONY_COLORS['number']}")
         right = Text(no_wrap=True, overflow="ellipsis")
-        if auth:
-            right.append(auth, style=SYMPHONY_COLORS["subtext"])
-            right.append(AUTH_MODEL_GAP)
         if model:
+            mark, mark_color = provider_mark(self._model)
+            right.append(mark, style=f"bold {mark_color}")
+            right.append(" ")
             right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
         row.add_row(left, right)
         return row

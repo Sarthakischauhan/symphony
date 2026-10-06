@@ -525,7 +525,7 @@ def test_topbar_rebudgets_columns_after_terminal_resize(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_topbar_spaces_auth_badge_from_model_using_cell_width(
+def test_topbar_shows_lab_mark_instead_of_auth_emoji(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".git").mkdir()
@@ -542,8 +542,10 @@ def test_topbar_spaces_auth_badge_from_model_using_cell_width(
                 auth="👤 signed in",
             )
             rendered = _render_plain(topbar.content, width=80).rstrip("\n")
-            assert "👤 signed in" in rendered
-            assert "grok-4-fast" in rendered
+            assert "👤" not in rendered
+            assert "signed in" not in rendered
+            assert "🔑" not in rendered
+            assert rendered.rstrip().endswith("X grok-4-fast")
             assert "grok:" not in rendered
 
     asyncio.run(_run())
