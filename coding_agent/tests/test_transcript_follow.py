@@ -11,6 +11,7 @@ from textual.pilot import Pilot
 from textual.widget import Widget
 
 from coding_agent.tui.app import CodingAgentApp
+from coding_agent.tui.composer import QueuedTurn
 from coding_agent.tui.tools import CompletedRunSummary, GenerateImageWidget, ToolCallSummary
 from coding_agent.tui.transcript import AssistantMessage, TranscriptScroll, UserMessage
 
@@ -191,5 +192,34 @@ def test_running_to_done_changes_text_without_remounting(
             assert group.calls[0].status == "done"
             assert card.status == "done"
             assert group.render().plain == running_text
+
+    asyncio.run(_run())
+
+
+def test_a_new_turn_starts_fresh_tool_groups(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app(monkeypatch, tmp_path)
+    monkeypatch.setattr(app, "run_agent", lambda content: None)
+
+    async def _run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            app._start_turn(QueuedTurn("first", "first", (), ()))
+            _read(app, "call-0")
+            app.finish_process("done")
+            await pilot.pause()
+            first = app.query_one(ToolCallSummary)
+
+            # Providers may reuse call ids across runs; the new turn gets its own row.
+            app._start_turn(QueuedTurn("second", "second", (), ()))
+            _read(app, "call-0", status="running")
+            await pilot.pause()
+            groups = list(app.query(ToolCallSummary))
+            assert groups[0] is first
+            assert [call.status for call in first.calls] == ["done"]
+            assert len(groups) == 2
+            assert groups[1].parent is app._process
+            assert [call.status for call in groups[1].calls] == ["running"]
 
     asyncio.run(_run())
