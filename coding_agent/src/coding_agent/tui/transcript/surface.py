@@ -209,6 +209,8 @@ class TranscriptSurface:
     ) -> None:
         tool = self._tools.get(call_id)
         if tool is None:
+            if call_id in self._tool_groups:
+                return  # a finished group row is final; its model is released
             tool = self._new_tool(call_id, tool_name)
         if status == "running":
             tool.set_running(arguments)
@@ -222,6 +224,11 @@ class TranscriptSurface:
         else:
             tool.set_arguments(arguments, raw_arguments)
         self._show_tool(tool)
+        if not tool.keep_in_transcript and status in {"done", "failed"}:
+            # The group row holds the finished call's snapshot. Dropping the
+            # unmounted model keeps a session from retaining a widget tree
+            # per finished call (and the GC work that comes with it).
+            del self._tools[call_id]
 
     def append_tool_output(self, call_id: str, chunk: str) -> None:
         """Feed a streamed output chunk to its Bash card, in place."""
