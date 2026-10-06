@@ -88,9 +88,7 @@ NESTED_GUIDE = "tool-call-summary--guide"
 NESTED_VERB = "tool-call-summary--verb"
 NESTED_ARGS = "tool-call-summary--args"
 NESTED_DETAIL = "tool-call-summary--detail"
-GLYPH_DONE = "tool-call-summary--glyph-done"
-GLYPH_RUNNING = "tool-call-summary--glyph-running"
-GLYPH_FAILED = "tool-call-summary--glyph-failed"
+NESTED_VERB_FAILED = "tool-call-summary--verb-failed"
 # fx (vercel-labs/fx) draws a tree guide in front of grouped tool rows:
 # "├" for every row but the last, "└" for the last, and "│" under a
 # non-final row when it continues onto a second line.
@@ -98,15 +96,6 @@ GUIDE_BRANCH = "├"
 GUIDE_LAST = "└"
 GUIDE_CONTINUE = "│"
 GUIDE_END = " "
-# fx marks completed and failed calls with "●" and colours failures red;
-# calls that have not finished keep the hollow marker the live rows use.
-FINISHED_GLYPH = "●"
-PENDING_GLYPH = "○"
-ROW_GLYPHS: Mapping[str, tuple[str, str]] = {
-    "done": (FINISHED_GLYPH, GLYPH_DONE),
-    "failed": (FINISHED_GLYPH, GLYPH_FAILED),
-}
-PENDING_ROW_GLYPH = (PENDING_GLYPH, GLYPH_RUNNING)
 # Used before the widget is mounted (no stylesheet yet); TCSS supplies the
 # themed colours once it is.
 UNMOUNTED_NESTED_STYLE = Style()
@@ -114,9 +103,9 @@ UNMOUNTED_NESTED_STYLE = Style()
 NESTED_WEIGHT = Style(bold=False)
 
 
-def row_glyph(status: str) -> tuple[str, str]:
-    """Return the status glyph and its component class for one nested row."""
-    return ROW_GLYPHS.get(status, PENDING_ROW_GLYPH)
+def verb_component(status: str) -> str:
+    """Return the verb's component class: failed calls show their verb in danger."""
+    return NESTED_VERB_FAILED if status == "failed" else NESTED_VERB
 
 
 def detail_preview(content: str, limit: int) -> str:
@@ -134,14 +123,11 @@ def guide_glyphs(is_last: bool) -> tuple[str, str]:
 def append_nested_row(
     text: Text, styles: Mapping[str, Style], guide: str, status: str, verb: str, args: str
 ) -> None:
-    """Append one row: guide, status glyph, verb, then arguments."""
-    glyph, glyph_component = row_glyph(status)
+    """Append one row: guide, verb (coloured by status), then arguments."""
     text.append("\n")
     text.append(guide, style=styles[NESTED_GUIDE])
     text.append(" ")
-    text.append(glyph, style=styles[glyph_component])
-    text.append(" ")
-    text.append(verb, style=styles[NESTED_VERB])
+    text.append(verb, style=styles[verb_component(status)])
     if args:
         text.append(f" {args}", style=styles[NESTED_ARGS])
 
@@ -157,7 +143,7 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
     """A compact disclosure containing non-interactive tool snapshots.
 
     Expanded rows start at the header's left edge behind an fx-style tree
-    guide, one line each: guide, status glyph, verb, then arguments. The
+    guide, one line each: guide, verb, then arguments. The
     ``tool-call-summary--*`` component classes in theme.toml colour each part.
     """
 
@@ -166,9 +152,7 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         NESTED_VERB,
         NESTED_ARGS,
         NESTED_DETAIL,
-        GLYPH_DONE,
-        GLYPH_RUNNING,
-        GLYPH_FAILED,
+        NESTED_VERB_FAILED,
     }
 
     def __init__(

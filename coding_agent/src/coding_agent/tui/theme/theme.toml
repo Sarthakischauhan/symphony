@@ -467,7 +467,7 @@ tools = '''
    the group header's left edge and read smaller: one compact, dimmed line
    each in muted theme colours. */
 /* Expanded group rows follow fx's grouped tool rows: a tree guide in the
-   row tone, then a status glyph, the verb, and the arguments. */
+   row tone, then the verb (danger when the call failed) and the arguments. */
 .tool-call-summary > .tool-call-summary--guide {
     color: $muted;
 }
@@ -480,15 +480,7 @@ tools = '''
     color: $muted;
 }
 
-.tool-call-summary > .tool-call-summary--glyph-done {
-    color: $foreground-muted;
-}
-
-.tool-call-summary > .tool-call-summary--glyph-running {
-    color: $accent;
-}
-
-.tool-call-summary > .tool-call-summary--glyph-failed {
+.tool-call-summary > .tool-call-summary--verb-failed {
     color: $danger;
 }
 

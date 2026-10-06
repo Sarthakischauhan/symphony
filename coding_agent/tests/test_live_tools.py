@@ -19,7 +19,7 @@ from coding_agent.tui.tools.snapshots import (
     ThoughtSnapshot,
     ToolCallSnapshot,
     ToolCallSummary,
-    row_glyph,
+    verb_component,
     snapshot_from_call,
 )
 from coding_agent.tui.transcript.live_tools import (
@@ -393,27 +393,27 @@ def test_expanded_summary_rows_hang_off_an_fx_tree_guide() -> None:
     header, *rows = summary.render().plain.split("\n")
     assert header.startswith("Explored")
     # The guide sits at the header's left edge: "├" per row, "│" under a
-    # continued row, "└" on the last row; then status glyph, verb, args.
+    # continued row, "└" on the last row; then verb and args, no status dot.
     assert rows == [
-        "├ ● Read app.py",
-        "├ ● Thought 1.2s",
+        "├ Read app.py",
+        "├ Thought 1.2s",
         "│ Checking the loader.",
-        "├ ○ Search loader",
-        "└ ● Bash pytest -q",
+        "├ Search loader",
+        "└ Bash pytest -q",
     ]
 
 
 @pytest.mark.parametrize(
-    ("status", "glyph", "component"),
+    ("status", "component"),
     [
-        ("done", "●", "tool-call-summary--glyph-done"),
-        ("failed", "●", "tool-call-summary--glyph-failed"),
-        ("running", "○", "tool-call-summary--glyph-running"),
-        ("preparing", "○", "tool-call-summary--glyph-running"),
+        ("done", "tool-call-summary--verb"),
+        ("failed", "tool-call-summary--verb-failed"),
+        ("running", "tool-call-summary--verb"),
+        ("preparing", "tool-call-summary--verb"),
     ],
 )
-def test_nested_row_glyph_follows_call_status(status: str, glyph: str, component: str) -> None:
-    assert row_glyph(status) == (glyph, component)
+def test_nested_row_verb_colour_follows_call_status(status: str, component: str) -> None:
+    assert verb_component(status) == component
 
 
 def test_patch_header_recovers_path_when_arguments_are_missing() -> None:

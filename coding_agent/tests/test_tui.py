@@ -1428,7 +1428,7 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
     assert rendered.startswith("Percolated for 12s")
     assert "Read history.py" in rendered
     assert "Update labels.py" in rendered
-    assert rendered.split("\n")[1:] == ["├ ● Read history.py", "└ ● Update labels.py"]
+    assert rendered.split("\n")[1:] == ["├ Read history.py", "└ Update labels.py"]
 
 
 def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
@@ -3883,7 +3883,7 @@ def _hex(style: Style) -> str:
     return style.color.triplet.hex.upper()
 
 
-def test_expanded_explored_rows_split_guide_glyph_verb_and_args(
+def test_expanded_explored_rows_split_guide_verb_and_args(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -3913,7 +3913,8 @@ def test_expanded_explored_rows_split_guide_glyph_verb_and_args(
             rendered = summary.render()
             header, *rows = rendered.plain.split("\n")
             assert header.startswith("Explored · 2 tools")
-            assert rows == ["├ ● Read f0.py", "└ ● Read f1.py"]
+            assert rows == ["├ Read f0.py", "└ Read f1.py"]
+            assert "●" not in rendered.plain and "○" not in rendered.plain
 
             after = len(header)
             muted = SYMPHONY_COLORS["muted"].upper()
@@ -3922,17 +3923,15 @@ def test_expanded_explored_rows_split_guide_glyph_verb_and_args(
             guide = _span_colour(rendered, "├", after)
             verb = _span_colour(rendered, "Read", after)
             args = _span_colour(rendered, " f0.py", after)
-            done_glyph = _span_colour(rendered, "●", after)
-            failed_glyph = _span_colour(rendered, "●", rendered.plain.index("└"))
-            # Guide and args share the muted row tone; the verb and the done
-            # glyph sit one step brighter; a failed call's glyph is danger.
+            failed_verb = _span_colour(rendered, "Read", rendered.plain.index("└"))
+            # Guide and args share the muted row tone; a passed call's verb
+            # sits one step brighter; a failed call's verb is danger.
             assert _hex(guide) == muted
             assert _hex(args) == muted
             assert _hex(verb) == foreground_muted
-            assert _hex(done_glyph) == foreground_muted
-            assert _hex(failed_glyph) == danger
+            assert _hex(failed_verb) == danger
             # Brighter than before: not dim, and never bold under the bold header.
-            for style in (guide, verb, args, done_glyph, failed_glyph):
+            for style in (guide, verb, args, failed_verb):
                 assert not style.dim
                 assert style.bold is False
 
