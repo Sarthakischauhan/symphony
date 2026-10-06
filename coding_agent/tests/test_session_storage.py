@@ -10,7 +10,7 @@ from core_ai.types import Message
 from core_harness import Checkpoint
 from core_harness.context import COMPACTED_CONTEXT_MARK
 
-from coding_agent.persistence import JsonlPersistence
+from coding_agent.addons.persistence import JsonlPersistence
 
 
 def test_directory_layout_compactions_checkpoint_and_stable_replay(tmp_path: Path) -> None:
@@ -255,7 +255,7 @@ def test_session_id_with_jsonl_suffix_lists(tmp_path: Path) -> None:
 
 
 def test_images_reject_unattached_paths_mismatch_and_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import coding_agent.persistence.images as images
+    import coding_agent.addons.persistence.images as images
 
     monkeypatch.setattr(images, "MAX_IMAGE_BYTES", 16)
     secret = tmp_path / "secret.png"

@@ -1575,19 +1575,14 @@ def test_text_then_tools_then_text_keeps_stream_order(
                 for item in app._process.timeline_items()
                 if type(item).__name__ not in {"ThinkingStatus", "ProcessComplete"}
             ]
-            # The finished run is frozen as it streamed.
-            assert kinds == [
-                "AssistantMessage",
-                "ToolCallSummary",
-                "AssistantMessage",
-            ]
+            # Only the final reply stays outside the completed work collection.
+            assert kinds == ["CompletedRunSummary", "AssistantMessage"]
             messages = [
                 item
                 for item in app._process.timeline_items()
                 if isinstance(item, AssistantMessage)
             ]
             assert [message.message_text for message in messages] == [
-                "I'll inspect the transcript next.",
                 "The header was mounting twice.",
             ]
             assert all("SYMPHONY" not in message.archive_text() for message in messages)
@@ -1859,6 +1854,22 @@ def test_tui_maps_stream_usage_and_read_file_events(
                 },
             )
             app._presenter.handle(
+                "tool_execution_started",
+                {
+                    "tool_call_id": "bash-1",
+                    "tool_name": "bash",
+                    "arguments": {"command": "pytest -q"},
+                },
+            )
+            app._presenter.handle(
+                "tool_execution_completed",
+                {
+                    "tool_call_id": "bash-1",
+                    "tool_name": "bash",
+                    "result": "clean",
+                },
+            )
+            app._presenter.handle(
                 "usage",
                 {
                     "turn": 0,
@@ -1900,24 +1911,27 @@ def test_tui_maps_stream_usage_and_read_file_events(
                 },
             )
             await pilot.pause()
-            # Run end freezes the turn: the thought and the group stay put.
-            assert list(app.query(ReasoningWidget)) == thoughts
-            assert app.query_one(ToolCallSummary) is group
+            # Completed thoughts and tools are collected, with their content retained.
+            assert not list(app.query(ReasoningWidget))
+            summary = app.query_one(CompletedRunSummary)
+            assert summary.call_ids == ["read-1", "bash-1"]
+            assert not list(app.query(BashToolWidget))
             process = app.query_one(RunProcess)
             completions = list(process.query(".process-complete"))
             assert len(completions) == 1
             rendered_complete = str(completions[0].render())
             assert "(↑120 ↓30)" in rendered_complete
             assert "1 model call" in rendered_complete
-            assert "1 tool call" in rendered_complete
-            assert not list(process.query(CompletedRunSummary))
-            assert "Inspecting the requested file" in thoughts[0].reasoning_text
-            assert "Choosing an implementation" in thoughts[0].reasoning_text
-            assert not group.is_expanded
-            await pilot.click(group)
+            assert "2 tool calls" in rendered_complete
+            assert list(process.query(CompletedRunSummary)) == [summary]
+            assert not summary.is_expanded
+            await pilot.click(summary)
             await pilot.pause()
-            assert group.is_expanded
-            assert "Read app.py" in group.render().plain
+            assert summary.is_expanded
+            assert "Read app.py" in summary.render().plain
+            thought = summary.entries[0]
+            assert "Inspecting the requested file" in thought.content
+            assert "Choosing an implementation" in thought.content
 
     asyncio.run(_run())
 
@@ -2693,7 +2707,7 @@ def test_approval_enter_submits_highlighted_always_allow(
             await pilot.pause()
             assert app.sink.approvals.mode == "ask"
 
-            from coding_agent.addon.approvals import ApprovalAddon
+            from coding_agent.addons.approvals import ApprovalAddon
 
             addon = ApprovalAddon(tmp_path, app.sink)
             approval = asyncio.create_task(
@@ -3754,8 +3768,9 @@ def test_explored_rows_track_running_calls_in_place(
     asyncio.run(_run())
 
 
-def test_final_output_keeps_the_run_as_it_streamed(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("flush_before_completion", [False, True])
+def test_final_output_collects_work_and_keeps_answer_and_metrics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, flush_before_completion: bool
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
@@ -3769,23 +3784,58 @@ def test_final_output_keeps_the_run_as_it_streamed(
                 app.update_tool(str(index), status="done", result="content")
             app.set_assistant("Finished the requested changes.")
             app.finish_assistant()
-            await pilot.pause()
-            group = app.query_one(ToolCallSummary)
+            if flush_before_completion:
+                await pilot.pause()
+            group = next(item for item in app._process.timeline_items() if isinstance(item, ToolCallSummary))
             metrics = "3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls"
+            app.finish_process(metrics, verb="Worked", duration="3m 12s")
             app.finish_process(metrics)
+
             await pilot.pause()
 
-            assert not list(app.query(CompletedRunSummary))
-            assert len(list(app.query(ReasoningWidget))) == 1
-            assert list(app.query(ToolCallSummary)) == [group]
-            assert group.count == 12
-            assert not group.is_expanded
+            summary = app.query_one(CompletedRunSummary)
+            assert not list(app.query(ReasoningWidget))
+            assert list(app.query(ToolCallSummary)) == [summary]
+            assert summary.count == 12
+            assert summary.render().plain == "Worked for 3m 12s"
+            assert not summary.is_expanded
+            assert summary.entries[0].content == "## Inspecting files\n\nReasoning body stays visible"
+            assert group not in app._process.timeline_items()
+            await pilot.click(summary)
+            await pilot.pause()
+            assert summary.is_expanded
             completions = list(app.query(".process-complete"))
             assert len(completions) == 1
             assert metrics in str(completions[0].render())
             assert app._assistant is not None
             assert "Finished the requested changes." in app._assistant.message_text
             assert "SYMPHONY" not in str(app._assistant.render())
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize("event_type", ["run_failed", "run_cancelled", "run_limit_exceeded"])
+def test_unsuccessful_run_keeps_work_visible(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, event_type: str
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            app._presenter.handle("run_started", {})
+            app.set_reasoning("Work before interruption")
+            app.finish_reasoning()
+            app.add_tool("read", "read_file")
+            app.update_tool("read", status="done", result="content")
+            await pilot.pause()
+            group = app.query_one(ToolCallSummary)
+            app._presenter.handle(event_type, {"message": "interrupted"})
+            await pilot.pause()
+            assert not list(app.query(CompletedRunSummary))
+            assert app.query_one(ToolCallSummary) is group
+            assert app.query_one(ReasoningWidget).reasoning_text == "Work before interruption"
+            assert len(list(app.query(".process-complete"))) == 1
 
     asyncio.run(_run())
 

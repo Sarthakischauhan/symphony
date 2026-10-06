@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from coding_agent.addon.approvals import (
+from coding_agent.addons.approvals import (
     ALLOW_ALWAYS,
     ALLOW_ONCE,
     DENY,

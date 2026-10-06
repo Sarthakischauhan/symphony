@@ -129,7 +129,7 @@ def test_scrolled_up_reader_stays_put_while_rows_append_and_groups_fold(
     asyncio.run(_run())
 
 
-def test_run_end_keeps_intermediate_text_and_user_expanded_groups(
+def test_run_end_collects_groups_and_keeps_final_text(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     app = _app(monkeypatch, tmp_path)
@@ -153,22 +153,19 @@ def test_run_end_keeps_intermediate_text_and_user_expanded_groups(
             app.set_assistant("Anchored the transcript instead.", new=True)
             app.finish_assistant()
             await pilot.pause()
-            before = _timeline(app)
-
             app.finish_process("12s · 3 model calls · 5 tool calls")
             await pilot.pause()
 
-            after = _timeline(app)
-            assert after[: len(before)] == before
-            assert not list(app.query(CompletedRunSummary))
+            summary = app.query_one(CompletedRunSummary)
             assert [message.message_text for message in app.query(AssistantMessage)] == [
-                "Found the follow logic.",
                 "Anchored the transcript instead.",
             ]
-            first, second = app.query(ToolCallSummary)
-            assert first is opened
-            assert first.is_expanded
-            assert not second.is_expanded
+            assert list(app.query(ToolCallSummary)) == [summary]
+            assert summary.call_ids == ["a-0", "a-1", "a-2", "b-0", "b-1"]
+            assert not summary.is_expanded
+            await pilot.click(summary)
+            await pilot.pause()
+            assert summary.is_expanded
 
     asyncio.run(_run())
 
@@ -289,6 +286,12 @@ def test_bash_card_identity_is_stable_across_output_and_status(
             assert not tail.display
             assert "Bash pytest -q" in str(card.query_one(".bash-tool-label").render())
 
+            app._presenter.handle("run_completed", {"output_text": "20 tests passed."})
+            await pilot.pause()
+            assert not list(app.query(BashToolWidget))
+            summary = app.query_one(CompletedRunSummary)
+            assert summary.call_ids == ["bash-1"]
+
     asyncio.run(_run())
 
 
@@ -375,6 +378,11 @@ def test_patch_diff_card_updates_in_place(
             assert card.query_one(".tool-call-label", Static) is label
             assert card.status == "done"
             assert not card.collapsed
+
+            handle("run_completed", {"output_text": "Updated the file."})
+            await pilot.pause()
+            assert not list(app.query(PatchDiffWidget))
+            assert app.query_one(CompletedRunSummary).call_ids == ["patch-1"]
 
     asyncio.run(_run())
 

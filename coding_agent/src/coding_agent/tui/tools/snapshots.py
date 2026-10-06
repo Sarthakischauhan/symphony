@@ -18,7 +18,7 @@ from coding_agent.tui.tools.activity import (
     parse_activity,
     same_activity_group,
 )
-from coding_agent.tui.tools.labels import header_target, tool_detail, tool_label
+from coding_agent.tui.tools.labels import header_target, patch_path, tool_detail, tool_label
 from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
 from coding_agent.tui.transcript.thinking_markdown import thinking_plain_text
 
@@ -70,11 +70,14 @@ def snapshot_from_call(
     display_arguments = dict(arguments or {})
     nested_activity = display_arguments.pop("activity", None)
     parsed = parse_activity(activity if isinstance(activity, Mapping) else nested_activity)
+    detail = tool_detail(tool_name, display_arguments, raw_arguments)
+    if tool_name == "patch" and not detail:
+        detail = patch_path(display_arguments, raw_arguments, result)
     return ToolCallSnapshot(
         call_id=call_id,
         tool_name=tool_name,
         label=label,
-        detail=clip_text(tool_detail(tool_name, display_arguments, raw_arguments), 300),
+        detail=clip_text(detail, 300),
         status=status,
         result=clip_text(result, 260) if result else "",
         activity_verb=parsed.verb,

@@ -207,10 +207,10 @@ silently migrated. Deletion is an explicit user action, never an install hook.
 
 | File | Responsibility |
 | --- | --- |
-| [`addon/learning.py`](../../coding_agent/src/coding_agent/addon/learning.py) | Pre-turn injection and capture lifecycle hooks |
-| [`learning/loop.py`](../../coding_agent/src/coding_agent/learning/loop.py) | Durable enqueue, background extraction, validation and retry |
-| [`learning/prompts.py`](../../coding_agent/src/coding_agent/learning/prompts.py) | Evidence-only extraction prompt |
-| [`learning/store.py`](../../coding_agent/src/coding_agent/learning/store.py) | Jobs, observations, topics, consolidation, search and scoped presentation |
+| [`addons/learning/addon.py`](../../coding_agent/src/coding_agent/addons/learning/addon.py) | Pre-turn injection and capture lifecycle hooks |
+| [`addons/learning/loop.py`](../../coding_agent/src/coding_agent/addons/learning/loop.py) | Durable enqueue, background extraction, validation and retry |
+| [`addons/learning/prompts.py`](../../coding_agent/src/coding_agent/addons/learning/prompts.py) | Evidence-only extraction prompt |
+| [`addons/learning/store.py`](../../coding_agent/src/coding_agent/addons/learning/store.py) | Jobs, observations, topics, consolidation, search and scoped presentation |
 | [`tui/screens/learning.py`](../../coding_agent/src/coding_agent/tui/screens/learning.py) | Session/Global memory tabs |
 
 **Boundary to remember:** capture evidence is not curated memory; curated memory

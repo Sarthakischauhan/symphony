@@ -15,7 +15,7 @@ from core_harness.models import UsageTotals
 from coding_agent import CodingAgent
 from coding_agent.agent import default_addons
 from coding_agent.config import CodingAgentConfig, LearningConfig
-from coding_agent.learning import (
+from coding_agent.addons.learning import (
     MEMORY_CONTEXT_PREFIX,
     LearningAddon,
     LearningLoop,
@@ -23,7 +23,7 @@ from coding_agent.learning import (
     strip_memory_context,
     two_line_summary,
 )
-from coding_agent.addon.learning import LEARNING_IDLE_DELAY_SECONDS
+from coding_agent.addons.learning.addon import LEARNING_IDLE_DELAY_SECONDS
 
 
 def _result() -> HarnessResult:
@@ -203,7 +203,7 @@ def test_after_run_hook_emits_summary_on_the_control_plane(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "coding_agent.addon.learning.LEARNING_IDLE_DELAY_SECONDS",
+        "coding_agent.addons.learning.addon.LEARNING_IDLE_DELAY_SECONDS",
         0.0,
     )
 
@@ -440,7 +440,7 @@ def test_learning_store_renders_markdown(tmp_path: Path) -> None:
     store = LearningStore(tmp_path)
     assert "No lessons stored yet" in store.to_markdown()
 
-    from coding_agent.learning import Lesson
+    from coding_agent.addons.learning import Lesson
 
     store.append(
         Lesson(
@@ -515,7 +515,7 @@ def test_remove_operation_allows_match_without_text(tmp_path: Path) -> None:
 def test_learning_does_not_import_loop_internals() -> None:
     import ast
 
-    import coding_agent.learning as learning_pkg
+    import coding_agent.addons.learning as learning_pkg
 
     banned = {"core_harness.loop", "core_harness.turn_runner"}
     root = Path(learning_pkg.__file__).resolve().parent
@@ -536,7 +536,7 @@ def test_learning_does_not_import_loop_internals() -> None:
 
 def test_default_addons_register_learning_when_loop_provided(tmp_path: Path) -> None:
     from core_harness import HarnessConfig
-    from coding_agent.persistence import JsonlPersistence
+    from coding_agent.addons.persistence import JsonlPersistence
 
     store = LearningStore(tmp_path)
     loop = LearningLoop(store, registry=ReviewRegistry(), model_id="test:model")
@@ -554,7 +554,7 @@ def test_default_addons_register_learning_when_loop_provided(tmp_path: Path) -> 
 
 def test_default_addons_omit_learning_unless_loop_passed(tmp_path: Path) -> None:
     from core_harness import HarnessConfig
-    from coding_agent.persistence import JsonlPersistence
+    from coding_agent.addons.persistence import JsonlPersistence
 
     addons = default_addons(
         persistence=JsonlPersistence(tmp_path / "sessions"),

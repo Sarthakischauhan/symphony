@@ -22,7 +22,7 @@ from coding_agent.config import (
     LearningConfig,
     ensure_spawn_settings,
 )
-from coding_agent.evaluation import (
+from coding_agent.addons.evaluation import (
     CONTINUE_NORMALLY,
     FINISH_QUESTIONS,
     JEV_SYSTEM_SEGMENT,
@@ -41,9 +41,9 @@ from coding_agent.evaluation import (
     dispatch,
     jev_from_config,
 )
-from coding_agent.evaluation.handlers import READ_ONLY_TOOLS
-from coding_agent.evaluation.protocol import EvaluationFinding, EvaluationResult
-from coding_agent.plan import PlanStore
+from coding_agent.addons.evaluation.handlers import READ_ONLY_TOOLS
+from coding_agent.addons.evaluation.protocol import EvaluationFinding, EvaluationResult
+from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.__main__ import build_parser
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS
 from coding_agent.tui.commands.manager import jev_enabled_from_argument

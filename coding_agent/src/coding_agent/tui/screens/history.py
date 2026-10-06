@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
-from coding_agent.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
+from coding_agent.addons.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
 from coding_agent.tui.runtime.events import _duration
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.images import display_from_content
@@ -33,7 +34,7 @@ class HistoryView(Protocol):
 
 
 async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
-    """Load saved messages as text plus compact Explored rows, not live tool cards."""
+    """Restore compact history with interactive child and background-job cards."""
     loader = getattr(agent.persistence, "load_transcript", agent.persistence.load_conversation)
     messages = await loader(session_id=agent.session_id)
     # The visual transcript may retain turns that were compacted out of the
@@ -47,6 +48,11 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     load_events = getattr(agent.persistence, "load_events", None)
     events = await load_events(session_id=agent.session_id) if callable(load_events) else []
     restored = _history_widgets(messages, events)
+    tools = getattr(view, "_tools", None)
+    if isinstance(tools, dict):
+        from coding_agent.tui.tools.calls import ToolCallWidget
+
+        tools.update((widget.call_id, widget) for widget in restored if isinstance(widget, ToolCallWidget))
     mount_batch = getattr(view, "mount_transcript_batch", None)
     if callable(mount_batch):
         mount_batch(restored)
@@ -60,8 +66,16 @@ def _history_widgets(
     messages: list[Any],
     events: list[tuple[str, dict[str, Any]]] | None = None,
 ) -> list[Any]:
+    from coding_agent.tui.tools.calls import make_tool_widget
     from coding_agent.tui.transcript import AssistantMessage
 
+    # Parent journals can contain forwarded child events. They belong to the
+    # child screen, never to the parent's tool/thought reconstruction.
+    events = [
+        (kind, payload) for kind, payload in events or []
+        if not payload.get("parent_id") or kind.startswith("agent_")
+    ]
+    notifications, job_results = _completion_notifications(messages, events)
     restored: list[Any] = []
     pending: dict[str, dict[str, Any]] = {}
     batch: list[ToolCallSnapshot | ThoughtSnapshot] = []
@@ -104,7 +118,28 @@ def _history_widgets(
         else:
             restored.append(widget)
 
-    for message in messages:
+    def add_call(fields: dict[str, Any]) -> None:
+        arguments = fields.get("arguments") or {}
+        if fields["tool_name"] == "spawn_agent" or (
+            fields["tool_name"] == "bash" and arguments.get("background")
+        ):
+            flush_batch()
+            widget = make_tool_widget(str(fields["call_id"]), str(fields["tool_name"]))
+            widget.set_arguments(arguments, str(fields.get("raw_arguments") or ""))
+            result = str(fields.get("result") or "")
+            job = re.search(r"started background job ([A-Za-z0-9_-]+)", result)
+            if job and job.group(1) in job_results:
+                result = job_results[job.group(1)]
+            widget.set_result(result)
+            if fields.get("status") == "failed":
+                widget.status = "failed"
+            add_visible(widget)
+        else:
+            add_snapshot(snapshot_from_call(**fields))
+
+    for index, message in enumerate(messages):
+        if index in notifications:
+            continue
         if message.role == "user":
             if text_from_content(message.content).startswith(COMPACTED_CONTEXT_MARK):
                 continue
@@ -133,24 +168,71 @@ def _history_widgets(
                 "raw_arguments": "",
             }
             result = text_from_content(message.content)
-            add_snapshot(
-                snapshot_from_call(
-                    **{
-                        **fields,
-                        "result": result,
-                        "status": "failed" if result.startswith("error:") else "done",
-                    }
-                )
-            )
+            add_call({
+                **fields,
+                "result": result,
+                "status": "failed" if result.startswith("error:") else "done",
+            })
 
     for fields in pending.values():
-        add_snapshot(snapshot_from_call(**{"status": "done", **fields}))
+        add_call({"status": "done", **fields})
     for leftover_fields in event_calls.values():
-        add_snapshot(snapshot_from_call(**{"status": "done", **leftover_fields}))
+        add_call({"status": "done", **leftover_fields})
     for leftover in thoughts:
         add_snapshot(leftover)
     flush_run()
     return restored
+
+
+def _completion_notifications(
+    messages: list[Any], events: list[tuple[str, dict[str, Any]]],
+) -> tuple[set[int], dict[str, str]]:
+    """Recognize legacy runtime user messages only for known children/jobs.
+
+    These messages remain in model context, but are not actual user prompts.
+    Correlation avoids hiding ordinary user text mentioning background work.
+    """
+    children = {
+        str(payload["child_id"]) for kind, payload in events
+        if kind == "agent_spawned" and payload.get("child_id")
+    }
+    jobs: set[str] = set()
+    tool_results = {str(message.tool_call_id): message for message in messages if message.role == "tool"}
+    for message in messages:
+        if message.role == "assistant":
+            for call in message.tool_calls or []:
+                fields = _call_fields(call)
+                if fields["tool_name"] != "spawn_agent":
+                    continue
+                # Older journals may lack agent_spawned events, but the spawn
+                # result still carries the child identity.
+                result = tool_results.get(fields["call_id"])
+                if result is None:
+                    continue
+                try:
+                    child = json.loads(text_from_content(result.content))
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(child, dict) and child.get("child_id"):
+                    children.add(str(child["child_id"]))
+        if message.role == "tool":
+            match = re.match(r"started background job ([A-Za-z0-9_-]+)\nlog: ", text_from_content(message.content))
+            if match:
+                jobs.add(match.group(1))
+    hidden: set[int] = set()
+    results: dict[str, str] = {}
+    for index, message in enumerate(messages):
+        if message.role != "user":
+            continue
+        text = text_from_content(message.content)
+        child = re.match(r"Subagent .+ \(([^()]+)\) (?:completed|failed|cancelled|interrupted)\.\n", text)
+        job = re.match(r"Background job ([A-Za-z0-9_-]+) .+ after [\d.]+s\. Last output:\n", text)
+        if child and child.group(1) in children:
+            hidden.add(index)
+        elif job and job.group(1) in jobs and "\nFull log: " in text:
+            hidden.add(index)
+            results[job.group(1)] = text
+    return hidden, results
 
 
 def _thoughts_from_events(events: list[tuple[str, dict[str, Any]]]) -> list[ThoughtSnapshot]:
@@ -221,7 +303,7 @@ def _tool_fields_from_events(
 def _merge_call_fields(preferred: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     merged = dict(fallback)
     for key, value in preferred.items():
-        if value in ("", None, {}, []):
+        if value in ("", None, {}, []) or key == "tool_name" and value == "tool":
             continue
         merged[key] = value
     return merged
@@ -281,6 +363,7 @@ def _fold_collected_run(
         duration=duration,
     )
     assistants: list[Any] = []
+    cards: list[Any] = []
     for item in items:
         if isinstance(item, AssistantMessage):
             assistants.append(item)
@@ -291,7 +374,9 @@ def _fold_collected_run(
                     summary.add_thought(entry.title, entry.content, layout=False)
                 else:
                     summary.add_call(entry, layout=False)
-    folded: list[Any] = []
+        else:
+            cards.append(item)
+    folded: list[Any] = list(cards)
     if summary.entries:
         folded.append(summary)
     if assistants:

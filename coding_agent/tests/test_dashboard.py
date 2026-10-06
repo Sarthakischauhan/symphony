@@ -6,7 +6,7 @@ import asyncio
 
 from textual.app import App
 
-from coding_agent.persistence.active import ActiveSession
+from coding_agent.addons.persistence.active import ActiveSession
 from coding_agent.resources.usage import AgentUsage
 from coding_agent.tui.screens.dashboard import AgentDashboard
 

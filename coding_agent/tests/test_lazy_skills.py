@@ -6,9 +6,9 @@ import asyncio
 from pathlib import Path
 
 from coding_agent.agent import CodingAgent
-from coding_agent.skills.models import CATALOG_DESCRIPTION_CHARS, Skill
-from coding_agent.skills.registry import SkillRegistry
-from coding_agent.skills.tool import SkillTool
+from coding_agent.addons.skills.models import CATALOG_DESCRIPTION_CHARS, Skill
+from coding_agent.addons.skills.registry import SkillRegistry
+from coding_agent.addons.skills.tool import SkillTool
 from coding_agent.tools import BashTool, MemoryGetTool, MemorySearchTool, MemoryTool
 
 

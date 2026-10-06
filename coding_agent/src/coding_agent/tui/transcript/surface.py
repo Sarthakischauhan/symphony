@@ -262,11 +262,13 @@ class TranscriptSurface:
         else:
             self._mount_transcript(widget)
 
-    def finish_process(self, title: str) -> None:
-        """Freeze the finished run as it stands and add its completion row."""
+    def finish_process(
+        self, title: str, *, collapse: bool = True, verb: str = "", duration: str = ""
+    ) -> None:
+        """Collect successful run work and retain the final reply and metrics."""
         self._close_tool_group()
         if self._process is not None:
-            self._process.complete(title)
+            self._process.complete(title, collapse=collapse, verb=verb, duration=duration)
 
     def add_run_completion(self, title: str) -> None:
         """Place compact run metrics after the finalized assistant reply."""

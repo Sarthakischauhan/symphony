@@ -14,8 +14,8 @@ from textual.widgets import Static
 from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
-from coding_agent.persistence.active import register_active, release_active
-from coding_agent.plan import PlanStore
+from coding_agent.addons.persistence.active import register_active, release_active
+from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.chrome import ComposerOverlay, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import Composer, PromptInput, QueuedPrompt, QueuedTurn, SlashMenu

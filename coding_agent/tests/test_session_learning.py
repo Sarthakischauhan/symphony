@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 from core_ai.types import Message, StreamEvent
 
-from coding_agent.learning import LearningAddon, LearningLoop, LearningStore, Lesson
-from coding_agent.addon.learning import SessionMemoryAddon
-from coding_agent.persistence import JsonlPersistence
+from coding_agent.addons.learning import LearningAddon, LearningLoop, LearningStore, Lesson
+from coding_agent.addons.learning.addon import SessionMemoryAddon
+from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.tools.memory import MemoryTool
 
 

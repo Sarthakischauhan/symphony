@@ -49,8 +49,10 @@ class RecordingView:
     def finish_reasoning(self) -> None:
         self.finished_reasoning += 1
 
-    def finish_process(self, title: str, *, collapse: bool = True) -> None:
-        del collapse
+    def finish_process(
+        self, title: str, *, collapse: bool = True, verb: str = "", duration: str = ""
+    ) -> None:
+        del collapse, verb, duration
         self.finished_process.append(title)
 
     def add_tool(self, call_id: str, name: str) -> None:

@@ -3,9 +3,9 @@ from __future__ import annotations
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Static
 
-from coding_agent.skills.args import render_args
-from coding_agent.plugins import LoadedPlugin
-from coding_agent.skills import Skill
+from coding_agent.addons.skills.args import render_args
+from coding_agent.addons.plugins import LoadedPlugin
+from coding_agent.addons.skills import Skill
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import EXTENSIONS_MODAL_CSS
 

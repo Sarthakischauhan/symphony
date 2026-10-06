@@ -11,6 +11,10 @@ Thinking streams token by token, so ``render_thinking(..., streaming=True)``
 first closes a dangling ``**``/``*``/backtick in the last paragraph: a
 half-written ``**Tracing the`` renders bold instead of showing raw asterisks,
 and the real closing marker replaces the synthetic one on the next chunk.
+
+Streaming renders freeze every top-level block except the unfinished tail.
+Later chunks reuse that frozen renderable and parse only the tail, matching
+the stable-checkpoint approach used by Grok's streaming Markdown renderer.
 """
 
 from __future__ import annotations
@@ -92,11 +96,109 @@ def close_dangling_markers(source: str) -> str:
     return closed
 
 
+class StreamingThinkingRenderer:
+    """Freeze stable top-level blocks and reparse only the unfinished tail."""
+
+    def __init__(self) -> None:
+        self._source = ""
+        self._style: Style | None = None
+        self._frozen = Group()
+        self._frozen_end = 0
+        self._scan_start = 0
+        self._group: Group | None = None
+        self._group_tail = ""
+
+    def render(self, source: str, *, code_style: Style) -> RenderableType:
+        if not source.startswith(self._source[: self._frozen_end]) or code_style != self._style:
+            self._source = ""
+            self._style = code_style
+            self._frozen = Group()
+            self._frozen_end = 0
+            self._scan_start = 0
+            self._group = None
+            self._group_tail = ""
+        self._source = source
+        text = close_dangling_markers(source)
+        frozen_end, self._scan_start = _stable_prefix_end(source, text, self._scan_start)
+        if frozen_end < self._frozen_end:
+            self._frozen = Group()
+            self._frozen_end = 0
+        if frozen_end > self._frozen_end:
+            added = SyntaxTreeNode(PARSER.parse(source[self._frozen_end:frozen_end])).children
+            rendered = render_blocks(added, code_style, depth=0, loose=True)
+            if self._frozen.renderables and rendered:
+                self._frozen.renderables.append(Text())
+            self._frozen.renderables.extend(rendered)
+            self._frozen_end = frozen_end
+        tail = text[self._frozen_end :]
+        if self._group is not None and tail == self._group_tail:
+            return self._group
+        tail_blocks = SyntaxTreeNode(PARSER.parse(tail)).children if tail.strip() else []
+        rendered_tail = render_blocks(tail_blocks, code_style, depth=0, loose=True)
+        blocks = list(self._frozen.renderables)
+        if blocks and rendered_tail:
+            blocks.append(Text())
+        self._group_tail = tail
+        self._group = Group(*blocks, *rendered_tail) if blocks or rendered_tail else Group(Text(" "))
+        return self._group
+
+
 def render_thinking(source: str, *, code_style: Style, streaming: bool) -> RenderableType:
     """Render thinking markdown as emphasis-only Text blocks in the widget's colour."""
     text = close_dangling_markers(source) if streaming else source
     root = SyntaxTreeNode(PARSER.parse(text))
-    return Group(*render_blocks(root.children, code_style, depth=0, loose=True))
+    rendered = render_blocks(root.children, code_style, depth=0, loose=True)
+    return Group(*rendered) if rendered else Text(" ")
+
+
+def _stable_prefix_end(source: str, display_text: str, scan_start: int) -> tuple[int, int]:
+    """Return the frozen byte end and where the next tail scan can resume.
+
+    Nested blocks are not checkpoints because their container can continue.
+    A display-only closing marker means the final paragraph is unfinished.
+    ``scan_start`` advances with the stream, so each update scans only the
+    newly closed tail rather than the whole thought.
+    """
+    if display_text != source or len(FENCE_LINE.findall(source)) % 2:
+        return 0, 0
+    start = _checkpoint_scan_start(source, scan_start)
+    if start == 0:
+        return 0, 0
+    tokens = PARSER.parse(source[start:])
+    closed = [token for token in tokens if token.level == 0 and token.map and token.nesting == 0]
+    if len(closed) < 2:
+        return start, start
+    keep = len(closed) - 1 if _tail_can_extend(closed[-1]) else len(closed)
+    if keep < 1:
+        return start, start
+    lines = source[start:].splitlines(keepends=True)
+    frozen = start + sum(len(line) for line in lines[: closed[keep - 1].map[1]])
+    # An open container must stay inside the next scan. Advancing past it made
+    # every following block unfreezable.
+    return frozen, start if keep < len(closed) else frozen
+
+
+def _tail_can_extend(token: object) -> bool:
+    """A following paragraph can continue these top-level containers."""
+    return getattr(token, "type", "") in {
+        "bullet_list_close",
+        "ordered_list_close",
+        "blockquote_close",
+    }
+
+
+def _checkpoint_scan_start(source: str, scan_start: int) -> int:
+    """Return the newest paragraph boundary followed by another closed block."""
+    cursor = scan_start
+    start = scan_start
+    while True:
+        found = source.find("\n\n", cursor)
+        if found < 0:
+            return start
+        nxt = found + 2
+        if "\n\n" in source[nxt:]:
+            start = nxt
+        cursor = nxt
 
 
 def render_blocks(

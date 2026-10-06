@@ -23,7 +23,7 @@ from core_harness.addons.persistence import PersistenceAddon
 from core_harness.addons.subagent import SubagentAddon
 from core_harness.context import ContextReport, build_context_report, estimate_prompt_tokens
 
-from coding_agent.addon import (
+from coding_agent.addons import (
     ApprovalAddon,
     LearningAddon,
     PlanModeAddon,
@@ -42,15 +42,15 @@ from coding_agent.config import (
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
-from coding_agent.evaluation import JEV_SYSTEM_SEGMENT
-from coding_agent.learning import LearningLoop, LearningStore
+from coding_agent.addons.evaluation import JEV_SYSTEM_SEGMENT
+from coding_agent.addons.learning import LearningLoop, LearningStore
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
-from coding_agent.persistence import JsonlPersistence, sessions_dir
+from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.personalities import compose_system_prompt
-from coding_agent.plan import PlanStore
-from coding_agent.plugins import LoadedPlugin, PluginManager
+from coding_agent.addons.plan.store import PlanStore
+from coding_agent.addons.plugins import LoadedPlugin, PluginManager
 from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
-from coding_agent.skills import SkillRegistry, bundled_skills_root
+from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
 from coding_agent.tools import BashJobs, EnterPlanModeTool, ExitPlanModeTool, build_tools
 
 AgentMode = Literal["build", "plan"]

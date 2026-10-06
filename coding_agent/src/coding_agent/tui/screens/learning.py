@@ -10,7 +10,7 @@ from rich.text import Text
 from textual.containers import Container, Horizontal
 from textual.widgets import Static, TabbedContent, TabPane
 
-from coding_agent.learning import LearningStore, Lesson
+from coding_agent.addons.learning import LearningStore, Lesson
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import LEARNING_MODAL_CSS
 

@@ -10,11 +10,11 @@ from typing import Any, Iterable
 from core_ai import find_provider, get_model, get_provider
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.agent import build_agent
-from coding_agent.persistence.jsonl import JsonlPersistence
-from coding_agent.persistence.presentation import session_images
+from coding_agent.addons.persistence.jsonl import JsonlPersistence
+from coding_agent.addons.persistence.presentation import session_images
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import OFFLINE_HINT, load_provider_env
-from coding_agent.langfuse import ensure_langfuse_installed
+from coding_agent.addons.langfuse import ensure_langfuse_installed
 from textual.containers import Container
 from textual.widgets import Static
 
@@ -559,7 +559,7 @@ class CommandManager:
             if app._agent is None:
                 app.add_notice(OFFLINE_HINT, "error")
             else:
-                from coding_agent.persistence.presentation import session_report
+                from coding_agent.addons.persistence.presentation import session_report
 
                 store = app._agent.persistence
                 root = store.session_dir(app._agent.session_id) if isinstance(store, JsonlPersistence) else None

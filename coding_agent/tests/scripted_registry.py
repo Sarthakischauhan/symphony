@@ -8,7 +8,7 @@ import json
 from core_ai.content import text_from_content
 from core_ai.types import Message, StreamEvent
 
-from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
+from coding_agent.addons.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 
 Turn = list[tuple[str, dict]]
 

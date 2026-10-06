@@ -12,7 +12,7 @@ from core_harness import HarnessResult
 
 from coding_agent import CodingAgent, PlanStore
 from coding_agent.config import CodingAgentConfig, LearningConfig
-from coding_agent.addon.plan import PlanModeState
+from coding_agent.addons.plan.addon import PlanModeState
 from coding_agent.tui.commands.manager import on_plan_action
 
 

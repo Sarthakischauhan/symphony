@@ -13,7 +13,7 @@ from core_ai import has_configured_provider
 from coding_agent.agent import build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.credentials import load_provider_env
-from coding_agent.persistence import JsonlPersistence, register_active, release_active, sessions_dir
+from coding_agent.addons.persistence import JsonlPersistence, register_active, release_active, sessions_dir
 from coding_agent.resources.usage import process_alive
 from coding_agent.run.detach import detach
 from coding_agent.run.interrupted import detached_run_pid, interrupted_session, resume_note, stop_orphaned_jobs

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.persistence import sessions_dir
+from coding_agent.addons.persistence import sessions_dir
 from coding_agent.run.cli import build_parser, main
 
 # Loaded by the detached child through PYTHONPATH: swaps in a slow scripted provider.
