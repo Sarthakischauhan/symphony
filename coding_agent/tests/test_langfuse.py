@@ -12,10 +12,10 @@ from core_harness.models import HarnessResult, ToolCall, ToolResult, UsageTotals
 
 from coding_agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LangfuseConfig, LearningConfig
-from coding_agent.langfuse import LangfuseAddon, langfuse_from_config
-from coding_agent.langfuse.install import ensure_langfuse_installed
+from coding_agent.addons.langfuse import LangfuseAddon, langfuse_from_config
+from coding_agent.addons.langfuse.install import ensure_langfuse_installed
 from coding_agent.tui.commands.manager import _finish_langfuse_setup, open_langfuse_setup
-from coding_agent.langfuse.serialize import (
+from coding_agent.addons.langfuse.serialize import (
     serialize_messages,
     serialize_run_output,
     serialize_task,
@@ -442,10 +442,10 @@ def test_coding_agent_can_disable_langfuse(tmp_path: Path) -> None:
 
 
 def test_ensure_langfuse_installed_skips_when_present(monkeypatch) -> None:
-    monkeypatch.setattr("coding_agent.langfuse.install.langfuse_available", lambda: True)
+    monkeypatch.setattr("coding_agent.addons.langfuse.install.langfuse_available", lambda: True)
     calls: list[list[str]] = []
     monkeypatch.setattr(
-        "coding_agent.langfuse.install.subprocess.run",
+        "coding_agent.addons.langfuse.install.subprocess.run",
         lambda *args, **kwargs: calls.append(list(args[0])),
     )
     result = ensure_langfuse_installed()
@@ -465,9 +465,9 @@ def test_ensure_langfuse_installed_uses_uv_then_import_succeeds(monkeypatch) -> 
         available["value"] = True
         return type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
 
-    monkeypatch.setattr("coding_agent.langfuse.install.langfuse_available", _available)
-    monkeypatch.setattr("coding_agent.langfuse.install.shutil.which", lambda _name: "/usr/bin/uv")
-    monkeypatch.setattr("coding_agent.langfuse.install.subprocess.run", _run)
+    monkeypatch.setattr("coding_agent.addons.langfuse.install.langfuse_available", _available)
+    monkeypatch.setattr("coding_agent.addons.langfuse.install.shutil.which", lambda _name: "/usr/bin/uv")
+    monkeypatch.setattr("coding_agent.addons.langfuse.install.subprocess.run", _run)
     result = ensure_langfuse_installed()
     assert result.installed is True
     assert result.already_present is False
@@ -475,14 +475,14 @@ def test_ensure_langfuse_installed_uses_uv_then_import_succeeds(monkeypatch) -> 
 
 
 def test_ensure_langfuse_installed_reports_failure(monkeypatch) -> None:
-    monkeypatch.setattr("coding_agent.langfuse.install.langfuse_available", lambda: False)
-    monkeypatch.setattr("coding_agent.langfuse.install.shutil.which", lambda _name: None)
+    monkeypatch.setattr("coding_agent.addons.langfuse.install.langfuse_available", lambda: False)
+    monkeypatch.setattr("coding_agent.addons.langfuse.install.shutil.which", lambda _name: None)
 
     def _run(command, **kwargs):
         del command, kwargs
         return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "pip missing"})()
 
-    monkeypatch.setattr("coding_agent.langfuse.install.subprocess.run", _run)
+    monkeypatch.setattr("coding_agent.addons.langfuse.install.subprocess.run", _run)
     result = ensure_langfuse_installed()
     assert result.installed is False
     assert "Could not install" in result.message

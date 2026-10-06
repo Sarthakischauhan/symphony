@@ -12,7 +12,7 @@ from textual.binding import Binding
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 
-from coding_agent.persistence.collection import is_collected
+from coding_agent.addons.persistence.collection import is_collected
 from coding_agent.tui.chrome import TopBar, render_footer, display_workspace_path
 from coding_agent.tui.runtime.events import EventPresenter
 from coding_agent.tui.runtime.state import UiRunState

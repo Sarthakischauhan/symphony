@@ -6,10 +6,10 @@ from unittest.mock import Mock
 
 from core_ai.types import Message, StreamEvent
 from coding_agent.agent import CodingAgent
-from coding_agent.addon.learning import LearningAddon
-from coding_agent.learning.loop import LearningLoop
-from coding_agent.learning.store import LearningStore
-from coding_agent.persistence import JsonlPersistence
+from coding_agent.addons.learning.addon import LearningAddon
+from coding_agent.addons.learning.loop import LearningLoop
+from coding_agent.addons.learning.store import LearningStore
+from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.protocols.stdio.commands import execute
 from coding_agent.tools import build_tools
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool

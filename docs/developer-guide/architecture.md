@@ -57,7 +57,7 @@ flowchart TD
 
 The harness is a library loop: tools, model, compaction, and an event sink
 for UIs. It does not authorize tools or cancel runs. Product approval lives
-in `coding_agent.addon.approvals.ApprovalAddon` (`before_tool`). Cancel a run by
+in `coding_agent.addons.approvals.ApprovalAddon` (`before_tool`). Cancel a run by
 cancelling the `asyncio.Task` awaiting `CoreHarness.run`. To attach product
 behavior (Learning, Langfuse, Jev), see
 [Extending the harness](./extending.md).
@@ -131,15 +131,18 @@ coding_agent/src/coding_agent/
   config.py           # .symphony/config.json model
   credentials.py      # ~/.symphony/.env handling
   prompts.py          # system + plan-mode prompts
-  plan.py             # saved plans (.symphony/plans/)
-  addon/              # product harness add-ons (approval, plan, compact, learn, jev, langfuse, skills)
+  addons/             # product add-ons and their supporting machinery
+    approvals.py      # approval policy and harness gate
+    plan/             # plan-mode gate + saved plans (.symphony/plans/)
+    compaction/       # compaction add-on + InferenceCompactor
+    learning/         # learning add-on, lesson store, capture loop, run_summary
+    langfuse/         # tracing add-on, Langfuse install + serializers
+    evaluation/       # Jev add-on, critic policy, handlers, evaluators
+    persistence/      # JSONL sessions
+    plugins/          # trusted plugin discovery and loading
+    skills/           # skills add-on, registry, tool + bundled skill resources
   protocols/stdio/    # JSONL host transport: frames, catalog, command loop
   tools/              # one file per workspace tool
-  compaction/         # InferenceCompactor (mounted by addon/compaction.py)
-  learning/           # lesson store, capture loop, run_summary
-  langfuse/           # Langfuse install + serializers
-  evaluation/         # Jev critic policy, handlers, evaluators
-  persistence/        # JSONL sessions
   tui/                # Textual app, driven by CP events
 
 core_server/src/core_server/

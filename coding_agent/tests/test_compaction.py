@@ -14,15 +14,15 @@ from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
 from coding_agent import CodingAgent
 from coding_agent.agent import default_addons
-from coding_agent.compaction import (
+from coding_agent.addons.compaction import (
     AiCompactionAddon,
     InferenceCompactor,
     ai_compaction_from_config,
     render_dropped_turns,
 )
-from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
+from coding_agent.addons.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 from coding_agent.config import CodingAgentConfig, CompactionConfig, LearningConfig
-from coding_agent.persistence import JsonlPersistence
+from coding_agent.addons.persistence import JsonlPersistence
 
 
 class StubRegistry:

@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from coding_agent.persistence import JsonlPersistence
+from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.runtime.subagent import SubagentRecord, SubagentScreen, SubagentTasksScreen
@@ -107,11 +107,11 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             emit("run_completed", output_text="Child answer")
             await pilot.pause()
             assert not list(screen.query(ToolCallWidget))
-            # The finished child run stays as it streamed: one folded group.
-            assert not list(screen.query(CompletedRunSummary))
-            assert screen.query_one(ToolCallSummary) is tool_summaries[0]
-            assert not tool_summaries[0].is_expanded
-            assert tool_summaries[0].count == 11
+            # Child completion collects work without affecting the parent's cards.
+            summary = screen.query_one(CompletedRunSummary)
+            assert screen.query_one(ToolCallSummary) is summary
+            assert not summary.is_expanded
+            assert summary.count == 11
             assert [item.message_text for item in screen.query(AssistantMessage)] == ["Child answer"]
             screen.refresh_record()
             await pilot.press("escape")

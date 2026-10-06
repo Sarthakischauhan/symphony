@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import ConfigDict, Field
 
-from coding_agent.learning.store import LearningStore
+from coding_agent.addons.learning.store import LearningStore
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
 

@@ -18,7 +18,7 @@ from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.transcript.messages import SelectableStatic
-from coding_agent.tui.transcript.thinking_markdown import render_thinking
+from coding_agent.tui.transcript.thinking_markdown import StreamingThinkingRenderer, render_thinking
 
 
 class ThinkingStatus(Static):
@@ -202,13 +202,61 @@ class RunProcess(Container):
     def completed(self) -> bool:
         return self._completed
 
-    def complete(self, title: str) -> None:
-        """Freeze the finished run as it stands: hide the status, add the metrics row."""
+    def complete(
+        self, title: str, *, collapse: bool = False, verb: str = "", duration: str = ""
+    ) -> None:
+        """Finalize the run, optionally collecting its work before the final reply."""
         if self._completed:
             return
         self._completed = True
         self._thinking.set_visible(False)
+        if collapse:
+            self.fold_into_summary(verb=verb, duration=duration)
         self.add_item(ProcessComplete(title))
+
+    def fold_into_summary(self, *, verb: str = "", duration: str = "") -> None:
+        """Collect tool/thought snapshots, including finished bash and update cards."""
+        from coding_agent.tui.tools.calls import BashToolWidget, PatchDiffWidget, ToolCallWidget
+        from coding_agent.tui.tools.snapshots import (
+            CompletedRunSummary,
+            ThoughtSnapshot,
+            ToolCallSummary,
+        )
+        from coding_agent.tui.transcript.messages import AssistantMessage
+
+        summary = CompletedRunSummary(verb=verb, duration=duration)
+        assistants = [item for item in self._items if isinstance(item, AssistantMessage)]
+        final_assistant = assistants[-1] if assistants else None
+        removed: list[Widget] = []
+        for item in self._items:
+            if isinstance(item, ReasoningWidget):
+                summary.add_thought(item.title, item.reasoning_text, layout=False)
+            elif isinstance(item, ToolCallSummary):
+                for entry in item.entries:
+                    if isinstance(entry, ThoughtSnapshot):
+                        summary.add_thought(entry.title, entry.content, layout=False)
+                    else:
+                        summary.add_call(entry, layout=False)
+            elif isinstance(item, ToolCallWidget) and (
+                not item.keep_in_transcript
+                or isinstance(item, (BashToolWidget, PatchDiffWidget))
+            ):
+                summary.add_call(item.snapshot(), layout=False)
+            elif not (isinstance(item, AssistantMessage) and item is not final_assistant):
+                continue
+            removed.append(item)
+        for item in removed:
+            self._items.remove(item)
+            if item.is_attached:
+                item.remove()
+        if not summary.entries:
+            return
+        if final_assistant is not None:
+            self._items.insert(self._items.index(final_assistant), summary)
+            if final_assistant.is_attached:
+                self.mount(summary, before=final_assistant)
+        else:
+            self.add_item(summary)
 
     def archive_text(self) -> str:
         from coding_agent.tui.tools.calls import ToolCallWidget
@@ -264,9 +312,8 @@ class ReasoningBody(SelectableStatic):
     """Thinking text rendered as markdown in the muted thinking tone.
 
     Each chunk swaps the source and re-renders this same widget; nothing is
-    remounted. While streaming, dangling markers are closed for display only.
-    The parsed renderable is kept until the source or theme changes, so
-    transcript relayouts measure it without parsing the markdown again.
+    remounted. While streaming, completed top-level blocks stay frozen and only
+    the unfinished tail is parsed again. A completed thought renders once.
     """
 
     COMPONENT_CLASSES = {REASONING_CODE}
@@ -274,6 +321,7 @@ class ReasoningBody(SelectableStatic):
     def __init__(self) -> None:
         self._source = ""
         self._streaming = True
+        self._renderer = StreamingThinkingRenderer()
         self._rendered: tuple[str, bool, Style, RenderableType] | None = None
         super().__init__(classes="reasoning-text", markup=False)
 
@@ -286,7 +334,10 @@ class ReasoningBody(SelectableStatic):
         code_style = self.get_component_rich_style(REASONING_CODE, partial=True, default=Style())
         key = (self._source, self._streaming, code_style)
         if self._rendered is None or self._rendered[:3] != key:
-            renderable = render_thinking(self._source or " ", code_style=code_style, streaming=self._streaming)
+            if self._streaming:
+                renderable = self._renderer.render(self._source or " ", code_style=code_style)
+            else:
+                renderable = render_thinking(self._source or " ", code_style=code_style, streaming=False)
             self._rendered = (*key, renderable)
         return self._rendered[3]
 

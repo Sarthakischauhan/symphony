@@ -138,8 +138,11 @@ consecutive stretch folds into one `Explored` snapshot row. Tools after
 the interruption start a new stretch. Activity-labeled rows partition on
 `activity.group`; without a group, different reasons still fold together
 via `bool(reason)`. Interactive cards (generated images,
-subagents) stay mounted until the run finalizes. Completed thoughts fold
-into their own Explored row, retaining only titles. When a run finishes,
+subagents, patch diffs, and Bash output) stay mounted after the run finalizes. On successful
+completion, tool groups and thoughts fold into one expandable `CompletedRunSummary`,
+retaining tool snapshots and full thought text. Only the final assistant reply stays
+outside the collection, followed by the metrics row. Failed, cancelled, and
+run-limited turns keep their work visible rather than collecting it. When a run finishes,
 mid-run journal events are tagged `collected: true` (append-only overlay).
 The presenter and history loader honour that sticky flag: collected work
 stays in the completed-run collection and is not remounted as live cards
@@ -227,7 +230,7 @@ later events update it.
 - Provider streaming cancellation is observed promptly through the shared cancel event;
   tool cancellation still depends on the active tool returning or observing cancellation.
 - An unbound `TextualEventSink` drops emitted events rather than buffering them.
-- Approval rules live in `coding_agent.addon.approvals.ApprovalPolicy`. The TUI
+- Approval rules live in `coding_agent.addons.approvals.ApprovalPolicy`. The TUI
   plane renders the question and returns the answer; it does not decide
   which tools need a prompt.
 

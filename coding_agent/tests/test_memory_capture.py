@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from core_ai.types import Message, StreamEvent
-from coding_agent.learning.loop import LearningLoop, Observation
+from coding_agent.addons.learning.loop import LearningLoop, Observation
 
 
 def run_async(function):

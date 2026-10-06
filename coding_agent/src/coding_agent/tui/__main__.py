@@ -7,7 +7,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from coding_agent.persistence import JsonlPersistence, sessions_dir
+from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.tui.app import run_tui
 from coding_agent.tui.screens.resume import ResumeApp, load_session_options
 

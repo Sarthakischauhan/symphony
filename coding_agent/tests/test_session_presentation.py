@@ -8,9 +8,9 @@ from core_ai.types import Message
 from core_harness.context import COMPACTED_CONTEXT_MARK
 from textual.app import App
 
-from coding_agent.learning import LearningStore
-from coding_agent.persistence import JsonlPersistence
-from coding_agent.persistence.presentation import session_images, session_report
+from coding_agent.addons.learning import LearningStore
+from coding_agent.addons.persistence import JsonlPersistence
+from coding_agent.addons.persistence.presentation import session_images, session_report
 from coding_agent.tui.commands.manager import SessionModal
 
 

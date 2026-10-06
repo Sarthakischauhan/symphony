@@ -12,7 +12,7 @@ from core_harness.context import COMPACTED_CONTEXT_MARK
 from core_harness import Checkpoint, CoreHarness, HarnessConfig, EventSink, Tool
 from core_harness.addons.persistence import PersistenceAddon
 from core_harness import ChildConfig, SubagentAddon
-from coding_agent.persistence import JsonlPersistence
+from coding_agent.addons.persistence import JsonlPersistence
 
 
 def test_child_sessions_share_store_and_restore_transcripts_by_id(tmp_path: Path) -> None:
@@ -109,7 +109,7 @@ def test_append_event_reuses_cached_entries(tmp_path: Path, monkeypatch) -> None
             event_type="run_completed",
             payload={"session_id": "cached", "run_id": "r1", "seq": 2},
         )
-        assert reads["count"] == first + 1
+        assert reads["count"] == first
         events = await store.load_events(session_id="cached")
         assert [event for event, _ in events] == ["run_started", "run_completed"]
 

@@ -4,10 +4,10 @@ from pathlib import Path
 from core_ai.types import Message, StreamEvent
 from core_harness import EventSink
 from coding_agent import CodingAgent
-from coding_agent.compaction import InferenceCompactor
-from coding_agent.compaction.prompts import COMPACTION_SYSTEM_PROMPT
+from coding_agent.addons.compaction import InferenceCompactor
+from coding_agent.addons.compaction.prompts import COMPACTION_SYSTEM_PROMPT
 from coding_agent.config import CodingAgentConfig, LearningConfig, spawn_settings_path
-from coding_agent.persistence import JsonlPersistence
+from coding_agent.addons.persistence import JsonlPersistence
 
 
 def test_coding_agent_defaults_are_safer_and_learning_is_enabled(tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ from core_harness import EventSink
 from core_ai.content import text_from_content
 
 from coding_agent import CodingAgent
-from coding_agent.addon.approvals import ApprovalAddon
+from coding_agent.addons.approvals import ApprovalAddon
 from coding_agent.config import ApprovalConfig, CodingAgentConfig, LangfuseConfig, LearningConfig
 from coding_agent.config import ensure_spawn_settings, spawn_settings_path
 from scripted_registry import ScriptedRegistry, first_user_text

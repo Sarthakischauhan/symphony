@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from coding_agent.persistence.jsonl import JsonlPersistence
+from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.protocols.stdio import commands
 
 SESSION_ID = "0876c78a-9f47-4bd5-a495-a8e912c3757c"
@@ -129,7 +129,7 @@ def test_non_uuid_mock_without_state_can_load(tmp_path):
 
 
 def test_session_command_delegates_to_report(tmp_path, monkeypatch):
-    from coding_agent.persistence import presentation
+    from coding_agent.addons.persistence import presentation
 
     report = AsyncMock(return_value="Session archive report")
     monkeypatch.setattr(presentation, "session_report", report)
@@ -140,7 +140,7 @@ def test_session_command_delegates_to_report(tmp_path, monkeypatch):
 
 
 def test_learning_command_uses_agent_store_including_mock(tmp_path, monkeypatch):
-    from coding_agent.learning import store
+    from coding_agent.addons.learning import store
 
     fallback = Mock(side_effect=AssertionError("must not create a workspace store"))
     monkeypatch.setattr(store, "LearningStore", fallback)
@@ -155,7 +155,7 @@ def test_learning_command_uses_agent_store_including_mock(tmp_path, monkeypatch)
 
 @pytest.mark.parametrize("has_attribute", [False, True])
 def test_learning_command_falls_back_for_lightweight_agents(tmp_path, monkeypatch, has_attribute):
-    from coding_agent.learning import store
+    from coding_agent.addons.learning import store
 
     fallback_store = Mock()
     fallback_store.to_markdown.return_value = "Workspace lessons"

@@ -7,8 +7,8 @@ import re
 import time
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
-from coding_agent.evaluation.state import bound_text
-from coding_agent.persistence.collection import is_collected
+from coding_agent.addons.evaluation.state import bound_text
+from coding_agent.addons.persistence.collection import is_collected
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.transcript.messages import preview_text
@@ -125,7 +125,9 @@ class TranscriptView(Protocol):
 
     def finish_reasoning(self) -> None: ...
 
-    def finish_process(self, title: str) -> None: ...
+    def finish_process(
+        self, title: str, *, collapse: bool = True, verb: str = "", duration: str = ""
+    ) -> None: ...
 
     def add_tool(self, call_id: str, name: str) -> None: ...
 
@@ -376,8 +378,11 @@ class EventPresenter:
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
         self.view.set_thinking(completed)
-        # The finished run stays as it streamed; the metrics row closes it.
-        self.view.finish_process(completed)
+        self.view.finish_process(
+            completed,
+            verb=str(payload.get("completion_verb") or ""),
+            duration=str(payload.get("duration") or ""),
+        )
         self._assistant_open = False
         toast = jev_recommendation_update(_jev_last_decision(self.view))
         if toast:
@@ -411,7 +416,7 @@ class EventPresenter:
         self.state.detail = "failed"
         self.view.set_thinking("Stopped with an error")
         self.view.add_notice(str(payload.get("message") or payload), "error")
-        self.view.finish_process("Stopped with an error")
+        self.view.finish_process("Stopped with an error", collapse=False)
 
     def _on_run_cancelled(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
@@ -421,7 +426,7 @@ class EventPresenter:
         reason = payload.get("reason")
         if reason:
             self.view.add_notice(str(reason), "warning")
-        self.view.finish_process("Cancelled")
+        self.view.finish_process("Cancelled", collapse=False)
 
     def _on_run_limit_exceeded(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
@@ -431,7 +436,7 @@ class EventPresenter:
         message = str(payload.get("message") or f"Harness exceeded {limit}")
         self.view.set_thinking("Stopped at a run limit")
         self.view.add_notice(message, "warning")
-        self.view.finish_process("Stopped at a run limit")
+        self.view.finish_process("Stopped at a run limit", collapse=False)
 
     # Turns and streaming
     def _on_turn_started(self, payload: Mapping[str, Any]) -> None:

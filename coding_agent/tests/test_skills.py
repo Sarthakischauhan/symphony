@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.skills.args import ExtensionArg, render_args
-from coding_agent.skills.frontmatter import read_front_matter
-from coding_agent.skills.registry import SkillRegistry, bundled_skills_root
+from coding_agent.addons.skills.args import ExtensionArg, render_args
+from coding_agent.addons.skills.frontmatter import read_front_matter
+from coding_agent.addons.skills.registry import SkillRegistry, bundled_skills_root
 
 
 def _write_skill(root: Path, name: str, front: str, body: str = "Do the thing.\n") -> None:

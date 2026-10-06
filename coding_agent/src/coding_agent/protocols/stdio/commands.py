@@ -9,8 +9,8 @@ from typing import Any
 
 from coding_agent.config import ensure_spawn_settings, symphony_dir
 from coding_agent.personalities import load_personalities
-from coding_agent.persistence.jsonl import JsonlPersistence
-from coding_agent.persistence.artifacts import publish, safe_path
+from coding_agent.addons.persistence.jsonl import JsonlPersistence
+from coding_agent.addons.persistence.artifacts import publish, safe_path
 from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
 
 
@@ -34,7 +34,7 @@ def catalog(workspace: Path | None = None) -> list[dict[str, Any]]:
         "reload": "Reload configuration and environment for the live agent",
     }
     if workspace is not None:
-        from coding_agent.plan import PlanStore
+        from coding_agent.addons.plan.store import PlanStore
         root = Path(workspace).resolve()
         plans = []
         for path in PlanStore(root).list_paths():
@@ -126,7 +126,7 @@ async def execute(agent: Any, value: str) -> str:
             f"Effort: {agent.harness.reasoning_effort or 'default'}"
         )
     if command == "session":
-        from coding_agent.persistence.presentation import session_report
+        from coding_agent.addons.persistence.presentation import session_report
 
         return await session_report(agent)
     if command == "context":
@@ -190,7 +190,7 @@ async def execute(agent: Any, value: str) -> str:
         except AttributeError:
             store = None
         if store is None:
-            from coding_agent.learning.store import LearningStore
+            from coding_agent.addons.learning.store import LearningStore
 
             # Lightweight protocol hosts/tests may not expose the agent's store.
             store = LearningStore(agent.workspace)

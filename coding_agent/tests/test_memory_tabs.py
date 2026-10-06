@@ -4,7 +4,7 @@ import asyncio
 from textual.app import App
 from textual.widgets import TabbedContent, Static
 
-from coding_agent.learning.store import LearningStore
+from coding_agent.addons.learning.store import LearningStore
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS
 from coding_agent.tui.screens.learning import LearningModal
 

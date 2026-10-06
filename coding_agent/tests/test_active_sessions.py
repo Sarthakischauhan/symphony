@@ -6,7 +6,7 @@ import asyncio
 import os
 from pathlib import Path
 
-from coding_agent.persistence.active import (
+from coding_agent.addons.persistence.active import (
     active_session_ids,
     list_active,
     register_active,
@@ -16,7 +16,7 @@ from coding_agent.tui.screens.resume import load_session_options
 
 
 def test_register_and_release_round_trip(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("coding_agent.persistence.active.active_dir", lambda: tmp_path)
+    monkeypatch.setattr("coding_agent.addons.persistence.active.active_dir", lambda: tmp_path)
     record = register_active("session-1", workspace="/work", kind="tui", model_id="openai:test", pid=os.getpid())
 
     assert record.session_id == "session-1"
@@ -29,7 +29,7 @@ def test_register_and_release_round_trip(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_dead_process_is_pruned(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("coding_agent.persistence.active.active_dir", lambda: tmp_path)
+    monkeypatch.setattr("coding_agent.addons.persistence.active.active_dir", lambda: tmp_path)
     register_active("gone", workspace="/work", kind="run", pid=999_999_999)
     monkeypatch.setattr("coding_agent.resources.usage.process_alive", lambda pid: False)
 

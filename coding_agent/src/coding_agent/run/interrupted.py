@@ -9,8 +9,8 @@ from typing import Optional
 
 from core_harness import Checkpoint
 
-from coding_agent.persistence import JsonlPersistence, SessionSummary
-from coding_agent.persistence.artifacts import safe_path
+from coding_agent.addons.persistence import JsonlPersistence, SessionSummary
+from coding_agent.addons.persistence.artifacts import safe_path
 
 
 async def interrupted_session(persistence: JsonlPersistence) -> Optional[tuple[SessionSummary, Checkpoint]]:

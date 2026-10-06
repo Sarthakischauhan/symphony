@@ -10,7 +10,7 @@ from textual import events
 from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
-from coding_agent.plan import PlanStore
+from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import PLAN_MODAL_CSS, themed_markdown
 

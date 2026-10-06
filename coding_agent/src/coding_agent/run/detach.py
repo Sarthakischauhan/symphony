@@ -9,8 +9,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from coding_agent.persistence import JsonlPersistence, sessions_dir
-from coding_agent.persistence.artifacts import publish
+from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
+from coding_agent.addons.persistence.artifacts import publish
 
 
 def detach(run_argv: list[str], workspace: Path) -> int:

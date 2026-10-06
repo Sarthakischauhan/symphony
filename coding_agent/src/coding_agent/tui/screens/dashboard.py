@@ -12,7 +12,7 @@ from rich.text import Text
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
-from coding_agent.persistence.active import ActiveSession, list_active
+from coding_agent.addons.persistence.active import ActiveSession, list_active
 from coding_agent.resources.usage import sample_usage
 from coding_agent.tui.screens.modal import ModalBase
 

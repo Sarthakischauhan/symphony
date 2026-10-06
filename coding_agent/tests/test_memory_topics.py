@@ -4,7 +4,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 import pytest
 
-from coding_agent.learning.store import LearningStore, Lesson, MEMORY_CONTEXT_PREFIX
+from coding_agent.addons.learning.store import LearningStore, Lesson, MEMORY_CONTEXT_PREFIX
 
 
 def make_store(tmp_path):
@@ -30,7 +30,7 @@ def test_dedup_and_retry_after_topic_commit(tmp_path, monkeypatch):
     store = make_store(tmp_path)
     store.record_observation('Use pytest for tests', topic='testing', sources=['a'])
     store.record_observation('use pytest for tests', topic='testing', sources=['b'])
-    import coding_agent.learning.store as module
+    import coding_agent.addons.learning.store as module
     replace = module.os.replace
     def fail_archive(src, dst):
         if '/observations/archive/' in str(dst):

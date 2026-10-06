@@ -10,7 +10,7 @@ from typing import Any, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from core_harness.config import HarnessConfig
-from coding_agent.plugins.models import PluginConfig
+from coding_agent.addons.plugins.models import PluginConfig
 from coding_agent.prompts import SUBAGENT_SYSTEM_PROMPT
 
 SPAWN_SETTINGS_NAME = "config.json"

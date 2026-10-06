@@ -12,7 +12,7 @@ from core_ai.content import text_from_content
 
 from coding_agent import CodingAgent
 from coding_agent.config import ensure_spawn_settings
-from coding_agent.persistence import JsonlPersistence, sessions_dir
+from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.run.cli import continue_interrupted
 from scripted_registry import ScriptedRegistry
 
@@ -146,7 +146,7 @@ def test_continue_refuses_while_detached_pid_is_alive(
 
     from core_harness import Checkpoint
 
-    from coding_agent.persistence.artifacts import publish
+    from coding_agent.addons.persistence.artifacts import publish
 
     live = subprocess.Popen(["sleep", "30"], start_new_session=True)
     orphan = subprocess.Popen(["sleep", "30"], start_new_session=True)
@@ -179,7 +179,7 @@ def test_continue_allows_a_dead_detached_pid(
 
     from core_harness import Checkpoint
 
-    from coding_agent.persistence.artifacts import publish
+    from coding_agent.addons.persistence.artifacts import publish
 
     orphan = subprocess.Popen(["sleep", "30"], start_new_session=True)
     try:

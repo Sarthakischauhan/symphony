@@ -4,7 +4,7 @@ Symphony can send coding-agent traces to [Langfuse](https://langfuse.com) so you
 can inspect the conversation actually sent to the model, tool calls, and
 compaction.
 
-The add-on is first-party (`coding_agent.addon.langfuse.LangfuseAddon`). It is not a
+The add-on is first-party (`coding_agent.addons.langfuse.addon.LangfuseAddon`). It is not a
 plugin: plugin loading still requires `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS`.
 
 ## What a trace contains

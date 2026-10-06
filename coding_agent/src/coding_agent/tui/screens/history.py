@@ -6,7 +6,7 @@ import json
 from typing import Any, Protocol
 
 from coding_agent.agent import CodingAgent
-from coding_agent.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
+from coding_agent.addons.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
 from coding_agent.tui.runtime.events import _duration
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.images import display_from_content
