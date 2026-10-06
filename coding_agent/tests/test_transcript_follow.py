@@ -351,3 +351,28 @@ def test_patch_diff_card_updates_in_place(
             assert not card.collapsed
 
     asyncio.run(_run())
+
+
+def test_finished_group_rows_release_their_call_models(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            _read(app, "read-1")
+            _read(app, "read-2", status="running")
+            await pilot.pause()
+            group = app.query_one(ToolCallSummary)
+            assert "read-1" not in app._tools
+            assert "read-2" in app._tools
+
+            # A late duplicate event for a finished row changes nothing.
+            app.update_tool("read-1", tool_name="read_file", status="preparing")
+            await pilot.pause()
+            assert list(app.query(ToolCallSummary)) == [group]
+            assert [call.status for call in group.calls] == ["done", "running"]
+            assert "read-1" not in app._tools
+
+    asyncio.run(_run())
