@@ -9,7 +9,7 @@ Textual's scroll anchor on ``#transcript``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Final, Mapping, Optional
 
 from textual import events
 from textual.containers import VerticalScroll
@@ -35,6 +35,11 @@ if TYPE_CHECKING:
     # tools.* imports transcript.messages, so the runtime imports stay local.
     from coding_agent.tui.tools.calls import ToolCallWidget
     from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary
+
+
+# How long after a run ends its widgets are swapped for their frozen lines
+# (fx's transcript_release). A new turn freezes finished runs straight away.
+FREEZE_DELAY_S: Final = 0.5
 
 
 class TranscriptScroll(VerticalScroll):
@@ -268,11 +273,12 @@ class TranscriptSurface:
         self._close_tool_group()
         if self._process is not None:
             self._process.complete(title)
-            # After the final reply and the completion row are laid out. Runs
-            # a click thawed since the last freeze go back to frozen as well.
-            self.call_after_refresh(self._freeze_finished_runs)
+            # Off the run-end path: the final reply paints first, and the
+            # frozen lines are identical, so the swap is not visible.
+            self.set_timer(FREEZE_DELAY_S, self.freeze_finished_runs)
 
-    def _freeze_finished_runs(self) -> None:
+    def freeze_finished_runs(self) -> None:
+        """Freeze every finished run, including ones a click has thawed since."""
         for process in self.query(RunProcess):
             process.freeze()
 

@@ -111,6 +111,7 @@ from coding_agent.tui.transcript import (
     ThinkingStatus,
     UserMessage,
 )
+from coding_agent.tui.transcript.surface import FREEZE_DELAY_S
 
 
 @pytest.fixture(autouse=True)
@@ -1904,6 +1905,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
             await pilot.pause()
             # Run end freezes the turn; thawed, the thought and the group are
             # the same widgets.
+            await pilot.pause(FREEZE_DELAY_S)
             frozen_run = app.query_one(RunProcess)
             assert frozen_run.frozen
             await frozen_run.thaw()
@@ -3781,6 +3783,7 @@ def test_final_output_keeps_the_run_as_it_streamed(
             metrics = "3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls"
             app.finish_process(metrics)
             await pilot.pause()
+            await pilot.pause(FREEZE_DELAY_S)
             frozen_run = app.query_one(RunProcess)
             assert frozen_run.frozen
             await frozen_run.thaw()

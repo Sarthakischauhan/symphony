@@ -72,6 +72,8 @@ class ComposerSurface:
         self._start_turn(QueuedTurn(user_content, text, pasted_chunks, images))
 
     def _start_turn(self, turn: QueuedTurn) -> None:
+        # History is frozen before the new turn streams next to it.
+        self.freeze_finished_runs()
         self._run_generation += 1
         self.sink.reset_cancel()
         self._assistant = None

@@ -23,6 +23,7 @@ from coding_agent.tui.tools import (
 )
 from coding_agent.tui.tools.calls import LIVE_OUTPUT_TAIL_LINES
 from coding_agent.tui.transcript import AssistantMessage, TranscriptScroll, UserMessage
+from coding_agent.tui.transcript.surface import FREEZE_DELAY_S
 
 SIZE = (100, 30)
 
@@ -157,6 +158,7 @@ def test_run_end_keeps_intermediate_text_and_user_expanded_groups(
 
             app.finish_process("12s · 3 model calls · 5 tool calls")
             await pilot.pause()
+            await pilot.pause(FREEZE_DELAY_S)
 
             process = app._process
             assert process is not None and process.frozen
@@ -225,7 +227,7 @@ def test_a_new_turn_starts_fresh_tool_groups(
             first = app._tool_groups["call-0"]
             app.finish_process("done")
             await pilot.pause()
-            await pilot.pause()  # the run mounts, then freezes
+            await pilot.pause(FREEZE_DELAY_S)  # the finished run freezes
             first_run = app._process
             assert first_run is not None and first_run.frozen
 

@@ -14,6 +14,7 @@ from coding_agent.tui.composer import QueuedTurn
 from coding_agent.tui.tools import ToolCallSummary
 from coding_agent.tui.transcript import TranscriptScroll
 from coding_agent.tui.transcript.process import RunProcess
+from coding_agent.tui.transcript.surface import FREEZE_DELAY_S
 
 SIZE = (100, 30)
 
@@ -53,8 +54,9 @@ async def _finish(app: CodingAgentApp, pilot: Pilot[None]) -> RunProcess:
     assert process is not None
     app.finish_process("1s (↑1k ↓200) · 1 model call · 5 tool calls")
     await pilot.pause()
-    await pilot.pause()  # mounted and laid out, then frozen
+    await pilot.pause(FREEZE_DELAY_S)  # the finished run freezes
     assert process.frozen
+    await pilot.pause()  # its live widgets finish unmounting
     return process
 
 

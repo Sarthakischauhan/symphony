@@ -13,6 +13,7 @@ from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual._compositor import Compositor
+from textual.await_remove import AwaitRemove
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.geometry import Size
 from textual.message import Message
@@ -180,6 +181,8 @@ class RunProcess(Container):
         # The rendered lines while frozen, and the width they were rendered at.
         self._frozen: list[Strip] | None = None
         self._frozen_width = 0
+        # Unmounting the live widgets finishes asynchronously; a thaw waits for it.
+        self._unmounting: AwaitRemove | None = None
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
@@ -248,13 +251,16 @@ class RunProcess(Container):
         compositor.reflow(self, Size(width, height))
         self._frozen = compositor.render_strips()
         self._frozen_width = width
-        self.remove_children()
+        self._unmounting = self.remove_children()
         self.refresh(layout=True)
 
     async def thaw(self) -> None:
         """Mount the run's widgets again, in the state they were frozen in."""
         if self._frozen is None:
             return
+        if self._unmounting is not None:
+            await self._unmounting
+            self._unmounting = None
         self._frozen = None
         await self.mount(*self._items)
 
