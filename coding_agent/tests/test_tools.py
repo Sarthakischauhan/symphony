@@ -159,15 +159,18 @@ def test_generate_image_rejects_non_image_paths_and_missing_provider(tmp_path: P
     assert not (tmp_path / "cat.png").exists()
 
 
-def test_generate_image_widget_summarizes_path_and_result(tmp_path: Path) -> None:
+def test_generate_image_widget_summarizes_and_opens_preview(tmp_path: Path) -> None:
+
+
     (tmp_path / "icon.png").write_bytes(PNG_1X1)
     widget = GenerateImageWidget("img-1", "generate_image")
     widget.set_arguments({"path": "icon.png", "prompt": "a red square"})
     widget.set_result("Wrote image icon.png (image/png, 70 bytes)\n[image:icon.png]")
     assert widget._summary() == "icon.png"
     assert widget._result_summary() == "Wrote image icon.png (image/png, 70 bytes)"
-    assert widget._header_values == ("Image", "icon.png", "done")
-    assert widget.snapshot().result == "Wrote image icon.png (image/png, 70 bytes)"
+    rows = widget._body_rows()
+    chip = rows[-1]
+    assert "[Image 1]" in chip.plain
 
 
 

@@ -195,7 +195,7 @@ class TranscriptSurface:
 
         if self._thinking is not None:
             self._thinking.set_visible(False)
-        widget = make_tool_widget(call_id, name)
+        widget = make_tool_widget(call_id, name, workspace=self.workspace)
         self._tools[call_id] = widget
         self._mount_process_item(widget)
 

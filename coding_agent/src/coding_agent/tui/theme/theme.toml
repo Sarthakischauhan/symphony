@@ -49,6 +49,7 @@ panel = "surface"
 panel-light = "overlay"
 panel-edge = "edge"
 panel-edge-focus = "panel_edge_focus"
+danger = "keyword"
 
 [css.spacing]
 # Left/right inset of the top bar, transcript, composer, and footer.
@@ -275,15 +276,34 @@ Screen {
 }
 '''
 tools = '''
-/* Tool rows are display-only: one status-colored header line with no click,
-   focus, or expand state. */
 .tool-call {
     width: 100%;
     height: auto;
     min-height: 1;
     margin: $space-block 0;
     padding: 0;
+    padding-bottom: 0;
+    padding-left: 0;
     background: $background;
+    border: none;
+    border-top: none;
+    pointer: pointer;
+}
+
+.tool-call:focus-within {
+    background: $background;
+}
+
+.tool-call > CollapsibleTitle {
+    width: 1;
+    height: 0;
+    padding: 0;
+    color: transparent;
+    background: transparent;
+}
+
+.bash-tool > CollapsibleTitle {
+    display: none;
 }
 
 .tool-call-header {
@@ -291,6 +311,17 @@ tools = '''
     height: 1;
     padding: 0 0 0 $space-gutter;
     background: transparent;
+    pointer: pointer;
+}
+
+.tool-call-header:hover,
+.tool-call-header:focus {
+    background: transparent;
+}
+
+.tool-call-header:hover .tool-call-label,
+.tool-call-header:focus .tool-call-label {
+    text-style: bold;
 }
 
 .tool-call-label {
@@ -315,7 +346,103 @@ tools = '''
     color: #d66b73;
 }
 
-/* Explored / completed-run fold: a display-only summary row. */
+.tool-call.status-preparing > CollapsibleTitle,
+.tool-call.status-running > CollapsibleTitle {
+    color: #d7a84b;
+}
+
+.tool-call.status-done > CollapsibleTitle {
+    color: #72a57a;
+}
+
+.tool-call.status-failed > CollapsibleTitle {
+    color: #d66b73;
+}
+
+.tool-call > Contents {
+    /* Align expanded output with the opening bracket in the tool header. */
+    padding: 0 0 0 $space-gutter;
+}
+
+.bash-tool {
+    padding: 0;
+    padding-bottom: 0;
+    border: none;
+    border-top: none;
+}
+
+.bash-tool-header {
+    width: auto;
+    height: 1;
+    padding: 0 0 0 $space-gutter;
+    background: transparent;
+    pointer: pointer;
+}
+
+.bash-tool-header:hover,
+.bash-tool-header:focus {
+    background: transparent;
+}
+
+.bash-tool-header:hover .bash-tool-label,
+.bash-tool-header:focus .bash-tool-label {
+    text-style: bold;
+}
+
+.bash-tool-label {
+    width: auto;
+    height: 1;
+    color: #9aa7b2;
+    background: transparent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bash-tool.status-preparing .bash-tool-label,
+.bash-tool.status-running .bash-tool-label {
+    color: #d7a84b;
+}
+
+.bash-tool.status-done .bash-tool-label {
+    color: #72a57a;
+}
+
+.bash-tool.status-failed .bash-tool-label {
+    color: #d66b73;
+}
+
+.bash-tool-body {
+    width: 100%;
+    height: auto;
+    padding: 0 $space-inset 0 $space-gutter;
+    color: #777777;
+    background: $background;
+}
+
+.bash-tool.-collapsed .bash-tool-body {
+    display: none;
+}
+
+.diff-tool {
+    padding: 0;
+    padding-bottom: 0;
+    background: $background;
+    border: none;
+    border-top: none;
+}
+
+/* Keep collapsed Update cards visually consistent with the timeline while
+   retaining strong line-level colors when the diff is expanded. */
+.diff-tool > Contents,
+.diff-tool .tool-call-header {
+    background: $background;
+}
+
+.diff-tool .tool-call-header:hover,
+.diff-tool .tool-call-header:focus {
+    background: transparent;
+}
+
 .tool-call-summary {
     width: 1fr;
     height: auto;
@@ -323,8 +450,34 @@ tools = '''
     padding: 0 0 0 $space-gutter;
     color: #a2adb8;
     background: transparent;
-    opacity: 0.85;
+    opacity: 0.72;
+    pointer: pointer;
     border: none;
+}
+
+.tool-call-summary:hover,
+.tool-call-summary:focus {
+    background: transparent;
+    opacity: 1;
+    text-style: bold;
+}
+
+/* Rows nested inside an expanded Explored or completed-run group start at
+   the group header's left edge and read smaller: one compact, dimmed line
+   each in muted theme colours. */
+.tool-call-summary > .tool-call-summary--row {
+    color: $muted;
+    text-style: dim;
+}
+
+.tool-call-summary > .tool-call-summary--row-failed {
+    color: $danger;
+    text-style: dim;
+}
+
+.tool-call-summary > .tool-call-summary--detail {
+    color: $muted-dim;
+    text-style: dim italic;
 }
 '''
 composer = '''

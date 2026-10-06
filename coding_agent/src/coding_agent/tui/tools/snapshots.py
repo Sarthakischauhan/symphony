@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from rich.style import Style
 from rich.text import Text
+from textual import events
 
 from coding_agent.tui.motion import settle_row
 from coding_agent.tui.tools.activity import (
@@ -17,7 +19,7 @@ from coding_agent.tui.tools.activity import (
     parse_activity,
     same_activity_group,
 )
-from coding_agent.tui.tools.labels import tool_detail, tool_label
+from coding_agent.tui.tools.labels import header_target, tool_detail, tool_label
 from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
 
 
@@ -82,14 +84,31 @@ def snapshot_from_call(
     )
 
 
-class ToolCallSummary(SelectableStatic, can_focus=False):
-    """A display-only Explored row summarizing folded tool and thought snapshots."""
+NESTED_ROW = "tool-call-summary--row"
+NESTED_ROW_FAILED = "tool-call-summary--row-failed"
+NESTED_DETAIL = "tool-call-summary--detail"
+# Used before the widget is mounted (no stylesheet yet); TCSS supplies the
+# themed colours once it is.
+UNMOUNTED_NESTED_STYLE = Style(dim=True)
+# Nested rows stay regular weight while the focused/hovered header is bold.
+NESTED_WEIGHT = Style(bold=False)
+
+
+class ToolCallSummary(SelectableStatic, can_focus=True):
+    """A compact disclosure containing non-interactive tool snapshots.
+
+    Expanded rows sit at the header's left edge as compact, dimmed lines
+    styled by the ``tool-call-summary--*`` component classes in theme.toml.
+    """
+
+    COMPONENT_CLASSES = {NESTED_ROW, NESTED_ROW_FAILED, NESTED_DETAIL}
 
     def __init__(
         self, calls: Sequence[ToolCallSnapshot | ThoughtSnapshot] | None = None
     ) -> None:
         self.calls: list[ToolCallSnapshot] = []
         self.entries: list[ToolCallSnapshot | ThoughtSnapshot] = []
+        self.is_expanded = False
         super().__init__(classes="tool-call-summary", markup=False)
         for call in calls or ():
             if isinstance(call, ThoughtSnapshot):
@@ -130,14 +149,38 @@ class ToolCallSummary(SelectableStatic, can_focus=False):
         failed = sum(call.status == "failed" for call in self.calls)
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")
-        thought = next(
-            (entry for entry in self.entries if isinstance(entry, ThoughtSnapshot)),
-            None,
-        )
-        if thought is not None and thought.content:
-            preview = clip_text(" ".join(thought.content.split()), 96)
-            text.append(f"\n  {preview}", style="#858585")
+        if not self.is_expanded:
+            thought = next(
+                (entry for entry in self.entries if isinstance(entry, ThoughtSnapshot)),
+                None,
+            )
+            if thought is not None and thought.content:
+                self._append_detail(text, thought.content, 96)
+            return text
+        self._append_nested_rows(text)
         return text
+
+    def _nested_style(self, component: str) -> Style:
+        themed = self.get_component_rich_style(
+            component, partial=True, default=UNMOUNTED_NESTED_STYLE
+        )
+        return themed + NESTED_WEIGHT
+
+    def _append_detail(self, text: Text, content: str, limit: int) -> None:
+        preview = clip_text(" ".join(content.split()), limit)
+        text.append(f"\n{preview}", style=self._nested_style(NESTED_DETAIL))
+
+    def _append_nested_rows(self, text: Text) -> None:
+        """One compact line per entry, flush with the group header."""
+        for entry in self.entries:
+            if isinstance(entry, ThoughtSnapshot):
+                text.append(f"\n{entry.title}", style=self._nested_style(NESTED_ROW))
+                if entry.content:
+                    self._append_detail(text, entry.content, 220)
+                continue
+            component = NESTED_ROW_FAILED if entry.status == "failed" else NESTED_ROW
+            line = " ".join(part for part in (entry.label, header_target(entry.detail)) if part)
+            text.append(f"\n{line}", style=self._nested_style(component))
 
     @property
     def call_ids(self) -> list[str]:
@@ -181,6 +224,20 @@ class ToolCallSummary(SelectableStatic, can_focus=False):
         if layout:
             self.refresh(layout=True)
 
+    def toggle(self) -> None:
+        self.is_expanded = not self.is_expanded
+        self.refresh(layout=True)
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.toggle()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            event.prevent_default()
+            self.toggle()
+
     def snapshot_text(self) -> str:
         return "\n\n".join(call.as_text() for call in self.calls)
 
@@ -220,4 +277,6 @@ class CompletedRunSummary(ToolCallSummary):
             text.append(f" for {self._duration}", style="#a2adb8")
         if self._detail:
             text.append(f" · {self._detail}", style="#a2adb8")
+        if self.is_expanded:
+            self._append_nested_rows(text)
         return text

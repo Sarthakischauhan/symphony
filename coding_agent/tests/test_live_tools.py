@@ -12,9 +12,9 @@ from coding_agent.tui.tools.calls import (
     ToolCallWidget,
     make_tool_widget,
 )
-from coding_agent.tui.tools.labels import header_target
 from coding_agent.tui.tools.snapshots import (
     CompletedRunSummary,
+    ThoughtSnapshot,
     ToolCallSnapshot,
     ToolCallSummary,
     snapshot_from_call,
@@ -360,20 +360,37 @@ def test_read_header_uses_protocol_path_without_slash() -> None:
     assert widget._header_values[1] == "labels.py"
 
 
-def test_tool_call_summary_is_a_display_only_row() -> None:
+def test_tool_call_summary_discloses_non_interactive_snapshots() -> None:
     widget = make_tool_widget("read-1", "read_file")
     widget.set_arguments({"path": "src/app.py"})
     widget.set_result("line one\nline two")
     summary = ToolCallSummary()
     summary.add_call(widget)
 
+    assert "src/app.py" not in summary.render().plain
+    summary.toggle()
+
     rendered = summary.render().plain
     assert rendered.startswith("Explored · 1 tool")
-    assert "src/app.py" not in rendered
-    assert summary.calls[0].detail == "src/app.py"
-    assert not summary.can_focus
-    assert not hasattr(summary, "toggle")
-    assert not hasattr(summary, "is_expanded")
+    assert "Read app.py" in rendered
+    assert "Read 2 lines (17 bytes)" not in rendered
+
+
+def test_expanded_summary_rows_start_at_the_header_edge() -> None:
+    summary = ToolCallSummary(
+        (
+            ToolCallSnapshot("read-1", label="Read", detail="src/app.py"),
+            ThoughtSnapshot(title="Thought 1.2s", content="Checking the loader."),
+            ToolCallSnapshot("bash-1", label="Bash", detail="pytest -q", status="failed"),
+        )
+    )
+    summary.toggle()
+
+    header, *rows = summary.render().plain.split("\n")
+    assert header.startswith("Explored")
+    assert rows == ["Read app.py", "Thought 1.2s", "Checking the loader.", "Bash pytest -q"]
+    assert all(row == row.lstrip() for row in rows)
+    assert all(not row.startswith(("└", "├", "│")) for row in rows)
 
 
 def test_patch_header_recovers_path_when_arguments_are_missing() -> None:
@@ -398,10 +415,11 @@ def test_patch_snapshot_keeps_update_target_and_stats() -> None:
     widget.set_result("patched src/labels.py (1 replacement(s), +4 bytes)")
     summary = ToolCallSummary()
     summary.add_call(widget)
+    summary.toggle()
 
-    snapshot = summary.calls[0]
-    assert snapshot.label == "Update"
-    assert header_target(snapshot.detail) == "labels.py +1 -1"
+    rendered = summary.render().plain
+    assert "Update labels.py +1 -1" in rendered
+    assert "Update\\n" not in rendered
 
 
 def test_tool_call_summary_keeps_snapshots_of_folded_tools() -> None:
@@ -440,13 +458,22 @@ def test_finalization_folds_partial_batch_and_completed_subagents() -> None:
     assert tools["read"] is tools["child"]
 
 
-def test_summary_keeps_failures_visible() -> None:
+def test_summary_keeps_failures_visible_when_collapsed() -> None:
     summary = ToolCallSummary()
     summary.add_call(ToolCallSnapshot("failed", status="failed", result="Permission denied"))
 
     assert "1 failed" in summary.render().plain
-    assert "Permission denied" not in summary.render().plain
     assert summary.has_class("has-failures")
+    summary.toggle()
+    assert "Permission denied" not in summary.render().plain
+
+
+def test_finalization_closes_expanded_batches_without_new_tools() -> None:
+    summary = ToolCallSummary()
+    summary.add_call("read")
+    summary.toggle()
+    reconcile_live_tools([summary], final=True)
+    assert not summary.is_expanded
 
 
 def test_interrupted_completed_thought_is_compacted_but_live_thought_remains() -> None:
@@ -659,13 +686,18 @@ def test_explored_title_appends_duration_only_when_verb_is_set() -> None:
     assert format_explored_duration((reason_only,)) == ""
 
 
-def test_thought_snapshot_shows_body_preview() -> None:
+def test_thought_snapshot_keeps_collapsed_preview() -> None:
     summary = ToolCallSummary()
     summary.add_thought("Thought Inspecting files", "Private reasoning body")
 
-    rendered = summary.render().plain
-    assert "Private reasoning body" in rendered
-    assert "Thought Inspecting files" not in rendered
+    collapsed = summary.render().plain
+    assert "Private reasoning body" in collapsed
+    assert "Thought Inspecting files" not in collapsed
+
+    summary.toggle()
+    expanded = summary.render().plain
+    assert "Thought Inspecting files" in expanded
+    assert "Private reasoning body" in expanded
 
 
 def test_motion_helpers_are_safe_without_an_app() -> None:
