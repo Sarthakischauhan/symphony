@@ -170,7 +170,7 @@ class SlashMenu(OptionList):
 
         if self._choice_count or question_text:
             self._render_options()
-        else:
+        elif self.display:
             self._hide()
 
     def _hide(self) -> None:

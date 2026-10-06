@@ -81,10 +81,11 @@ def _history_widgets(
     batch: list[ToolCallSnapshot | ThoughtSnapshot] = []
     thoughts = _thoughts_from_events(events or [])
     event_calls = _tool_fields_from_events(events or [])
-    collect_mid_run = _has_collected_mid_run(events or [])
+    collected_runs = _collected_run_ids(events or [])
     run_completions = _run_completions_from_events(events or [])
     current_run: list[Any] = []
     collecting = False
+    active_run_id = ""
 
     def flush_batch() -> None:
         if not batch:
@@ -119,10 +120,17 @@ def _history_widgets(
             restored.append(widget)
 
     def add_call(fields: dict[str, Any]) -> None:
+        nonlocal collecting, active_run_id
+        run_id = str(fields.get("run_id") or "")
+        if collected_runs and run_id and run_id != active_run_id:
+            flush_run()
+            active_run_id = run_id
+        if collected_runs == {""}:
+            collecting = True
+        elif collected_runs:
+            collecting = bool(run_id and run_id in collected_runs)
         arguments = fields.get("arguments") or {}
-        if fields["tool_name"] == "spawn_agent" or (
-            fields["tool_name"] == "bash" and arguments.get("background")
-        ):
+        if fields["tool_name"] in {"spawn_agent", "bash"}:
             flush_batch()
             widget = make_tool_widget(str(fields["call_id"]), str(fields["tool_name"]))
             widget.set_arguments(arguments, str(fields.get("raw_arguments") or ""))
@@ -135,7 +143,7 @@ def _history_widgets(
                 widget.status = "failed"
             add_visible(widget)
         else:
-            add_snapshot(snapshot_from_call(**fields))
+            add_snapshot(snapshot_from_call(**{key: value for key, value in fields.items() if key != "run_id"}))
 
     for index, message in enumerate(messages):
         if index in notifications:
@@ -147,18 +155,29 @@ def _history_widgets(
             pending.clear()
             text, images = display_from_content(message.content)
             restored.append(UserMessage(text, images=images))
-            collecting = collect_mid_run
+            collecting = bool(collected_runs)
         elif message.role == "assistant":
             content = text_from_content(message.content)
+            calls = [_call_fields(call) for call in message.tool_calls or []]
+            for fields in calls:
+                call_id = str(fields["call_id"])
+                fields = _merge_call_fields(fields, event_calls.get(call_id, {}))
+                run_id = str(fields.get("run_id") or "")
+                if collected_runs and run_id and run_id != active_run_id:
+                    flush_run()
+                    active_run_id = run_id
+                if collected_runs == {""}:
+                    collecting = True
+                elif collected_runs:
+                    collecting = bool(run_id and run_id in collected_runs)
             if content:
                 flush_batch()
                 add_visible(AssistantMessage(content, streaming=False))
             if thoughts:
                 add_snapshot(thoughts.pop(0))
-            for call in message.tool_calls or []:
-                fields = _call_fields(call)
+            for fields in calls:
                 call_id = str(fields["call_id"])
-                pending[call_id] = _merge_call_fields(event_calls.pop(call_id, {}), fields)
+                pending[call_id] = _merge_call_fields(fields, event_calls.pop(call_id, {}))
         elif message.role == "tool":
             call_id = str(message.tool_call_id or "")
             fields = pending.pop(call_id, None) or event_calls.pop(call_id, None) or {
@@ -254,11 +273,21 @@ def _thoughts_from_events(events: list[tuple[str, dict[str, Any]]]) -> list[Thou
     return thoughts
 
 
-def _has_collected_mid_run(events: list[tuple[str, dict[str, Any]]]) -> bool:
-    return any(
-        event_type in COLLECTABLE_EVENT_TYPES and is_collected(payload)
-        for event_type, payload in events
-    )
+def _collected_run_ids(events: list[tuple[str, dict[str, Any]]]) -> set[str]:
+    """Runs whose persisted mid-run work was explicitly folded.
+
+    Empty means a legacy collected event had no run ID. Those journals cannot
+    distinguish runs, so resume keeps the historical session-wide fold.
+    """
+    collected = [
+        payload for event_type, payload in events
+        if event_type in COLLECTABLE_EVENT_TYPES and is_collected(payload)
+    ]
+    if not collected:
+        return set()
+    if any(not payload.get("run_id") for payload in collected):
+        return {""}
+    return {str(payload["run_id"]) for payload in collected}
 
 
 def _tool_fields_from_events(
@@ -267,7 +296,7 @@ def _tool_fields_from_events(
     """Use persisted protocol arguments as the source of truth for history tools."""
     calls: dict[str, dict[str, Any]] = {}
     for event_type, payload in events:
-        if event_type not in {"tool_call_started", "tool_execution_started", "tool_execution_completed"}:
+        if event_type not in {"tool_call_started", "tool_execution_started", "tool_execution_completed", "agent_spawned"}:
             continue
         call_id = str(payload.get("tool_call_id") or "")
         if not call_id:
@@ -279,6 +308,7 @@ def _tool_fields_from_events(
                 "tool_name": "tool",
                 "arguments": {},
                 "raw_arguments": "",
+                "run_id": "",
             },
         )
         tool_name = str(payload.get("tool_name") or "")
@@ -288,6 +318,20 @@ def _tool_fields_from_events(
         if isinstance(arguments, dict) and arguments:
             current["arguments"] = dict(arguments)
             current["raw_arguments"] = json.dumps(arguments, ensure_ascii=False)
+        run_id = str(payload.get("run_id") or "")
+        if run_id:
+            current["run_id"] = run_id
+        if event_type == "agent_spawned":
+            call_id = str(payload.get("tool_call_id") or "")
+            if call_id:
+                calls.setdefault(call_id, {
+                    "call_id": call_id,
+                    "tool_name": "spawn_agent",
+                    "arguments": {},
+                    "raw_arguments": "",
+                    "run_id": "",
+                })["run_id"] = str(payload.get("run_id") or calls[call_id]["run_id"])
+            continue
         if event_type == "tool_execution_completed":
             result = payload.get("result")
             if result:
@@ -349,6 +393,17 @@ def _run_completions_from_events(
     return completions
 
 
+def _folds_on_completion(item: Any) -> bool:
+    """Match the live completed-run rule for foreground cards."""
+    from coding_agent.tui.tools.calls import BashToolWidget, PatchDiffWidget, ToolCallWidget
+
+    return isinstance(item, ToolCallWidget) and (
+        not item.keep_in_transcript
+        or isinstance(item, PatchDiffWidget)
+        or isinstance(item, BashToolWidget) and not item.arguments.get("background")
+    )
+
+
 def _fold_collected_run(
     items: list[Any],
     *,
@@ -374,6 +429,8 @@ def _fold_collected_run(
                     summary.add_thought(entry.title, entry.content, layout=False)
                 else:
                     summary.add_call(entry, layout=False)
+        elif _folds_on_completion(item):
+            summary.add_call(item.snapshot(), layout=False)
         else:
             cards.append(item)
     folded: list[Any] = list(cards)
@@ -397,6 +454,7 @@ def _call_fields(call: Any) -> dict[str, Any]:
         args = {}
     return {
         "call_id": str(call.get("id") or "history-tool"),
+        "run_id": "",
         "tool_name": str(function.get("name") or call.get("name") or "tool"),
         "arguments": args,
         "raw_arguments": raw if isinstance(raw, str) else "",

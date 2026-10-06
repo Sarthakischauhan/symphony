@@ -33,7 +33,9 @@ class TurnSurface:
                 self._ui_state,
                 hint=hint,
                 workspace=display_workspace_path(self.workspace),
-            )
+            ),
+            # The footer has fixed width/height; metrics only change its paint.
+            layout=False,
         )
         model_id = self._ui_state.model_id or getattr(self, "model_id", "") or ""
         if model_id != getattr(self, "_topbar_model", None):
@@ -42,12 +44,18 @@ class TurnSurface:
 
     def _schedule_stream_flush(self, callback: Callable[[], None]) -> None:
         """Coalesce stream paints to keep Markdown/widget work bounded."""
+        # A structural event can drain paints before this timer fires. Keep
+        # the newest generation's callback rather than stranding its updates.
+        self._stream_flush_callback = callback
         if getattr(self, "_stream_flush_timer", None) is not None:
             return
 
         def _run() -> None:
             self._stream_flush_timer = None
-            callback()
+            pending = self._stream_flush_callback
+            self._stream_flush_callback = None
+            if pending is not None:
+                pending()
 
         self._stream_flush_timer = self.set_timer(STREAM_PAINT_INTERVAL_S, _run)
 

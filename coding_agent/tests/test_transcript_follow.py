@@ -264,7 +264,7 @@ def test_bash_card_identity_is_stable_across_output_and_status(
 
             for line in range(20):
                 _bash_output(app, "bash-1", line)
-                await pilot.pause()
+                await pilot.pause(0.1)  # Wait for the coalesced output tick.
                 assert app.query_one(BashToolWidget) is card
                 assert card.query_one(".bash-tool-tail", Static) is tail
                 # A fixed window from the first chunk, so chunks never change its height.
@@ -309,6 +309,7 @@ def test_long_bash_output_lines_are_clipped_to_one_row_each(
             app._presenter.handle(
                 "tool_execution_output", {"tool_call_id": "bash-1", "delta": "\n".join(lines) + "\n"}
             )
+            await pilot.pause(0.1)  # Wait for the coalesced output tick.
             await pilot.pause()
             screen = app.export_screenshot().replace("&#160;", " ")
             # Each output line keeps one row, clipped with an ellipsis instead of wrapping.
@@ -382,7 +383,14 @@ def test_patch_diff_card_updates_in_place(
             handle("run_completed", {"output_text": "Updated the file."})
             await pilot.pause()
             assert not list(app.query(PatchDiffWidget))
-            assert app.query_one(CompletedRunSummary).call_ids == ["patch-1"]
+            summary = app.query_one(CompletedRunSummary)
+            assert summary.call_ids == ["patch-1"]
+
+            # A tool result can arrive after the run has already folded.
+            app.update_tool("patch-late", tool_name="patch", status="done", result="patched labels.py")
+            await pilot.pause()
+            assert list(app.query(ToolCallSummary)) == [summary]
+            assert summary.call_ids == ["patch-1", "patch-late"]
 
     asyncio.run(_run())
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from pathlib import Path
@@ -323,8 +324,10 @@ class CodingAgent:
             jev_addon.follow_ups = 0
 
         if not self.goal:
-            previous = await self.persistence.load_checkpoint(session_id=session_id or self.session_id)
-            self.goal = (previous.metadata.get("goal") if previous else "") or task_text
+            goal = getattr(self.persistence, "checkpoint_goal", None)
+            if callable(goal):
+                self.goal = await asyncio.to_thread(goal, session_id or self.session_id)
+            self.goal = self.goal or task_text
         if mode == "plan" and not self.plan_mode.plan_path:
             plan_path = self.plan_store.begin(task_text)
             self.plan_mode.begin(str(plan_path))

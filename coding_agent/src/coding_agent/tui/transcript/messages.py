@@ -30,30 +30,20 @@ USER_PROMPT_GUTTER = 3
 
 
 class SelectableStatic(Static):
-    """Static widget that reuses a completed render and supports text selection."""
+    """Selectable Rich content using Textual's dirty-region render cache."""
 
     ALLOW_SELECT = True
-    _render_cache_content: object | None = None
 
     def _invalidate_render_cache(self, *, layout: bool = False) -> None:
-        self._render_cache_content = None
         self.refresh(layout=layout)
 
-    def _render_content(self):
-        if self._render_cache_content is not None and not getattr(self, "_streaming", False):
-            return self._render_cache_content
-        content = super()._render_content()
-        if not getattr(self, "_streaming", False):
-            self._render_cache_content = content
-        return content
-
     def freeze_render(self) -> None:
-        if getattr(self, "_streaming", False) or self._render_cache_content is not None:
-            return
-        # Fresh/unattached widgets can finish before Textual attaches a screen.
-        if not self.is_attached:
-            return
-        self._render_cache_content = super()._render_content()
+        """Compatibility hook for transcript completion; rendering remains lazy.
+
+        Textual caches rendered strips until content, size, or styles change.
+        Its _render_content() populates that cache in place and returns None;
+        eagerly calling it here would re-render even clean, completed messages.
+        """
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         # Extract from the exact rendered strips so Rich renderables (Markdown,

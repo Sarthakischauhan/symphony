@@ -48,6 +48,12 @@ class TranscriptScroll(VerticalScroll):
     def on_mount(self) -> None:
         self.anchor()
 
+    def anchor(self, anchor: bool = True) -> None:
+        """Follow new content with a short scroll instead of an instant jump."""
+        self._anchored = anchor
+        if anchor:
+            self.scroll_end(animate=True, duration=0.35, easing="out_cubic")
+
     @property
     def scroll_offset(self) -> Offset:
         """Keep short transcripts top-aligned while anchored.
@@ -167,11 +173,17 @@ class TranscriptSurface:
 
     def _show_tool(self, tool: ToolCallWidget) -> None:
         """Mount an interactive card once, or place/update a row in its group."""
-        if tool.keep_in_transcript:
+        if tool.keep_in_transcript and not (
+            self._process is not None and self._process.completed and tool.status in {"done", "failed"}
+        ):
             if not tool.is_attached:
                 self._mount_process_item(tool)
             return
         snapshot = tool.snapshot()
+        if self._process is not None and self._process.completed:
+            self._process.absorb_late_call(snapshot)
+            self._tool_groups[tool.call_id] = self._process.completed_summary or self._tool_groups.get(tool.call_id)
+            return
         group = self._tool_groups.get(tool.call_id)
         if group is not None and not (
             group is self._open_tool_group and group.rejects_last(snapshot)

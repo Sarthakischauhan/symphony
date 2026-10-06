@@ -185,7 +185,10 @@ class EventPresenter:
         self._pending_assistant: Optional[tuple[str, bool]] = None
         self._pending_reasoning: Optional[tuple[str, bool]] = None
         self._pending_tool_paints: dict[str, None] = {}
+        self._pending_tool_output: dict[str, list[str]] = {}
+        self._pending_thinking: Optional[str] = None
         self._flush_scheduled = False
+        self._stream_generation = 0
         self._last_chrome: Optional[ChromeSnapshot] = None
         self._started_at: Optional[float] = None
         self._started_ts: Optional[float] = None
@@ -226,14 +229,17 @@ class EventPresenter:
             # Honour the sticky tag so resume cannot resurrect live cards.
             return
         before = self._chrome_snapshot()
-        if event_type not in _BUFFERED_PAINT_EVENT_TYPES:
-            self.flush_stream_paints()
+        # Observations must not turn an interleaved stream into per-event paints.
+        observational = event_type in {"usage", "context", "tool_execution_output"}
+        if event_type not in _BUFFERED_PAINT_EVENT_TYPES and not observational:
+            if event_type != "run_started":
+                self.flush_stream_paints()
         handler = getattr(self, f"_on_{event_type}", None)
         if handler is None:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
-        if event_type in _BUFFERED_PAINT_EVENT_TYPES:
+        if event_type in _BUFFERED_PAINT_EVENT_TYPES or observational:
             self._request_stream_flush()
         after = self._chrome_snapshot()
         if after != before:
@@ -246,14 +252,22 @@ class EventPresenter:
         self._assistant_open = False
 
     def flush_stream_paints(self) -> None:
-        """Apply buffered assistant/reasoning widget updates."""
+        """Apply buffered stream, tool output, and usage widget updates."""
         self._flush_scheduled = False
+        # Invalidate callbacks left queued after a structural event drains us.
+        self._stream_generation += 1
+        pending_thinking = self._pending_thinking
+        self._pending_thinking = None
+        pending_output = self._pending_tool_output
+        self._pending_tool_output = {}
         pending_reasoning = self._pending_reasoning
         pending_assistant = self._pending_assistant
         self._pending_reasoning = None
         self._pending_assistant = None
         pending_tools = tuple(self._pending_tool_paints)
         self._pending_tool_paints.clear()
+        if pending_thinking is not None:
+            self.view.set_thinking(pending_thinking)
         if pending_reasoning is not None:
             text, new = pending_reasoning
             self.view.set_reasoning(text, new=new)
@@ -262,6 +276,8 @@ class EventPresenter:
             self.view.set_assistant(text, new=new)
         for call_id in pending_tools:
             self._paint_pending_tool(call_id)
+        for call_id, chunks in pending_output.items():
+            self.view.append_tool_output(call_id, "".join(chunks))
 
     def _paint_pending_tool(self, call_id: str) -> None:
         """Mount/update a buffered tool paint only when the real name is known."""
@@ -284,6 +300,8 @@ class EventPresenter:
             self._pending_assistant is None
             and self._pending_reasoning is None
             and not self._pending_tool_paints
+            and not self._pending_tool_output
+            and self._pending_thinking is None
         ):
             return
         if self._schedule_flush is None:
@@ -292,7 +310,13 @@ class EventPresenter:
         if self._flush_scheduled:
             return
         self._flush_scheduled = True
-        self._schedule_flush(self.flush_stream_paints)
+        generation = self._stream_generation
+
+        def flush_if_current() -> None:
+            if generation == self._stream_generation:
+                self.flush_stream_paints()
+
+        self._schedule_flush(flush_if_current)
 
     def _buffer_assistant(self, text: str, *, new: bool) -> None:
         if self._pending_assistant is None:
@@ -340,7 +364,10 @@ class EventPresenter:
         self._pending_assistant = None
         self._pending_reasoning = None
         self._pending_tool_paints.clear()
+        self._pending_tool_output.clear()
+        self._pending_thinking = None
         self._flush_scheduled = False
+        self._stream_generation += 1
         self.view.set_thinking("Thinking…")
 
     def _on_run_completed(self, payload: Mapping[str, Any]) -> None:
@@ -597,7 +624,8 @@ class EventPresenter:
         """A streamed output chunk from a running tool (shown by Bash cards)."""
         chunk = str(payload.get("delta") or "")
         if chunk:
-            self.view.append_tool_output(str(payload.get("tool_call_id") or "tool"), chunk)
+            call_id = str(payload.get("tool_call_id") or "tool")
+            self._pending_tool_output.setdefault(call_id, []).append(chunk)
 
     def _on_tool_execution_completed(self, payload: Mapping[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
@@ -617,7 +645,7 @@ class EventPresenter:
     def _on_usage(self, payload: Mapping[str, Any]) -> None:
         self._usage_estimated |= bool(payload.get("estimated", False))
         self.state.update_usage(payload)
-        self.view.set_thinking(self._usage_text())
+        self._pending_thinking = self._usage_text()
 
     def _on_context(self, payload: Mapping[str, Any]) -> None:
         self.state.update_context(payload)
