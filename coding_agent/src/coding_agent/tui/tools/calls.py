@@ -16,7 +16,6 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.motion import enter_row
 from coding_agent.tui.tools.activity import parse_activity, strip_activity_json, take_activity
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.tools.labels import (
@@ -56,6 +55,9 @@ class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
     LABELS = TOOL_LABELS
+    # Interactive cards (image preview, child transcript) stay mounted as their
+    # own transcript entry instead of becoming a row in an Explored group.
+    keep_in_transcript = False
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._body = self._make_body()
@@ -83,9 +85,6 @@ class ToolCallWidget(Collapsible):
             classes="tool-call",
         )
         self.refresh_content()
-
-    def on_mount(self) -> None:
-        enter_row(self, duration=0.14)
 
     def _make_body(self) -> Static:
         return SelectableStatic(markup=False)
@@ -255,6 +254,8 @@ class ImageChipBody(Static):
 class GenerateImageWidget(ToolCallWidget):
     """Path-oriented generate_image card with a clickable `[Image 1]` preview."""
 
+    keep_in_transcript = True
+
     def __init__(self, call_id: str, tool_name: str, *, workspace: Path | None = None) -> None:
         self.workspace = workspace
         super().__init__(call_id, tool_name)
@@ -325,34 +326,8 @@ class ReadFileWidget(ToolCallWidget):
         return read_file_result(self.result)
 
 
-class BashToolWidget(ToolCallWidget):
-    """Bash-specific row with command and lifecycle status on one line."""
-
-    def __init__(self, call_id: str, tool_name: str) -> None:
-        self._bash_label = Static(classes="bash-tool-label", markup=False)
-        super().__init__(call_id, tool_name)
-        self.add_class("bash-tool")
-        self._body.add_class("bash-tool-body")
-
-    def compose(self):  # type: ignore[no-untyped-def]
-        with BashToolHeader(classes="bash-tool-header"):
-            yield self._bash_label
-        yield self._body
-
-    def refresh_content(self) -> None:
-        target = header_target(clip_text(self._summary(), 180))
-        values = ("Bash", target, self.status)
-        if values != self._header_values:
-            self._bash_label.update(tool_header_text("Bash", target, self.status), layout=False)
-            self._header_values = values
-        self._refresh_status_class()
-        self._refresh_body()
-
-
 class PatchDiffWidget(ToolCallWidget):
-    """Unified diff presentation for the exact-text patch tool."""
-
-    MAX_DIFF_LINES = 80
+    """Exact-text patch call: an Update row with the path and its diff stats."""
 
     def _tool_title(self) -> tuple[str, str]:
         return ("Update", "±")
@@ -386,7 +361,6 @@ class PatchDiffWidget(ToolCallWidget):
         self._diff_key: tuple[str, str, str] | None = None
         self._diff_cache: list[str] = []
         super().__init__(call_id, tool_name)
-        self.add_class("diff-tool")
 
     def _diff(self) -> list[str]:
         old = str(self.arguments.get("old_str") or "")
@@ -399,32 +373,6 @@ class PatchDiffWidget(ToolCallWidget):
         self._diff_cache = make_unified_diff(old, new, path) if old or new else []
         return self._diff_cache
 
-    def refresh_content(self) -> None:
-        self._refresh_header("Update", self._summary())
-        self._refresh_status_class()
-        diff = self._diff()
-        if self.collapsed or not self._body_dirty:
-            return
-        rows: list[Any] = []
-        visible = diff[: self.MAX_DIFF_LINES]
-        for line in visible:
-            if line.startswith("@@"):
-                rows.append(Text(line, style="#6688a8"))
-            elif line.startswith("+"):
-                rows.append(Text(line, style="#8fc49a on #203026"))
-            elif line.startswith("-"):
-                rows.append(Text(line, style="#df8b91 on #352225"))
-            else:
-                rows.append(Text(line, style="#686868"))
-        if len(diff) > self.MAX_DIFF_LINES:
-            hidden = len(diff) - self.MAX_DIFF_LINES
-            rows.append(Text(f"… {hidden} diff lines hidden", style="#555555"))
-        if self.result:
-            result_color = "#d66b73" if self.status == "failed" else "#626262"
-            rows.append(Text(f"└  {clip_text(self.result, 260)}", style=result_color))
-        self._body.update(Group(*rows))
-        self._body_dirty = False
-
 
 def make_tool_widget(
     call_id: str, tool_name: str, *, workspace: Path | None = None
@@ -434,8 +382,6 @@ def make_tool_widget(
         from coding_agent.tui.runtime.subagent import SubagentWidget
 
         return SubagentWidget(call_id, tool_name)
-    if tool_name == "bash":
-        return BashToolWidget(call_id, tool_name)
     if tool_name == "read_file":
         return ReadFileWidget(call_id, tool_name)
     if tool_name == "generate_image":

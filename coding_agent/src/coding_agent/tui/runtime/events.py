@@ -125,7 +125,7 @@ class TranscriptView(Protocol):
 
     def finish_reasoning(self) -> None: ...
 
-    def finish_process(self, title: str, *, collapse: bool = True) -> None: ...
+    def finish_process(self, title: str) -> None: ...
 
     def add_tool(self, call_id: str, name: str) -> None: ...
 
@@ -367,33 +367,15 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "ready"
         completed = self._completed_text()
-        elapsed = str(payload.get("duration") or "") or (
-            _duration(self._elapsed_seconds) if self._elapsed_seconds is not None else ""
-        )
-        verb = str(payload.get("completion_verb") or choose_completion_verb())
         final_output = str(payload.get("output_text") or "")
-        # The folded top summary should only identify the completed run and
-        # its duration. Keep token and call metrics in the completion row.
         if final_output:
             # Install the authoritative final response while the process is
-            # still open. finish_process() then freezes this widget as Markdown
-            # and keeps it after the folded process summary.
+            # still open; finish_assistant() then freezes it as Markdown.
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
         self.view.set_thinking(completed)
-        # Fold the work that happened before the final reply into a verb-plus-
-        # duration collection, then keep the assistant response as the last content.
-        try:
-            self.view.finish_process(
-                completed,
-                collapse=True,
-                add_completion=True,
-                verb=verb,
-                duration=elapsed,
-            )
-        except TypeError:
-            # Keep compatibility with lightweight presenter test doubles.
-            self.view.finish_process(completed)
+        # The finished run stays as it streamed; the metrics row closes it.
+        self.view.finish_process(completed)
         self._assistant_open = False
         toast = jev_recommendation_update(_jev_last_decision(self.view))
         if toast:
@@ -427,7 +409,7 @@ class EventPresenter:
         self.state.detail = "failed"
         self.view.set_thinking("Stopped with an error")
         self.view.add_notice(str(payload.get("message") or payload), "error")
-        self.view.finish_process("Stopped with an error", collapse=False)
+        self.view.finish_process("Stopped with an error")
 
     def _on_run_cancelled(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
@@ -447,7 +429,7 @@ class EventPresenter:
         message = str(payload.get("message") or f"Harness exceeded {limit}")
         self.view.set_thinking("Stopped at a run limit")
         self.view.add_notice(message, "warning")
-        self.view.finish_process("Stopped at a run limit", collapse=False)
+        self.view.finish_process("Stopped at a run limit")
 
     # Turns and streaming
     def _on_turn_started(self, payload: Mapping[str, Any]) -> None:

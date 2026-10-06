@@ -9,7 +9,6 @@ from typing import Any, Mapping, Optional
 
 from rich.text import Text
 from textual.binding import Binding
-from textual.containers import VerticalScroll
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 
@@ -21,6 +20,7 @@ from coding_agent.tui.screens.modal import ModalBase
 from coding_agent.tui.theme import APP_CSS
 from coding_agent.tui.transcript import (
     UserMessage,
+    TranscriptScroll,
     TranscriptSurface,
 )
 from coding_agent.tui.tools import BashToolHeader, ToolCallWidget
@@ -163,9 +163,9 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         self.workspace = Path(workspace or ".").resolve()
         self._thinking = self._process = self._assistant = self._reasoning = None
         self._tools = {}
+        self._tool_groups = {}
+        self._open_tool_group = None
         self._subagents = {}
-        self._transcript_turns = []
-        self._current_transcript_turn = None
         self._busy = True
         self._event_cursor = 0
         self._ready = False
@@ -179,7 +179,7 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
     def compose(self):  # type: ignore[no-untyped-def]
         yield TopBar(id="topbar")
         yield Static(id="child-heading", markup=False)
-        yield VerticalScroll(id="transcript")
+        yield TranscriptScroll(id="transcript")
         yield Static("Viewing child transcript · Esc back · Ctrl+X stop child", id="child-back")
         yield Static(id="status")
 
@@ -190,7 +190,6 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
             self.add_notice("Child session not found for this parent.", "error")
             return
         self._mount_transcript(UserMessage(self.record.prompt or "Child task"))
-        self.live_tool_widget_limit = getattr(self.app, "live_tool_widget_limit", 10)
         self._ready = True
         self.refresh_record()
 
@@ -260,9 +259,10 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
 class SubagentWidget(ToolCallWidget):
     """Clickable parent-transcript row for a child agent."""
 
+    keep_in_transcript = True
+
     def __init__(self, call_id: str, tool_name: str) -> None:
         self.record: Optional[SubagentRecord] = None
-        self.keep_in_transcript = True
         super().__init__(call_id, tool_name)
         self.add_class("subagent-call")
 
@@ -321,11 +321,6 @@ class SubagentSurface:
     def _bind_spawn_widget(self, record: SubagentRecord) -> None:
         if record.tool_call_id:
             match = self._tools.get(record.tool_call_id)
-            if match is None:
-                pending = [item for turn in self._transcript_turns for item in turn.timeline_items()]
-                match = next((item for item in [*pending, *self.query(SubagentWidget)]
-                              if isinstance(item, SubagentWidget)
-                              if item.call_id == record.tool_call_id), None)
             if isinstance(match, SubagentWidget):
                 match.bind(record)
             return

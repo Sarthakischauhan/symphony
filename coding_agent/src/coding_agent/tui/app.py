@@ -8,7 +8,6 @@ from typing import Any, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
@@ -36,12 +35,11 @@ from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import (
     AssistantMessage,
-    LIVE_TOOL_WIDGET_LIMIT,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
+    TranscriptScroll,
     TranscriptSurface,
-    TranscriptTurn,
     Welcome,
 )
 from core_ai import has_configured_provider
@@ -131,9 +129,9 @@ class CodingAgentApp(
         self._thinking: Optional[ThinkingStatus] = None
         self._reasoning: Optional[ReasoningWidget] = None
         self._process: Optional[RunProcess] = None
-        self._transcript_turns: list[TranscriptTurn] = []
-        self._current_transcript_turn: Optional[TranscriptTurn] = None
-        self._tools: dict[str, ToolCallWidget | ToolCallSummary] = {}
+        self._tools: dict[str, ToolCallWidget] = {}
+        self._tool_groups: dict[str, ToolCallSummary] = {}
+        self._open_tool_group: Optional[ToolCallSummary] = None
         self._subagents: dict[str, SubagentRecord] = {}
         self._plan_store = PlanStore(self.workspace)
         self._file_index = WorkspaceFileIndex(self.workspace)
@@ -144,16 +142,13 @@ class CodingAgentApp(
         self._pending_question_default = ""
         self._model_options = model_options()
         self._command_manager = CommandManager(self)
-        self.live_tool_widget_limit = LIVE_TOOL_WIDGET_LIMIT
-        self._scroll_end_scheduled = False
-        self._pending_scroll_end = False
         self._stream_flush_timer = None
         self._run_generation = 0
         self._topbar_model: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
-        with VerticalScroll(id="transcript"):
+        with TranscriptScroll(id="transcript"):
             yield Welcome(self.workspace)
         yield SlashMenu(id="slash-menu")
         yield ComposerOverlay()

@@ -111,13 +111,13 @@ def _history_widgets(
             flush_run()
             pending.clear()
             text, images = display_from_content(message.content)
-            restored.append(UserMessage(text, images=images, enter=False))
+            restored.append(UserMessage(text, images=images))
             collecting = collect_mid_run
         elif message.role == "assistant":
             content = text_from_content(message.content)
             if content:
                 flush_batch()
-                add_visible(AssistantMessage(content, streaming=False, enter=False))
+                add_visible(AssistantMessage(content, streaming=False))
             if thoughts:
                 add_snapshot(thoughts.pop(0))
             for call in message.tool_calls or []:

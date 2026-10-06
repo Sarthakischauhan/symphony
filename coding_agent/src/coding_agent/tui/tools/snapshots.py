@@ -1,4 +1,4 @@
-"""Folded tool and thought snapshots, and the Explored row that displays them."""
+"""Tool and thought snapshots, and the Explored group row that displays them."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from rich.style import Style
 from rich.text import Text
 from textual import events
 
-from coding_agent.tui.motion import settle_row
 from coding_agent.tui.tools.activity import (
     choose_completion_verb,
     explored_activity,
@@ -89,6 +88,8 @@ NESTED_VERB = "tool-call-summary--verb"
 NESTED_ARGS = "tool-call-summary--args"
 NESTED_DETAIL = "tool-call-summary--detail"
 NESTED_VERB_FAILED = "tool-call-summary--verb-failed"
+NESTED_VERB_RUNNING = "tool-call-summary--verb-running"
+LIVE_STATUSES = frozenset({"preparing", "running"})
 # fx (vercel-labs/fx) draws a tree guide in front of grouped tool rows:
 # "├" for every row but the last, "└" for the last, and "│" under a
 # non-final row when it continues onto a second line.
@@ -104,8 +105,12 @@ NESTED_WEIGHT = Style(bold=False)
 
 
 def verb_component(status: str) -> str:
-    """Return the verb's component class: failed calls show their verb in danger."""
-    return NESTED_VERB_FAILED if status == "failed" else NESTED_VERB
+    """Return the verb's component class: danger when failed, warning while live."""
+    if status == "failed":
+        return NESTED_VERB_FAILED
+    if status in LIVE_STATUSES:
+        return NESTED_VERB_RUNNING
+    return NESTED_VERB
 
 
 def detail_preview(content: str, limit: int) -> str:
@@ -140,7 +145,12 @@ def append_continuation(text: Text, styles: Mapping[str, Style], guide: str, con
 
 
 class ToolCallSummary(SelectableStatic, can_focus=True):
-    """A compact disclosure containing non-interactive tool snapshots.
+    """One stretch of non-interactive tool calls, grouped at render time.
+
+    The live transcript mounts a group once and updates its rows in place:
+    ``update_call`` swaps a call's snapshot, so running → done is a text
+    change. A live group starts expanded; ``close`` folds it when the stretch
+    ends unless the reader opened it themselves.
 
     Expanded rows start at the header's left edge behind an fx-style tree
     guide, one line each: guide, verb, then arguments. The
@@ -153,14 +163,20 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         NESTED_ARGS,
         NESTED_DETAIL,
         NESTED_VERB_FAILED,
+        NESTED_VERB_RUNNING,
     }
 
     def __init__(
-        self, calls: Sequence[ToolCallSnapshot | ThoughtSnapshot] | None = None
+        self,
+        calls: Sequence[ToolCallSnapshot | ThoughtSnapshot] | None = None,
+        *,
+        expanded: bool = False,
     ) -> None:
         self.calls: list[ToolCallSnapshot] = []
         self.entries: list[ToolCallSnapshot | ThoughtSnapshot] = []
-        self.is_expanded = False
+        self.is_expanded = expanded
+        # Set when the reader toggles the group; ``close`` never folds it then.
+        self.user_expanded = False
         super().__init__(classes="tool-call-summary", markup=False)
         for call in calls or ():
             if isinstance(call, ThoughtSnapshot):
@@ -169,23 +185,23 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
                 self.add_call(call, layout=False)
         self.title = self._summary_title()
 
-    def on_mount(self) -> None:
-        settle_row(self)
-
     def _thought_count(self) -> int:
         return sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
 
     def _summary_title(self) -> str:
         return explored_title(self.calls, thought_count=self._thought_count())
 
-    def accepts(self, call: object) -> bool:
-        """Return whether a call belongs in this activity's folded row."""
-        from coding_agent.tui.tools.calls import ToolCallWidget
-
+    def accepts(self, snapshot: ToolCallSnapshot) -> bool:
+        """Return whether a call belongs in this activity's group."""
         if not self.calls:
             return True
-        snapshot = call.snapshot() if isinstance(call, ToolCallWidget) else call
         return same_activity_group(explored_activity(self.calls), snapshot)
+
+    def rejects_last(self, snapshot: ToolCallSnapshot) -> bool:
+        """Whether this group's newest call no longer matches the calls before it."""
+        if len(self.calls) < 2 or self.calls[-1].call_id != snapshot.call_id:
+            return False
+        return not same_activity_group(explored_activity(self.calls[:-1]), snapshot)
 
     def render(self) -> Text:
         activity = explored_activity(self.calls)
@@ -244,27 +260,33 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
     def count(self) -> int:
         return len(self.calls)
 
-    def add_call(self, call: object, *, layout: bool = True) -> None:
-        from coding_agent.tui.tools.calls import ToolCallWidget
-
-        if isinstance(call, ToolCallWidget):
-            snapshot = call.snapshot()
-        elif isinstance(call, ToolCallSnapshot):
-            snapshot = call
-        else:
-            snapshot = ToolCallSnapshot(call_id=str(call))
+    def add_call(self, snapshot: ToolCallSnapshot, *, layout: bool = True) -> None:
         if snapshot.call_id not in self.call_ids:
             self.calls.append(snapshot)
             self.entries.append(snapshot)
-        from textual._context import NoActiveAppError
+        self.title = self._summary_title()
+        self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        if layout and self.is_mounted:
+            self.refresh(layout=True)
 
-        try:
-            self.title = self._summary_title()
-            self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
-            if layout:
-                self.refresh(layout=True)
-        except NoActiveAppError:
-            pass
+    def update_call(self, snapshot: ToolCallSnapshot) -> None:
+        """Swap in a call's newer snapshot; a status change only re-renders text."""
+        index = self.call_ids.index(snapshot.call_id)
+        previous = self.calls[index]
+        self.calls[index] = snapshot
+        self.entries[self.entries.index(previous)] = snapshot
+        self.title = self._summary_title()
+        self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        reshaped = (previous.label, previous.detail) != (snapshot.label, snapshot.detail) or (
+            previous.status == "failed"
+        ) != (snapshot.status == "failed")
+        self.refresh(layout=reshaped)
+
+    def remove_call(self, call_id: str) -> None:
+        index = self.call_ids.index(call_id)
+        self.entries.remove(self.calls.pop(index))
+        self.title = self._summary_title()
+        self.refresh(layout=True)
 
     def add_thought(
         self,
@@ -279,8 +301,16 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
             self.refresh(layout=True)
 
     def toggle(self) -> None:
+        """The reader's expand/collapse; a group they opened stays open."""
         self.is_expanded = not self.is_expanded
+        self.user_expanded = self.is_expanded
         self.refresh(layout=True)
+
+    def close(self) -> None:
+        """Fold a finished live stretch unless the reader opened it."""
+        if self.is_expanded and not self.user_expanded:
+            self.is_expanded = False
+            self.refresh(layout=True)
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
