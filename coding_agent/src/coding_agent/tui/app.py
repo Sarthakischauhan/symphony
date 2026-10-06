@@ -208,6 +208,15 @@ class CodingAgentApp(
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
 
+    def show_model_picker(self) -> None:
+        """Open the same model list as ``/model``, from a click on the model name."""
+        from coding_agent.tui.commands.manager import show_model_picker
+
+        if self._agent is None:
+            self.add_notice(OFFLINE_HINT, "error")
+            return
+        show_model_picker(self)
+
     def _reload_theme_if_changed(self) -> None:
         """Repaint when ~/.symphony/theme.toml (or the packaged fallback) changes.
 

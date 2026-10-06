@@ -24,28 +24,6 @@ CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3
 BRANCH_ICON = "⎇"
 
-# One glyph in the published Simple Icons brand color (2026-10-06).
-# Distinctive marks where a single character can carry the logo; a letter
-# otherwise. OpenAI and xAI publish no Simple Icons slug.
-PROVIDER_MARKS: dict[str, tuple[str, str]] = {
-    "anthropic": ("✶", "#D97757"),
-    "claude": ("✶", "#D97757"),
-    "openai": ("O", "#10A37F"),
-    "gemini": ("✦", "#8E75B2"),
-    "google": ("✦", "#8E75B2"),
-    "grok": ("X", "#EDEDED"),
-    "xai": ("X", "#EDEDED"),
-    "ollama": ("O", "#EDEDED"),
-    "openrouter": ("R", "#6467F2"),
-    "mistral": ("M", "#FA520F"),
-    "deepseek": ("D", "#5786FE"),
-    "qwen": ("Q", "#6950EF"),
-    "huggingface": ("H", "#FFD21E"),
-    "vercel": ("V", "#EDEDED"),
-    "perplexity": ("P", "#1FB8CD"),
-    "local": ("L", "#799e7c"),
-}
-
 
 def display_workspace_path(workspace: Path, home: Optional[Path] = None) -> str:
     """Render a workspace path with the home directory collapsed to `~`."""
@@ -97,20 +75,6 @@ def short_model_name(model: str) -> str:
     """Drop the provider prefix so the pill reads like a Claude status line."""
     name = model.split(":", 1)[-1] if model else ""
     return name or model
-
-
-def provider_key(model: str) -> str:
-    """Provider id from a ``provider:model`` string."""
-    return model.split(":", 1)[0].lower() if model else ""
-
-
-def provider_mark(model: str) -> tuple[str, str]:
-    """A one-cell lab mark and its brand color for a ``provider:model`` id."""
-    provider = provider_key(model)
-    if provider in PROVIDER_MARKS:
-        return PROVIDER_MARKS[provider]
-    letter = provider[:1].upper() if provider else "•"
-    return (letter, SYMPHONY_COLORS["accent"])
 
 
 def _locate_git_dir(start: Path) -> Optional[Path]:
@@ -263,14 +227,22 @@ class TopBar(Static):
         model = self._model
         if width >= 48:
             model = short_model_name(model)
-        right = Text(no_wrap=True, overflow="ellipsis")
         if not model:
-            return right
-        mark, mark_color = provider_mark(self._model)
-        right.append(mark, style=f"bold {mark_color}")
-        right.append(" ")
-        right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
-        return right
+            return Text()
+        return Text(model, style=f"bold {SYMPHONY_COLORS['accent']}", no_wrap=True, overflow="ellipsis")
+
+    def on_click(self, event: events.Click) -> None:
+        """The model name is the right-hand cluster. Clicking it opens /model.
+
+        The branch occupies the left of the row, so a click past the midpoint
+        is the model. Opening the existing picker avoids a second modal.
+        """
+        if not self._model or event.x < max(self.content_size.width // 2, 1):
+            return
+        event.stop()
+        show = getattr(self.app, "show_model_picker", None)
+        if callable(show):
+            show()
 
     def _render_row(self, width: int) -> Table:
         """Text row. Width budgets keep a narrow terminal from cropping the header."""

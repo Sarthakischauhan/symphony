@@ -498,7 +498,7 @@ def test_topbar_renders_branch_and_right_aligned_model(
             rendered = _render_plain(topbar.content, width=80).rstrip("\n")
             assert "⎇ main" in rendered
             assert "claude-sonnet-5" in rendered
-            assert "✶" in rendered
+            assert "✶" not in rendered
             assert "anthropic:" not in rendered
             assert display_workspace_path(tmp_path) not in rendered
 
@@ -546,9 +546,15 @@ def test_topbar_shows_lab_mark_instead_of_auth_emoji(
             assert "👤" not in rendered
             assert "signed in" not in rendered
             assert "🔑" not in rendered
-            # xAI publishes no Simple Icons slug, so the letter stands in.
-            assert rendered.rstrip().endswith("X grok-4-fast")
+            assert rendered.rstrip().endswith("grok-4-fast")
+            assert not rendered.rstrip().endswith("X grok-4-fast")
             assert "grok:" not in rendered
+
+            # No agent is configured here, so the click reports that instead of
+            # opening an empty picker. The hit has to land on the model side.
+            await pilot.click("#topbar", offset=(70, 0))
+            await pilot.pause()
+            assert any("offline" in str(notice.render()).lower() for notice in app.query(".notice"))
 
     asyncio.run(_run())
 
