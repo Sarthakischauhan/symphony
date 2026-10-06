@@ -18,13 +18,16 @@ Then it times, with ``time.perf_counter``:
 
 ``--live`` measures a streamed turn instead (``--tools`` repeatable, default
 10 and 50): five prior turns of history, then one live turn whose tool calls
-each go started -> running -> done through the event presenter, with
-assistant text chunks after every five calls, then run end. Per tool call it
-reports the wall time of one tool update (event plus repaint), the transcript
+(read_file, search and every third a bash call) each go started -> running ->
+done through the event presenter, with assistant text chunks after every five
+calls, then run end. Bash calls stream output chunks between running and done
+when the checkout handles ``tool_execution_output``. Per tool call it reports
+the wall time of one lifecycle update (event plus repaint), the transcript
 rebuild passes (``reconcile_live_tools`` calls, where that path exists), the
 ``refresh(layout=True)`` requests (all, and those on mounted widgets) and
 widgets mounted/removed (counted the way the render repro's churn probe does),
-and the screen layout passes; plus the run-end time.
+and the screen layout passes; per output chunk, its time, relayout requests
+and mounts; plus the run-end time.
 
 Animations are off (``TEXTUAL_ANIMATIONS=none``) so row fade-ins do not count.
 The first run is a warm-up and is discarded. Times are in milliseconds.
@@ -59,6 +62,7 @@ from textual.widget import Widget  # noqa: E402
 
 from coding_agent.tui.app import CodingAgentApp  # noqa: E402
 from coding_agent.tui.composer import QueuedTurn  # noqa: E402
+from coding_agent.tui.runtime.events import EventPresenter  # noqa: E402
 from coding_agent.tui.tools.snapshots import ToolCallSummary  # noqa: E402
 from coding_agent.tui.transcript import surface as transcript_surface  # noqa: E402
 
@@ -179,8 +183,17 @@ LIVE_METRICS = (
     "layouts/call",
     "mounted/call",
     "removed/call",
+    "ms/output-chunk",
+    "relayouts/output-chunk",
+    "mounted/output-chunk",
     "run-end ms",
 )
+LIVE_TOOLS = (*TOOLS, ("bash", lambda index: {"command": f"pytest -q tests/test_{index}.py"}))
+OUTPUT_CHUNKS = 8
+# Checkouts before the live Bash card have no handler for output chunks (the
+# presenter would post each one as a notice), so the bench only sends them
+# where the presenter defines one.
+STREAMS_OUTPUT = "_on_tool_execution_output" in vars(EventPresenter)
 HISTORY_TURNS = 5
 HISTORY_TOOLS = 6
 TEXT_EVERY = 5
@@ -232,13 +245,26 @@ def start_turn(app: CodingAgentApp, prompt: str) -> Callable[[str, dict[str, Any
     return handle
 
 
+def live_tool(index: int) -> tuple[str, Callable[[int], dict[str, Any]]]:
+    return LIVE_TOOLS[index % len(LIVE_TOOLS)]
+
+
 def tool_events(call_id: str, index: int) -> list[tuple[str, dict[str, Any]]]:
-    name, arguments = TOOLS[index % len(TOOLS)]
+    name, arguments = live_tool(index)
     call = {"tool_call_id": call_id, "tool_name": name}
     return [
         ("tool_call_started", call),
         ("tool_execution_started", {**call, "arguments": arguments(index)}),
         ("tool_execution_completed", {**call, "result": "ok", "status": "success"}),
+    ]
+
+
+def output_events(call_id: str, index: int) -> list[tuple[str, dict[str, Any]]]:
+    if live_tool(index)[0] != "bash" or not STREAMS_OUTPUT:
+        return []
+    return [
+        ("tool_execution_output", {"tool_call_id": call_id, "delta": f"tests/test_{index}.py::case_{chunk} PASSED\n"})
+        for chunk in range(OUTPUT_CHUNKS)
     ]
 
 
@@ -260,6 +286,23 @@ async def history(app: CodingAgentApp, pilot: Pilot[None]) -> None:
         await pilot.pause()
 
 
+async def timed_event(
+    handle: Callable[[str, dict[str, Any]], None],
+    pilot: Pilot[None],
+    event: str,
+    payload: dict[str, Any],
+    totals: collections.Counter[str],
+) -> float:
+    """Send one event, wait for the repaint; count its render work into ``totals``."""
+    COUNTS.clear()
+    start = perf_counter()
+    handle(event, payload)
+    await pilot.pause()
+    elapsed = perf_counter() - start
+    totals.update(COUNTS)
+    return elapsed
+
+
 async def run_live_once(tools: int) -> dict[str, float]:
     workspace = Path(tempfile.mkdtemp(prefix="tui-bench-ws-"))
     app = CodingAgentApp(workspace=workspace)
@@ -270,15 +313,17 @@ async def run_live_once(tools: int) -> dict[str, float]:
         handle = start_turn(app, "the live question")
         await pilot.pause()
         totals: collections.Counter[str] = collections.Counter()
-        update_seconds = 0.0
+        chunk_totals: collections.Counter[str] = collections.Counter()
+        update_seconds = chunk_seconds = 0.0
+        chunks = 0
         for index in range(tools):
-            for event, payload in tool_events(f"live-{index}", index):
-                COUNTS.clear()
-                start = perf_counter()
-                handle(event, payload)
-                await pilot.pause()
-                update_seconds += perf_counter() - start
-                totals.update(COUNTS)
+            started, running, done = tool_events(f"live-{index}", index)
+            for event, payload in (started, running):
+                update_seconds += await timed_event(handle, pilot, event, payload, totals)
+            for event, payload in output_events(f"live-{index}", index):
+                chunk_seconds += await timed_event(handle, pilot, event, payload, chunk_totals)
+                chunks += 1
+            update_seconds += await timed_event(handle, pilot, *done, totals)
             if (index + 1) % TEXT_EVERY == 0:
                 stream_text(app, handle, index)
                 await pilot.pause()
@@ -287,7 +332,7 @@ async def run_live_once(tools: int) -> dict[str, float]:
         await pilot.pause()
         run_end = perf_counter() - start
     updates = tools * len(tool_events("", 0))
-    return {
+    metrics = {
         "ms/update": update_seconds * 1000 / updates,
         "rebuilds/call": totals["rebuilds"] / tools,
         "relayouts/call": totals["relayouts"] / tools,
@@ -297,17 +342,25 @@ async def run_live_once(tools: int) -> dict[str, float]:
         "removed/call": totals["removed"] / tools,
         "run-end ms": run_end * 1000,
     }
+    if chunks:
+        metrics["ms/output-chunk"] = chunk_seconds * 1000 / chunks
+        metrics["relayouts/output-chunk"] = chunk_totals["relayouts"] / chunks
+        metrics["mounted/output-chunk"] = chunk_totals["mounted"] / chunks
+    return metrics
 
 
 async def bench_live(tools: int, runs: int, *, raw: bool) -> None:
     await run_live_once(tools)
-    print(f"tools={tools} history_turns={HISTORY_TURNS} (warm-up discarded)")
+    print(f"tools={tools} history_turns={HISTORY_TURNS} streams_output={STREAMS_OUTPUT} (warm-up discarded)")
     samples: dict[str, list[float]] = {name: [] for name in LIVE_METRICS}
     for _ in range(runs):
         for name, value in (await run_live_once(tools)).items():
             samples[name].append(value)
     for name in LIVE_METRICS:
         values = samples[name]
+        if not values:
+            print(f"tools={tools:<4} {name:<22} n/a")
+            continue
         print(
             f"tools={tools:<4} {name:<22} median={statistics.median(values):8.2f}"
             f"  min={min(values):8.2f}  max={max(values):8.2f}  n={len(values)}"
