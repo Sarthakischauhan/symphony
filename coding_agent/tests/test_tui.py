@@ -19,6 +19,7 @@ from textual.app import App
 from textual.containers import VerticalScroll
 from textual.geometry import Offset
 from textual.selection import Selection
+from textual.widget import Widget
 from textual.widgets import Static
 
 from core_ai.types import Message, StreamEvent
@@ -641,6 +642,12 @@ def _render_plain(renderable: Any, *, width: int) -> str:
     console = Console(width=width, file=io.StringIO(), force_terminal=False, color_system=None)
     console.print(renderable)
     return console.file.getvalue()
+
+
+def _thought_text(body: Widget) -> str:
+    """The Thought body's displayed text, unwrapped, without trailing padding."""
+    lines = _render_plain(body.render(), width=400).splitlines()
+    return "\n".join(line.rstrip() for line in lines).strip()
 
 
 def _footer_text(app: App[Any]) -> str:
@@ -1867,7 +1874,7 @@ def test_tui_maps_stream_usage_and_read_file_events(
             assert not thoughts[0].collapsed
             assert "Inspecting the requested file" in thoughts[0].reasoning_text
             assert "Choosing an implementation" in thoughts[0].reasoning_text
-            thought_body = str(thoughts[0].query_one(".reasoning-text").render())
+            thought_body = _thought_text(thoughts[0].query_one(".reasoning-text"))
             assert "Inspecting the requested file" in thought_body
             assert "Choosing an implementation" in thought_body
 
@@ -2291,7 +2298,7 @@ def test_live_reasoning_follows_tail_then_folds_to_thought(
             assert not thought.collapsed
             assert not scroll.is_anchored
             body = thought.query_one(".reasoning-text")
-            rendered = str(body.render())
+            rendered = _thought_text(body)
             assert "Streaming thought 0." in rendered
             assert "Streaming thought 29." in rendered
             assert "Explaining application context" in rendered
@@ -2323,16 +2330,16 @@ def test_reasoning_and_queued_prompt_render_markup_literally(
             await pilot.pause()
 
             thought = app.query_one(ReasoningWidget)
-            assert str(thought.query_one(".reasoning-text").render()) == content
+            assert _thought_text(thought.query_one(".reasoning-text")) == content
             assert str(app.query_one("#queued-prompt-text", Static).render()) == content
 
             updated = content + " another [/]"
             thought.set_content(updated)
             await pilot.pause()
-            assert str(thought.query_one(".reasoning-text").render()) == updated
+            assert _thought_text(thought.query_one(".reasoning-text")) == updated
             thought.complete()
             await pilot.pause()
-            assert str(thought.query_one(".reasoning-text").render()) == updated
+            assert _thought_text(thought.query_one(".reasoning-text")) == updated
 
     asyncio.run(_run())
 
@@ -2372,7 +2379,7 @@ def test_reasoning_delta_paints_visible_thought_body(
             header = thought.query_one(ReasoningHeader)
             label = thought.query_one(".reasoning-label")
             body = thought.query_one(".reasoning-text")
-            rendered = str(body.render())
+            rendered = _thought_text(body)
             assert header.query_one(".reasoning-label") is label
             assert "Thinking…" in str(label.render())
             assert str(thought.query_one(".reasoning-status").render()).strip() == ""
@@ -2394,7 +2401,7 @@ def test_reasoning_delta_paints_visible_thought_body(
             )
             app._presenter.flush_stream_paints()
             await pilot.pause()
-            rendered = str(thought.query_one(".reasoning-text").render())
+            rendered = _thought_text(thought.query_one(".reasoning-text"))
             assert "Later tools will read it." in rendered
 
             app._presenter.handle("text_delta", {"turn": 0, "delta": "I'll inspect it."})
@@ -2402,7 +2409,7 @@ def test_reasoning_delta_paints_visible_thought_body(
             await pilot.pause()
 
             thought = app.query_one(ReasoningWidget)
-            completed_body = str(thought.query_one(".reasoning-text").render())
+            completed_body = _thought_text(thought.query_one(".reasoning-text"))
             assert thought.title.startswith("Thought ")
             assert thought.title.endswith("s")
             assert not thought.collapsed

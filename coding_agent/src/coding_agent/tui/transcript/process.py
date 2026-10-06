@@ -8,6 +8,8 @@ import time
 from time import monotonic
 from typing import Any
 
+from rich.console import RenderableType
+from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -16,6 +18,7 @@ from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
 from coding_agent.tui.transcript.messages import SelectableStatic
+from coding_agent.tui.transcript.thinking_markdown import render_thinking
 
 
 class ThinkingStatus(Static):
@@ -254,13 +257,47 @@ class ReasoningHeader(Horizontal, can_focus=True):
             self.post_message(self.Toggle())
 
 
+REASONING_CODE = "reasoning-text--code"
+
+
+class ReasoningBody(SelectableStatic):
+    """Thinking text rendered as markdown in the muted thinking tone.
+
+    Each chunk swaps the source and re-renders this same widget; nothing is
+    remounted. While streaming, dangling markers are closed for display only.
+    The parsed renderable is kept until the source or theme changes, so
+    transcript relayouts measure it without parsing the markdown again.
+    """
+
+    COMPONENT_CLASSES = {REASONING_CODE}
+
+    def __init__(self) -> None:
+        self._source = ""
+        self._streaming = True
+        self._rendered: tuple[str, bool, Style, RenderableType] | None = None
+        super().__init__(classes="reasoning-text", markup=False)
+
+    def show_markdown(self, source: str, *, streaming: bool) -> None:
+        self._source = source
+        self._streaming = streaming
+        self._invalidate_render_cache(layout=True)
+
+    def render(self) -> RenderableType:
+        code_style = self.get_component_rich_style(REASONING_CODE, partial=True, default=Style())
+        key = (self._source, self._streaming, code_style)
+        if self._rendered is None or self._rendered[:3] != key:
+            renderable = render_thinking(self._source or " ", code_style=code_style, streaming=self._streaming)
+            self._rendered = (*key, renderable)
+        return self._rendered[3]
+
+
 class ReasoningWidget(Collapsible):
     """A live thought whose inner scroll area is anchored to its newest text."""
 
     def __init__(self, content: str = "") -> None:
         self._summary_heading: str | None = None
         self._content_without_heading = content
-        self._body = SelectableStatic(classes="reasoning-text", markup=False)
+        self._body = ReasoningBody()
         self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
         self._label = Static("Thinking…", classes="reasoning-label", markup=False)
         self._status = Static("", classes="reasoning-status", markup=False)
@@ -309,9 +346,7 @@ class ReasoningWidget(Collapsible):
         self._summary_heading, self._content_without_heading = (
             self._extract_summary_heading(content)
         )
-        # Rich Markdown parsing is deferred until completion. During a stream,
-        # plain text is both cheaper and resilient to incomplete markup.
-        self._body.update(content or " ")
+        self._body.show_markdown(content, streaming=True)
 
     @staticmethod
     def _extract_summary_heading(content: str) -> tuple[str | None, str]:
@@ -350,8 +385,7 @@ class ReasoningWidget(Collapsible):
             self._scroll.scroll_home(animate=False, force=True)
         self._duration = max(0.0, monotonic() - self._started_at)
         completed_title = f"Thought {self._format_duration(self._duration)}"
-        body = self.reasoning_text.strip() or " "
-        self._body.update(body)
+        self._body.show_markdown(self.reasoning_text.strip(), streaming=False)
         # Keep completed reasoning expanded so the provider's streamed content
         # remains visible; the title still identifies the Thought row.
         self.collapsed = False
