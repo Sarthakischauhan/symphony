@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
+from textual.app import App
 
 from coding_agent.tui.tools.activity import (
     COMPLETION_VERBS,
     format_explored_duration,
     same_activity_group,
 )
-from coding_agent.tui.tools.calls import ToolCallWidget, make_tool_widget
+from coding_agent.tui.tools.calls import (
+    LIVE_OUTPUT_TAIL_LINES,
+    BashToolWidget,
+    ToolCallWidget,
+    make_tool_widget,
+)
 from coding_agent.tui.tools.snapshots import (
     CompletedRunSummary,
     ThoughtSnapshot,
@@ -191,11 +199,11 @@ def test_patch_snapshot_keeps_update_target_and_stats() -> None:
     assert "Update\\n" not in rendered
 
 
-def test_only_interactive_tools_stay_as_transcript_cards() -> None:
-    assert make_tool_widget("img", "generate_image").keep_in_transcript
-    assert not make_tool_widget("read", "read_file").keep_in_transcript
-    assert not make_tool_widget("bash", "bash").keep_in_transcript
-    assert not make_tool_widget("patch", "patch").keep_in_transcript
+def test_cards_and_group_rows_split_by_tool() -> None:
+    for tool_name in ("generate_image", "bash", "patch"):
+        assert make_tool_widget("card", tool_name).keep_in_transcript
+    for tool_name in ("read_file", "search"):
+        assert not make_tool_widget("row", tool_name).keep_in_transcript
 
 
 def test_summary_keeps_failures_visible_when_collapsed() -> None:
@@ -340,3 +348,25 @@ def test_thought_snapshot_keeps_collapsed_preview() -> None:
     expanded = summary.render().plain
     assert "Thought Inspecting files" in expanded
     assert "Private reasoning body" in expanded
+
+
+def test_bash_tail_joins_partial_lines_and_keeps_the_newest() -> None:
+    async def _run() -> None:
+        # Static.update needs an active app to build its visual.
+        async with App().run_test():
+            card = BashToolWidget("bash-1", "bash")
+            card.set_running({"command": "pytest -q"})
+            card.append_output("one\ntw")
+            card.append_output("o\nthree")
+            assert card._live_tail() == ["one", "two", "three"]
+
+            for line in range(LIVE_OUTPUT_TAIL_LINES + 3):
+                card.append_output(f"line {line}\n")
+            assert card._live_tail() == [
+                f"line {line}" for line in range(3, LIVE_OUTPUT_TAIL_LINES + 3)
+            ]
+
+            card.set_result("12 passed")
+            assert card._live_tail() == []
+
+    asyncio.run(_run())

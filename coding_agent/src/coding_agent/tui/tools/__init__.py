@@ -2,6 +2,7 @@
 
 from coding_agent.tui.tools.calls import (
     BashToolHeader,
+    BashToolWidget,
     GenerateImageWidget,
     PatchDiffWidget,
     ReadFileWidget,
@@ -28,6 +29,7 @@ from coding_agent.tui.tools.snapshots import (
 
 __all__ = [
     "BashToolHeader",
+    "BashToolWidget",
     "CompletedRunSummary",
     "GenerateImageWidget",
     "IMAGE_MARKER_RE",

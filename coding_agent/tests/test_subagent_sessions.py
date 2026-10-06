@@ -8,7 +8,7 @@ from coding_agent.persistence import JsonlPersistence
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.runtime.subagent import SubagentRecord, SubagentScreen, SubagentTasksScreen
-from coding_agent.tui.tools import CompletedRunSummary, ToolCallSummary, ToolCallWidget
+from coding_agent.tui.tools import BashToolWidget, CompletedRunSummary, ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import AssistantMessage, UserMessage
 from coding_agent.tui.transcript.messages import Notice
 
@@ -55,9 +55,9 @@ def test_gpt_snapshots_keep_tools_in_one_uninterrupted_widget_group(monkeypatch,
             app._presenter.flush_stream_paints()
             await pilot.pause()
             assert not any("tool_call_arguments" in str(item.render()) for item in app.query(Notice))
-            summaries = [item for item in app.query(ToolCallSummary) if item.count]
-            assert [item.count for item in summaries] == [2]
-            assert not list(app.query(ToolCallWidget))
+            # Bash calls are cards: each mounted once, none folded into a group.
+            assert not [item for item in app.query(ToolCallSummary) if item.count]
+            assert [item.call_id for item in app.query(BashToolWidget)] == ["call-0", "call-1"]
 
     asyncio.run(run())
 

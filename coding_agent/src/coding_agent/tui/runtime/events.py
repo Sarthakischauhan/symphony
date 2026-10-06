@@ -140,6 +140,8 @@ class TranscriptView(Protocol):
         result: Any = None,
     ) -> None: ...
 
+    def append_tool_output(self, call_id: str, chunk: str) -> None: ...
+
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
     def add_update(self, text: str, hint: str = "") -> None: ...
@@ -585,6 +587,12 @@ class EventPresenter:
             arguments=payload.get("arguments") or {},
             status="running",
         )
+
+    def _on_tool_execution_output(self, payload: Mapping[str, Any]) -> None:
+        """A streamed output chunk from a running tool (shown by Bash cards)."""
+        chunk = str(payload.get("delta") or "")
+        if chunk:
+            self.view.append_tool_output(str(payload.get("tool_call_id") or "tool"), chunk)
 
     def _on_tool_execution_completed(self, payload: Mapping[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")

@@ -223,6 +223,14 @@ class TranscriptSurface:
             tool.set_arguments(arguments, raw_arguments)
         self._show_tool(tool)
 
+    def append_tool_output(self, call_id: str, chunk: str) -> None:
+        """Feed a streamed output chunk to its Bash card, in place."""
+        from coding_agent.tui.tools.calls import BashToolWidget
+
+        tool = self._tools.get(call_id)
+        if isinstance(tool, BashToolWidget):
+            tool.append_output(chunk)
+
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)
         if self._busy and self._process is not None:

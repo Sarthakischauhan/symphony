@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from rich.console import Console
 from rich.style import Style
 from rich.text import Text
 from textual import events
@@ -75,6 +77,7 @@ from coding_agent.tui.screens.history import load_session_history
 from coding_agent.tui.screens.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.tools import (
+    BashToolWidget,
     CompletedRunSummary,
     GenerateImageWidget,
     PatchDiffWidget,
@@ -141,6 +144,13 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         monkeypatch.delenv(name, raising=False)
 
+
+
+def _static_text(widget: Static) -> str:
+    """Plain text of a Static's current content (a Rich renderable or text)."""
+    console = Console(width=200, record=True, file=io.StringIO())
+    console.print(widget.content)
+    return console.export_text()
 
 def test_tui_escape_cancels_busy_run_and_restores_composer(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -2004,7 +2014,7 @@ def test_tui_labels_ssl_mac_retry(
     asyncio.run(_run())
 
 
-def test_bash_call_is_a_group_row_that_folds_when_the_stretch_ends(
+def test_bash_card_uses_timeline_header_and_stays_after_the_stretch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2021,24 +2031,34 @@ def test_bash_call_is_a_group_row_that_folds_when_the_stretch_ends(
             )
             await pilot.pause()
 
-            summary = app.query_one(ToolCallSummary)
-            assert summary.call_ids == ["bash-1"]
-            assert summary.is_expanded
-            assert "└ Bash git diff --check" in summary.render().plain
+            bash = app.query_one(BashToolWidget)
+            assert "Bash git diff --check" in str(bash.query_one(".bash-tool-label").render())
+            assert bash.status == "running"
+            assert not list(bash.query("CollapsibleTitle"))
+            assert not list(app.query(ToolCallSummary))
+
+            header = bash.query_one(".bash-tool-header")
+            await pilot.click(header)
+            await pilot.pause()
+            assert not bash.collapsed
+            assert bash.query_one(".bash-tool-body").display
+
+            header.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert bash.collapsed
+            assert not bash.query_one(".bash-tool-body").display
 
             app.update_tool("bash-1", status="done", result="clean")
-            await pilot.pause()
-            assert app.query_one(ToolCallSummary) is summary
-            assert summary.calls[0].status == "done"
-
             app.set_assistant("Command finished.", new=True)
             await pilot.pause()
-            assert app.query_one(ToolCallSummary) is summary
-            assert not summary.is_expanded
-            await pilot.click(summary)
+            # The card is not folded away: it stays, mounted once.
+            assert app.query_one(BashToolWidget) is bash
+            assert bash.status == "done"
+            assert not list(app.query(ToolCallSummary))
+            await pilot.click(header)
             await pilot.pause()
-            assert "Bash" in summary.render().plain
-            assert "git diff --check" in summary.render().plain
+            assert "clean" in _static_text(bash.query_one(".bash-tool-body", Static))
 
     asyncio.run(_run())
 
@@ -2052,14 +2072,14 @@ def test_tool_header_text_keeps_truncated_markup_literal() -> None:
     assert "\n" not in header_target("uv run python - <<'PY'\nprint('[/]')\nPY")
 
 
-def test_bash_row_renders_command_markup_literally(
+def test_bash_header_renders_command_markup_literally(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
     command = (
         "uv run python - <<'PY'\n"
-        "from coding_agent.tui.tools.calls import ToolCallWidget\n"
+        "from coding_agent.tui.tools.calls import BashToolWidget\n"
         "print('[link=' + 'x' * 200)\n"
         "print('[/]')\n"
         "PY"
@@ -2071,14 +2091,14 @@ def test_bash_row_renders_command_markup_literally(
             app.add_tool("bash-1", "bash")
             app.update_tool("bash-1", arguments={"command": command}, status="preparing")
             await pilot.pause()
-            row = app.query_one(ToolCallSummary).render().plain.splitlines()[1]
-            assert row.startswith("└ Bash uv run python - <<'PY' from coding_agent.tui.tools.calls import")
-            assert "[link=" in row
+            label = str(app.query_one(".bash-tool-label").render())
+            assert label.startswith("Bash uv run python - <<'PY' from coding_agent.tui.tools.calls import")
+            assert "[link=" in label
 
     asyncio.run(_run())
 
 
-def test_grouped_tool_rows_share_one_guide_column_across_tool_types(
+def test_tool_timeline_columns_align_across_rows_and_cards(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2111,20 +2131,27 @@ def test_grouped_tool_rows_share_one_guide_column_across_tool_types(
             )
             await pilot.pause()
 
-            summary = app.query_one(ToolCallSummary)
-            assert summary.call_ids == ["search-1", "read-1", "patch-1", "bash-1"]
-            rows = summary.render().plain.splitlines()[1:]
-            assert rows == [
+            group = app.query_one(ToolCallSummary)
+            assert group.call_ids == ["search-1", "read-1"]
+            # The patch card ended the stretch, so the group folded.
+            assert not group.is_expanded
+            group.toggle()
+            assert group.render().plain.splitlines()[1:] == [
                 "├ Search collapsible",
-                "├ Read app.py",
-                "├ Update app.py +1 -1",
-                "└ Bash pytest -q",
+                "└ Read app.py",
             ]
+            patch = app.query_one(PatchDiffWidget)
+            bash = app.query_one(BashToolWidget)
+            patch_label = patch.query_one(".tool-call-label")
+            bash_label = bash.query_one(".bash-tool-label")
+            assert patch_label.region.x == bash_label.region.x == group.content_region.x
+            assert str(patch_label.render()).startswith("Update app.py +1 -1")
+            assert str(bash_label.render()).startswith("Bash pytest -q")
 
     asyncio.run(_run())
 
 
-def test_tool_updates_change_row_text_without_remounting(
+def test_patch_card_updates_in_place_until_manually_expanded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2135,8 +2162,9 @@ def test_tool_updates_change_row_text_without_remounting(
             await pilot.pause()
             app.add_tool("patch-1", "patch")
             await pilot.pause()
-            summary = app.query_one(ToolCallSummary)
-            heights = [summary.region.height]
+            widget = app.query_one(PatchDiffWidget)
+            heights = [widget.region.height]
+            assert widget.collapsed
 
             arguments = {
                 "path": "src/app.py",
@@ -2145,20 +2173,21 @@ def test_tool_updates_change_row_text_without_remounting(
             }
             app.update_tool("patch-1", arguments=arguments)
             await pilot.pause()
-            heights.append(summary.region.height)
+            heights.append(widget.region.height)
 
             app.update_tool("patch-1", arguments=arguments, status="running")
             await pilot.pause()
-            heights.append(summary.region.height)
+            heights.append(widget.region.height)
 
             app.update_tool("patch-1", status="done", result="patched src/app.py")
+            app.set_assistant("Patched the file.", new=True)
             await pilot.pause()
-            heights.append(summary.region.height)
+            heights.append(widget.region.height)
             assert len(set(heights)) == 1
-            assert app.query_one(ToolCallSummary) is summary
-            assert isinstance(app._tools["patch-1"], PatchDiffWidget)
-            assert not app._tools["patch-1"].is_attached
-            assert "Update app.py +1 -1" in summary.render().plain
+            assert widget.collapsed
+            assert app.query_one(PatchDiffWidget) is widget
+            assert app._tools["patch-1"] is widget
+            assert not list(app.query(ToolCallSummary))
 
     asyncio.run(_run())
 
@@ -2188,10 +2217,13 @@ def test_tool_and_thought_blocks_get_one_row_margin(
             assert thought.has_class("is-complete")
             assert tuple(thought.styles.margin) == block
             group = app.query_one(ToolCallSummary)
-            assert group.call_ids == ["read-1", "bash-1"]
+            bash = app.query_one(BashToolWidget)
+            assert group.call_ids == ["read-1"]
             assert tuple(group.styles.margin) == block
+            assert tuple(bash.styles.margin) == block
             # Adjacent margins collapse to one blank row between blocks.
             assert group.region.y - thought.region.bottom == 1
+            assert bash.region.y - group.region.bottom == 1
 
     asyncio.run(_run())
 
@@ -3236,7 +3268,7 @@ def test_context_modal_filters_buckets() -> None:
     asyncio.run(_run())
 
 
-def test_patch_events_render_an_update_row_with_diff_stats(
+def test_patch_events_render_a_diff_card_in_place(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -3267,17 +3299,25 @@ def test_patch_events_render_an_update_row_with_diff_stats(
             )
             await pilot.pause()
 
-            widget = app._tools["patch-1"]
-            assert isinstance(widget, PatchDiffWidget)
+            widget = app.query_one(PatchDiffWidget)
             diff = widget._diff()
             assert widget.status == "running"
+            assert widget.collapsed
             assert widget.arguments["path"] == "src/greeting.py"
             assert diff_stats(diff) == (2, 2)
             assert '-    return "hello"' in diff
             assert '+    return f"hello {name}"' in diff
-            summary = app.query_one(ToolCallSummary)
-            row = summary.render().plain.splitlines()[1]
-            assert row == "└ Update greeting.py +2 -2"
+            header = str(widget.query_one(".tool-call-label").render())
+            assert header.startswith("Update greeting.py")
+            assert "+2 -2" in header
+
+            widget.scroll_visible()
+            await pilot.pause()
+            await pilot.click(widget.query_one(".tool-call-header"))
+            await pilot.pause()
+            assert not widget.collapsed
+            body = _static_text(widget.query_one(".tool-call > Contents > *", Static))
+            assert '+    return f"hello {name}"' in body
 
             app._presenter.handle(
                 "tool_execution_completed",
@@ -3288,15 +3328,13 @@ def test_patch_events_render_an_update_row_with_diff_stats(
                 },
             )
             await pilot.pause()
-            assert app.query_one(ToolCallSummary) is summary
             app.set_assistant("Patched greeting.py.", new=True)
             await pilot.pause()
-            assert app.query_one(ToolCallSummary) is summary
-            assert summary.call_ids == ["patch-1"]
-            assert not summary.is_expanded
-            await pilot.click(summary)
-            await pilot.pause()
-            assert "Update greeting.py" in summary.render().plain
+            assert app.query_one(PatchDiffWidget) is widget
+            assert widget.status == "done"
+            assert "patched src/greeting.py" in _static_text(
+                widget.query_one(".tool-call > Contents > *", Static)
+            )
 
     asyncio.run(_run())
 

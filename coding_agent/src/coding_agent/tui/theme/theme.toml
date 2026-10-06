@@ -300,6 +300,10 @@ tools = '''
     background: transparent;
 }
 
+.bash-tool > CollapsibleTitle {
+    display: none;
+}
+
 .tool-call-header {
     width: auto;
     height: 1;
@@ -356,6 +360,94 @@ tools = '''
 .tool-call > Contents {
     /* Align expanded output with the opening bracket in the tool header. */
     padding: 0 0 0 $space-gutter;
+}
+
+.bash-tool {
+    padding: 0;
+    padding-bottom: 0;
+    border: none;
+    border-top: none;
+}
+
+.bash-tool-header {
+    width: auto;
+    height: 1;
+    padding: 0 0 0 $space-gutter;
+    background: transparent;
+    pointer: pointer;
+}
+
+.bash-tool-header:hover,
+.bash-tool-header:focus {
+    background: transparent;
+}
+
+.bash-tool-header:hover .bash-tool-label,
+.bash-tool-header:focus .bash-tool-label {
+    text-style: bold;
+}
+
+.bash-tool-label {
+    width: auto;
+    height: 1;
+    color: #9aa7b2;
+    background: transparent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bash-tool.status-preparing .bash-tool-label,
+.bash-tool.status-running .bash-tool-label {
+    color: #d7a84b;
+}
+
+.bash-tool.status-done .bash-tool-label {
+    color: #72a57a;
+}
+
+.bash-tool.status-failed .bash-tool-label {
+    color: #d66b73;
+}
+
+/* A running Bash card's streamed output tail, under its header. */
+.bash-tool-tail {
+    width: 100%;
+    height: auto;
+    padding: 0 $space-inset 0 $space-gutter;
+    color: $muted;
+    background: transparent;
+}
+
+.bash-tool-body {
+    width: 100%;
+    height: auto;
+    padding: 0 $space-inset 0 $space-gutter;
+    color: #777777;
+    background: $background;
+}
+
+.bash-tool.-collapsed .bash-tool-body {
+    display: none;
+}
+
+.diff-tool {
+    padding: 0;
+    padding-bottom: 0;
+    background: $background;
+    border: none;
+    border-top: none;
+}
+
+/* Keep collapsed Update cards visually consistent with the timeline while
+   retaining strong line-level colors when the diff is expanded. */
+.diff-tool > Contents,
+.diff-tool .tool-call-header {
+    background: $background;
+}
+
+.diff-tool .tool-call-header:hover,
+.diff-tool .tool-call-header:focus {
+    background: transparent;
 }
 
 .tool-call-summary {

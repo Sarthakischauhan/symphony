@@ -9,10 +9,18 @@ from pathlib import Path
 import pytest
 from textual.pilot import Pilot
 from textual.widget import Widget
+from textual.widgets import Static
 
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.composer import QueuedTurn
-from coding_agent.tui.tools import CompletedRunSummary, GenerateImageWidget, ToolCallSummary
+from coding_agent.tui.tools import (
+    BashToolWidget,
+    CompletedRunSummary,
+    GenerateImageWidget,
+    PatchDiffWidget,
+    ToolCallSummary,
+)
+from coding_agent.tui.tools.calls import LIVE_OUTPUT_TAIL_LINES
 from coding_agent.tui.transcript import AssistantMessage, TranscriptScroll, UserMessage
 
 SIZE = (100, 30)
@@ -221,5 +229,125 @@ def test_a_new_turn_starts_fresh_tool_groups(
             assert len(groups) == 2
             assert groups[1].parent is app._process
             assert [call.status for call in groups[1].calls] == ["running"]
+
+    asyncio.run(_run())
+
+
+def _bash_output(app: CodingAgentApp, call_id: str, line: int) -> None:
+    assert app._presenter is not None
+    app._presenter.handle(
+        "tool_execution_output", {"tool_call_id": call_id, "delta": f"collected {line} items\n"}
+    )
+
+
+def _start_bash(app: CodingAgentApp, call_id: str) -> None:
+    assert app._presenter is not None
+    call = {"tool_call_id": call_id, "tool_name": "bash"}
+    app._presenter.handle("tool_call_started", call)
+    app._presenter.handle(
+        "tool_execution_started", {**call, "arguments": {"command": "pytest -q"}}
+    )
+
+
+def test_bash_card_identity_is_stable_across_output_and_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            app.mount_transcript(UserMessage("run the tests"))
+            _start_bash(app, "bash-1")
+            await pilot.pause()
+            card = app.query_one(BashToolWidget)
+            tail = card.query_one(".bash-tool-tail", Static)
+            before = _timeline(app)
+
+            for line in range(20):
+                _bash_output(app, "bash-1", line)
+                await pilot.pause()
+                assert app.query_one(BashToolWidget) is card
+                assert card.query_one(".bash-tool-tail", Static) is tail
+            assert tail.display
+            shown = str(tail.render()).splitlines()
+            assert shown == [f"collected {line} items" for line in range(20 - LIVE_OUTPUT_TAIL_LINES, 20)]
+            assert tail.region.height == LIVE_OUTPUT_TAIL_LINES
+
+            assert app._presenter is not None
+            app._presenter.handle(
+                "tool_execution_completed",
+                {"tool_call_id": "bash-1", "tool_name": "bash", "result": "20 passed", "status": "success"},
+            )
+            await pilot.pause()
+            assert _timeline(app) == before
+            assert app.query_one(BashToolWidget) is card
+            assert card.status == "done"
+            assert not tail.display
+            assert "Bash pytest -q" in str(card.query_one(".bash-tool-label").render())
+
+    asyncio.run(_run())
+
+
+def test_follow_stays_at_the_bottom_while_bash_output_streams(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            transcript = await _overflowing_run(app, pilot)
+            _start_bash(app, "bash-1")
+            await pilot.pause()
+            missed = []
+            for line in range(60):
+                _bash_output(app, "bash-1", line)
+                await pilot.pause()
+                if transcript.scroll_offset.y != transcript.max_scroll_y:
+                    missed.append(line)
+            assert missed == []
+            card = app.query_one(BashToolWidget)
+            assert card.region.bottom <= transcript.region.bottom
+
+    asyncio.run(_run())
+
+
+def test_patch_diff_card_updates_in_place(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app(monkeypatch, tmp_path)
+    arguments = {"path": "src/app.py", "old_str": "old\n", "new_str": "new\nnewer\n"}
+
+    async def _run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            assert app._presenter is not None
+            handle = app._presenter.handle
+            call = {"tool_call_id": "patch-1", "tool_name": "patch"}
+            handle("tool_call_started", call)
+            handle("tool_call_delta", {**call, "delta": '{"path":"src/app.py"'})
+            app._presenter.flush_stream_paints()
+            await pilot.pause()
+            card = app.query_one(PatchDiffWidget)
+            label = card.query_one(".tool-call-label", Static)
+            before = _timeline(app)
+            assert str(label.render()).startswith("Update app.py")
+
+            await pilot.click(card.query_one(".tool-call-header"))
+            await pilot.pause()
+            assert not card.collapsed
+
+            handle("tool_execution_started", {**call, "arguments": arguments})
+            await pilot.pause()
+            assert "+2 -1" in str(label.render())
+            handle("tool_execution_completed", {**call, "result": "patched src/app.py", "status": "success"})
+            await pilot.pause()
+
+            assert _timeline(app) == before
+            assert app.query_one(PatchDiffWidget) is card
+            assert card.query_one(".tool-call-label", Static) is label
+            assert card.status == "done"
+            assert not card.collapsed
 
     asyncio.run(_run())
