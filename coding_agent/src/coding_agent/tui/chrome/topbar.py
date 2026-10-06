@@ -1,7 +1,8 @@
-"""Top bar: branch on the left, auth and model on the right.
+"""Top bar: branch on the left, lab mark and model on the right.
 
-Color is foreground only. Background fills and powerline arrows render as
-blocks that cover the glyphs in a plain terminal font, so the row stays text.
+The lab mark is the published Simple Icons SVG, rasterized to a 32px PNG and
+drawn two terminal cells wide. Terminals without a graphics protocol still
+get the one-letter fallback.
 """
 
 from __future__ import annotations
@@ -14,7 +15,10 @@ from rich.cells import cell_len
 from rich.table import Table
 from rich.text import Text
 from textual import events
+from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.widgets import Static
+from textual_image.widget import Image as TerminalImage
 
 from coding_agent.personalities import project_root
 from coding_agent.tui.theme import SYMPHONY_COLORS
@@ -23,12 +27,10 @@ CLUSTER_GAP = " " * 4
 AUTH_MODEL_GAP = " " * 3
 BRANCH_ICON = "⎇"
 
-# One-cell marks, not images. A real SVG or PNG needs a graphics protocol
-# (Kitty, iTerm, Sixel) and a widget taller than this one-line bar. These
-# colors are the published brand colors from Simple Icons (2026-10-06):
-# Claude #D97757, Gemini #8E75B2, Mistral #FA520F, DeepSeek #5786FE,
-# Qwen #6950EF, Hugging Face #FFD21E, Perplexity #1FB8CD.
-# OpenAI and xAI do not publish a Simple Icons slug, so they get a letter.
+# Letter fallbacks, in the published Simple Icons brand color (2026-10-06).
+# Labs with a ``logos/<provider>.png`` draw that instead. OpenAI and xAI do
+# not publish a Simple Icons slug, so they stay a letter.
+LOGO_DIR = Path(__file__).with_name("logos")
 PROVIDER_MARKS: dict[str, tuple[str, str]] = {
     "anthropic": ("A", "#D97757"),
     "claude": ("A", "#D97757"),
@@ -101,9 +103,25 @@ def short_model_name(model: str) -> str:
     return name or model
 
 
+def provider_key(model: str) -> str:
+    """Provider id from a ``provider:model`` string."""
+    return model.split(":", 1)[0].lower() if model else ""
+
+
+def provider_logo(model: str) -> Optional[Path]:
+    """Rasterized lab mark, or None when this provider has no shipped PNG."""
+    key = provider_key(model)
+    if key == "google":
+        key = "gemini"
+    if key == "claude":
+        key = "anthropic"
+    path = LOGO_DIR / f"{key}.png"
+    return path if path.is_file() else None
+
+
 def provider_mark(model: str) -> tuple[str, str]:
     """A one-cell lab mark and its brand color for a ``provider:model`` id."""
-    provider = model.split(":", 1)[0].lower() if model else ""
+    provider = provider_key(model)
     if provider in PROVIDER_MARKS:
         return PROVIDER_MARKS[provider]
     letter = provider[:1].upper() if provider else "•"
@@ -139,8 +157,8 @@ def topbar_text(*, workspace: str = "", branch: str = "", model: str = "") -> Te
     return Text(CLUSTER_GAP.join(clusters), no_wrap=True)
 
 
-class TopBar(Static):
-    """Header with the branch on the left and active model on the right."""
+class TopBar(Horizontal):
+    """Header with the branch on the left and the lab mark plus model on the right."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._branch = ""
@@ -152,6 +170,11 @@ class TopBar(Static):
         self._branch_timer = None
         self._dirty_probe = False
         super().__init__(*args, **kwargs)
+
+    def compose(self) -> ComposeResult:
+        yield Static("", id="topbar-branch")
+        yield TerminalImage(None, id="topbar-logo")
+        yield Static("", id="topbar-model")
 
     def on_mount(self) -> None:
         """Poll Git's HEAD so checkouts made outside the TUI appear promptly.
@@ -181,7 +204,7 @@ class TopBar(Static):
         self._branch = branch
         if not branch:
             self._dirty = False
-        self.update(self._render_row(max(self.content_size.width, 1)))
+        self._paint()
 
     def _schedule_dirty_probe(self) -> None:
         """Start one background dirty check. Skip when the last one is running."""
@@ -207,7 +230,7 @@ class TopBar(Static):
         if dirty == self._dirty:
             return
         self._dirty = dirty
-        self.update(self._render_row(max(self.content_size.width, 1)))
+        self._paint()
 
     def set_context(
         self,
@@ -231,37 +254,63 @@ class TopBar(Static):
         self._model = model
         self._label = label
         self._auth = auth
-        self.update(self._render_row(max(self.content_size.width, 1)))
+        self._paint()
 
     def on_resize(self, event: events.Resize) -> None:
-        """Rebudget both columns whenever the terminal changes width."""
-        content_width = max(event.size.width - self.styles.gutter.width, 1)
-        self.update(self._render_row(content_width))
+        """Rebudget the model whenever the terminal changes width."""
+        self._paint(max(event.size.width - self.styles.gutter.width, 1))
 
-    def _render_row(self, width: int) -> Table:
-        """Build the row for the widget's current width.
+    def _paint(self, width: int | None = None) -> None:
+        """Refresh the branch text, the tiny logo, and the model name."""
+        if not self.is_mounted:
+            return
+        width = width or max(self.content_size.width, 1)
+        branch = self.query_one("#topbar-branch", Static)
+        logo = self.query_one("#topbar-logo", TerminalImage)
+        model_widget = self.query_one("#topbar-model", Static)
+        branch.update(self._branch_text())
+        path = provider_logo(self._model)
+        if path is None:
+            logo.display = False
+            logo.image = None
+        else:
+            logo.image = str(path)
+            logo.display = True
+        model_widget.update(self._model_text(width, logo=path is not None))
 
-        Both sides are deliberately allowed to ellipsize. Without explicit
-        width budgets Rich treats the no-wrap model and branch as indivisible,
-        which makes narrow terminals crop the entire header.
-        """
+    def _branch_text(self) -> Text:
         branch_label = self._branch
         if self._label:
             branch_label = (
-                f"{branch_label}  ›  {self._label}"
-                if branch_label
-                else self._label
+                f"{branch_label}  ›  {self._label}" if branch_label else self._label
             )
+        left = Text(no_wrap=True, overflow="ellipsis")
+        if branch_label:
+            left.append(f"{BRANCH_ICON} ", style=f"bold {SYMPHONY_COLORS['number']}")
+            left.append(branch_label, style=SYMPHONY_COLORS["foreground"])
+            if self._dirty:
+                left.append(" *", style=f"bold {SYMPHONY_COLORS['number']}")
+        return left
+
+    def _model_text(self, width: int, *, logo: bool) -> Text:
         model = self._model
-        # Budget by terminal cells, not Python len(): a wide glyph is one
-        # codepoint but two columns, and under-counting truncates the model.
-        # Narrow terminals keep the provider prefix so the model stays identifiable.
         if width >= 48:
             model = short_model_name(model)
-        mark, _mark_color = provider_mark(self._model) if model else ("", "")
-        right_plain = f"{mark} {model}" if mark else model
-        model_width = min(cell_len(right_plain), max(width // 2, 1))
+        right = Text(no_wrap=True, overflow="ellipsis")
+        if not model:
+            return right
+        if not logo:
+            mark, mark_color = provider_mark(self._model)
+            right.append(mark, style=f"bold {mark_color}")
+            right.append(" ")
+        right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
+        return right
+
+    def _render_row(self, width: int) -> Table:
+        """Plain-text row for tests. A shipped PNG replaces the letter on screen."""
         row = Table.grid(expand=True, padding=0)
+        model = self._model_text(width, logo=provider_logo(self._model) is not None)
+        model_width = min(max(cell_len(model.plain), 1), max(width // 2, 1))
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         row.add_column(
             justify="right",
@@ -269,17 +318,5 @@ class TopBar(Static):
             no_wrap=True,
             max_width=model_width,
         )
-        left = Text(no_wrap=True, overflow="ellipsis")
-        if branch_label:
-            left.append(f"{BRANCH_ICON} ", style=f"bold {SYMPHONY_COLORS['number']}")
-            left.append(branch_label, style=SYMPHONY_COLORS["foreground"])
-            if self._dirty:
-                left.append(" *", style=f"bold {SYMPHONY_COLORS['number']}")
-        right = Text(no_wrap=True, overflow="ellipsis")
-        if model:
-            mark, mark_color = provider_mark(self._model)
-            right.append(mark, style=f"bold {mark_color}")
-            right.append(" ")
-            right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
-        row.add_row(left, right)
+        row.add_row(self._branch_text(), model)
         return row
