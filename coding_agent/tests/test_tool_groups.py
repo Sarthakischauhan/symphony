@@ -199,6 +199,24 @@ def test_patch_snapshot_keeps_update_target_and_stats() -> None:
     assert "Update\\n" not in rendered
 
 
+@pytest.mark.parametrize(
+    ("result", "filename"),
+    [
+        ("patched coding_agent/src/coding_agent/tui/transcript/process.py (1 replacement(s), +0 bytes)", "process.py"),
+        ("updated src/app.py", "app.py"),
+        ("noop: old_str and new_str are identical in src/app.py; no change", "app.py"),
+        ("old_str not found in src/app.py", "app.py"),
+        ("error: file not found: src/app.py", "app.py"),
+    ],
+)
+def test_patch_result_fallback_names_the_file(result: str, filename: str) -> None:
+    widget = make_tool_widget("patch-result", "patch")
+    widget.set_result(result)
+    assert filename in widget._summary()
+    snapshot = snapshot_from_call(call_id="patch-result", tool_name="patch", result=result)
+    assert filename in snapshot.detail
+
+
 def test_cards_and_group_rows_split_by_tool() -> None:
     for tool_name in ("generate_image", "bash", "patch"):
         assert make_tool_widget("card", tool_name).keep_in_transcript

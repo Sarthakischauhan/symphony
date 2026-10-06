@@ -34,12 +34,35 @@ def tool_detail(
         return str(args.get("command") or raw_arguments)
     if tool_name == "search":
         return str(args.get("query") or args.get("pattern") or compact_json(args))
-    if tool_name in {"write_file", "patch", "generate_image", "read_file"}:
+    if tool_name == "patch":
+        return patch_path(args, raw_arguments)
+    if tool_name in {"write_file", "generate_image", "read_file"}:
         path = str(args.get("path") or "")
         if path:
             return path
         return compact_json(args) or raw_arguments
     return compact_json(args) or raw_arguments
+
+
+def patch_path(arguments: Mapping[str, Any], raw_arguments: str = "", result: str = "") -> str:
+    """Recover the target even when a restored patch has only its result."""
+    path = str(arguments.get("path") or "").strip()
+    if path:
+        return path
+    match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', raw_arguments)
+    if match:
+        return json.loads(f'"{match.group(1)}"')
+    for pattern in (
+        r"^(?:patched|updated) (.+?)(?: \(|$)",
+        r"^noop: .* in (.+?); no change",
+        r"^old_str not found in (.+)$",
+        r"^error: (?:file not found|not a file|file is not valid UTF-8 text): (.+)$",
+        r"^error: failed to (?:read|write) (.+?): ",
+    ):
+        match = re.search(pattern, result, re.MULTILINE | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return ""
 
 
 def header_command(reason: str, summary: str, limit: int) -> str:

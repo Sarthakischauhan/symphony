@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import deque
 from difflib import unified_diff
 from pathlib import Path
-import re
 from time import monotonic
 from typing import Any, Final, Mapping
 
@@ -26,6 +25,7 @@ from coding_agent.tui.tools.labels import (
     read_file_detail,
     read_file_result,
     result_preview,
+    patch_path,
     tool_detail,
     tool_header_text,
     tool_label,
@@ -398,21 +398,7 @@ class PatchDiffWidget(ToolCallWidget):
         return ("Update", "±")
 
     def _patch_path(self) -> str:
-        path = str(self.arguments.get("path") or "").strip()
-        if path:
-            return path
-        raw = self.raw_arguments or ""
-        match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', raw)
-        if match:
-            return match.group(1).replace("\\/", "/").replace('\\"', '"')
-        match = re.search(
-            r"(?:patched|updated|noop:.*in|error:.*?:)\s+(\S+)",
-            self.result,
-            re.IGNORECASE,
-        )
-        if match:
-            return match.group(1).rstrip(";")
-        return ""
+        return patch_path(self.arguments, self.raw_arguments, self.result)
 
     def _summary(self) -> str:
         """Keep live and collected Update rows on the same path-plus-stats line."""
