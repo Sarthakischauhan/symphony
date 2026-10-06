@@ -168,7 +168,8 @@ class TranscriptSurface:
     def _show_tool(self, tool: ToolCallWidget) -> None:
         """Mount an interactive card once, or place/update a row in its group."""
         if tool.keep_in_transcript:
-            if not tool.is_attached:
+            # Placed once: updates can arrive before the card is attached.
+            if self._process is None or tool not in self._process.timeline_items():
                 self._mount_process_item(tool)
             return
         snapshot = tool.snapshot()
@@ -263,10 +264,17 @@ class TranscriptSurface:
             self._mount_transcript(widget)
 
     def finish_process(self, title: str) -> None:
-        """Freeze the finished run as it stands and add its completion row."""
+        """Close the finished run with its completion row, then freeze it."""
         self._close_tool_group()
         if self._process is not None:
             self._process.complete(title)
+            # After the final reply and the completion row are laid out. Runs
+            # a click thawed since the last freeze go back to frozen as well.
+            self.call_after_refresh(self._freeze_finished_runs)
+
+    def _freeze_finished_runs(self) -> None:
+        for process in self.query(RunProcess):
+            process.freeze()
 
     def add_run_completion(self, title: str) -> None:
         """Place compact run metrics after the finalized assistant reply."""

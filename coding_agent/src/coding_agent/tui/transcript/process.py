@@ -12,8 +12,11 @@ from rich.console import RenderableType
 from rich.style import Style
 from rich.text import Text
 from textual import events
+from textual._compositor import Compositor
 from textual.containers import Container, Horizontal, VerticalScroll
+from textual.geometry import Size
 from textual.message import Message
+from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
@@ -159,7 +162,13 @@ class ThinkingStatus(Static):
 
 
 class RunProcess(Container):
-    """One run's flat timeline of live status, thoughts, and tools."""
+    """One run's flat timeline of live status, thoughts, and tools.
+
+    A finished run freezes (fx's ``transcript_release``): its widgets are
+    unmounted and it paints the lines they rendered, so history costs one
+    widget per turn. A click thaws it, re-mounting the same widgets, and is
+    then delivered to the widget under the pointer.
+    """
 
     def __init__(self, thinking: ThinkingStatus) -> None:
         # ``_items`` is the single source of truth for timeline order. Items
@@ -168,6 +177,9 @@ class RunProcess(Container):
         self._items: list[Widget] = [thinking]
         self._thinking = thinking
         self._completed = False
+        # The rendered lines while frozen, and the width they were rendered at.
+        self._frozen: list[Strip] | None = None
+        self._frozen_width = 0
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
@@ -209,6 +221,91 @@ class RunProcess(Container):
         self._completed = True
         self._thinking.set_visible(False)
         self.add_item(ProcessComplete(title))
+
+    @property
+    def frozen(self) -> bool:
+        return self._frozen is not None
+
+    def freeze(self) -> None:
+        """Swap a finished run's widgets for the lines they render.
+
+        The lines are this timeline's own render at its current width, so the
+        look and the height are unchanged and the reader's scroll position
+        does not move.
+        """
+        if not self._completed or self._frozen is not None or not self.is_attached:
+            return
+        if not self.is_mounted or not all(item.is_mounted for item in self._items):
+            self.call_after_refresh(self.freeze)
+            return
+        width = self.size.width
+        if not width:
+            return  # not laid out (e.g. hidden); the next finished run retries
+        height = self.get_content_height(self.size, self.app.size, width)
+        # A compositor rooted at this run renders the whole timeline, not only
+        # the part on screen.
+        compositor = Compositor()
+        compositor.reflow(self, Size(width, height))
+        self._frozen = compositor.render_strips()
+        self._frozen_width = width
+        self.remove_children()
+        self.refresh(layout=True)
+
+    async def thaw(self) -> None:
+        """Mount the run's widgets again, in the state they were frozen in."""
+        if self._frozen is None:
+            return
+        self._frozen = None
+        await self.mount(*self._items)
+
+    def get_content_height(self, container: Size, viewport: Size, width: int) -> int:
+        if self._frozen is not None:
+            return len(self._frozen)
+        return super().get_content_height(container, viewport, width)
+
+    def render_line(self, y: int) -> Strip:
+        if self._frozen is None:
+            return super().render_line(y)
+        if y < len(self._frozen):
+            return self._frozen[y]
+        return Strip.blank(self.size.width)
+
+    async def on_resize(self, event: events.Resize) -> None:
+        if self._frozen is not None and event.size.width != self._frozen_width:
+            # Lines rendered at the old width no longer fit: re-render them.
+            await self.thaw()
+            self.call_after_refresh(self.freeze)
+
+    async def _on_click(self, event: events.Click) -> None:
+        if self._frozen is None:
+            return
+        event.stop()
+        await self.thaw()
+        self.call_after_refresh(self._replay_click, event)
+
+    def _replay_click(self, click: events.Click) -> None:
+        """Deliver the click that thawed this run to the live widget now under it."""
+        x, y = int(click.screen_x), int(click.screen_y)
+        widget, region = self.screen.get_widget_at(x, y)
+        if self not in widget.ancestors:
+            return
+        widget.post_message(
+            events.Click(
+                widget,
+                x - region.x,
+                y - region.y,
+                click.delta_x,
+                click.delta_y,
+                click.button,
+                click.shift,
+                click.meta,
+                click.ctrl,
+                screen_x=click.screen_x,
+                screen_y=click.screen_y,
+                style=click.style,
+                chain=click.chain,
+            )
+        )
 
     def archive_text(self) -> str:
         from coding_agent.tui.tools.calls import ToolCallWidget
@@ -298,7 +395,9 @@ class ReasoningWidget(Collapsible):
         self._summary_heading: str | None = None
         self._content_without_heading = content
         self._body = ReasoningBody()
-        self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
+        # The body is yielded in ``compose`` (not passed here) so a re-mount
+        # after a frozen run thaws composes it again.
+        self._scroll = VerticalScroll(classes="reasoning-scroll")
         self._label = Static("Thinking…", classes="reasoning-label", markup=False)
         self._status = Static("", classes="reasoning-status", markup=False)
         self._started_at = monotonic()
@@ -321,7 +420,8 @@ class ReasoningWidget(Collapsible):
             yield self._label
             yield self._status
         with self.Contents():
-            yield self._scroll
+            with self._scroll:
+                yield self._body
 
     def on_reasoning_header_toggle(self, event: ReasoningHeader.Toggle) -> None:
         event.stop()
@@ -366,7 +466,9 @@ class ReasoningWidget(Collapsible):
 
     def on_mount(self) -> None:
         # Anchored, the inner area follows new text until the reader scrolls it.
-        self._scroll.anchor()
+        # A completed thought re-mounted by a thawed run stays at its top.
+        if not self.has_class("is-complete"):
+            self._scroll.anchor()
 
     @staticmethod
     def _format_duration(seconds: float) -> str:

@@ -11,6 +11,7 @@ from coding_agent.tui.runtime.subagent import SubagentRecord, SubagentScreen, Su
 from coding_agent.tui.tools import BashToolWidget, CompletedRunSummary, ToolCallSummary, ToolCallWidget
 from coding_agent.tui.transcript import AssistantMessage, UserMessage
 from coding_agent.tui.transcript.messages import Notice
+from coding_agent.tui.transcript.process import RunProcess
 
 
 def test_child_tool_argument_snapshots_replace_streamed_json() -> None:
@@ -106,6 +107,10 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             assert app._assistant.parent is not screen.query_one("#transcript")
             emit("run_completed", output_text="Child answer")
             await pilot.pause()
+            (child_run,) = screen.query(RunProcess)
+            assert child_run.frozen
+            await child_run.thaw()
+            await pilot.pause()
             assert not list(screen.query(ToolCallWidget))
             # The finished child run stays as it streamed: one folded group.
             assert not list(screen.query(CompletedRunSummary))
@@ -118,13 +123,18 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
             await pilot.pause()
             app.finish_process("Parent completed")
             await pilot.pause()
-            assert app._tools["spawn"].is_attached
+            # The finished parent run is frozen with its subagent card in it.
+            assert app._process is not None and app._process.frozen
+            assert app._tools["spawn"] in app._process.timeline_items()
             await pilot.press("ctrl+g")
             await pilot.pause()
             assert isinstance(app.screen, SubagentTasksScreen)
             await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, SubagentScreen)
+            for run in app.screen.query(RunProcess):
+                await run.thaw()
+            await pilot.pause()
             assert sum(item.count for item in app.screen.query(ToolCallSummary)) == 11
 
     asyncio.run(run())
@@ -182,6 +192,8 @@ def test_child_journal_reopens_after_restart(monkeypatch, tmp_path: Path) -> Non
             record = app._subagents["child"]
             assert record.status == "interrupted"
             app.open_subagent(record)
+            await pilot.pause()
+            await app.screen.query_one(RunProcess).thaw()
             await pilot.pause()
             assert app.screen.query_one(AssistantMessage).message_text == "Partial answer"
             assert app.screen._ui_state.phase == "idle"

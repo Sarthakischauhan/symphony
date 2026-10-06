@@ -1594,7 +1594,9 @@ def test_text_then_tools_then_text_keeps_stream_order(
             assert all("◆" not in str(message.render()) for message in messages)
             archive = app._process.archive_text()
             assert "The header was mounting twice." in archive
-            summary = app._process.query_one(ToolCallSummary)
+            (summary,) = [
+                item for item in app._process.timeline_items() if isinstance(item, ToolCallSummary)
+            ]
             assert summary.call_ids == ["call-1"]
 
     asyncio.run(_run())
@@ -1900,7 +1902,12 @@ def test_tui_maps_stream_usage_and_read_file_events(
                 },
             )
             await pilot.pause()
-            # Run end freezes the turn: the thought and the group stay put.
+            # Run end freezes the turn; thawed, the thought and the group are
+            # the same widgets.
+            frozen_run = app.query_one(RunProcess)
+            assert frozen_run.frozen
+            await frozen_run.thaw()
+            await pilot.pause()
             assert list(app.query(ReasoningWidget)) == thoughts
             assert app.query_one(ToolCallSummary) is group
             process = app.query_one(RunProcess)
@@ -3773,6 +3780,10 @@ def test_final_output_keeps_the_run_as_it_streamed(
             group = app.query_one(ToolCallSummary)
             metrics = "3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls"
             app.finish_process(metrics)
+            await pilot.pause()
+            frozen_run = app.query_one(RunProcess)
+            assert frozen_run.frozen
+            await frozen_run.thaw()
             await pilot.pause()
 
             assert not list(app.query(CompletedRunSummary))

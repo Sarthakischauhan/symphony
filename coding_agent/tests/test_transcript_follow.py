@@ -158,6 +158,12 @@ def test_run_end_keeps_intermediate_text_and_user_expanded_groups(
             app.finish_process("12s · 3 model calls · 5 tool calls")
             await pilot.pause()
 
+            process = app._process
+            assert process is not None and process.frozen
+            assert process.timeline_items()[: len(before)] == before
+            # Thawed, the run is the same widgets, still as the reader left them.
+            await process.thaw()
+            await pilot.pause()
             after = _timeline(app)
             assert after[: len(before)] == before
             assert not list(app.query(CompletedRunSummary))
@@ -216,20 +222,23 @@ def test_a_new_turn_starts_fresh_tool_groups(
             await pilot.pause()
             app._start_turn(QueuedTurn("first", "first", (), ()))
             _read(app, "call-0")
+            first = app._tool_groups["call-0"]
             app.finish_process("done")
             await pilot.pause()
-            first = app.query_one(ToolCallSummary)
+            await pilot.pause()  # the run mounts, then freezes
+            first_run = app._process
+            assert first_run is not None and first_run.frozen
 
             # Providers may reuse call ids across runs; the new turn gets its own row.
             app._start_turn(QueuedTurn("second", "second", (), ()))
             _read(app, "call-0", status="running")
             await pilot.pause()
-            groups = list(app.query(ToolCallSummary))
-            assert groups[0] is first
+            assert first_run.frozen
             assert [call.status for call in first.calls] == ["done"]
-            assert len(groups) == 2
-            assert groups[1].parent is app._process
-            assert [call.status for call in groups[1].calls] == ["running"]
+            (live,) = app.query(ToolCallSummary)
+            assert live is not first
+            assert live.parent is app._process
+            assert [call.status for call in live.calls] == ["running"]
 
     asyncio.run(_run())
 
