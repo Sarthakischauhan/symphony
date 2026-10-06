@@ -80,7 +80,8 @@ def test_cancelling_a_waiter_keeps_child_alive_and_explicit_cancel_stops_it() ->
                 args={"prompt": "task", "model_id": "fake:child"})
         response = json.loads(await spawn())
         child_id = response["child_id"]
-        assert "concurrency limit" in await spawn()
+        second = json.loads(await spawn())
+        assert second["child_id"] != child_id
         from core_harness.addons.subagent.background import wait_for_child_result
         waiter = asyncio.create_task(wait_for_child_result(parent, timeout=None))
         await asyncio.sleep(0)

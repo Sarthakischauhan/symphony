@@ -87,6 +87,38 @@ def test_history_async_results_stay_in_cards(collected):
     assert not any(isinstance(widget, CompletedRunSummary) and "child-tool" in widget.call_ids for widget in widgets)
 
 
+def test_completed_foreground_cards_fold_but_open_work_stays_open():
+    messages = [
+        Message(role="user", content="Finished task"),
+        Message(role="assistant", content="", tool_calls=[
+            {"id": "bash", "function": {"name": "bash", "arguments": json.dumps({"command": "pytest"})}},
+            {"id": "spawn", "function": {"name": "spawn_agent", "arguments": json.dumps({"prompt": "Inspect"})}},
+        ]),
+        Message(role="tool", tool_call_id="bash", content="2 passed"),
+        Message(role="tool", tool_call_id="spawn", content='{"child_id":"child"}'),
+        Message(role="assistant", content="Finished answer"),
+        Message(role="user", content="Current task"),
+        Message(role="assistant", content="", tool_calls=[
+            {"id": "bash-live", "function": {"name": "bash", "arguments": json.dumps({"command": "sleep 5"})}},
+            {"id": "spawn-live", "function": {"name": "spawn_agent", "arguments": json.dumps({"prompt": "Continue"})}},
+        ]),
+        Message(role="tool", tool_call_id="bash-live", content=""),
+        Message(role="tool", tool_call_id="spawn-live", content='{"child_id":"child-live"}'),
+    ]
+    events = [
+        ("tool_execution_completed", {"run_id": "old", "tool_call_id": "bash", "collected": True}),
+        ("agent_spawned", {"run_id": "old", "tool_call_id": "spawn", "child_id": "child", "collected": True}),
+        ("tool_execution_completed", {"run_id": "new", "tool_call_id": "bash-live"}),
+        ("agent_spawned", {"run_id": "new", "tool_call_id": "spawn-live", "child_id": "child-live"}),
+    ]
+    widgets = _history_widgets(messages, events)
+    assert [widget.call_id for widget in widgets if isinstance(widget, SubagentWidget)] == ["spawn", "spawn-live"]
+    assert not [widget for widget in widgets if isinstance(widget, BashToolWidget) and widget.call_id == "bash"]
+    summary = next(widget for widget in widgets if isinstance(widget, CompletedRunSummary))
+    assert "bash" in summary.call_ids
+    assert [widget.call_id for widget in widgets if isinstance(widget, BashToolWidget)] == ["bash-live"]
+
+
 def test_history_recognizes_legacy_child_result_without_events():
     messages, _, _ = _fixture()
     widgets = _history_widgets(messages, [])

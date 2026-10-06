@@ -194,11 +194,15 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         self.refresh_record()
 
     def _schedule_stream_flush(self, callback: Any) -> None:
+        self._stream_flush_callback = callback
         if self._stream_flush_timer is not None:
             return
         def flush() -> None:
             self._stream_flush_timer = None
-            callback()
+            pending = self._stream_flush_callback
+            self._stream_flush_callback = None
+            if pending is not None:
+                pending()
         self._stream_flush_timer = self.set_timer(1 / 15, flush)
 
     def on_unmount(self) -> None:
@@ -208,7 +212,7 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
     def _set_status(self, _value: str = "") -> None:
         self.query_one("#status", Static).update(render_footer(
             self._ui_state, hint="esc back", workspace=display_workspace_path(self.workspace),
-        ))
+        ), layout=False)
 
     async def action_stop_child(self) -> None:
         await self.app.cancel_subagent(self.child_id)

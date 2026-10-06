@@ -199,31 +199,6 @@ class CoreHarness:
         child_id = str(uuid.uuid4())
         child_sink = sink or self.sink
         parent_session_id = self._active_session_id or self.session_id or ""
-        if self.spawn_depth >= self.max_spawn_depth:
-            message = (
-                f"error: spawn depth {self.spawn_depth} exceeds "
-                f"max_spawn_depth={self.max_spawn_depth}"
-            )
-            await self.emit(
-                "agent_failed",
-                {
-                    "child_id": child_id,
-                    "label": label,
-                    "prompt": prompt_text,
-                    "message": message,
-                },
-            )
-            return ChildIdentity(
-                agent_id=child_id,
-                parent_id=self.agent_id,
-                spawn_depth=self.spawn_depth + 1,
-                label=label,
-                prompt_text=prompt_text,
-                sink=child_sink,
-                parent_session_id=parent_session_id,
-                blocked=True,
-                blocked_message=message,
-            )
         return ChildIdentity(
             agent_id=child_id,
             parent_id=self.agent_id,

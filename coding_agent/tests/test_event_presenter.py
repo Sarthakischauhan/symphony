@@ -18,6 +18,8 @@ class RecordingView:
         self.finished_reasoning = 0
         self.tools: list[tuple[str, str]] = []
         self.tool_updates: list[str] = []
+        self.tool_output: list[tuple[str, str]] = []
+        self.tool_events: list[tuple[str, str, Any]] = []
         self.tool_payloads: list[tuple[str, Optional[Mapping[str, Any]], str]] = []
         self.notices: list[str] = []
         self.updates: list[str] = []
@@ -68,9 +70,14 @@ class RecordingView:
         status: str = "preparing",
         result: Any = None,
     ) -> None:
-        del result, tool_name
+        del tool_name
+        self.tool_events.append((call_id, status, result))
         self.tool_updates.append(f"{call_id}:{status}")
         self.tool_payloads.append((call_id, arguments, raw_arguments))
+
+    def append_tool_output(self, call_id: str, chunk: str) -> None:
+        self.tool_output.append((call_id, chunk))
+        self.tool_events.append((call_id, "output", chunk))
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         del tone
@@ -536,3 +543,105 @@ def test_run_completed_skips_toast_when_jev_silent_or_missing() -> None:
     presenter.handle("run_started", {"ts": 3.0})
     presenter.handle("run_completed", {"ts": 4.0})
     assert view.updates == []
+
+
+@pytest.mark.parametrize("stream", ["text", "reasoning"])
+def test_observations_share_one_tick_with_stream_paints(stream: str) -> None:
+    scheduled: list = []
+    presenter, view, _ = _presenter(schedule=scheduled)
+    presenter.handle("run_started")
+    view.thinking.clear()
+    for index, chunk in enumerate(("first ", "second", " third"), 1):
+        presenter.handle(f"{stream}_delta", {"delta": chunk})
+        presenter.handle("usage", {"prompt_tokens": 10, "completion_tokens": index})
+        presenter.handle("context", {"tokens_used": index, "context_limit": 100})
+        presenter.handle("tool_execution_output", {"tool_call_id": "a", "delta": chunk})
+        presenter.handle("tool_execution_output", {"tool_call_id": "b", "delta": str(index)})
+    assert presenter.state.metrics.completion_tokens == 3
+    assert presenter.state.metrics.tokens_used == 3
+    assert view.assistant == view.reasoning == view.tool_output == view.thinking == []
+    assert len(scheduled) == 1
+
+    scheduled[0]()
+    paints = view.assistant if stream == "text" else view.reasoning
+    assert paints == [("first second third", True)]
+    assert view.tool_output == [("a", "first second third"), ("b", "123")]
+    assert view.thinking == ["Thinking · 10 in / 3 out"]
+
+
+@pytest.mark.parametrize("status", ["success", "error", "cancelled", "timeout"])
+def test_tool_completion_flushes_output_before_result(status: str) -> None:
+    scheduled: list = []
+    presenter, view, _ = _presenter(schedule=scheduled)
+    for chunk in ("one\n", "two\n"):
+        presenter.handle("tool_execution_output", {"tool_call_id": "bash", "delta": chunk})
+    assert len(scheduled) == 1
+    assert view.tool_output == []
+    presenter.handle("tool_execution_completed", {
+        "tool_call_id": "bash", "status": status, "result": "final",
+    })
+    final_status = "done" if status == "success" else "failed"
+    assert view.tool_events == [
+        ("bash", "output", "one\ntwo\n"), ("bash", final_status, "final"),
+    ]
+    scheduled[0]()
+    assert len(view.tool_events) == 2
+
+
+@pytest.mark.parametrize("event", ["run_completed", "run_failed", "run_cancelled", "run_limit_exceeded", "turn_completed"])
+def test_structural_end_events_drain_observational_paints(event: str) -> None:
+    scheduled: list = []
+    presenter, view, _ = _presenter(schedule=scheduled)
+    presenter.handle("text_delta", {"delta": "answer"})
+    presenter.handle("usage", {"prompt_tokens": 5})
+    presenter.handle("tool_execution_output", {"delta": "output"})
+    presenter.handle(event)
+    assert view.assistant == [("answer", True)]
+    assert view.tool_output == [("tool", "output")]
+    assert "Thinking · 5 in / 0 out" in view.thinking
+    before = list(view.thinking)
+    scheduled[0]()
+    assert view.thinking == before
+    assert len(view.tool_output) == 1
+
+
+def test_run_start_discards_pending_paints_and_invalidates_old_tick() -> None:
+    scheduled: list = []
+    presenter, view, _ = _presenter(schedule=scheduled)
+    presenter.handle("text_delta", {"delta": "old"})
+    presenter.handle("usage", {"prompt_tokens": 999})
+    presenter.handle("tool_execution_output", {"delta": "old output"})
+    presenter.handle("run_started")
+    presenter.handle("text_delta", {"delta": "new"})
+    presenter.handle("usage", {"prompt_tokens": 1})
+    presenter.handle("tool_execution_output", {"delta": "new output"})
+    assert len(scheduled) == 2
+    scheduled[0]()
+    assert view.assistant == view.tool_output == []
+    assert view.thinking == ["Thinking…"]
+    scheduled[1]()
+    assert view.assistant == [("new", True)]
+    assert view.tool_output == [("tool", "new output")]
+    assert view.thinking == ["Thinking…", "Thinking · 1 in / 0 out"]
+
+
+def test_observations_paint_synchronously_without_scheduler() -> None:
+    presenter, view, _ = _presenter()
+    for index in (1, 2):
+        presenter.handle("usage", {"prompt_tokens": index})
+        presenter.handle("tool_execution_output", {"delta": str(index)})
+    assert view.thinking == ["Thinking · 1 in / 0 out", "Thinking · 2 in / 0 out"]
+    assert view.tool_output == [("tool", "1"), ("tool", "2")]
+
+
+def test_stale_structural_flush_tick_does_not_drain_next_interval() -> None:
+    scheduled: list = []
+    presenter, view, _ = _presenter(schedule=scheduled)
+    presenter.handle("tool_execution_output", {"delta": "first"})
+    presenter.handle("context_warning")
+    presenter.handle("tool_execution_output", {"delta": "second"})
+    assert len(scheduled) == 2
+    scheduled[0]()
+    assert view.tool_output == [("tool", "first")]
+    scheduled[1]()
+    assert view.tool_output == [("tool", "first"), ("tool", "second")]

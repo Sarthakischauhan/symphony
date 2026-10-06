@@ -665,13 +665,13 @@ class JsonlPersistence:
 
     async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
         with self._lock:
-            entries = self._read_entries(session_id)
+            entries = self._cached_entries(session_id)
         return apply_collection([(kind, hydrate(payload, self.session_dir(session_id)))
                                  for kind, payload in self._journal_events(entries)])
 
     async def load_children(self, *, parent_session_id: str) -> list[dict[str, Any]]:
         with self._lock:
-            entries = self._read_entries(parent_session_id)
+            entries = self._cached_entries(parent_session_id)
         children: Dict[str, dict[str, Any]] = {}
         order: List[str] = []
         for entry in entries:
@@ -773,13 +773,13 @@ class JsonlPersistence:
     async def load_conversation(self, *, session_id: str) -> List[Message]:
         """Load the reconstructed model context (runtime view)."""
         with self._lock:
-            entries = self._read_entries(session_id)
+            entries = self._cached_entries(session_id)
         return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._messages_from(entries)]
 
     async def load_transcript(self, *, session_id: str) -> List[Message]:
         """Load the complete persisted transcript for the TUI/history view."""
         with self._lock:
-            entries = self._read_entries(session_id)
+            entries = self._cached_entries(session_id)
         return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._transcript_messages(entries)]
 
     async def list_sessions(self) -> List[SessionSummary]:
@@ -866,9 +866,21 @@ class JsonlPersistence:
             outgoing.append({"type": "checkpoint", "version": 1, **payload})
             self._append_entries(checkpoint.session_id, outgoing)
 
+    def checkpoint_goal(self, session_id: str) -> str:
+        """Return the latest saved goal without rebuilding the conversation."""
+        with self._lock:
+            entries = self._cached_entries(session_id)
+        for entry in reversed(entries):
+            if entry.get("type") != "checkpoint":
+                continue
+            metadata = entry.get("metadata")
+            if isinstance(metadata, dict):
+                return str(metadata.get("goal") or "")
+        return ""
+
     async def load_checkpoint(self, *, session_id: str) -> Optional[Checkpoint]:
         with self._lock:
-            entries = self._read_entries(session_id)
+            entries = self._cached_entries(session_id)
         latest: Optional[Dict[str, Any]] = None
         for entry in entries:
             if entry.get("type") == "checkpoint":

@@ -89,7 +89,8 @@ class ComposerSurface:
             self._plan_run_active = True
         self._busy = True
         self._set_status("")
-        self.run_agent(turn.content)
+        # Let the submitted message paint before checkpoint and prompt setup.
+        self.call_after_refresh(self.run_agent, turn.content)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id not in {"queued-send-now", "queued-edit"} or not self._queued_turns:
@@ -116,6 +117,9 @@ class ComposerSurface:
         if event.text_area.id != "prompt":
             return
         if self._pending_question_id is not None:
+            return
+        text = event.text_area.text
+        if text and not text.startswith("/") and "@" not in text:
             return
         approval_menu = self.query_one("#approval-menu", SlashMenu)
         menu = (

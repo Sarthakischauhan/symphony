@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import re
 import time
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
@@ -143,9 +144,10 @@ class ThinkingStatus(Static):
             self._render_churning()
             return
         self._gradient_step = (self._gradient_step + 1) % len(self._WORKING_COLORS)
-        self._render_working()
+        # Only colors changed; preserve geometry and Textual's scroll fast path.
+        self._render_working(layout=False)
 
-    def _render_working(self) -> None:
+    def _render_working(self, *, layout: bool = True) -> None:
         label = "✻  Working"
         line = Text()
         for index, character in enumerate(label):
@@ -155,7 +157,17 @@ class ThinkingStatus(Static):
             line.append(character, style=f"bold {color}")
         if self._working_detail:
             line.append(f"  ·  {self._working_detail}", style="#666666")
-        self.update(line)
+        self.update(line, layout=layout)
+
+
+@dataclass(frozen=True)
+class TimelineEntry:
+    """Shared identity and display state for one timeline row."""
+
+    entry_id: int
+    kind: str
+    widget: Widget
+    expanded: bool = False
 
 
 class RunProcess(Container):
@@ -164,10 +176,16 @@ class RunProcess(Container):
     def __init__(self, thinking: ThinkingStatus) -> None:
         # ``_items`` is the single source of truth for timeline order. Items
         # added before this container is composed are yielded by ``compose``;
-        # items added afterwards are mounted directly.
+        # items added afterwards are mounted directly. ``entries`` mirrors
+        # that order with stable ids so later virtualization can render the
+        # same state without asking each widget to own it.
+        self._next_entry_id = 1
+        self.entries: list[TimelineEntry] = []
         self._items: list[Widget] = [thinking]
+        self._remember_entry(thinking)
         self._thinking = thinking
         self._completed = False
+        self.completed_summary = None
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
@@ -179,8 +197,18 @@ class RunProcess(Container):
         if pending:
             self.mount(*pending)
 
+    def _remember_entry(self, widget: Widget) -> None:
+        from coding_agent.tui.tools.snapshots import ToolCallSummary
+
+        expanded = bool(getattr(widget, "is_expanded", not getattr(widget, "collapsed", True)))
+        self.entries.append(
+            TimelineEntry(self._next_entry_id, type(widget).__name__, widget, expanded and isinstance(widget, ToolCallSummary))
+        )
+        self._next_entry_id += 1
+
     def add_item(self, widget: Widget) -> None:
         self._items.append(widget)
+        self._remember_entry(widget)
         if self.is_mounted:
             self.mount(widget)
 
@@ -189,8 +217,11 @@ class RunProcess(Container):
         if not self._items or self._items[-1] is self._thinking:
             return
         self._items.remove(self._thinking)
+        entry = next(item for item in self.entries if item.widget is self._thinking)
+        self.entries.remove(entry)
         previous = self._items[-1]
         self._items.append(self._thinking)
+        self.entries.append(entry)
         if self._thinking.is_attached and previous.is_attached:
             self.move_child(self._thinking, after=previous)
 
@@ -225,6 +256,7 @@ class RunProcess(Container):
         from coding_agent.tui.transcript.messages import AssistantMessage
 
         summary = CompletedRunSummary(verb=verb, duration=duration)
+        self.completed_summary = summary
         assistants = [item for item in self._items if isinstance(item, AssistantMessage)]
         final_assistant = assistants[-1] if assistants else None
         removed: list[Widget] = []
@@ -248,16 +280,30 @@ class RunProcess(Container):
             removed.append(item)
         for item in removed:
             self._items.remove(item)
+            self.entries = [entry for entry in self.entries if entry.widget is not item]
             if item.is_attached:
                 item.remove()
         if not summary.entries:
             return
         if final_assistant is not None:
-            self._items.insert(self._items.index(final_assistant), summary)
+            index = self._items.index(final_assistant)
+            self._items.insert(index, summary)
+            self.entries.insert(
+                index,
+                TimelineEntry(self._next_entry_id, type(summary).__name__, summary, summary.is_expanded),
+            )
+            self._next_entry_id += 1
             if final_assistant.is_attached:
                 self.mount(summary, before=final_assistant)
         else:
             self.add_item(summary)
+
+    def absorb_late_call(self, snapshot: Any) -> None:
+        """Keep a tool result that arrives after folding inside the run summary."""
+        summary = self.completed_summary
+        if summary is None or snapshot.call_id in summary.call_ids:
+            return
+        summary.add_call(snapshot)
 
     def archive_text(self) -> str:
         from coding_agent.tui.tools.calls import ToolCallWidget
@@ -327,6 +373,8 @@ class ReasoningBody(SelectableStatic):
         super().__init__(classes="reasoning-text", markup=False)
 
     def show_markdown(self, source: str, *, streaming: bool) -> None:
+        if (source, streaming) == (self._source, self._streaming):
+            return
         self._source = source
         self._streaming = streaming
         self._invalidate_render_cache(layout=True)
@@ -349,6 +397,10 @@ class ReasoningWidget(Collapsible):
     def __init__(self, content: str = "") -> None:
         self._summary_heading: str | None = None
         self._content_without_heading = content
+        # Collapsible's constructor can invoke the collapsed watcher before
+        # set_content(), so initialize the deferred body state first.
+        self._body_source = ""
+        self._body_streaming = True
         self._body = ReasoningBody()
         self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
         self._label = Static("Thinking…", classes="reasoning-label", markup=False)
@@ -380,6 +432,8 @@ class ReasoningWidget(Collapsible):
         self.collapsed = not self.collapsed
 
     def _watch_collapsed(self, collapsed: bool) -> None:
+        if not collapsed:
+            self._sync_body()
         self._update_collapsed(collapsed)
         if collapsed:
             self.post_message(self.Collapsed(self))
@@ -398,7 +452,14 @@ class ReasoningWidget(Collapsible):
         self._summary_heading, self._content_without_heading = (
             self._extract_summary_heading(content)
         )
-        self._body.show_markdown(content, streaming=True)
+        self._body_source = content
+        self._body_streaming = True
+        if not self.collapsed:
+            self._sync_body()
+
+    def _sync_body(self) -> None:
+        """Apply the latest source only when the thought is visible."""
+        self._body.show_markdown(self._body_source, streaming=self._body_streaming)
 
     @staticmethod
     def _extract_summary_heading(content: str) -> tuple[str | None, str]:
@@ -437,10 +498,14 @@ class ReasoningWidget(Collapsible):
             self._scroll.scroll_home(animate=False, force=True)
         self._duration = max(0.0, monotonic() - self._started_at)
         completed_title = f"Thought {self._format_duration(self._duration)}"
-        self._body.show_markdown(self.reasoning_text.strip(), streaming=False)
+        self._body_source = self.reasoning_text.strip()
+        self._body_streaming = False
         # Keep completed reasoning expanded so the provider's streamed content
         # remains visible; the title still identifies the Thought row.
-        self.collapsed = False
+        if self.collapsed:
+            self.collapsed = False  # The watcher flushes the final body state.
+        else:
+            self._sync_body()
         self._set_visible_title(completed_title)
         self.remove_class("is-live")
         self.add_class("is-complete")
