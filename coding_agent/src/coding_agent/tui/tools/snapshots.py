@@ -131,6 +131,28 @@ def guide_glyphs(is_last: bool) -> tuple[str, str]:
     return GUIDE_BRANCH, GUIDE_CONTINUE
 
 
+def append_nested_row(
+    text: Text, styles: Mapping[str, Style], guide: str, status: str, verb: str, args: str
+) -> None:
+    """Append one row: guide, status glyph, verb, then arguments."""
+    glyph, glyph_component = row_glyph(status)
+    text.append("\n")
+    text.append(guide, style=styles[NESTED_GUIDE])
+    text.append(" ")
+    text.append(glyph, style=styles[glyph_component])
+    text.append(" ")
+    text.append(verb, style=styles[NESTED_VERB])
+    if args:
+        text.append(f" {args}", style=styles[NESTED_ARGS])
+
+
+def append_continuation(text: Text, styles: Mapping[str, Style], guide: str, content: str) -> None:
+    """Append a row's second line under the guide's continuation glyph."""
+    text.append("\n")
+    text.append(guide, style=styles[NESTED_GUIDE])
+    text.append(f" {detail_preview(content, 220)}", style=styles[NESTED_DETAIL])
+
+
 class ToolCallSummary(SelectableStatic, can_focus=True):
     """A compact disclosure containing non-interactive tool snapshots.
 
@@ -217,31 +239,18 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
 
     def _append_nested_rows(self, text: Text) -> None:
         """One compact line per entry behind the guide, flush with the header."""
+        styles = {component: self._nested_style(component) for component in self.COMPONENT_CLASSES}
         last_index = len(self.entries) - 1
         for index, entry in enumerate(self.entries):
             guide, continuation = guide_glyphs(index == last_index)
             if isinstance(entry, ThoughtSnapshot):
-                self._append_row(text, guide, "done", entry.title, "")
+                append_nested_row(text, styles, guide, "done", entry.title, "")
                 if entry.content:
-                    self._append_continuation(text, continuation, entry.content)
+                    append_continuation(text, styles, continuation, entry.content)
                 continue
-            self._append_row(text, guide, entry.status, entry.label, header_target(entry.detail))
-
-    def _append_row(self, text: Text, guide: str, status: str, verb: str, args: str) -> None:
-        glyph, glyph_component = row_glyph(status)
-        text.append("\n")
-        text.append(guide, style=self._nested_style(NESTED_GUIDE))
-        text.append(" ")
-        text.append(glyph, style=self._nested_style(glyph_component))
-        text.append(" ")
-        text.append(verb, style=self._nested_style(NESTED_VERB))
-        if args:
-            text.append(f" {args}", style=self._nested_style(NESTED_ARGS))
-
-    def _append_continuation(self, text: Text, guide: str, content: str) -> None:
-        text.append("\n")
-        text.append(guide, style=self._nested_style(NESTED_GUIDE))
-        text.append(f" {detail_preview(content, 220)}", style=self._nested_style(NESTED_DETAIL))
+            append_nested_row(
+                text, styles, guide, entry.status, entry.label, header_target(entry.detail)
+            )
 
     @property
     def call_ids(self) -> list[str]:
