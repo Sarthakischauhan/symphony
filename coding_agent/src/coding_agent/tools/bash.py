@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
+import contextlib
 import os
 import signal
+from types import TracebackType
 from typing import TYPE_CHECKING, Literal
 
+from core_harness import EventSink
+from core_harness.tools import current_tool_call_id
 from pydantic import Field
 
 from coding_agent.config import BashConfig
@@ -16,6 +21,13 @@ if TYPE_CHECKING:
     from coding_agent.tools.bash_jobs import BashJobs
 
 DEFAULT_BASH_CONFIG = BashConfig()
+# Live output for UIs (the TUI's running Bash card shows its tail). Chunks are
+# coalesced so a chatty command costs at most one event per interval.
+OUTPUT_EVENT = "tool_execution_output"
+OUTPUT_FLUSH_SECONDS = 0.1
+# Most characters sent per event. A UI shows a tail, so when a burst exceeds
+# this only its newest lines are sent; the tool result is not affected.
+OUTPUT_EVENT_CHARS = 4096
 
 
 class BashArgs(ToolArgsModel):
@@ -86,6 +98,7 @@ class BashTool(WorkspaceTool):
         background: bool = False,
         action: str = "run",
         job_id: str = "",
+        sink: EventSink | None = None,
     ) -> str:
         if background or action != "run":
             return await self.run_job(command, action, job_id)
@@ -104,12 +117,18 @@ class BashTool(WorkspaceTool):
         except OSError as exc:
             return f"error: failed to run command: {exc}"
 
+        tool_call_id = current_tool_call_id.get()
+        live = OutputStream(sink, tool_call_id) if sink is not None and tool_call_id else None
         try:
-            output, truncated, timed_out = await stream_output(
-                proc,
-                timeout,
-                max_output_bytes=self.config.max_output_bytes,
-            )
+            async with contextlib.AsyncExitStack() as stack:
+                if live is not None:
+                    await stack.enter_async_context(live)
+                output, truncated, timed_out = await stream_output(
+                    proc,
+                    timeout,
+                    max_output_bytes=self.config.max_output_bytes,
+                    live=live,
+                )
         except asyncio.CancelledError:
             await stop_process_group(proc)
             raise
@@ -149,11 +168,74 @@ def decode_capped(output: bytes, truncated: bool, cap: int) -> str:
     return f"{notice}\n{text}" if text else notice
 
 
+class OutputStream:
+    """Send a running command's output to the sink as ``tool_execution_output``.
+
+    ``feed`` only buffers; while the context is open a pump task emits the
+    buffer every ``OUTPUT_FLUSH_SECONDS``, and leaving the context normally
+    (exit or timeout) sends what is left. A cancelled command sends nothing
+    more. Payload: ``tool_call_id``, ``tool_name`` and the text ``delta``.
+    """
+
+    def __init__(self, sink: EventSink, tool_call_id: str) -> None:
+        self.sink = sink
+        self.tool_call_id = tool_call_id
+        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.pending = ""
+        self.at_line_start = True
+        self.pump: asyncio.Task[None] | None = None
+
+    def feed(self, data: bytes) -> None:
+        self.pending += self.decoder.decode(data)
+
+    async def flush(self) -> None:
+        delta = self.pending
+        self.pending = ""
+        if len(delta) > OUTPUT_EVENT_CHARS:
+            # Keep the newest whole lines; restart the line the UI had open.
+            start = len(delta) - OUTPUT_EVENT_CHARS
+            newline = delta.find("\n", start)
+            delta = delta[newline + 1 :] if 0 <= newline < len(delta) - 1 else delta[start:]
+            if not self.at_line_start:
+                delta = "\n" + delta
+        if not delta:
+            return
+        self.at_line_start = delta.endswith("\n")
+        await self.sink.emit(
+            OUTPUT_EVENT,
+            {"tool_call_id": self.tool_call_id, "tool_name": BashTool.name, "delta": delta},
+        )
+
+    async def run_pump(self) -> None:
+        while True:
+            await asyncio.sleep(OUTPUT_FLUSH_SECONDS)
+            await self.flush()
+
+    async def __aenter__(self) -> OutputStream:
+        self.pump = asyncio.create_task(self.run_pump())
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if self.pump is not None:
+            self.pump.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.pump
+        if exc_type is None:
+            self.pending += self.decoder.decode(b"", final=True)
+            await self.flush()
+
+
 async def stream_output(
     proc: asyncio.subprocess.Process,
     timeout: float,
     *,
     max_output_bytes: int,
+    live: OutputStream | None = None,
 ) -> tuple[bytes, bool, bool]:
     if proc.stdout is None:
         return b"", False, False
@@ -175,6 +257,8 @@ async def stream_output(
             return bytes(buf), truncated, True
         if not chunk:
             break
+        if live is not None:
+            live.feed(chunk)
         buf.extend(chunk)
         if len(buf) > max_output_bytes:
             truncated = True
