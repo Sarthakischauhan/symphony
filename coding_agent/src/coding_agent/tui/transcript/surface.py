@@ -52,7 +52,7 @@ class TranscriptScroll(VerticalScroll):
         """Wheel-down must release the tail anchor.
 
         Textual's pointer scroll leaves the anchor held, and the next layout
-        (a voice-bar tick, a stream paint) snaps the viewport back to the end.
+        (a composer update, a stream paint) snaps the viewport back to the end.
         That reads as the page refusing to scroll. Keyboard scrolling already
         releases the anchor.
         """

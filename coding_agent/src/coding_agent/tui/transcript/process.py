@@ -18,7 +18,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.transcript.messages import SelectableStatic
+from coding_agent.tui.transcript.messages import SelectableStatic, return_composer_focus
 from coding_agent.tui.transcript.thinking_markdown import StreamingThinkingRenderer, render_thinking
 
 
@@ -345,6 +345,7 @@ class ReasoningHeader(Horizontal, can_focus=True):
     def _on_click(self, event: events.Click) -> None:
         event.stop()
         self.post_message(self.Toggle())
+        self.app.call_after_refresh(return_composer_focus, self)
 
     def _on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:

@@ -1,18 +1,9 @@
-"""Voice chat: capture speech, transcribe with Grok Voice Think Fast, submit a turn.
-
-The composer is hidden while listening. A single one-cell bar sweeps from the
-left edge to the right, shifting from the light Symphony purple to the theme
-accent. The sweep is one widget whose width percentage changes; cells are not
-mounted or removed per frame, so a tick is a paint and not a relayout of the
-transcript.
-"""
+"""Voice capture, xAI transcription, and audio playback helpers."""
 
 from __future__ import annotations
 
 import os
 from typing import Any, Protocol
-
-from textual.widgets import Static
 
 # Speech-to-text model. grok-voice-think-fast-2.0 is a realtime speech model and
 # is not accepted by POST /v1/stt, which 404s on any other id. Transcribe 2.0
@@ -22,12 +13,8 @@ GROK_VOICE_FULL_ID = f"grok:{GROK_VOICE_MODEL}"
 # Built-in TTS voice. eve is the API default.
 GROK_TTS_VOICE = "eve"
 
-# One sweep across the bar. 50 ms is 20 fps, which reads as continuous in a
-# terminal without posting a message on every keystroke interval.
-SWEEP_INTERVAL_S = 0.05
-SWEEP_STEPS = 24
-
-# Light end of the sweep. The dark end is the theme accent (#A371F7).
+# Alternate the composer border every half second.
+VOICE_BLINK_INTERVAL_S = 0.5
 VOICE_LIGHT_PURPLE = "#D7C4FB"
 VOICE_DARK_PURPLE = "#A371F7"
 
@@ -46,63 +33,6 @@ class VoiceCapture(Protocol):
 
 class UnavailableVoice(RuntimeError):
     """Raised when the microphone or the Grok voice model cannot be reached."""
-
-
-def voice_bar_markup(step: int, *, steps: int = SWEEP_STEPS) -> str:
-    """A one-line bar whose filled portion runs light purple to dark purple.
-
-    ``step`` 0 is the empty bar. ``step`` ``steps`` fills every column. The
-    gradient is baked into the markup so the widget only replaces its renderable
-    and does not rebuild child widgets.
-    """
-    if steps < 1:
-        raise ValueError("steps must be positive")
-    clamped = max(0, min(step, steps))
-    if clamped == 0:
-        return ""
-    light = _rgb(VOICE_LIGHT_PURPLE)
-    dark = _rgb(VOICE_DARK_PURPLE)
-    cells: list[str] = []
-    for index in range(clamped):
-        blend = index / max(clamped - 1, 1)
-        color = _mix(light, dark, blend)
-        cells.append(f"[#{color}]#[/]")
-    return "".join(cells)
-
-
-def _rgb(value: str) -> tuple[int, int, int]:
-    text = value.removeprefix("#")
-    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
-
-
-def _mix(start: tuple[int, int, int], end: tuple[int, int, int], blend: float) -> str:
-    channels = tuple(round(start[i] + (end[i] - start[i]) * blend) for i in range(3))
-    return "".join(f"{channel:02X}" for channel in channels)
-
-
-class VoiceBar(Static):
-    """Full-width line that fills left to right in the Symphony purple gradient."""
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__("", markup=True, **kwargs)
-        self._step = 0
-
-    def reset(self) -> None:
-        self._step = 0
-        # The row height is fixed at one cell, so clearing it must not relayout.
-        self.update("", layout=False)
-
-    def advance(self) -> int:
-        """Paint the next slice of the sweep and return the new step.
-
-        ``layout=False`` keeps a tick to a repaint. The bar is one row tall for
-        the whole sweep, so the transcript underneath is not measured again.
-        """
-        self._step = (self._step + 1) % (SWEEP_STEPS + 1)
-        if self._step == 0:
-            self._step = 1
-        self.update(voice_bar_markup(self._step), layout=False)
-        return self._step
 
 
 # The Grok CLI chat proxy only serves chat models. ``/chat/completions`` there

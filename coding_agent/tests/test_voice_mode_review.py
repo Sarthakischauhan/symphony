@@ -22,8 +22,8 @@ class FakeApp:
         self.turns = []
         self.focused = False
         self.widgets = {
-            "#composer": SimpleNamespace(display=True),
-            "#voice-bar": SimpleNamespace(display=False, reset=lambda: None, advance=lambda: None),
+            "#composer": SimpleNamespace(display=True, set_class=lambda *args: None,
+                                         remove_class=lambda *args: None),
             "#prompt": SimpleNamespace(disabled=False, focus=self.focus),
         }
 
@@ -80,7 +80,6 @@ class Transcriber:
 def assert_restored(app, timer):
     assert not app._voice_active
     assert app.widgets["#composer"].display
-    assert not app.widgets["#voice-bar"].display
     assert not app.widgets["#prompt"].disabled
     assert app.focused
     assert timer.stopped
@@ -106,7 +105,7 @@ def test_cancel_then_restart_ignores_old_worker_and_queued_result(finish_before_
         old_worker()
     app.callbacks.pop(0)()
     assert app._voice_active
-    assert not app.widgets["#composer"].display
+    assert app.widgets["#composer"].display
     assert app._voice_timer is timer
     assert not timer.stopped
     assert not app.turns
@@ -116,7 +115,7 @@ def test_cancel_then_restart_ignores_old_worker_and_queued_result(finish_before_
     app.callbacks.pop(0)()
     assert app.turns == ["new transcript"]
     assert fresh_transcriber.models == [GROK_VOICE_MODEL]
-    assert not app.widgets["#composer"].display  # No flicker on successful submission.
+    assert app.widgets["#composer"].display  # Composer stays visible on submission.
 
 
 @pytest.mark.parametrize("error,text,notice,severity", [
@@ -222,7 +221,6 @@ def test_worker_start_failure_restores_ui():
     app.run_worker = fail
     voice_mode.start_voice(app, capture=Capture(), transcriber=Transcriber("hello"))
     assert app.widgets["#composer"].display
-    assert not app.widgets["#voice-bar"].display
     assert app._voice_timer is None
     assert not app._voice_active
     assert app.notices[-1] == ("Voice mode failed · worker failed", "error")

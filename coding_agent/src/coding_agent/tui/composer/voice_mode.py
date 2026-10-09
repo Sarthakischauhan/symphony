@@ -1,7 +1,7 @@
 """Enter and leave voice mode without disturbing an in-flight turn.
 
-Listening runs off the UI thread. The bar timer only advances the one-line
-gradient, so the transcript is not relaid out while the user is talking.
+Listening runs off the UI thread. A 0.5-second timer alternates the existing
+composer border color without hiding or resizing the input.
 """
 
 from __future__ import annotations
@@ -14,9 +14,8 @@ from coding_agent.tui.composer.voice import (
     GROK_VOICE_MODEL,
     GrokVoiceTranscriber,
     MicrophoneCapture,
-    SWEEP_INTERVAL_S,
+    VOICE_BLINK_INTERVAL_S,
     UnavailableVoice,
-    VoiceBar,
     VoiceCapture,
     VoiceTranscriber,
 )
@@ -42,7 +41,7 @@ def start_voice(
     capture: VoiceCapture | None = None,
     transcriber: VoiceTranscriber | None = None,
 ) -> None:
-    """Hide the composer and listen for one utterance."""
+    """Keep the composer visible and listen for one utterance."""
     # A cancelled thread can still finish. Bind both dependencies and a unique
     # session token now, not when the worker eventually starts running.
     session = object()
@@ -51,12 +50,7 @@ def start_voice(
     try:
         app._voice_capture = capture if capture is not None else MicrophoneCapture()
         app._voice_transcriber = transcriber if transcriber is not None else GrokVoiceTranscriber()
-        composer = app.query_one("#composer", Composer)
-        composer.display = False
-        bar = app.query_one("#voice-bar", VoiceBar)
-        bar.reset()
-        bar.display = True
-        app._voice_timer = app.set_interval(SWEEP_INTERVAL_S, bar.advance)
+        _set_voice_border(app, True)
         app.add_notice("Voice mode · listening with Grok Voice Think Fast. Ctrl+A or Esc to stop.")
         bound_capture = app._voice_capture
         bound_transcriber = app._voice_transcriber
@@ -88,7 +82,7 @@ def _listen(
     """Capture and transcribe away from the UI thread, then submit the text.
 
     Textual runs a ``thread=True`` worker as a plain function. Widget updates
-    go through ``call_from_thread`` so the bar and the composer are only
+    go through ``call_from_thread`` so the composer styles are only
     touched on the app thread.
     """
     try:
@@ -106,8 +100,7 @@ def _listen(
 def _finish_voice(app: Any, text: str, error: str, session: object) -> None:
     if not getattr(app, "_voice_active", False) or getattr(app, "_voice_session", None) is not session:
         return
-    # Leave the bar and the hidden composer in place. Restoring the composer
-    # here and hiding it again when speech starts is the flicker.
+    # Keep the border blinking through transcription, execution, and speech.
     app._voice_active = False
     app._voice_session = None
     if error:
@@ -130,17 +123,8 @@ def _finish_voice(app: Any, text: str, error: str, session: object) -> None:
 
 
 def _restore_composer(app: Any) -> None:
-    """Show the composer once. Used when voice mode ends without a turn."""
-    timer = getattr(app, "_voice_timer", None)
-    if timer is not None:
-        timer.stop()
-    app._voice_timer = None
-    bar = app.query_one("#voice-bar", VoiceBar)
-    bar.display = False
-    bar.reset()
-    composer = app.query_one("#composer", Composer)
-    if not composer.display:
-        composer.display = True
+    """Clear voice styling and restore input focus after cancellation/error."""
+    _set_voice_border(app, False)
     prompt = app.query_one("#prompt", PromptInput)
     prompt.disabled = False
     prompt.focus()
@@ -179,9 +163,9 @@ def ensure_voice_addon(app: Any) -> str:
         if existing is None:
             def _speaking(speaking: bool) -> None:
                 if getattr(app, "_thread_id", None) == __import__("threading").get_ident():
-                    _set_voice_bar(app, speaking)
+                    _set_voice_border(app, speaking)
                     return
-                app.call_from_thread(_set_voice_bar, app, speaking)
+                app.call_from_thread(_set_voice_border, app, speaking)
 
             existing = VoiceAddon(on_speaking=_speaking)
             harness.register_addon(existing)
@@ -218,34 +202,37 @@ def close_voice_addon(app: Any) -> None:
         if addon is not None:
             addon.close()
     finally:
-        _set_voice_bar(app, False)
+        _set_voice_border(app, False)
 
 
-def _set_voice_bar(app: Any, speaking: bool) -> None:
-    """Sweep while the final answer is spoken, then show the composer once.
+def _advance_voice_border(app: Any) -> None:
+    """Alternate colors while retaining the same border type and geometry."""
+    composer = app.query_one("#composer", Composer)
+    app._voice_border_light = not getattr(app, "_voice_border_light", True)
+    composer.set_class(app._voice_border_light, "voice-light")
+    composer.set_class(not app._voice_border_light, "voice-dark")
 
-    The composer is not touched on the way up. Showing it only when speech
-    ends means it cannot flicker against the bar during the run.
-    """
+
+def _set_voice_border(app: Any, active: bool) -> None:
+    """Start a single blink timer, or return border styling to the theme."""
     try:
-        bar = app.query_one("#voice-bar", VoiceBar)
+        composer = app.query_one("#composer", Composer)
     except Exception:
         return
     timer = getattr(app, "_voice_timer", None)
-    if speaking:
-        if not bar.display:
-            bar.display = True
+    if active:
         if timer is None:
-            app._voice_timer = app.set_interval(SWEEP_INTERVAL_S, bar.advance)
+            app._voice_border_light = True
+            composer.set_class(True, "voice-light")
+            composer.set_class(False, "voice-dark")
+            app._voice_timer = app.set_interval(
+                VOICE_BLINK_INTERVAL_S, lambda: _advance_voice_border(app),
+            )
         return
-    # Speech ended. The composer stays hidden until this one transition.
+    # Realtime/TTS callbacks must not clear a newer capture's indicator.
+    if getattr(app, "_voice_active", False):
+        return
     if timer is not None:
         timer.stop()
     app._voice_timer = None
-    if bar.display:
-        bar.display = False
-        bar.reset()
-    composer = app.query_one("#composer", Composer)
-    if composer.display:
-        return
-    _restore_composer(app)
+    composer.remove_class("voice-light", "voice-dark")

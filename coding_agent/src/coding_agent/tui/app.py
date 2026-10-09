@@ -24,7 +24,6 @@ from coding_agent.tui.composer import (
     QueuedPrompt,
     QueuedTurn,
     SlashMenu,
-    VoiceBar,
 )
 from coding_agent.tui.composer.surface import ComposerSurface
 from coding_agent.tui.runtime import (
@@ -168,10 +167,8 @@ class CodingAgentApp(
         yield SlashMenu(id="slash-menu")
         yield ComposerOverlay()
         yield Composer(id="composer")
-        # Approval choices are not inside the composer. Voice mode hides the
-        # composer, and a menu mounted there disappeared with it.
+        # Keep approval choices in their own full-width surface.
         yield SlashMenu(id="approval-menu")
-        yield VoiceBar(id="voice-bar")
         yield Static(id="status")
 
     def on_mount(self) -> None:

@@ -370,20 +370,20 @@ async def bench_live(tools: int, runs: int, *, raw: bool) -> None:
 
 
 async def run_voice_once(ticks: int) -> dict[str, float]:
-    """Time one voice-bar sweep. The bar must not mount or relayout per tick."""
-    from coding_agent.tui.composer.voice import VoiceBar
+    """Time composer-border color changes without mounting or relayout."""
+    from coding_agent.tui.composer.voice_mode import _advance_voice_border, _set_voice_border
 
     workspace = Path(tempfile.mkdtemp(prefix="tui-bench-ws-"))
     app = CodingAgentApp(workspace=workspace)
     async with app.run_test(size=SIZE) as pilot:
         await pilot.pause()
-        bar = app.query_one("#voice-bar", VoiceBar)
-        bar.display = True
+        _set_voice_border(app, True)
+        app._voice_timer.stop()
         await pilot.pause()
         COUNTS.clear()
         start = perf_counter()
         for _ in range(ticks):
-            bar.advance()
+            _advance_voice_border(app)
         await pilot.pause()
         elapsed = perf_counter() - start
     return {
@@ -419,8 +419,8 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=7, help="timed runs after the warm-up")
     parser.add_argument("--raw", action="store_true", help="also print every sample")
     parser.add_argument("--live", action="store_true", help="measure a streamed live turn instead")
-    parser.add_argument("--voice", action="store_true", help="measure the voice-mode sweep bar")
-    parser.add_argument("--ticks", type=int, default=48, help="voice-bar advances per run")
+    parser.add_argument("--voice", action="store_true", help="measure the voice-mode composer border")
+    parser.add_argument("--ticks", type=int, default=48, help="voice-border changes per run")
     parser.add_argument(
         "--tools", type=int, action="append", help="live-turn tool calls (repeatable); default 10 and 50"
     )

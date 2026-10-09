@@ -21,7 +21,7 @@ sequenceDiagram
     participant Player as Local audio player
 
     User->>UI: Ctrl+A or /voice
-    UI->>UI: Guard busy/offline; hide composer; animate bar
+    UI->>UI: Guard busy/offline; blink composer border every 0.5s
     UI->>Mic: Worker thread: record 8s mono PCM16, 16 kHz
     Mic-->>UI: WAV bytes
     UI->>STT: POST multipart: model, language=en, file
@@ -50,9 +50,9 @@ sequenceDiagram
         Agent->>Addon: after_run(result.output_text)
         Addon->>TTS: Flush remaining text; text.done
         TTS-->>Addon: audio.done
-        Addon->>Player: Drain playback; clear speaking indicator
+        Addon->>Player: Drain playback; restore normal composer border
         Addon->>RT: Close realtime socket
-        UI->>UI: Restore composer after speech
+        UI->>UI: Stop border blink after speech
     end
 ```
 
@@ -88,13 +88,16 @@ sound starts at the same instant as the first visible token.
 
 The voice addon stays registered but is armed for one voice turn only. Later
 typed turns and child harnesses stay silent. Cancellation/quit closes voice
-resources; failed runs must also restore the composer. Approval choices
-remain visible and actionable while voice mode hides the normal composer.
+resources; failed runs must also clear the voice indicator. The composer and approval
+choices remain visible and actionable throughout voice activity. Its existing
+rounded border alternates light purple (`#D7C4FB`) and dark purple (`#A371F7`)
+every 0.5 seconds; removing the voice classes restores the theme/focus border.
+There is no separate voice bar and no composer hide/show transition.
 
 ## Owners and limits
 
 - `tui/composer/voice.py`: credentials, fixed-duration WAV capture, STT client,
-  sweep widget, and standalone HTTP TTS/playback helpers.
+  border-color constants, and standalone HTTP TTS/playback helpers.
 - `tui/composer/voice_mode.py`: user entry, capture worker, stale-result guard,
   transcript handoff, addon activation, and UI recovery.
 - `addons/voice/addon.py`: per-run opt-in, streamed text forwarding, tail flush,
@@ -116,7 +119,7 @@ it should not be described as a continuous coding conversation.
 
 Run `uv run pytest coding_agent/tests/test_voice*.py` for mocked capture,
 activation, socket lifecycle, and playback regressions. Run
-`uv run python coding_agent/benchmarks/tui_render_bench.py --voice` for sweep
+`uv run python coding_agent/benchmarks/tui_render_bench.py --voice` for border-blink
 render cost. Tests never require microphone access or provider keys. A manual
 smoke test is still needed for xAI audio API compatibility, permissions,
 first-sound latency, and playback on the target OS.

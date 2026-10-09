@@ -1,4 +1,4 @@
-"""Voice mode: slash command, Ctrl+A, the purple sweep, and the turn hand-off."""
+"""Voice mode: entry, blinking composer border, and the turn hand-off."""
 
 from __future__ import annotations
 
@@ -14,14 +14,12 @@ from coding_agent.tui.composer.voice import (
     GROK_VOICE_MODEL,
     VOICE_DARK_PURPLE,
     VOICE_LIGHT_PURPLE,
-    VoiceBar,
-    voice_bar_markup,
 )
 from coding_agent.tui.composer.voice_mode import start_voice
 
 
 class ScriptedCapture:
-    """Hold the utterance until ``release`` so the test can see the hidden composer."""
+    """Hold the utterance until ``release`` to inspect the voice indicator."""
 
     def __init__(self, audio: bytes = b"wav") -> None:
         self.audio = audio
@@ -174,18 +172,7 @@ def test_voice_command_is_discoverable() -> None:
     assert [command.name for command in command_matches("/voi")] == ["voice"]
 
 
-def test_voice_bar_runs_light_purple_to_dark_purple() -> None:
-    assert voice_bar_markup(0) == ""
-    first = voice_bar_markup(1)
-    assert VOICE_LIGHT_PURPLE.removeprefix("#") in first
-    full = voice_bar_markup(24)
-    assert full.startswith(f"[#{VOICE_LIGHT_PURPLE.removeprefix('#')}]")
-    assert full.endswith(f"[#{VOICE_DARK_PURPLE.removeprefix('#')}]#[/]")
-    # A longer step only appends cells; it does not rebuild earlier colors.
-    assert full.startswith(voice_bar_markup(4)[: len(voice_bar_markup(1))])
-
-
-def test_ctrl_a_hides_composer_and_submits_transcript(tmp_path: Path) -> None:
+def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) -> None:
     app = CodingAgentApp(workspace=tmp_path)
     started: list[str] = []
     app._agent = object()
@@ -200,9 +187,8 @@ def test_ctrl_a_hides_composer_and_submits_transcript(tmp_path: Path) -> None:
             await pilot.pause()
             assert capture.started.wait(timeout=2)
             composer = app.query_one("#composer", Composer)
-            bar = app.query_one("#voice-bar", VoiceBar)
-            assert composer.display is False
-            assert bar.display is True
+            assert composer.display is True
+            assert composer.has_class("voice-light") or composer.has_class("voice-dark")
             assert app._voice_active
             capture.release()
             for _ in range(20):
@@ -212,10 +198,9 @@ def test_ctrl_a_hides_composer_and_submits_transcript(tmp_path: Path) -> None:
             assert capture.calls == 1
             assert transcriber.models == [GROK_VOICE_MODEL]
             assert started == ["add a voice bar"]
-            # The composer stays hidden until the spoken answer finishes.
-            # Restoring it here is what made it flicker against the bar.
-            assert composer.display is False
-            assert bar.display is True
+            # The composer stays visible throughout the voice turn.
+            assert composer.display is True
+            assert composer.has_class("voice-light") or composer.has_class("voice-dark")
             assert not app._voice_active
 
     asyncio.run(_run())
@@ -238,7 +223,7 @@ def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.Mo
             await app._run_slash_command("/voice")
             await pilot.pause()
             assert capture.started.wait(timeout=2)
-            assert app.query_one("#composer", Composer).display is False
+            assert app.query_one("#composer", Composer).display is True
             capture.release()
             for _ in range(20):
                 await pilot.pause(0.05)
@@ -287,5 +272,42 @@ def test_voice_mode_refuses_while_busy(tmp_path: Path) -> None:
             await pilot.pause()
             assert not app._voice_active
             assert app.query_one("#composer", Composer).display is True
+
+    asyncio.run(_run())
+
+
+def test_voice_border_blinks_and_restores_theme(tmp_path: Path) -> None:
+    from coding_agent.tui.composer.voice import VOICE_BLINK_INTERVAL_S
+    from coding_agent.tui.composer.voice_mode import _set_voice_border, _advance_voice_border
+    from textual.color import Color
+
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            composer = app.query_one("#composer", Composer)
+            original_border = composer.styles.border
+            original_region = composer.region
+            _set_voice_border(app, True)
+            timer = app._voice_timer
+            assert timer._interval == VOICE_BLINK_INTERVAL_S == 0.5
+            await pilot.pause(0.05)
+            assert composer.styles.border_top == ("round", Color.parse(VOICE_LIGHT_PURPLE))
+            assert composer.display
+            assert composer.region == original_region
+            _advance_voice_border(app)
+            await pilot.pause(0.05)
+            assert composer.styles.border_top == ("round", Color.parse(VOICE_DARK_PURPLE))
+            assert composer.region == original_region
+            _set_voice_border(app, True)
+            assert app._voice_timer is timer
+            _set_voice_border(app, False)
+            await pilot.pause(0.05)
+            assert app._voice_timer is None
+            assert not composer.has_class("voice-light")
+            assert not composer.has_class("voice-dark")
+            assert composer.styles.border == original_border
+            assert not list(app.query("#voice-bar"))
 
     asyncio.run(_run())

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Voice activity now keeps the composer visible and blinks its rounded border
+  between light and dark purple every 0.5 seconds instead of showing a sweep bar.
 - Optional TUI voice input (`Ctrl+A` / `/voice`) records one utterance with
   xAI transcription and streams the coding agent's own text through a separate
   TTS websocket. Voice turns are explicitly scoped; typed turns and subagents

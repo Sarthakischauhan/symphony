@@ -67,7 +67,9 @@ class VoiceStream:
             self._error = ""
             self._thread = threading.Thread(target=self._run, name="grok-voice", daemon=True)
             self._thread.start()
-        self._ready.wait(timeout=5)
+        # Do not wait here. The caller is the Textual loop, and a connect that
+        # takes seconds freezes the cursor even though the terminal still
+        # accepts keystrokes.
 
     def hold(self) -> None:
         """Stop sending mic audio. The socket stays open."""
@@ -103,8 +105,8 @@ class VoiceStream:
                         self._session_task.cancel()
                 with contextlib.suppress(RuntimeError):
                     loop.call_soon_threadsafe(cancel)
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=5)
+        # Never join from the UI thread. The socket thread exits on its own
+        # once the session task is cancelled; joining it stalls the cursor.
         with self._lifecycle_lock:
             if self._thread is thread and (thread is None or not thread.is_alive()):
                 self._thread = None

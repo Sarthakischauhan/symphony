@@ -524,7 +524,7 @@ composer = '''
 #composer {
     width: 1fr;
     height: auto;
-    min-height: 2;
+    min-height: 3;
     margin: 0 $space-page;
     padding: 0 $space-inset;
     layout: vertical;
@@ -539,6 +539,7 @@ composer = '''
 #composer-row {
     width: 100%;
     height: auto;
+    min-height: 1;
     layout: horizontal;
     background: $background;
 }
@@ -570,6 +571,15 @@ composer = '''
 
 #prompt .text-area--cursor-line {
     background: $background;
+}
+
+/* The caret is a one-cell block. Without its own colors it inherits the
+   prompt background after a stylesheet refresh (tool events, theme reload)
+   and disappears. */
+#prompt .text-area--cursor {
+    color: $background;
+    background: $foreground;
+    text-style: none;
 }
 
 #composer-mode {
@@ -695,19 +705,13 @@ composer = '''
     color: $foreground;
 }
 
-/* Voice mode replaces the composer with one full-width line. The gradient is
-   painted into the line itself, so this rule only reserves the row. */
-#voice-bar {
-    display: none;
-    width: 1fr;
-    height: 1;
-    min-height: 1;
-    margin: 0 $space-page;
-    padding: 0;
-    background: $background;
-    color: $accent;
-    text-wrap: nowrap;
-    overflow-x: hidden;
+/* Voice mode preserves the composer's dimensions and focus behavior. */
+#composer.voice-light, #composer.voice-light:focus-within {
+    border: round #D7C4FB;
+}
+
+#composer.voice-dark, #composer.voice-dark:focus-within {
+    border: round #A371F7;
 }
 
 #approval-menu.permission-menu {

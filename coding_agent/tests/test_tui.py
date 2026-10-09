@@ -2130,10 +2130,14 @@ def test_bash_card_uses_timeline_header_and_stays_after_the_stretch(
             assert not list(app.query(ToolCallSummary))
 
             header = bash.query_one(".bash-tool-header")
+            prompt = app.query_one("#prompt", PromptInput)
             await pilot.click(header)
             await pilot.pause()
             assert not bash.collapsed
             assert bash.query_one(".bash-tool-body").display
+            # The click focuses the header, which hides the composer caret.
+            # Focus returns to the prompt so the caret stays visible.
+            assert prompt.has_focus
 
             header.focus()
             await pilot.press("space")
@@ -2346,8 +2350,8 @@ def test_mouse_wheel_releases_transcript_anchor(
             assert transcript.scroll_y < parked
             assert not transcript.is_anchored or transcript._anchor_released
 
-            # A voice-bar tick is a layout. It used to re-pin the tail.
-            app.query_one("#voice-bar").update("sweep", layout=True)
+            # Later composer paints must not re-pin the tail.
+            app.query_one("#composer").refresh(layout=True)
             await pilot.pause()
             assert transcript.scroll_y < parked
 

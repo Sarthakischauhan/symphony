@@ -79,8 +79,8 @@ class StreamingSpeaker:
             self._closed = True
             with contextlib.suppress(RuntimeError):
                 self._loop.call_soon_threadsafe(self._cancel)
-        if threading.current_thread() is not self._thread:
-            self._thread.join(timeout=2)
+        # The session task is already cancelled. Joining the thread here runs
+        # on the UI thread during a text delta and is what froze the cursor.
 
     def _submit(self, text: str | None) -> None:
         with contextlib.suppress(RuntimeError):

@@ -76,7 +76,9 @@ def test_composed_surfaces_include_section_markers() -> None:
     assert ".tool-call {" in theme.tools_css
     assert "#composer {" in theme.composer_css
     assert "#composer-overlay {" in theme.composer_css
-    assert "#voice-bar {" in theme.composer_css
+    assert "#composer.voice-light" in theme.composer_css
+    assert "#composer.voice-dark" in theme.composer_css
+    assert "#prompt .text-area--cursor {" in theme.composer_css
     assert "ResumeApp {" in theme.resume_css
     assert "OnboardApp {" in theme.onboard_css
     assert theme.onboard_css.startswith(theme.resume_css)
