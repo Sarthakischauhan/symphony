@@ -36,6 +36,14 @@ class QuestionSurface:
             default=default,
             kind=kind,
         )
+        # Voice mode hides the composer until the spoken answer ends. An
+        # approval still has to be answerable, so the composer comes back for
+        # the question and the voice bar steps aside.
+        if kind == "approval" and not self.query_one("#composer").display:
+            self.query_one("#composer").display = True
+            bar = self.query("#voice-bar")
+            if bar:
+                bar.first().display = False
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = kind == "approval"
         prompt.disabled = False

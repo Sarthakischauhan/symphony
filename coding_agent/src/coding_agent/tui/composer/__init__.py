@@ -2,5 +2,19 @@
 
 from coding_agent.tui.composer.input import Composer, PromptInput, QueuedPrompt, QueuedTurn
 from coding_agent.tui.composer.slash_menu import SlashMenu
+from coding_agent.tui.composer.voice import (
+    GROK_VOICE_FULL_ID,
+    GROK_VOICE_MODEL,
+    VoiceBar,
+)
 
-__all__ = ["Composer", "PromptInput", "QueuedPrompt", "QueuedTurn", "SlashMenu"]
+__all__ = [
+    "Composer",
+    "GROK_VOICE_FULL_ID",
+    "GROK_VOICE_MODEL",
+    "PromptInput",
+    "QueuedPrompt",
+    "QueuedTurn",
+    "SlashMenu",
+    "VoiceBar",
+]

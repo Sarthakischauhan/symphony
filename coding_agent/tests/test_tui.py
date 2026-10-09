@@ -109,6 +109,7 @@ from coding_agent.tui.transcript import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
+    TranscriptScroll,
     UserMessage,
 )
 
@@ -1950,6 +1951,9 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
 
+            # Usage is coalesced on a timer; extra voice/approval surfaces can
+            # make pilot.pause return before that interval has elapsed.
+            app._presenter.flush_stream_paints()
             thinking = app.query_one(ThinkingStatus)
             group = app.query_one(ToolCallSummary)
             assert group.call_ids == ["read-1"]
@@ -2316,6 +2320,40 @@ def test_tool_and_thought_blocks_get_one_row_margin(
     asyncio.run(_run())
 
 
+def test_mouse_wheel_releases_transcript_anchor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Scrolling up with the wheel must stick. A later layout must not jump back."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            app.mount_transcript(Static("\n".join(f"line {i}" for i in range(80))))
+            await pilot.pause()
+            transcript = app.query_one("#transcript", TranscriptScroll)
+            transcript.scroll_end(animate=False, force=True)
+            await pilot.pause()
+            assert transcript.is_anchored
+            assert transcript.scroll_y > 0
+            parked = transcript.scroll_y
+
+            transcript.post_message(
+                events.MouseScrollUp(transcript, 1, 1, 0, -1, 0, False, False, False)
+            )
+            await pilot.pause()
+            assert transcript.scroll_y < parked
+            assert not transcript.is_anchored or transcript._anchor_released
+
+            # A voice-bar tick is a layout. It used to re-pin the tail.
+            app.query_one("#voice-bar").update("sweep", layout=True)
+            await pilot.pause()
+            assert transcript.scroll_y < parked
+
+    asyncio.run(_run())
+
+
 def test_live_tool_updates_do_not_hijack_transcript_scroll(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2560,6 +2598,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "effort" in [command.name for command in SLASH_COMMANDS]
     assert "context" in [command.name for command in SLASH_COMMANDS]
     assert "dashboard" in [command.name for command in SLASH_COMMANDS]
+    assert "voice" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/dash")] == ["dashboard"]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]

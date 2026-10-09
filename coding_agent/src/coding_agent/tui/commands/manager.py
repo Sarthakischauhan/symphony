@@ -601,6 +601,10 @@ class CommandManager:
                 app.add_notice("/mode is unavailable while a turn is running.", "warning")
             else:
                 select_mode(app, argument) if argument else show_mode_picker(app)
+        elif command == "voice":
+            from coding_agent.tui.composer.voice_mode import toggle_voice
+
+            toggle_voice(app)
         elif app._busy:
             app.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
         elif command == "reload":

@@ -48,6 +48,18 @@ class TranscriptScroll(VerticalScroll):
     def on_mount(self) -> None:
         self.anchor()
 
+    def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        """Wheel-down must release the tail anchor.
+
+        Textual's pointer scroll leaves the anchor held, and the next layout
+        (a voice-bar tick, a stream paint) snaps the viewport back to the end.
+        That reads as the page refusing to scroll. Keyboard scrolling already
+        releases the anchor.
+        """
+        if self.is_anchored and not event.ctrl and not event.shift:
+            self.release_anchor()
+        super()._on_mouse_scroll_down(event)
+
     def anchor(self, anchor: bool = True) -> None:
         """Follow new content with a short scroll instead of an instant jump."""
         self._anchored = anchor

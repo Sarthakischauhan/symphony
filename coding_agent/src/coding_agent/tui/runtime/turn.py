@@ -104,6 +104,11 @@ class TurnSurface:
 
         self.run_worker(_persist, exclusive=False, group="collect_run_events")
 
+    def feed_voice(self, text: str) -> None:
+        from coding_agent.tui.composer.voice_mode import feed_voice
+
+        feed_voice(self, text)
+
     def on_harness_event(self, message: HarnessEvent) -> None:
         payload = message.payload or {}
         if message.event_type == "agent_spawned":
@@ -178,6 +183,15 @@ class TurnSurface:
                 self._pending_question_id = None
                 self._pending_question_default = ""
             self.sink.reset_cancel()
+            voice_addon = getattr(self, "_voice_addon", None)
+            if getattr(voice_addon, "_armed", False):
+                # Failed/cancelled runs do not reach the harness after_run hook.
+                from coding_agent.tui.composer.voice_mode import close_voice_addon
+
+                close_voice_addon(self)
+            if getattr(self, "_voice_active", False):
+                # The composer is hidden. Leave focus alone until voice mode ends.
+                return
             prompt = self.query_one("#prompt", PromptInput)
             if not child_question_pending:
                 prompt.submit_on_enter = True

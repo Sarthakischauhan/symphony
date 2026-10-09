@@ -654,6 +654,13 @@ composer = '''
 
 #approval-menu {
     display: none;
+    width: 1fr;
+    height: auto;
+    max-height: 8;
+    margin: 0 $space-page $space-block $space-page;
+    padding: 0 $space-inset;
+    background: $panel;
+    border: round $panel-edge;
 }
 
 #slash-menu > .option-list--option {
@@ -686,6 +693,21 @@ composer = '''
     padding: $space-block $space-page 0 $space-page;
     background: $background;
     color: $foreground;
+}
+
+/* Voice mode replaces the composer with one full-width line. The gradient is
+   painted into the line itself, so this rule only reserves the row. */
+#voice-bar {
+    display: none;
+    width: 1fr;
+    height: 1;
+    min-height: 1;
+    margin: 0 $space-page;
+    padding: 0;
+    background: $background;
+    color: $accent;
+    text-wrap: nowrap;
+    overflow-x: hidden;
 }
 
 #approval-menu.permission-menu {

@@ -528,6 +528,9 @@ class EventPresenter:
         self.state.append_text(delta)
         self._assistant_open = True
         self._buffer_assistant(self.state.stream_text, new=is_new)
+        speak = getattr(self.view, "feed_voice", None)
+        if callable(speak):
+            speak(self.state.stream_text)
 
     def _on_reasoning_delta(self, payload: Mapping[str, Any]) -> None:
         delta = str(payload.get("delta") or "")

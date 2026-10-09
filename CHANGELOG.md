@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Optional TUI voice input (`Ctrl+A` / `/voice`) records one utterance with
+  xAI transcription and streams the coding agent's own text through a separate
+  TTS websocket. Voice turns are explicitly scoped; typed turns and subagents
+  stay silent. Added cancellation/startup/playback regressions and a
+  [voice call/protocol diagram](docs/developer-guide/voice-mode.md).
+
 - Replaced legacy Markdown memory and idle reflection with durable per-turn
   capture jobs, candidate observation inboxes, deduplicated workspace/global
   topics, and SQLite FTS5/BM25 recall. Automatic pre-model retrieval shares

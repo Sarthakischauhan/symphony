@@ -204,10 +204,7 @@ class Composer(Container):
     """Borderless prompt under a thin separator, with the mode badge at the right."""
 
     def compose(self):  # type: ignore[no-untyped-def]
-        from coding_agent.tui.composer.slash_menu import SlashMenu
-
         yield QueuedPrompt(id="queued-prompt-row")
-        yield SlashMenu(id="approval-menu")
         with Horizontal(id="composer-row"):
             yield PromptInput(
                 placeholder=PROMPT_PLACEHOLDER,
