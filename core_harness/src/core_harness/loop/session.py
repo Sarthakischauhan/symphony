@@ -21,6 +21,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Sent beside the latest user message, never inside the system prompt.
+_SPOKEN_SUMMARY_NOTE = (
+    "This question arrived by voice. After the normal answer, end with a "
+    "section titled exactly `## Spoken summary`. In two or three plain "
+    "sentences, say what you did and the result. Do not add code, lists, "
+    "or a second heading there."
+)
+
 
 def _clear_cancellation() -> None:
     task = asyncio.current_task()
@@ -110,6 +118,10 @@ async def run_session(
             # Per-turn context (e.g. memory) goes into the request, never into
             # the system message, so the system prefix stays byte-identical.
             turn_context: Dict[str, str] = {}
+            if reply_aloud:
+                # Request-only, like memory context: the system prefix stays
+                # byte-identical, so the provider prompt cache still hits.
+                turn_context["voice"] = _SPOKEN_SUMMARY_NOTE
             await harness.notify_addons("before_turn", turn=turn, messages=messages, context=turn_context)
             result = await turn_runner.run(
                 messages,

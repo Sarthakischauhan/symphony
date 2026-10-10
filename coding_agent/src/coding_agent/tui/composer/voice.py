@@ -114,6 +114,22 @@ class GrokVoiceTranscriber:
 SPOKEN_REPLY_LIMIT = 600
 
 
+_SPOKEN_SUMMARY = "## Spoken summary"
+
+
+def spoken_summary(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
+    """The summary the model wrote into its final answer, ready for TTS.
+
+    The section is part of the same response, not a later call. If the model
+    left it out, the opening of the answer is spoken instead.
+    """
+    section = ""
+    marker = text.lower().rfind(_SPOKEN_SUMMARY.lower())
+    if marker >= 0:
+        section = text[marker + len(_SPOKEN_SUMMARY):].strip()
+    return spoken_text(section or text, limit=limit)
+
+
 def spoken_text(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
     """Plain text safe to send to TTS. Markup and fences are dropped."""
     cleaned = text.strip()

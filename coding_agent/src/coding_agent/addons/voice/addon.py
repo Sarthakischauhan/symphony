@@ -87,9 +87,9 @@ class VoiceAddon(Addon):
                 self.stream.close()
             self._open = False
             return
-        from coding_agent.tui.composer.voice import spoken_text
+        from coding_agent.tui.composer.voice import spoken_summary
 
-        text = spoken_text(str(getattr(result, "output_text", "") or ""))
+        text = spoken_summary(str(getattr(result, "output_text", "") or ""))
         speaker = self._speaker
         self._speaker = None
         if text:

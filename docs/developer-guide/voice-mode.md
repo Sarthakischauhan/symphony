@@ -10,51 +10,51 @@ not a single end-to-end speech-to-code websocket.
 ```mermaid
 sequenceDiagram
     actor User
-    participant UI as Textual TUI / voice_mode.py
-    participant Mic as sounddevice / PortAudio
-    participant STT as xAI HTTPS /v1/stt
+    participant UI as Textual TUI
+    participant Mic as Microphone
+    participant STT as xAI STT
     participant Addon as VoiceAddon
-    participant RT as xAI WSS /v1/realtime
-    participant Agent as CodingAgent / CoreHarness
-    participant Model as Configured chat provider
-    participant TTS as xAI WSS /v1/tts
-    participant Player as Local audio player
+    participant RT as xAI Realtime
+    participant Agent as CodingAgent
+    participant Model as Chat provider
+    participant TTS as xAI TTS
+    participant Player as Local player
 
     User->>UI: Ctrl+A or /voice
-    UI->>UI: Guard busy/offline; blink composer border every 0.5s
-    loop Until the user says done or presses Ctrl+A again
-        UI->>Mic: Worker thread: record until a pause (8s cap), mono PCM16, 16 kHz
+    UI->>UI: Guard busy or offline, blink composer border
+    loop Until done or Ctrl+A again
+        UI->>Mic: Record until a pause, 8 second cap
         Mic-->>UI: WAV bytes
-        UI->>STT: POST multipart: model, language=en, file
-        Note over UI,STT: Bearer XAI_API_KEY, otherwise stored Grok OAuth token
-        STT-->>UI: JSON transcript (kept; not submitted yet)
+        UI->>STT: POST audio, language en
+        Note over UI,STT: Bearer XAI_API_KEY, else stored Grok token
+        STT-->>UI: Transcript shown in the composer, not submitted
     end
-    alt Escape, capture error, or nothing but "done"
-        UI->>UI: Ignore stale capture or show notice; restore composer
-    else User finished with Ctrl+A or the word done
-        UI->>Addon: ensure_voice_addon(); open(); arm one voice turn
-        Addon->>RT: WebSocket upgrade, model=grok-voice-think-fast-2.0
-        Addon->>RT: session.update (eve, PCM16 24 kHz, server_vad)
-        Note over Addon,RT: Realtime mic stream is separate from STT; not the coding prompt path
-        UI->>Agent: QueuedTurn through normal _start_turn
-        Agent->>Addon: before_run: hold realtime mic
-        Agent->>Model: Normal provider request; chat model unchanged
-        loop Assistant text and tool execution
-            Model-->>Agent: Assistant text deltas / tool calls
-            Agent-->>UI: Typed control-plane text_delta events
-            UI->>Addon: feed_voice(cumulative assistant text)
-            Addon->>TTS: WebSocket upgrade on first text (eve, en, mp3)
-            Addon->>TTS: text.delta for first clause, then completed sentences
-            TTS-->>Addon: Binary MP3 or JSON audio.delta (base64)
-            Addon->>Player: MP3 bytes to ffplay/mpv stdin
-            Note over Addon,Player: Without a streaming player, buffer and use local MP3 playback
+    alt Escape, capture error, or only the word done
+        UI->>UI: Drop the clip or show a notice, restore composer
+    else Finished with Ctrl+A or the word done
+        UI->>Addon: Open and arm one voice turn
+        Addon->>RT: Connect grok-voice-think-fast-2.0
+        Addon->>RT: session.update, voice eve, PCM 24 kHz
+        Note over Addon,RT: Realtime mic is not the coding prompt
+        UI->>UI: Clear composer and queue the voice turn
+        UI->>Agent: Start turn with reply_aloud
+        Agent->>Addon: before_run holds the realtime mic
+        Note over Agent,Model: Request-only note asks for a Spoken summary. System prompt stays the same
+        loop Tools and the written answer
+            Agent->>Model: Unchanged chat provider and tools
+            Model-->>Agent: Text deltas and tool calls
+            Agent-->>UI: Transcript events only
+            Note over UI,Addon: Deltas, tools, and reasoning are not spoken
         end
-        Agent->>Addon: after_run(result.output_text)
-        Addon->>TTS: Flush remaining text; text.done
-        TTS-->>Addon: audio.done
-        Addon->>Player: Drain playback; restore normal composer border
-        Addon->>RT: Close realtime socket
-        UI->>UI: Stop border blink after speech
+        Agent->>Agent: Copy reply_aloud onto the result, then clear it
+        Agent->>Addon: after_run
+        Addon->>Addon: Speak the Spoken summary, or the answer opening
+        Addon->>TTS: Open websocket only after the run
+        Addon->>TTS: text.delta for the summary, then text.done
+        TTS-->>Addon: MP3 audio, then audio.done
+        Addon->>Player: Play with ffplay, mpv, or afplay
+        Addon->>RT: Close the realtime socket
+        UI->>UI: Stop the border blink after speech
     end
 ```
 
@@ -78,8 +78,12 @@ unit tests mock the provider and do not prove entitlement.
 
 A voice question sets `CoreHarness.reply_aloud` for the run that is about to
 start. `run_session` copies that flag onto `HarnessResult.reply_aloud` and
-clears it, so the next typed turn stays silent. `VoiceAddon.after_run` speaks
-only that final `output_text` (fences stripped, length capped). Streamed
+clears it, so the next typed turn stays silent. For that run only, the per-turn request context asks the model to finish its
+normal answer with a `## Spoken summary` section. The system prompt is not
+changed, so the provider prefix cache still matches. The note is not persisted
+and does not add a model call.
+`VoiceAddon.after_run` speaks that section (fences stripped, length capped).
+If the model omits it, the opening of the answer is spoken instead. Streamed
 deltas, tool output, and reasoning are not dictated. There is no canned
 "working on it" sentence.
 

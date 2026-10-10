@@ -170,18 +170,24 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
         await addon.before_run(messages=[SimpleNamespace(role="user", content="rename the helper")])
         await addon.after_run(
             result=SimpleNamespace(
-                output_text="Renamed it. The helper is updated now.",
+                output_text=(
+                    "Renamed it. The helper is updated now.\n\n"
+                    "## Spoken summary\nI renamed the helper and updated its callers."
+                ),
                 reply_aloud=True,
             )
         )
 
     asyncio.run(_voice())
-    assert fed == ["finish:Renamed it. The helper is updated now."]
+    assert fed == ["finish:I renamed the helper and updated its callers."]
 
 
 def test_spoken_text_strips_fences_and_limits_length() -> None:
-    from coding_agent.tui.composer.voice import spoken_text
+    from coding_agent.tui.composer.voice import spoken_summary, spoken_text
 
+    answer = "Renamed the helper.\n\n## Spoken summary\nI renamed the helper and updated its callers."
+    assert spoken_summary(answer) == "I renamed the helper and updated its callers."
+    assert spoken_summary("No marker here. The work is done.") == "No marker here. The work is done."
     assert spoken_text("```python\nprint(1)\n```\n\nDone.") == "Done."
     assert spoken_text("") == ""
     long = "word " * 200
