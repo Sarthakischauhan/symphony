@@ -26,9 +26,9 @@ class VoiceTranscriber(Protocol):
 
 
 class VoiceCapture(Protocol):
-    """Records one utterance and returns its bytes. Tests inject a fake."""
+    """Records one utterance. ``None`` means the microphone stopped."""
 
-    def listen(self) -> bytes: ...
+    def listen(self) -> bytes | None: ...
 
 
 class UnavailableVoice(RuntimeError):

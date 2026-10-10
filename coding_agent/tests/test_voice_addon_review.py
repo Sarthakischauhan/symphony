@@ -44,9 +44,10 @@ def test_typed_turn_stays_silent_after_voice_turn(monkeypatch):
     addon = module.VoiceAddon(stream=FakeStream())
     addon.arm()
     addon.feed("Voice answer.")
-    asyncio.run(addon.after_run(result=SimpleNamespace(output_text="Voice answer.")))
+    asyncio.run(addon.after_run(result=SimpleNamespace(output_text="Voice answer.", reply_aloud=True)))
+    addon.arm()
     addon.feed("Typed answer.")
-    asyncio.run(addon.after_run(result=SimpleNamespace(output_text="Typed answer.")))
+    asyncio.run(addon.after_run(result=SimpleNamespace(output_text="Typed answer.", reply_aloud=False)))
     assert len(FakeSpeaker.instances) == 1
     assert FakeSpeaker.instances[0].finished == ["Voice answer."]
     assert not FakeSpeaker.instances[0].closed
@@ -61,8 +62,9 @@ def test_rearming_resets_first_clause_and_cancellation_closes_speaker(monkeypatc
     for text in ("First", "Second"):
         addon.arm()
         addon.feed(text)
+        asyncio.run(addon.after_run(result=SimpleNamespace(output_text=text, reply_aloud=True)))
         speaker = FakeSpeaker.instances[-1]
-        assert speaker.fed == [(text, {"force": True})]
+        assert speaker.finished == [text]
         addon.close()
         assert speaker.closed
     assert addon.fork_for_child(None) is None

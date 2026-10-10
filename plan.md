@@ -85,8 +85,9 @@ drives, and authorizes; it does not persist, compact, or spawn.
 
 ### `coding_agent` (symphony-code)
 
-- Optional TUI voice mode (`Ctrl+A` / `/voice`): fixed-duration microphone
-  capture, xAI REST transcription, and streaming TTS of the agent's own text.
+- Optional TUI voice mode (`Ctrl+A` / `/voice`): microphone capture and xAI
+  REST transcription that keeps listening until the user says **done** or
+  presses **Ctrl+A** again, then streaming TTS of the agent's own text.
   The configured coding model and approval flow are unchanged; voice output
   is scoped to microphone-originated parent turns. See the
   [call/protocol diagram](docs/developer-guide/voice-mode.md) for endpoints,

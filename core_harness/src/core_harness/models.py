@@ -152,6 +152,9 @@ class HarnessResult(BaseModel):
     usage: UsageTotals = Field(default_factory=UsageTotals)
     context_limit: Optional[int] = None
     context_left: Optional[int] = None
+    # True when the question for this run was spoken. Speech dictates
+    # ``output_text`` and leaves typed runs silent.
+    reply_aloud: bool = False
 
 __all__ = [
     "ControlPlaneEvent",

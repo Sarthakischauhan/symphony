@@ -26,6 +26,7 @@ class QueuedTurn:
     text: str
     pasted_chunks: tuple[str, ...]
     images: tuple[ImageAttachment, ...]
+    voice: bool = False
 
 
 class PromptInput(TextArea):

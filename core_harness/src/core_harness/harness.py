@@ -72,6 +72,9 @@ class CoreHarness:
         self._active_run_id: Optional[str] = None
         self._active_session_id: Optional[str] = None
         self._active_run_started_ts: Optional[float] = None
+        # Set for the run that is about to start when its question arrived by
+        # voice. Speech uses it so only that run's final answer is dictated.
+        self.reply_aloud = False
         self._event_seq = 0
         self.child_tasks: Dict[str, Any] = {}
         self._child_results: List[Message] = []

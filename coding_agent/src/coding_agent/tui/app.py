@@ -300,7 +300,7 @@ class CodingAgentApp(
         self.exit()
 
     def action_voice(self) -> None:
-        """Toggle voice mode. Ctrl+A and ``/voice`` both land here."""
+        """Start voice mode, or finish it. Ctrl+A and ``/voice`` both land here."""
         from coding_agent.tui.composer.voice_mode import toggle_voice
 
         toggle_voice(self)

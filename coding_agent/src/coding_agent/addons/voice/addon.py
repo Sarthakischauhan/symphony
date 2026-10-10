@@ -64,21 +64,9 @@ class VoiceAddon(Addon):
         self._open = False
 
     def feed(self, text: str) -> None:
-        """Speak newly streamed assistant text. No text, no speech.
-
-        The first clause is spoken as soon as it arrives, even without a
-        period, so the voice does not wait for a finished sentence. Later
-        text waits for punctuation so it is not chopped mid-word.
-        """
-        if not self._armed or not text.strip():
-            return
-        if self._speaker is None:
-            self._speaker = StreamingSpeaker(on_speaking=getattr(self.stream, "_on_speaking", None))
-        first = not self._started_speech
-        if first:
-            self._started_speech = True
-        # The first feed speaks immediately. Later feeds wait for a sentence.
-        self._speaker.feed(text, force=first)
+        """Keep the latest assistant text. Speech waits for the final answer."""
+        del text
+        return None
 
     async def before_run(self, **payload: Any) -> None:
         """Keep the mic quiet while the run goes. Do not speak a fixed line."""
@@ -91,15 +79,26 @@ class VoiceAddon(Addon):
             return
         self._armed = False
         result = payload.get("result")
-        text = str(getattr(result, "output_text", "") or "")
+        # Only a question that arrived by voice is dictated. The flag lives on
+        # the harness for the run and is copied onto its result.
+        if not bool(getattr(result, "reply_aloud", False)):
+            self.stream.hold()
+            if self._open:
+                self.stream.close()
+            self._open = False
+            return
+        from coding_agent.tui.composer.voice import spoken_text
+
+        text = spoken_text(str(getattr(result, "output_text", "") or ""))
         speaker = self._speaker
         self._speaker = None
-        if speaker is not None:
+        if text:
+            if speaker is None:
+                speaker = StreamingSpeaker(on_speaking=getattr(self.stream, "_on_speaking", None))
             speaker.finish(text)
-        elif text.strip():
-            # Nothing streamed, so there is one short utterance to play.
-            speaker = StreamingSpeaker(on_speaking=getattr(self.stream, "_on_speaking", None))
-            speaker.finish(text)
+        elif speaker is not None:
+            speaker.close()
+            speaker = None
         self._playback = speaker
         self.stream.hold()
         # The TTS tail must finish naturally. Explicit close cancels playback.

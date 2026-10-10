@@ -22,9 +22,9 @@ from coding_agent.tui.composer.voice import (
 
 
 def toggle_voice(app: Any) -> None:
-    """Start voice mode, or stop it and restore the composer."""
+    """Start voice mode, or stop listening and submit what was heard."""
     if getattr(app, "_voice_active", False):
-        stop_voice(app, reason="toggled")
+        stop_voice(app, reason="done")
         return
     if getattr(app, "_busy", False):
         app.add_notice("Voice mode is unavailable while a turn is running.", "warning")
@@ -41,17 +41,21 @@ def start_voice(
     capture: VoiceCapture | None = None,
     transcriber: VoiceTranscriber | None = None,
 ) -> None:
-    """Keep the composer visible and listen for one utterance."""
+    """Keep the composer visible and listen until the user says done or presses Ctrl+A."""
     # A cancelled thread can still finish. Bind both dependencies and a unique
     # session token now, not when the worker eventually starts running.
     session = object()
     app._voice_session = session
     app._voice_active = True
+    app._voice_parts = []
+    app._voice_finish = False
     try:
         app._voice_capture = capture if capture is not None else MicrophoneCapture()
         app._voice_transcriber = transcriber if transcriber is not None else GrokVoiceTranscriber()
         _set_voice_border(app, True)
-        app.add_notice("Voice mode · listening with Grok Voice Think Fast. Ctrl+A or Esc to stop.")
+        app.add_notice(
+            "Voice mode · listening. Say done, or press Ctrl+A, to run. Esc cancels.",
+        )
         bound_capture = app._voice_capture
         bound_transcriber = app._voice_transcriber
         app.run_worker(
@@ -63,9 +67,19 @@ def start_voice(
 
 
 def stop_voice(app: Any, *, reason: str) -> None:
-    """User cancelled. Close the stream and restore the composer once."""
+    """Leave voice mode. ``done`` submits the transcript; anything else discards it."""
+    session = getattr(app, "_voice_session", None)
+    if reason == "done" and getattr(app, "_voice_active", False):
+        # Submit the utterances already transcribed. The worker may be blocked
+        # in another listen(); it must not append that clip after this.
+        app._voice_finish = True
+        parts = list(getattr(app, "_voice_parts", []) or [])
+        _finish_voice(app, " ".join(parts).strip(), "", session)
+        return
     app._voice_active = False
     app._voice_session = None
+    app._voice_parts = []
+    app._voice_finish = False
     try:
         close_voice_addon(app)
     except Exception as exc:
@@ -74,27 +88,66 @@ def stop_voice(app: Any, *, reason: str) -> None:
         _restore_composer(app)
     if reason == "toggled":
         app.add_notice("Voice mode off.")
+    del session
+
+
+_DONE_WORDS = {"done", "done."}
+
+
+def _is_done_phrase(text: str) -> bool:
+    """True when the utterance is only the word that ends voice mode."""
+    return text.strip().lower() in _DONE_WORDS
 
 
 def _listen(
     app: Any, capture: VoiceCapture, transcriber: VoiceTranscriber, session: object,
 ) -> None:
-    """Capture and transcribe away from the UI thread, then submit the text.
+    """Keep capturing until the user says done or presses Ctrl+A.
 
     Textual runs a ``thread=True`` worker as a plain function. Widget updates
     go through ``call_from_thread`` so the composer styles are only
-    touched on the app thread.
+    touched on the app thread. Each ``listen`` returns one utterance; the
+    loop continues so voice mode does not submit on the first pause.
     """
-    try:
-        audio = capture.listen()
-        text = transcriber.transcribe(audio, model=GROK_VOICE_MODEL).strip()
-    except UnavailableVoice as exc:
-        app.call_from_thread(_finish_voice, app, "", str(exc), session)
+    parts: list[str] = []
+    while getattr(app, "_voice_active", False) and getattr(app, "_voice_session", None) is session:
+        try:
+            audio = capture.listen()
+            if audio is None:
+                app.call_from_thread(_finish_voice, app, " ".join(parts).strip(), "", session)
+                return
+            text = transcriber.transcribe(audio, model=GROK_VOICE_MODEL).strip()
+        except UnavailableVoice as exc:
+            app.call_from_thread(_finish_voice, app, "", str(exc), session)
+            return
+        except Exception as exc:  # noqa: BLE001 - surface any capture/API failure as a notice
+            app.call_from_thread(_finish_voice, app, "", f"Voice mode failed · {exc}", session)
+            return
+        if not getattr(app, "_voice_active", False) or getattr(app, "_voice_session", None) is not session:
+            return
+        # Ctrl+A already submitted the remembered parts. Drop this clip.
+        if getattr(app, "_voice_finish", False):
+            return
+        if text and not _is_done_phrase(text):
+            parts.append(text)
+            app.call_from_thread(_remember_voice_part, app, text, session)
+        if _is_done_phrase(text):
+            app.call_from_thread(_finish_voice, app, " ".join(parts).strip(), "", session)
+            return
+
+
+def _remember_voice_part(app: Any, text: str, session: object) -> None:
+    """Keep an utterance for Ctrl+A without starting the agent yet."""
+    if not getattr(app, "_voice_active", False) or getattr(app, "_voice_session", None) is not session:
         return
-    except Exception as exc:  # noqa: BLE001 - surface any capture/API failure as a notice
-        app.call_from_thread(_finish_voice, app, "", f"Voice mode failed · {exc}", session)
+    if getattr(app, "_voice_finish", False):
         return
-    app.call_from_thread(_finish_voice, app, text.strip(), "", session)
+    parts = getattr(app, "_voice_parts", None)
+    if parts is None:
+        parts = []
+        app._voice_parts = parts
+    parts.append(text)
+    _show_voice_transcript(app, " ".join(parts))
 
 
 def _finish_voice(app: Any, text: str, error: str, session: object) -> None:
@@ -122,6 +175,17 @@ def _finish_voice(app: Any, text: str, error: str, session: object) -> None:
         app.add_notice(f"Voice mode failed · {exc}", "error")
 
 
+def _show_voice_transcript(app: Any, text: str) -> None:
+    """Put the words heard so far into the composer. The turn has not started."""
+    try:
+        prompt = app.query_one("#prompt", PromptInput)
+    except Exception:
+        return
+    prompt.disabled = False
+    prompt.value = text
+    prompt.cursor_position = len(text)
+
+
 def _restore_composer(app: Any) -> None:
     """Clear voice styling and restore input focus after cancellation/error."""
     _set_voice_border(app, False)
@@ -142,7 +206,10 @@ def submit_voice_turn(app: Any, text: str) -> None:
         _restore_composer(app)
         app.add_notice(error, "error")
         return
-    turn = QueuedTurn(text, text, (), ())
+    # The transcript was shown while listening. Clear it before the turn
+    # mounts its own copy in the conversation.
+    _show_voice_transcript(app, "")
+    turn = QueuedTurn(text, text, (), (), voice=True)
     if app._busy:
         app.queue_turn(turn)
         return

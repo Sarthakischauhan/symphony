@@ -24,7 +24,9 @@ class FakeApp:
         self.widgets = {
             "#composer": SimpleNamespace(display=True, set_class=lambda *args: None,
                                          remove_class=lambda *args: None),
-            "#prompt": SimpleNamespace(disabled=False, focus=self.focus),
+            "#prompt": SimpleNamespace(
+                disabled=False, focus=self.focus, value="", cursor_position=0,
+            ),
         }
 
     def focus(self):
@@ -55,13 +57,18 @@ class FakeApp:
 
 
 class Capture:
-    def __init__(self, error=None):
+    def __init__(self, error=None, *, utterances=2):
         self.calls = 0
         self.error = error
+        self.utterances = utterances
 
     def listen(self):
         self.calls += 1
-        if self.error:
+        if self.calls > self.utterances:
+            # The review app queues UI work, so the worker itself has to stop
+            # or an inline call never returns to the test.
+            return None
+        if self.error and self.calls == 1:
             raise self.error
         return b"fake wav"
 
@@ -70,11 +77,22 @@ class Transcriber:
     def __init__(self, text):
         self.text = text
         self.models = []
+        self.calls = 0
 
     def transcribe(self, audio, *, model):
         assert audio == b"fake wav"
         self.models.append(model)
-        return self.text
+        self.calls += 1
+        # The first utterance is held. Saying done submits it. Empty and
+        # error cases stay a single utterance so the worker stops.
+        normalized = str(self.text).strip().lower()
+        if normalized in {"", "done", "done."}:
+            return self.text
+        if self.calls == 1:
+            return self.text
+        if self.calls == 2:
+            return "done"
+        return ""
 
 
 def assert_restored(app, timer):
@@ -84,6 +102,11 @@ def assert_restored(app, timer):
     assert app.focused
     assert timer.stopped
     assert app._voice_timer is None
+
+
+def _drain(app):
+    while app.callbacks:
+        app.callbacks.pop(0)()
 
 
 @pytest.mark.parametrize("finish_before_cancel", [False, True])
@@ -97,13 +120,16 @@ def test_cancel_then_restart_ignores_old_worker_and_queued_result(finish_before_
     if finish_before_cancel:
         old_worker()
     voice_mode.stop_voice(app, reason="escape")
+    # The old worker may already have queued its transcript. Cancelling
+    # invalidates that session, so those callbacks must not run the turn.
+    app.callbacks.clear()
     fresh = Capture()
     fresh_transcriber = Transcriber(" new transcript ")
     voice_mode.start_voice(app, capture=fresh, transcriber=fresh_transcriber)
     timer = app._voice_timer
     if not finish_before_cancel:
         old_worker()
-    app.callbacks.pop(0)()
+    _drain(app)
     assert app._voice_active
     assert app.widgets["#composer"].display
     assert app._voice_timer is timer
@@ -112,9 +138,9 @@ def test_cancel_then_restart_ignores_old_worker_and_queued_result(finish_before_
     assert not any(text == "stale failure" for text, _ in app.notices)
     assert fresh.calls == 0  # Even a delayed old worker uses its own dependencies.
     app.workers[-1]()
-    app.callbacks.pop(0)()
+    _drain(app)
     assert app.turns == ["new transcript"]
-    assert fresh_transcriber.models == [GROK_VOICE_MODEL]
+    assert fresh_transcriber.models[0] == GROK_VOICE_MODEL
     assert app.widgets["#composer"].display  # Composer stays visible on submission.
 
 
@@ -125,7 +151,7 @@ def test_cancel_then_restart_ignores_old_worker_and_queued_result(finish_before_
 ])
 def test_capture_error_or_empty_transcript_restores_ui(error, text, notice, severity):
     app = FakeApp()
-    voice_mode.start_voice(app, capture=Capture(error), transcriber=Transcriber(text))
+    voice_mode.start_voice(app, capture=Capture(error, utterances=1), transcriber=Transcriber(text))
     timer = app._voice_timer
     app.workers[-1]()
     app.callbacks.pop(0)()
@@ -140,7 +166,7 @@ def test_agent_disappears_during_capture():
     timer = app._voice_timer
     app._agent = None
     app.workers[-1]()
-    app.callbacks.pop(0)()
+    _drain(app)
     assert_restored(app, timer)
     assert app.notices[-1] == (OFFLINE_HINT, "error")
     assert not app.turns
@@ -181,7 +207,7 @@ def test_addon_startup_failure_restores_ui_and_closes(monkeypatch, startup):
     voice_mode.start_voice(app, capture=Capture(), transcriber=Transcriber("hello"))
     timer = app._voice_timer
     app.workers[-1]()
-    app.callbacks.pop(0)()
+    _drain(app)
     assert_restored(app, timer)
     assert instances[0].closed
     assert app._voice_addon is None
@@ -236,6 +262,6 @@ def test_turn_handoff_failure_restores_ui():
     voice_mode.start_voice(app, capture=Capture(), transcriber=Transcriber("hello"))
     timer = app._voice_timer
     app.workers[-1]()
-    app.callbacks.pop(0)()
+    _drain(app)
     assert_restored(app, timer)
     assert app.notices[-1] == ("Voice mode failed · handoff failed", "error")

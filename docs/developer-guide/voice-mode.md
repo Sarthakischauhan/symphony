@@ -22,14 +22,16 @@ sequenceDiagram
 
     User->>UI: Ctrl+A or /voice
     UI->>UI: Guard busy/offline; blink composer border every 0.5s
-    UI->>Mic: Worker thread: record 8s mono PCM16, 16 kHz
-    Mic-->>UI: WAV bytes
-    UI->>STT: POST multipart: model, language=en, file
-    Note over UI,STT: Bearer XAI_API_KEY, otherwise stored Grok OAuth token
-    STT-->>UI: JSON transcript
-    alt Cancelled capture, error, or empty transcript
+    loop Until the user says done or presses Ctrl+A again
+        UI->>Mic: Worker thread: record until a pause (8s cap), mono PCM16, 16 kHz
+        Mic-->>UI: WAV bytes
+        UI->>STT: POST multipart: model, language=en, file
+        Note over UI,STT: Bearer XAI_API_KEY, otherwise stored Grok OAuth token
+        STT-->>UI: JSON transcript (kept; not submitted yet)
+    end
+    alt Escape, capture error, or nothing but "done"
         UI->>UI: Ignore stale capture or show notice; restore composer
-    else Transcript accepted
+    else User finished with Ctrl+A or the word done
         UI->>Addon: ensure_voice_addon(); open(); arm one voice turn
         Addon->>RT: WebSocket upgrade, model=grok-voice-think-fast-2.0
         Addon->>RT: session.update (eve, PCM16 24 kHz, server_vad)
@@ -74,12 +76,12 @@ unit tests mock the provider and do not prove entitlement.
 
 ## When does output get spoken?
 
-`EventPresenter._on_text_delta` forwards the accumulated assistant text to
-`TurnSurface.feed_voice` and then `VoiceAddon.feed`. On a voice-originated run,
-the first nonempty clause is submitted immediately; later text waits for
-`.`, `?`, `!`, or a newline. `after_run` flushes the remaining tail and sends
-`text.done`. There is no canned "working on it" sentence. Tool output and
-reasoning deltas are not fed to this path.
+A voice question sets `CoreHarness.reply_aloud` for the run that is about to
+start. `run_session` copies that flag onto `HarnessResult.reply_aloud` and
+clears it, so the next typed turn stays silent. `VoiceAddon.after_run` speaks
+only that final `output_text` (fences stripped, length capped). Streamed
+deltas, tool output, and reasoning are not dictated. There is no canned
+"working on it" sentence.
 
 Socket setup, TTS generation, and the local player still add latency. With
 `ffplay` or `mpv`, MP3 bytes are written as they arrive; with only `afplay`,
@@ -105,9 +107,14 @@ There is no separate voice bar and no composer hide/show transition.
 - `addons/voice/speak.py` and `stream.py`: streaming-TTS and realtime socket
   workers, respectively, plus local audio playback.
 
-Capture is fixed at eight seconds, not silence-ended or push-to-talk.
-Cancelling invalidates the result; it does not instantly interrupt the
-underlying fixed-duration recorder. Audio is sent to xAI, and assistant text
+Listening continues across utterances. A pause ends one recording so it can
+be transcribed into the composer, but the agent does not run until the user
+says **done** or presses **Ctrl+A** again. The composer shows the transcript
+so far and is cleared when the turn starts. Escape cancels without submitting. The word "done"
+is the stop signal and is not included in the prompt. Eight seconds is only
+the safety cap on one recording. Stopping does not instantly interrupt the
+recorder already in progress; that clip is still transcribed, then the turn
+starts. Audio is sent to xAI, and assistant text
 sent to TTS can contain workspace information. Input/output language is
 currently hardcoded to English. `sounddevice` is optional and first use tries
 to install it in the running interpreter; PortAudio/device availability and

@@ -40,6 +40,9 @@ async def run_session(
     run_id = str(uuid.uuid4())
     started_mono = mono_now()
     started_wall = wall_now()
+    # Consume the voice flag with this run so a later typed turn stays silent.
+    reply_aloud = bool(harness.reply_aloud)
+    harness.reply_aloud = False
     harness._set_active_identity(run_id, active_session)
     messages = await harness._initial_messages(
         active_session,
@@ -184,6 +187,7 @@ async def run_session(
                     usage=usage,
                     context_limit=context_limit,
                     context_left=context_left,
+                    reply_aloud=reply_aloud,
                 )
                 try:
                     await harness.notify_addons(

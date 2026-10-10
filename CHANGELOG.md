@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Voice mode (`Ctrl+A` / `/voice`) keeps listening until you say **done** or
+  press **Ctrl+A** again. Escape still cancels without starting a turn.
+  Each transcribed utterance appears in the composer while you are still speaking.
+- A voice question sets `reply_aloud` on the coding harness for that run.
+  Symphony dictates only the finished answer; typed turns stay silent.
 - Voice activity now keeps the composer visible and blinks its rounded border
   between light and dark purple every 0.5 seconds instead of showing a sweep bar.
 - Optional TUI voice input (`Ctrl+A` / `/voice`) records one utterance with

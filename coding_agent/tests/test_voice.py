@@ -9,7 +9,7 @@ import pytest
 
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS, command_matches
-from coding_agent.tui.composer.input import Composer
+from coding_agent.tui.composer.input import Composer, PromptInput
 from coding_agent.tui.composer.voice import (
     GROK_VOICE_MODEL,
     VOICE_DARK_PURPLE,
@@ -19,7 +19,7 @@ from coding_agent.tui.composer.voice_mode import start_voice
 
 
 class ScriptedCapture:
-    """Hold the utterance until ``release`` to inspect the voice indicator."""
+    """Hold each utterance until ``release`` so tests can inspect the indicator."""
 
     def __init__(self, audio: bytes = b"wav") -> None:
         self.audio = audio
@@ -31,6 +31,7 @@ class ScriptedCapture:
         self.calls += 1
         self.started.set()
         self.gate.wait(timeout=2)
+        self.gate.clear()
         return self.audio
 
     def release(self) -> None:
@@ -40,11 +41,17 @@ class ScriptedCapture:
 class ScriptedTranscriber:
     def __init__(self, text: str = "rename the helper") -> None:
         self.text = text
+        self.lines: list[str] | None = None
         self.models: list[str] = []
+        self.calls = 0
 
     def transcribe(self, audio: bytes, *, model: str) -> str:
         del audio
         self.models.append(model)
+        self.calls += 1
+        if self.lines is not None:
+            index = self.calls - 1
+            return self.lines[index] if index < len(self.lines) else "done"
         return self.text
 
 
@@ -142,19 +149,34 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(addon_module, "StreamingSpeaker", Speaker)
     addon.arm()
     assert addon.open() == ""
+    # Streaming text is not dictated. Only the finished answer of a voice
+    # question is, and only once the run completes.
     addon.feed("Renamed it. The helper is updated")
     addon.feed("Renamed it. The helper is updated now.")
+    assert fed == []
 
-    async def _run() -> None:
-        await addon.before_run(messages=[SimpleNamespace(role="user", content="rename the helper")])
-        await addon.after_run(result=SimpleNamespace(output_text="Renamed it. The helper is updated now."))
+    async def _typed() -> None:
+        await addon.before_run(messages=[SimpleNamespace(role="user", content="typed")])
+        await addon.after_run(result=SimpleNamespace(output_text="Typed replies stay silent.", reply_aloud=False))
 
-    asyncio.run(_run())
+    asyncio.run(_typed())
+    assert fed == []
     assert stream.held
-    # No canned line. Speech is the model's own text, sent as it grows, and
-    # the tail is flushed when the run ends.
-    assert fed[0] == "Renamed it."
-    assert fed[-1].startswith("finish:")
+
+    addon.arm()
+    addon._open = True
+
+    async def _voice() -> None:
+        await addon.before_run(messages=[SimpleNamespace(role="user", content="rename the helper")])
+        await addon.after_run(
+            result=SimpleNamespace(
+                output_text="Renamed it. The helper is updated now.",
+                reply_aloud=True,
+            )
+        )
+
+    asyncio.run(_voice())
+    assert fed == ["finish:Renamed it. The helper is updated now."]
 
 
 def test_spoken_text_strips_fences_and_limits_length() -> None:
@@ -193,9 +215,19 @@ def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) ->
             capture.release()
             for _ in range(20):
                 await pilot.pause(0.05)
+                if transcriber.calls:
+                    break
+            # The first utterance is held in the composer. Ctrl+A starts the turn.
+            assert started == []
+            assert app._voice_active
+            prompt = app.query_one("#prompt", PromptInput)
+            assert "add a voice bar" in prompt.text
+            await pilot.press("ctrl+a")
+            for _ in range(20):
+                await pilot.pause(0.05)
                 if started:
                     break
-            assert capture.calls == 1
+            assert capture.calls >= 1
             assert transcriber.models == [GROK_VOICE_MODEL]
             assert started == ["add a voice bar"]
             # The composer stays visible throughout the voice turn.
@@ -225,6 +257,12 @@ def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.Mo
             assert capture.started.wait(timeout=2)
             assert app.query_one("#composer", Composer).display is True
             capture.release()
+            for _ in range(20):
+                await pilot.pause(0.05)
+                if capture.calls >= 1 and not capture.gate.is_set():
+                    break
+            assert submitted == []
+            await app._run_slash_command("/voice")
             for _ in range(20):
                 await pilot.pause(0.05)
                 if submitted:
