@@ -14,7 +14,8 @@
   Each transcribed utterance appears in the composer while you are still speaking.
 - A voice question asks the same model call to end its answer with a
   `## Spoken summary`. Symphony dictates that section, and falls back to the
-  opening of the answer if the model leaves it out. Typed turns stay silent.
+  opening of the answer if the model leaves it out. The section is removed
+  from the chat and from the saved transcript. Typed turns stay silent.
 - Voice activity now keeps the composer visible and blinks its rounded border
   between light and dark purple every 0.5 seconds instead of showing a sweep bar.
 - Optional TUI voice input (`Ctrl+A` / `/voice`) records one utterance with

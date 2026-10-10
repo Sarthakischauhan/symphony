@@ -117,17 +117,41 @@ SPOKEN_REPLY_LIMIT = 600
 _SPOKEN_SUMMARY = "## Spoken summary"
 
 
+def split_spoken_summary(text: str) -> tuple[str, str]:
+    """Separate the chat answer from the trailing spoken section.
+
+    The heading is only for TTS. A heading that is still being typed stays
+    out of the chat as well, so the customer never sees it appear.
+    """
+    lowered = text.lower()
+    marker = lowered.rfind(_SPOKEN_SUMMARY.lower())
+    if marker < 0:
+        partial = _partial_heading(lowered)
+        if partial:
+            return text[: len(text) - partial].rstrip(), ""
+        return text, ""
+    return text[:marker].rstrip(), text[marker + len(_SPOKEN_SUMMARY):].strip()
+
+
+def _partial_heading(lowered: str) -> int:
+    """How many trailing characters are an unfinished ``## Spoken summary``."""
+    heading = _SPOKEN_SUMMARY.lower()
+    tail = lowered.rstrip()
+    trimmed = len(lowered) - len(tail)
+    for size in range(min(len(heading) - 1, len(tail)), 1, -1):
+        if tail.endswith(heading[:size]):
+            return size + trimmed
+    return 0
+
+
 def spoken_summary(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
     """The summary the model wrote into its final answer, ready for TTS.
 
     The section is part of the same response, not a later call. If the model
     left it out, the opening of the answer is spoken instead.
     """
-    section = ""
-    marker = text.lower().rfind(_SPOKEN_SUMMARY.lower())
-    if marker >= 0:
-        section = text[marker + len(_SPOKEN_SUMMARY):].strip()
-    return spoken_text(section or text, limit=limit)
+    answer, section = split_spoken_summary(text)
+    return spoken_text(section or answer, limit=limit)
 
 
 def spoken_text(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:

@@ -414,6 +414,10 @@ class EventPresenter:
         if final_output:
             # Install the authoritative final response while the process is
             # still open; finish_assistant() then freezes it as Markdown.
+            # A voice run's spoken section is dictated, never shown.
+            from coding_agent.tui.composer.voice import split_spoken_summary
+
+            final_output, _spoken = split_spoken_summary(final_output)
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
         self.view.set_thinking(completed)
@@ -535,7 +539,10 @@ class EventPresenter:
             self.state.stream_text = ""
         self.state.append_text(delta)
         self._assistant_open = True
-        self._buffer_assistant(self.state.stream_text, new=is_new)
+        from coding_agent.tui.composer.voice import split_spoken_summary
+
+        visible, _spoken = split_spoken_summary(self.state.stream_text)
+        self._buffer_assistant(visible, new=is_new)
         speak = getattr(self.view, "feed_voice", None)
         if callable(speak):
             speak(self.state.stream_text)

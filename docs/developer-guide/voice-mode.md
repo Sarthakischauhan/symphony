@@ -83,8 +83,10 @@ normal answer with a `## Spoken summary` section. The system prompt is not
 changed, so the provider prefix cache still matches. The note is not persisted
 and does not add a model call.
 `VoiceAddon.after_run` speaks that section (fences stripped, length capped).
-If the model omits it, the opening of the answer is spoken instead. Streamed
-deltas, tool output, and reasoning are not dictated. There is no canned
+If the model omits it, the opening of the answer is spoken instead. The
+section is stripped before the answer is shown or saved, including while the
+heading is still streaming, so the chat never displays it. Streamed deltas,
+tool output, and reasoning are not dictated. There is no canned
 "working on it" sentence.
 
 Socket setup, TTS generation, and the local player still add latency. With

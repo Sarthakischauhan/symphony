@@ -183,10 +183,15 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
 
 
 def test_spoken_text_strips_fences_and_limits_length() -> None:
-    from coding_agent.tui.composer.voice import spoken_summary, spoken_text
+    from coding_agent.tui.composer.voice import split_spoken_summary, spoken_summary, spoken_text
 
     answer = "Renamed the helper.\n\n## Spoken summary\nI renamed the helper and updated its callers."
     assert spoken_summary(answer) == "I renamed the helper and updated its callers."
+    assert split_spoken_summary(answer) == (
+        "Renamed the helper.",
+        "I renamed the helper and updated its callers.",
+    )
+    assert split_spoken_summary("Renamed the helper.\n\n## Spoken") == ("Renamed the helper.", "")
     assert spoken_summary("No marker here. The work is done.") == "No marker here. The work is done."
     assert spoken_text("```python\nprint(1)\n```\n\nDone.") == "Done."
     assert spoken_text("") == ""
