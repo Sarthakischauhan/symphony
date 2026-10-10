@@ -511,33 +511,12 @@ tools = '''
 '''
 composer = '''
 .notice {
-    width: auto;
-    max-width: 100%;
+    width: 100%;
     height: auto;
-    margin: $space-block 0 0 $space-gutter;
-    padding: 0 $space-inset;
+    min-height: 1;
+    margin: $space-block 0 0 0;
+    padding: 0 0 0 $space-gutter;
     color: $muted;
-    text-style: bold;
-}
-
-.notice-error {
-    color: #ff8b95;
-    background: #5a1d24;
-}
-
-.notice-warning {
-    color: #f0c36a;
-    background: #4a3412;
-}
-
-.notice-success {
-    color: #8fd19e;
-    background: #1c3b28;
-}
-
-.notice-info {
-    color: #c8c8c8;
-    background: #2a2a2a;
 }
 
 /* Composer: a visibly rounded input container, with the all-caps mode

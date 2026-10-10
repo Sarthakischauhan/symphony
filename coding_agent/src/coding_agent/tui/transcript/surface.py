@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Mapping, Optional
 from textual import events
 from textual.containers import VerticalScroll
 from textual.geometry import Offset
-from textual.message import Message
 from textual.widget import Widget
 
 from coding_agent.tui.chrome.footer import ComposerOverlay
@@ -38,15 +37,6 @@ if TYPE_CHECKING:
     from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary
 
 
-class NoticeEvent(Message):
-    """Local UI failure/status event; never an assistant message."""
-
-    def __init__(self, text: str, tone: str = "info") -> None:
-        super().__init__()
-        self.text = text
-        self.tone = tone
-
-
 class TranscriptScroll(VerticalScroll):
     """The transcript viewport: anchored to its newest content.
 
@@ -58,20 +48,40 @@ class TranscriptScroll(VerticalScroll):
     def on_mount(self) -> None:
         self.anchor()
 
-    def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
-        """Wheel-down must release the tail anchor.
+    def _wheel_leaves_tail(self, event: events.MouseScrollUp | events.MouseScrollDown) -> bool:
+        """A plain wheel tick is the reader leaving the tail, not the stream.
 
-        Textual's pointer scroll leaves the anchor held, and the next layout
-        (a composer update, a stream paint) snaps the viewport back to the end.
-        That reads as the page refusing to scroll. Keyboard scrolling already
-        releases the anchor.
+        Pointer scrolling does not release Textual's anchor (keyboard does).
+        Worse, a follow animation sets ``scroll_target_y`` at the end before
+        ``scroll_y`` arrives. A wheel tick then computes its next target from
+        that end, so the page never moves and the next layout snaps back.
+        Stop the animation and release before the tick is applied.
         """
-        if self.is_anchored and not event.ctrl and not event.shift:
+        if event.ctrl or event.shift:
+            return False
+        self.app.animator.force_stop_animation(self, "scroll_y")
+        self.app.animator.force_stop_animation(self, "scroll_x")
+        if self.is_anchored:
             self.release_anchor()
+        return True
+
+    def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        self._wheel_leaves_tail(event)
         super()._on_mouse_scroll_down(event)
 
+    def _on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        self._wheel_leaves_tail(event)
+        super()._on_mouse_scroll_up(event)
+
     def anchor(self, anchor: bool = True) -> None:
-        """Follow new content with a short scroll instead of an instant jump."""
+        """Follow new content with a short scroll instead of an instant jump.
+
+        A reader who already scrolled away owns the viewport. Re-anchoring
+        them (a stream paint, a composer layout) is what makes the wheel
+        look dead.
+        """
+        if anchor and self._anchored and self._anchor_released:
+            return
         self._anchored = anchor
         if anchor:
             self.scroll_end(animate=True, duration=0.35, easing="out_cubic")
@@ -273,11 +283,7 @@ class TranscriptSurface:
             tool.append_output(chunk)
 
     def add_notice(self, text: str, tone: str = "info") -> None:
-        self.post_message(NoticeEvent(text, tone))
-
-    def on_notice_event(self, event: NoticeEvent) -> None:
-        event.stop()
-        notice = Notice(event.text, event.tone)
+        notice = Notice(text, tone)
         if self._busy and self._process is not None:
             self._mount_process_item(notice)
         else:

@@ -2,21 +2,19 @@
 
 ## Unreleased
 
+- Cancel, run failures, and run limits use the same composer banner as a
+  model switch. `update_banner` builds that banner from the event.
+- Fixed voice shutdown races: cancelling pending TTS/realtime connections
+  now waits for bounded worker cleanup, and repeated closes do not interrupt it.
 - The TUI stores its chats in `~/.symphony/tui/sessions`. Resume reads only
   that directory, so Zeron chats in `~/.symphony/sessions` never appear.
   Existing bundles tagged `client: tui` move across on first launch.
-- Harness and provider failures, including SSL errors, render as red chips
-  in the TUI instead of plain transcript text. Local notices are posted as
-  Textual events and rendered by the UI handler.
-- Fixed voice shutdown races: cancelling pending TTS/realtime connections
-  now waits for bounded worker cleanup, and repeated closes do not interrupt it.
-- TUI resume hides Zeron and other non-TUI sessions. New sessions record a
-  `client` (`tui`, `zeron`, or `run`); older untagged chats stay listed.
 - Voice mode (`Ctrl+A` / `/voice`) keeps listening until you say **done** or
   press **Ctrl+A** again. Escape still cancels without starting a turn.
   Each transcribed utterance appears in the composer while you are still speaking.
-- A voice question sets `reply_aloud` on the coding harness for that run.
-  Symphony dictates only the finished answer; typed turns stay silent.
+- A voice question asks the same model call to end its answer with a
+  `## Spoken summary`. Symphony dictates that section, and falls back to the
+  opening of the answer if the model leaves it out. Typed turns stay silent.
 - Voice activity now keeps the composer visible and blinks its rounded border
   between light and dark purple every 0.5 seconds instead of showing a sweep bar.
 - Optional TUI voice input (`Ctrl+A` / `/voice`) records one utterance with

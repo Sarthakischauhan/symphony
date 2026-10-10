@@ -18,17 +18,6 @@ from core_harness import HarnessCancelled, HarnessLimitExceeded, HarnessResult
 STREAM_PAINT_INTERVAL_S = 1 / 15
 
 
-def _failure_chip(exc: BaseException) -> str:
-    """Short label for a harness failure that did not arrive as an event."""
-    text = str(exc).strip() or type(exc).__name__
-    lowered = text.lower()
-    if "bad_record_mac" in lowered or "bad record mac" in lowered:
-        return "SSL connection failed · bad record mac. Try the turn again."
-    if "ssl" in lowered or "certificate" in lowered:
-        return f"SSL connection failed · {text}"
-    return text
-
-
 class TurnSurface:
     """Harness event routing and the exclusive agent-turn worker."""
 
@@ -165,10 +154,10 @@ class TurnSurface:
         except Exception as exc:  # noqa: BLE001
             if self._presenter is not None:
                 self._presenter.flush_stream_to_log()
-            # A run_failed event already mounted its own chip. Any other
-            # harness or provider failure still needs one, including SSL.
-            if self._ui_state.detail != "failed":
-                self.add_notice(_failure_chip(exc), "error")
+            # run_failed already raised the composer banner. Anything else
+            # that escaped the harness, including SSL, uses that same banner.
+            if self._ui_state.detail != "failed" and self._presenter is not None:
+                self._presenter._show_banner("run_failed", {"message": str(exc)})
         finally:
             if generation != self._run_generation:
                 # A newer turn already started; do not clobber its busy state

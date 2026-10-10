@@ -588,6 +588,17 @@ def test_tool_completion_flushes_output_before_result(status: str) -> None:
     assert len(view.tool_events) == 2
 
 
+def test_failures_and_cancel_use_the_composer_banner() -> None:
+    presenter, view, _ = _presenter()
+    presenter.handle("run_failed", {"message": "ssl/tls alert bad record mac"})
+    presenter.handle("run_cancelled", {"reason": "user_cancel"})
+    presenter.handle("run_limit_exceeded", {"limit": "max_turns"})
+    assert view.notices == []
+    assert view.updates[0].startswith("SSL connection failed")
+    assert "User cancel" in view.updates
+    assert any("max_turns" in update for update in view.updates)
+
+
 @pytest.mark.parametrize("event", ["run_completed", "run_failed", "run_cancelled", "run_limit_exceeded", "turn_completed"])
 def test_structural_end_events_drain_observational_paints(event: str) -> None:
     scheduled: list = []

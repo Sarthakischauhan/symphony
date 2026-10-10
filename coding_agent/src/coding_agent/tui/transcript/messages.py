@@ -372,28 +372,17 @@ def _overlaps(start: int, end: int, occupied: Sequence[tuple[int, int]]) -> bool
 
 
 class Notice(Static):
-    """A short status chip. Errors and warnings are not plain transcript lines."""
-
     COLORS = {
-        "info": "#9a9a9a",
-        "warning": "#1c1408",
-        "error": "#2a1014",
-        "success": "#102016",
-    }
-    INK = {
-        "info": "#bdbdbd",
-        "warning": "#f0c36a",
-        "error": "#ff8b95",
-        "success": "#8fd19e",
+        "info": "#707070",
+        "warning": "#d7a84b",
+        "error": "#e06c75",
+        "success": "#70a879",
     }
 
     def __init__(self, text: str, tone: str = "info") -> None:
         self.message_text = text
-        self.tone = tone if tone in self.COLORS else "info"
-        label = {"error": "Error", "warning": "Warning", "success": "Done"}.get(self.tone, "")
-        body = f"{label}  {text}" if label else text
-        chip = Text(f" {body} ", style=f"bold {self.INK[self.tone]} on {self.COLORS[self.tone]}")
-        super().__init__(chip, classes=f"notice notice-{self.tone}")
+        color = self.COLORS.get(tone, self.COLORS["info"])
+        super().__init__(Text(f"  {text}", style=color), classes=f"notice {tone}")
 
     def archive_text(self) -> str:
         return self.message_text

@@ -287,9 +287,11 @@ class CodingAgentApp(
         approval_menu.set_commands(())
         self._cancel_active_run("user_cancel")
         if not already:
-            self.add_notice("Cancelling…", "warning")
-        overlay = self.query_one("#composer-overlay", ComposerOverlay)
-        overlay.hide()
+            from coding_agent.tui.chrome.footer import update_banner
+
+            banner = update_banner("cancelling")
+            if banner is not None:
+                self.add_update(*banner)
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = True
         prompt.disabled = False

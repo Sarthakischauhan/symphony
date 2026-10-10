@@ -198,6 +198,36 @@ def render_footer(
 DEFAULT_HINT = "Press ctrl+q to quit the app"
 
 
+def update_banner(event_type: str, payload: Optional[dict] = None) -> tuple[str, str] | None:
+    """Build the composer banner for one harness or UI event.
+
+    This is the same banner a model switch uses. ``None`` means the event
+    does not belong above the composer. The second string is the hint line.
+    """
+    payload = payload or {}
+    if event_type == "run_failed":
+        message = str(payload.get("message") or payload.get("error") or "").strip() or "The run failed."
+        lowered = message.lower()
+        if "bad_record_mac" in lowered or "bad record mac" in lowered:
+            message = "SSL connection failed · bad record mac. Try the turn again."
+        elif "ssl" in lowered or "certificate" in lowered:
+            message = f"SSL connection failed · {message}"
+        return message, DEFAULT_HINT
+    if event_type == "run_cancelled":
+        reason = str(payload.get("reason") or "Cancelled").replace("_", " ")
+        return reason[:1].upper() + reason[1:], "esc already pressed"
+    if event_type == "run_limit_exceeded":
+        limit = payload.get("limit") or "run limit"
+        message = str(payload.get("message") or f"Harness exceeded {limit}")
+        return message, DEFAULT_HINT
+    if event_type == "cancelling":
+        return "Cancelling…", "esc already pressed"
+    if event_type in {"model_changed", "effort_changed", "mode_changed", "personality_changed", "reloaded"}:
+        text = str(payload.get("text") or "").strip()
+        return (text, DEFAULT_HINT) if text else None
+    return None
+
+
 class ComposerOverlay(Static):
     """A short-lived banner above the composer, matching the interrupt card."""
 

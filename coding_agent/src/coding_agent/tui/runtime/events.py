@@ -25,19 +25,6 @@ _TOASTABLE_JEV_ACTIONS = frozenset({"replan", "retry", "review", "gather", "ask"
 _JEV_TOAST_REASON_LIMIT = 120
 
 
-def _failure_message(payload: Mapping[str, Any]) -> str:
-    """Turn a run_failed payload into the text of a red error chip."""
-    message = str(payload.get("message") or payload.get("error") or "").strip()
-    if not message:
-        message = "The run failed."
-    lowered = message.lower()
-    if "bad_record_mac" in lowered or "bad record mac" in lowered:
-        return "SSL connection failed · bad record mac. Try the turn again."
-    if "ssl" in lowered or "certificate" in lowered:
-        return f"SSL connection failed · {message}"
-    return message
-
-
 def jev_recommendation_update(decision: Any) -> Optional[str]:
     """ComposerOverlay text for a user-facing Jev decision, else None."""
     if decision is None:
@@ -227,6 +214,18 @@ class EventPresenter:
             m.utilization,
             m.estimated,
         )
+
+    def _show_banner(self, event_type: str, payload: Optional[Mapping[str, Any]] = None) -> None:
+        """Show a composer banner when this event has one. Otherwise stay quiet."""
+        from coding_agent.tui.chrome.footer import update_banner
+
+        built = update_banner(event_type, dict(payload or {}))
+        if built is None:
+            return
+        title, hint = built
+        add_update = getattr(self.view, "add_update", None)
+        if callable(add_update):
+            add_update(title, hint)
 
     def refresh_chrome(self) -> None:
         snapshot = self._chrome_snapshot()
@@ -455,7 +454,7 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "failed"
         self.view.set_thinking("Stopped with an error")
-        self.view.add_notice(_failure_message(payload), "error")
+        self._show_banner("run_failed", payload)
         self.view.finish_process("Stopped with an error", collapse=False)
 
     def _on_run_cancelled(self, payload: Mapping[str, Any]) -> None:
@@ -463,19 +462,15 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "cancelled"
         self.view.set_thinking("Cancelled")
-        reason = payload.get("reason")
-        if reason:
-            self.view.add_notice(str(reason), "warning")
+        self._show_banner("run_cancelled", payload)
         self.view.finish_process("Cancelled", collapse=False)
 
     def _on_run_limit_exceeded(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         self.state.phase = "idle"
         self.state.detail = "limit exceeded"
-        limit = payload.get("limit") or "run limit"
-        message = str(payload.get("message") or f"Harness exceeded {limit}")
         self.view.set_thinking("Stopped at a run limit")
-        self.view.add_notice(message, "warning")
+        self._show_banner("run_limit_exceeded", payload)
         self.view.finish_process("Stopped at a run limit", collapse=False)
 
     # Turns and streaming

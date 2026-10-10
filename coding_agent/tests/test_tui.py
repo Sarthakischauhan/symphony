@@ -2355,6 +2355,22 @@ def test_mouse_wheel_releases_transcript_anchor(
             await pilot.pause()
             assert transcript.scroll_y < parked
 
+            # A wheel tick during the follow animation must not be computed
+            # from the animation's end target, and a later re-anchor must not
+            # drag the reader back down.
+            transcript.scroll_home(animate=False, force=True)
+            await pilot.pause()
+            transcript.anchor()
+            transcript.post_message(
+                events.MouseScrollUp(transcript, 1, 1, 0, -1, 0, False, False, False)
+            )
+            await pilot.pause()
+            left = transcript.scroll_y
+            assert left < transcript.max_scroll_y
+            transcript.anchor()
+            await pilot.pause()
+            assert transcript.scroll_y == left
+
     asyncio.run(_run())
 
 
