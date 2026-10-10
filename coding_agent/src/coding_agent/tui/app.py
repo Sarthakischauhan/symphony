@@ -194,6 +194,7 @@ class CodingAgentApp(
                 enable_learning=self.enable_learning,
                 enable_jev=self.enable_jev,
                 config=self.config,
+                client="tui",
             )
             self._agent.set_mode(self.mode)
         except Exception as exc:

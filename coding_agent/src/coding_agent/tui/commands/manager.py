@@ -396,6 +396,7 @@ async def reload_project(app: Any) -> None:
             enable_learning=app.enable_learning,
             enable_jev=getattr(app, "enable_jev", None),
             config=reloaded_config,
+            client="tui",
         )
         session_rule = getattr(app, "jev_rule", "")
         for addon in getattr(reloaded_agent.harness, "addons", ()):

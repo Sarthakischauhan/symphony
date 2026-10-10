@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The TUI stores its chats in `~/.symphony/tui/sessions`. Resume reads only
+  that directory, so Zeron chats in `~/.symphony/sessions` never appear.
+  Existing bundles tagged `client: tui` move across on first launch.
 - Harness and provider failures, including SSL errors, render as red chips
   in the TUI instead of plain transcript text. Local notices are posted as
   Textual events and rendered by the UI handler.

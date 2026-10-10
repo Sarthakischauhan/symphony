@@ -40,19 +40,57 @@ _MESSAGE_FIELDS = ("role", "content", "tool_calls", "tool_call_id", "tool_call_m
 _MESSAGE_TYPES = frozenset({"system", "user", "assistant", "tool_result", "message"})
 
 
+def _move_client_sessions(source: Path, target: Path, client: str) -> None:
+    """Move bundles already tagged for ``client`` into that product's directory.
+
+    Untagged chats stay where they are. A TUI cannot tell an old Zeron chat
+    from an old TUI chat once they share a folder, so only an explicit tag moves.
+    """
+    if not source.is_dir():
+        return
+    for bundle in source.iterdir():
+        if not bundle.is_dir() or bundle.is_symlink():
+            continue
+        meta_path = bundle / "metadata.json"
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(meta, dict) or meta.get("client") != client:
+            continue
+        destination = target / bundle.name
+        if destination.exists():
+            continue
+        shutil.move(str(bundle), str(destination))
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def sessions_dir(workspace: Union[str, Path] | None = None) -> Path:
-    """Return the global Symphony session directory, migrating old sessions.
+def sessions_dir(
+    workspace: Union[str, Path] | None = None,
+    *,
+    client: str = "",
+) -> Path:
+    """Return the session directory for one product, migrating old sessions.
 
-    Older releases stored sessions in ``<workspace>/.sessions``. On first use,
-    move those files into the global directory. Migration is deliberately
-    file-by-file and only removes the legacy directory after every move has
-    succeeded, so an interrupted migration remains resumable.
+    The TUI keeps its own directory so resume cannot see Zeron chats. Other
+    clients stay in the shared directory. Older releases stored sessions in
+    ``<workspace>/.sessions``; those files move into the shared directory on
+    first use. Migration is file-by-file and only removes the legacy directory
+    after every move has succeeded, so an interrupted migration remains resumable.
     """
-    target = (Path.home() / ".symphony" / "sessions").expanduser().resolve()
+    root = (Path.home() / ".symphony").expanduser().resolve()
+    if client == "tui":
+        target = root / "tui" / "sessions"
+        shared = root / "sessions"
+        target.mkdir(parents=True, exist_ok=True)
+        _move_client_sessions(shared, target, "tui")
+        return target
+    target = root / "sessions"
     target.mkdir(parents=True, exist_ok=True)
     if workspace is not None:
         legacy = Path(workspace).expanduser().resolve() / ".sessions"

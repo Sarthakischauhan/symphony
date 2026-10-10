@@ -59,11 +59,6 @@ async def load_session_options(
     for session in await persistence.list_sessions():
         if session.session_id in open_ids:
             continue
-        # Zeron and other non-TUI products share the session directory.
-        # Untagged older chats stay visible; a marked foreign client does not.
-        client = str(getattr(session, "client", "") or "")
-        if client and client != "tui":
-            continue
         # JsonlPersistence computes these cheap row fields while scanning each
         # file. Avoid reparsing every transcript when opening the picker.
         if getattr(session, "message_count", 0) or getattr(session, "first_message", ""):

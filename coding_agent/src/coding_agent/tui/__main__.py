@@ -97,7 +97,7 @@ def main() -> None:
         raise SystemExit(continue_interrupted(workspace, model=args.model))
     session_id = None
     if args.resume:
-        persistence = JsonlPersistence(sessions_dir(workspace))
+        persistence = JsonlPersistence(sessions_dir(workspace, client="tui"))
         sessions = asyncio.run(load_session_options(persistence))
         if not sessions:
             parser.error("no saved sessions found")

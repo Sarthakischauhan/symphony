@@ -466,6 +466,7 @@ def build_agent(
     enable_learning: Optional[bool] = None,
     enable_jev: Optional[bool] = None,
     config: Optional[SettingsSource] = None,
+    client: str = "",
 ) -> CodingAgent:
     """Build a coding agent from whatever provider credentials are available."""
     from core_ai import build_default_registry, default_model_id
@@ -482,11 +483,14 @@ def build_agent(
         config=loaded,
         overrides=overrides or None,
     )
-    return CodingAgent(
+    agent = CodingAgent(
         registry=registry,
         model_id=default_model_id(registry, model_id or resolved.last_model),
         workspace=workspace,
         sink=sink,
         session_id=session_id,
         config=resolved,
+        persistence=JsonlPersistence(sessions_dir(workspace, client=client)),
     )
+    agent.persistence.client = client
+    return agent

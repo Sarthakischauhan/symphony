@@ -76,6 +76,7 @@ async def serve(
             session_id=session_id,
             sink=sink,
             config=ensure_spawn_settings(workspace, overrides={"unattended": True}) if unattended else None,
+            client="zeron",
         )
         load_state(agent)
         persistence = getattr(agent, "persistence", None)

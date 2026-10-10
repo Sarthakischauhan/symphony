@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 
@@ -56,17 +57,30 @@ def test_resume_hides_active_sessions(monkeypatch) -> None:
     assert [option.session_id for option in everything] == ["open-1", "closed-1"]
 
 
-def test_resume_hides_zeron_sessions() -> None:
-    class Persistence:
-        async def list_sessions(self):
-            return [
-                _session("tui-1", "fix the footer", client="tui"),
-                _session("zeron-1", "from the other app", client="zeron"),
-                _session("old-1", "untagged older chat", client=""),
-            ]
+def test_tui_sessions_move_out_of_the_shared_directory(tmp_path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    shared = home / ".symphony" / "sessions"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    from coding_agent.addons.persistence.jsonl import sessions_dir
 
-    options = asyncio.run(load_session_options(Persistence(), closed_only=False))
-    assert [option.session_id for option in options] == ["tui-1", "old-1"]
+    tagged = shared / "tui-chat"
+    tagged.mkdir(parents=True)
+    (tagged / "metadata.json").write_text(json.dumps({"version": 1, "client": "tui"}))
+    (tagged / "transcript.jsonl").write_text("{}\n")
+    foreign = shared / "zeron-chat"
+    foreign.mkdir()
+    (foreign / "metadata.json").write_text(json.dumps({"version": 1, "client": "zeron"}))
+    plain = shared / "old-chat"
+    plain.mkdir()
+    (plain / "metadata.json").write_text(json.dumps({"version": 1}))
+
+    target = sessions_dir(client="tui")
+
+    assert target == home / ".symphony" / "tui" / "sessions"
+    assert (target / "tui-chat" / "transcript.jsonl").is_file()
+    assert not (shared / "tui-chat").exists()
+    assert (shared / "zeron-chat").is_dir()
+    assert (shared / "old-chat").is_dir()
 
 
 class _session:  # noqa: N801 - tiny stand-in for SessionSummary
