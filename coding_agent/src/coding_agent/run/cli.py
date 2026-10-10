@@ -48,6 +48,7 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
         model_id=model,
         session_id=session_id,
         config=ensure_spawn_settings(workspace, overrides={"unattended": True}),
+        client="run",
     )
     print(f"session {agent.session_id}", flush=True)
     register_active(

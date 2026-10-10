@@ -18,7 +18,13 @@ from coding_agent.addons.persistence.active import register_active, release_acti
 from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.chrome import ComposerOverlay, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
-from coding_agent.tui.composer import Composer, PromptInput, QueuedPrompt, QueuedTurn, SlashMenu
+from coding_agent.tui.composer import (
+    Composer,
+    PromptInput,
+    QueuedPrompt,
+    QueuedTurn,
+    SlashMenu,
+)
 from coding_agent.tui.composer.surface import ComposerSurface
 from coding_agent.tui.runtime import (
     EventPresenter,
@@ -67,6 +73,8 @@ class CodingAgentApp(
         Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear", show=False),
         Binding("ctrl+y", "copy_selection", "Copy selection", show=False),
+        Binding("ctrl+a", "voice", "Voice", show=False, priority=True),
+        Binding("escape", "cancel_voice", "Leave voice", show=False, priority=True),
         Binding("escape", "cancel_run", "Cancel", show=True, priority=True),
         Binding("ctrl+x", "cancel_run", "Cancel", show=False, priority=True),
     ]
@@ -148,6 +156,9 @@ class CodingAgentApp(
         self._topbar_model: Optional[str] = None
         self._theme_signature = theme_signature()
         self._theme_timer = None
+        self._voice_active = False
+        self._voice_timer = None
+        self._voice_addon = None
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
@@ -156,6 +167,8 @@ class CodingAgentApp(
         yield SlashMenu(id="slash-menu")
         yield ComposerOverlay()
         yield Composer(id="composer")
+        # Keep approval choices in their own full-width surface.
+        yield SlashMenu(id="approval-menu")
         yield Static(id="status")
 
     def on_mount(self) -> None:
@@ -181,6 +194,7 @@ class CodingAgentApp(
                 enable_learning=self.enable_learning,
                 enable_jev=self.enable_jev,
                 config=self.config,
+                client="tui",
             )
             self._agent.set_mode(self.mode)
         except Exception as exc:
@@ -200,6 +214,9 @@ class CodingAgentApp(
         self._ui_state.phase = "idle"
         self._ui_state.detail = "ready"
         self.session_id = self._agent.session_id
+        persistence = getattr(self._agent, "persistence", None)
+        if persistence is not None:
+            persistence.client = "tui"
         self._register_active_session()
         topbar.set_context(self.workspace, self._ui_state.model_id)
         self._presenter.refresh_chrome()
@@ -270,9 +287,11 @@ class CodingAgentApp(
         approval_menu.set_commands(())
         self._cancel_active_run("user_cancel")
         if not already:
-            self.add_notice("Cancelling…", "warning")
-        overlay = self.query_one("#composer-overlay", ComposerOverlay)
-        overlay.hide()
+            from coding_agent.tui.chrome.footer import update_banner
+
+            banner = update_banner("cancelling")
+            if banner is not None:
+                self.add_update(*banner)
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = True
         prompt.disabled = False
@@ -285,6 +304,21 @@ class CodingAgentApp(
         if self._agent is not None and self._agent.learning_loop is not None:
             self._agent.learning_loop.cancel()
         self.exit()
+
+    def action_voice(self) -> None:
+        """Start voice mode, or finish it. Ctrl+A and ``/voice`` both land here."""
+        from coding_agent.tui.composer.voice_mode import toggle_voice
+
+        toggle_voice(self)
+
+    def action_cancel_voice(self) -> None:
+        """Escape leaves voice mode. When voice is off, cancel the run instead."""
+        if not getattr(self, "_voice_active", False):
+            self.action_cancel_run()
+            return
+        from coding_agent.tui.composer.voice_mode import stop_voice
+
+        stop_voice(self, reason="toggled")
 
     def action_dashboard(self) -> None:
         from coding_agent.tui.screens.dashboard import AgentDashboard
@@ -303,6 +337,9 @@ class CodingAgentApp(
         )
 
     async def on_unmount(self) -> None:
+        from coding_agent.tui.composer.voice_mode import close_voice_addon
+
+        close_voice_addon(self)
         release_active()
         harness = getattr(self._agent, "harness", None)
         shutdown_children = getattr(harness, "shutdown_children", None)

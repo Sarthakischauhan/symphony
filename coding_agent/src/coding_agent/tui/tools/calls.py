@@ -31,7 +31,11 @@ from coding_agent.tui.tools.labels import (
     tool_label,
 )
 from coding_agent.tui.tools.snapshots import LIVE_STATUSES, ToolCallSnapshot
-from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
+from coding_agent.tui.transcript.messages import (
+    SelectableStatic,
+    clip_text,
+    return_composer_focus,
+)
 
 IMAGE_CHIP = "[Image 1]"
 # Streamed output lines a running Bash card shows under its header; the
@@ -48,6 +52,7 @@ class BashToolHeader(Horizontal, can_focus=True):
     def _on_click(self, event: events.Click) -> None:
         event.stop()
         self.post_message(self.Toggle())
+        self.app.call_after_refresh(return_composer_focus, self)
 
     def _on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:

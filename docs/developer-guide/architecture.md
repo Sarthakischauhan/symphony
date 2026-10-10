@@ -7,6 +7,9 @@ drive every UI from a single control-plane event stream instead of scraping
 output. Parent runs can spawn child agents; those children reuse the same
 stream, tagged with `parent_id` and `agent_id`.
 
+For the optional TUI audio path, see [Voice mode](voice-mode.md), including
+its Mermaid sequence diagram and HTTPS/WebSocket protocol map.
+
 ## Layers
 
 | Layer | Package | Role |

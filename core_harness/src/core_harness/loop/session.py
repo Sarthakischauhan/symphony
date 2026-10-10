@@ -21,6 +21,33 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Sent beside the latest user message, never inside the system prompt.
+_SPOKEN_SUMMARY_NOTE = (
+    "This question arrived by voice. After the normal answer, end with a "
+    "section titled exactly `## Spoken summary`. In two or three plain "
+    "sentences, say what you did and the result. Do not add code, lists, "
+    "or a second heading there. That section is spoken aloud and is removed "
+    "from the chat, so do not mention speaking or the customer there."
+)
+
+_SPOKEN_SUMMARY_HEADING = "## spoken summary"
+
+
+def _without_spoken_summary(text: str) -> str:
+    """Drop the trailing spoken section. It is dictated, not shown or stored."""
+    marker = text.lower().rfind(_SPOKEN_SUMMARY_HEADING)
+    if marker < 0:
+        return text
+    return text[:marker].rstrip()
+
+
+def _replace_last_assistant(messages: List[Message], text: str) -> None:
+    """Rewrite the final assistant message so resume does not show the section."""
+    for message in reversed(messages):
+        if message.role == "assistant" and isinstance(message.content, str):
+            message.content = text
+            return
+
 
 def _clear_cancellation() -> None:
     task = asyncio.current_task()
@@ -40,6 +67,9 @@ async def run_session(
     run_id = str(uuid.uuid4())
     started_mono = mono_now()
     started_wall = wall_now()
+    # Consume the voice flag with this run so a later typed turn stays silent.
+    reply_aloud = bool(harness.reply_aloud)
+    harness.reply_aloud = False
     harness._set_active_identity(run_id, active_session)
     messages = await harness._initial_messages(
         active_session,
@@ -107,6 +137,10 @@ async def run_session(
             # Per-turn context (e.g. memory) goes into the request, never into
             # the system message, so the system prefix stays byte-identical.
             turn_context: Dict[str, str] = {}
+            if reply_aloud:
+                # Request-only, like memory context: the system prefix stays
+                # byte-identical, so the provider prompt cache still hits.
+                turn_context["voice"] = _SPOKEN_SUMMARY_NOTE
             await harness.notify_addons("before_turn", turn=turn, messages=messages, context=turn_context)
             result = await turn_runner.run(
                 messages,
@@ -144,6 +178,8 @@ async def run_session(
                         status="running", metadata={"run_id": run_id},
                     )
                     continue
+                visible_text = _without_spoken_summary(result.assistant_text)
+                _replace_last_assistant(messages, visible_text)
                 await harness._persist_state(
                     session_id=active_session,
                     turn=turn,
@@ -152,14 +188,14 @@ async def run_session(
                     context_limit=context_limit,
                     context_left=context_left,
                     status="completed",
-                    metadata={"output_text": result.assistant_text, "run_id": run_id},
+                    metadata={"output_text": visible_text, "run_id": run_id},
                 )
                 await harness.emit(
                     "run_completed",
                     with_ended(
                         {
                             "turn": turn,
-                            "output_text": result.assistant_text,
+                            "output_text": visible_text,
                             "usage": usage.model_dump(),
                             "context": {
                                 "context_limit": context_limit,
@@ -178,12 +214,13 @@ async def run_session(
                 )
                 await _emit_run_summary(harness, started_mono, status="completed", turn=turn)
                 completed = HarnessResult(
-                    output_text=result.assistant_text,
+                    output_text=visible_text,
                     messages=messages,
                     tool_calls=all_tool_calls,
                     usage=usage,
                     context_limit=context_limit,
                     context_left=context_left,
+                    reply_aloud=reply_aloud,
                 )
                 try:
                     await harness.notify_addons(

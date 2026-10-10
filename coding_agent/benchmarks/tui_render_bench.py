@@ -369,6 +369,49 @@ async def bench_live(tools: int, runs: int, *, raw: bool) -> None:
             print(f"raw tools={tools} {name} " + " ".join(f"{value:.3f}" for value in values))
 
 
+async def run_voice_once(ticks: int) -> dict[str, float]:
+    """Time composer-border color changes without mounting or relayout."""
+    from coding_agent.tui.composer.voice_mode import _advance_voice_border, _set_voice_border
+
+    workspace = Path(tempfile.mkdtemp(prefix="tui-bench-ws-"))
+    app = CodingAgentApp(workspace=workspace)
+    async with app.run_test(size=SIZE) as pilot:
+        await pilot.pause()
+        _set_voice_border(app, True)
+        app._voice_timer.stop()
+        await pilot.pause()
+        COUNTS.clear()
+        start = perf_counter()
+        for _ in range(ticks):
+            _advance_voice_border(app)
+        await pilot.pause()
+        elapsed = perf_counter() - start
+    return {
+        "ms/tick": elapsed * 1000 / ticks,
+        "mounted/tick": COUNTS["mounted"] / ticks,
+        "relayouts/tick": COUNTS["relayouts"] / ticks,
+        "layouts/tick": COUNTS["layouts"] / ticks,
+    }
+
+
+async def bench_voice(ticks: int, runs: int, *, raw: bool) -> None:
+    names = ("ms/tick", "mounted/tick", "relayouts/tick", "layouts/tick")
+    await run_voice_once(ticks)
+    print(f"voice ticks={ticks} (warm-up discarded)")
+    samples: dict[str, list[float]] = {name: [] for name in names}
+    for _ in range(runs):
+        for name, value in (await run_voice_once(ticks)).items():
+            samples[name].append(value)
+    for name in names:
+        values = samples[name]
+        print(
+            f"voice {name:<16} median={statistics.median(values):8.3f}"
+            f"  min={min(values):8.3f}  max={max(values):8.3f}  n={len(values)}"
+        )
+        if raw:
+            print(f"raw voice {name} " + " ".join(f"{value:.3f}" for value in values))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--rows", type=int, action="append", help="tool rows (repeatable); default 50 and 200")
@@ -376,11 +419,17 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=7, help="timed runs after the warm-up")
     parser.add_argument("--raw", action="store_true", help="also print every sample")
     parser.add_argument("--live", action="store_true", help="measure a streamed live turn instead")
+    parser.add_argument("--voice", action="store_true", help="measure the voice-mode composer border")
+    parser.add_argument("--ticks", type=int, default=48, help="voice-border changes per run")
     parser.add_argument(
         "--tools", type=int, action="append", help="live-turn tool calls (repeatable); default 10 and 50"
     )
     args = parser.parse_args()
     print(f"checkout src: {CHECKOUT_SRC}")
+    if args.voice:
+        count_render_work()
+        asyncio.run(bench_voice(args.ticks, args.runs, raw=args.raw))
+        return
     if args.live:
         count_render_work()
         for tools in args.tools or (10, 50):

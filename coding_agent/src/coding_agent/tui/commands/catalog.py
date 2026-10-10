@@ -114,6 +114,7 @@ SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
     SlashCommand("personality", "View or switch the agent personality", "[id]"),
     SlashCommand("mode", "View or switch between build and plan", "[mode]"),
+    SlashCommand("voice", "Talk until you say done or press Ctrl+A again", ""),
     SlashCommand("effort", "Set model reasoning effort", "[level]"),
     SlashCommand("plan", "Enter plan mode", ""),
     SlashCommand("plans", "Choose and open a workspace plan", "[plan]"),

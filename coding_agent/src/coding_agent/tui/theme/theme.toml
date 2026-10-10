@@ -524,7 +524,7 @@ composer = '''
 #composer {
     width: 1fr;
     height: auto;
-    min-height: 2;
+    min-height: 3;
     margin: 0 $space-page;
     padding: 0 $space-inset;
     layout: vertical;
@@ -539,6 +539,7 @@ composer = '''
 #composer-row {
     width: 100%;
     height: auto;
+    min-height: 1;
     layout: horizontal;
     background: $background;
 }
@@ -570,6 +571,15 @@ composer = '''
 
 #prompt .text-area--cursor-line {
     background: $background;
+}
+
+/* The caret is a one-cell block. Without its own colors it inherits the
+   prompt background after a stylesheet refresh (tool events, theme reload)
+   and disappears. */
+#prompt .text-area--cursor {
+    color: $background;
+    background: $foreground;
+    text-style: none;
 }
 
 #composer-mode {
@@ -654,6 +664,13 @@ composer = '''
 
 #approval-menu {
     display: none;
+    width: 1fr;
+    height: auto;
+    max-height: 8;
+    margin: 0 $space-page $space-block $space-page;
+    padding: 0 $space-inset;
+    background: $panel;
+    border: round $panel-edge;
 }
 
 #slash-menu > .option-list--option {
@@ -686,6 +703,15 @@ composer = '''
     padding: $space-block $space-page 0 $space-page;
     background: $background;
     color: $foreground;
+}
+
+/* Voice mode preserves the composer's dimensions and focus behavior. */
+#composer.voice-light, #composer.voice-light:focus-within {
+    border: round #D7C4FB;
+}
+
+#composer.voice-dark, #composer.voice-dark:focus-within {
+    border: round #A371F7;
 }
 
 #approval-menu.permission-menu {

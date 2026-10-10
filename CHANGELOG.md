@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Cancel, run failures, and run limits use the same composer banner as a
+  model switch. `update_banner` builds that banner from the event.
+- Fixed voice shutdown races: cancelling pending TTS/realtime connections
+  now waits for bounded worker cleanup, and repeated closes do not interrupt it.
+- The TUI stores its chats in `~/.symphony/tui/sessions`. Resume reads only
+  that directory, so Zeron chats in `~/.symphony/sessions` never appear.
+  Existing bundles tagged `client: tui` move across on first launch.
+- Voice mode (`Ctrl+A` / `/voice`) keeps listening until you say **done** or
+  press **Ctrl+A** again. Escape still cancels without starting a turn.
+  Each transcribed utterance appears in the composer while you are still speaking.
+- A voice question asks the same model call to end its answer with a
+  `## Spoken summary`. Symphony dictates that section, and falls back to the
+  opening of the answer if the model leaves it out. The section is removed
+  from the chat and from the saved transcript. Typed turns stay silent.
+- Voice activity now keeps the composer visible and blinks its rounded border
+  between light and dark purple every 0.5 seconds instead of showing a sweep bar.
+- Optional TUI voice input (`Ctrl+A` / `/voice`) records one utterance with
+  xAI transcription and streams the coding agent's own text through a separate
+  TTS websocket. Voice turns are explicitly scoped; typed turns and subagents
+  stay silent. Added cancellation/startup/playback regressions and a
+  [voice call/protocol diagram](docs/developer-guide/voice-mode.md).
+
 - Replaced legacy Markdown memory and idle reflection with durable per-turn
   capture jobs, candidate observation inboxes, deduplicated workspace/global
   topics, and SQLite FTS5/BM25 recall. Automatic pre-model retrieval shares

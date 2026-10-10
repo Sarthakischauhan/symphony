@@ -215,6 +215,18 @@ class EventPresenter:
             m.estimated,
         )
 
+    def _show_banner(self, event_type: str, payload: Optional[Mapping[str, Any]] = None) -> None:
+        """Show a composer banner when this event has one. Otherwise stay quiet."""
+        from coding_agent.tui.chrome.footer import update_banner
+
+        built = update_banner(event_type, dict(payload or {}))
+        if built is None:
+            return
+        title, hint = built
+        add_update = getattr(self.view, "add_update", None)
+        if callable(add_update):
+            add_update(title, hint)
+
     def refresh_chrome(self) -> None:
         snapshot = self._chrome_snapshot()
         if snapshot == self._last_chrome:
@@ -402,6 +414,10 @@ class EventPresenter:
         if final_output:
             # Install the authoritative final response while the process is
             # still open; finish_assistant() then freezes it as Markdown.
+            # A voice run's spoken section is dictated, never shown.
+            from coding_agent.tui.composer.voice import split_spoken_summary
+
+            final_output, _spoken = split_spoken_summary(final_output)
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
         self.view.set_thinking(completed)
@@ -442,7 +458,7 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "failed"
         self.view.set_thinking("Stopped with an error")
-        self.view.add_notice(str(payload.get("message") or payload), "error")
+        self._show_banner("run_failed", payload)
         self.view.finish_process("Stopped with an error", collapse=False)
 
     def _on_run_cancelled(self, payload: Mapping[str, Any]) -> None:
@@ -450,19 +466,15 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "cancelled"
         self.view.set_thinking("Cancelled")
-        reason = payload.get("reason")
-        if reason:
-            self.view.add_notice(str(reason), "warning")
+        self._show_banner("run_cancelled", payload)
         self.view.finish_process("Cancelled", collapse=False)
 
     def _on_run_limit_exceeded(self, payload: Mapping[str, Any]) -> None:
         self._finish_reasoning()
         self.state.phase = "idle"
         self.state.detail = "limit exceeded"
-        limit = payload.get("limit") or "run limit"
-        message = str(payload.get("message") or f"Harness exceeded {limit}")
         self.view.set_thinking("Stopped at a run limit")
-        self.view.add_notice(message, "warning")
+        self._show_banner("run_limit_exceeded", payload)
         self.view.finish_process("Stopped at a run limit", collapse=False)
 
     # Turns and streaming
@@ -527,7 +539,13 @@ class EventPresenter:
             self.state.stream_text = ""
         self.state.append_text(delta)
         self._assistant_open = True
-        self._buffer_assistant(self.state.stream_text, new=is_new)
+        from coding_agent.tui.composer.voice import split_spoken_summary
+
+        visible, _spoken = split_spoken_summary(self.state.stream_text)
+        self._buffer_assistant(visible, new=is_new)
+        speak = getattr(self.view, "feed_voice", None)
+        if callable(speak):
+            speak(self.state.stream_text)
 
     def _on_reasoning_delta(self, payload: Mapping[str, Any]) -> None:
         delta = str(payload.get("delta") or "")

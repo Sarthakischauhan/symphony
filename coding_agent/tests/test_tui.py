@@ -109,6 +109,7 @@ from coding_agent.tui.transcript import (
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
+    TranscriptScroll,
     UserMessage,
 )
 
@@ -1950,6 +1951,9 @@ def test_tui_maps_stream_usage_and_read_file_events(
             )
             await pilot.pause()
 
+            # Usage is coalesced on a timer; extra voice/approval surfaces can
+            # make pilot.pause return before that interval has elapsed.
+            app._presenter.flush_stream_paints()
             thinking = app.query_one(ThinkingStatus)
             group = app.query_one(ToolCallSummary)
             assert group.call_ids == ["read-1"]
@@ -2126,10 +2130,14 @@ def test_bash_card_uses_timeline_header_and_stays_after_the_stretch(
             assert not list(app.query(ToolCallSummary))
 
             header = bash.query_one(".bash-tool-header")
+            prompt = app.query_one("#prompt", PromptInput)
             await pilot.click(header)
             await pilot.pause()
             assert not bash.collapsed
             assert bash.query_one(".bash-tool-body").display
+            # The click focuses the header, which hides the composer caret.
+            # Focus returns to the prompt so the caret stays visible.
+            assert prompt.has_focus
 
             header.focus()
             await pilot.press("space")
@@ -2312,6 +2320,56 @@ def test_tool_and_thought_blocks_get_one_row_margin(
             # Adjacent margins collapse to one blank row between blocks.
             assert group.region.y - thought.region.bottom == 1
             assert bash.region.y - group.region.bottom == 1
+
+    asyncio.run(_run())
+
+
+def test_mouse_wheel_releases_transcript_anchor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Scrolling up with the wheel must stick. A later layout must not jump back."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            app.mount_transcript(Static("\n".join(f"line {i}" for i in range(80))))
+            await pilot.pause()
+            transcript = app.query_one("#transcript", TranscriptScroll)
+            transcript.scroll_end(animate=False, force=True)
+            await pilot.pause()
+            assert transcript.is_anchored
+            assert transcript.scroll_y > 0
+            parked = transcript.scroll_y
+
+            transcript.post_message(
+                events.MouseScrollUp(transcript, 1, 1, 0, -1, 0, False, False, False)
+            )
+            await pilot.pause()
+            assert transcript.scroll_y < parked
+            assert not transcript.is_anchored or transcript._anchor_released
+
+            # Later composer paints must not re-pin the tail.
+            app.query_one("#composer").refresh(layout=True)
+            await pilot.pause()
+            assert transcript.scroll_y < parked
+
+            # A wheel tick during the follow animation must not be computed
+            # from the animation's end target, and a later re-anchor must not
+            # drag the reader back down.
+            transcript.scroll_home(animate=False, force=True)
+            await pilot.pause()
+            transcript.anchor()
+            transcript.post_message(
+                events.MouseScrollUp(transcript, 1, 1, 0, -1, 0, False, False, False)
+            )
+            await pilot.pause()
+            left = transcript.scroll_y
+            assert left < transcript.max_scroll_y
+            transcript.anchor()
+            await pilot.pause()
+            assert transcript.scroll_y == left
 
     asyncio.run(_run())
 
@@ -2560,6 +2618,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "effort" in [command.name for command in SLASH_COMMANDS]
     assert "context" in [command.name for command in SLASH_COMMANDS]
     assert "dashboard" in [command.name for command in SLASH_COMMANDS]
+    assert "voice" in [command.name for command in SLASH_COMMANDS]
     assert [command.name for command in command_matches("/dash")] == ["dashboard"]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]

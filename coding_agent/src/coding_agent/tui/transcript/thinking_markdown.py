@@ -270,6 +270,11 @@ def append_inline(text: Text, node: SyntaxTreeNode, code_style: Style, style: St
                 append_inline(text, child, code_style, style)
         case "strong" | "em" | "s" | "link" | "image":
             emphasis = {"strong": BOLD, "em": ITALIC, "s": STRIKE}.get(node.type, LINK)
+            href = str((node.attrs or {}).get("href") or "")
+            # Rich only opens a link when the span carries one. Styling the
+            # text as a link without the target is why clicks did nothing.
+            if node.type == "link" and href.startswith(("http://", "https://")):
+                emphasis = emphasis + Style(link=href)
             for child in node.children:
                 append_inline(text, child, code_style, style + emphasis)
         case "code_inline":

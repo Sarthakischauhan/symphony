@@ -465,6 +465,34 @@ def test_truncated_tool_results_are_not_spilled_to_disk(tmp_path: Path) -> None:
     assert not list(tmp_path.rglob("*.txt"))
 
 
+def test_voice_run_drops_spoken_summary_from_chat() -> None:
+    class AnswerRegistry:
+        async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
+            del model_id, messages, tools
+            yield StreamEvent(type="text_delta", content_index=0, delta="The helper is renamed.")
+            yield StreamEvent(
+                type="text_delta",
+                content_index=0,
+                delta="\n\n## Spoken summary\nI renamed the helper.",
+            )
+            yield StreamEvent(type="done", content_index=0)
+
+    harness = CoreHarness(
+        registry=AnswerRegistry(),  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="Be useful.",
+        config=HarnessConfig(max_turns=1),
+    )
+    harness.reply_aloud = True
+    result = asyncio.run(harness.run("rename the helper"))
+
+    assert result.reply_aloud is True
+    assert result.output_text == "The helper is renamed."
+    assistant = next(message for message in result.messages if message.role == "assistant")
+    assert assistant.content == "The helper is renamed."
+    assert "Spoken summary" not in str(assistant.content)
+
+
 def test_core_harness_runs_tool_loop_with_usage_and_context() -> None:
     registry, sink, result = call_fake_harness(prompt_tokens=10, context_limit=100)
 

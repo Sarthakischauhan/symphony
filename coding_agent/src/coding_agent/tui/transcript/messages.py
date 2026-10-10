@@ -29,6 +29,22 @@ USER_PROMPT_GLYPH = ">"
 USER_PROMPT_GUTTER = 3
 
 
+def return_composer_focus(widget: Any) -> None:
+    """Give the prompt its caret back after a transcript click.
+
+    Tool and thought headers are focusable so Enter and Space can toggle them.
+    A pointer click focuses that header, and Textual hides the ``TextArea``
+    caret until ``#prompt`` is focused again. Keyboard focus is left alone.
+    """
+    try:
+        prompt = widget.app.query_one("#prompt")
+    except Exception:
+        return
+    if getattr(prompt, "disabled", False) or not getattr(prompt, "display", True):
+        return
+    prompt.focus()
+
+
 class SelectableStatic(Static):
     """Selectable Rich content using Textual's dirty-region render cache."""
 
@@ -292,6 +308,16 @@ class AssistantMessage(SelectableStatic):
         self._invalidate_render_cache(layout=True)
         self.update(Group(body))
 
+    def on_click(self, event: Any) -> None:
+        """Open the http(s) link under the pointer. Other clicks select text."""
+        href = _link_at(self.message_text, event)
+        if href is None:
+            return
+        import webbrowser
+
+        webbrowser.open(href)
+        event.stop()
+
     def finish_stream(self) -> None:
         if self._streaming:
             self.set_content(self.message_text)
@@ -299,6 +325,25 @@ class AssistantMessage(SelectableStatic):
 
     def archive_text(self) -> str:
         return self.message_text
+
+_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)|(https?://[^\s)]+)")
+
+
+def _link_at(content: str, event: Any) -> str | None:
+    """Return the http(s) target on the clicked line, if the pointer is on it."""
+    line_index = getattr(event, "y", None)
+    lines = (content or "").splitlines()
+    if not isinstance(line_index, int) or not 0 <= line_index < len(lines):
+        # A click without a row still opens the only link in a short message.
+        found = [match.group(2) or match.group(3) for match in _LINK.finditer(content or "")]
+        return found[0] if len(found) == 1 else None
+    line = lines[line_index]
+    column = int(getattr(event, "x", 0) or 0)
+    for match in _LINK.finditer(line):
+        if match.start() <= column <= match.end():
+            return match.group(2) or match.group(3)
+    return None
+
 
 def render_mermaid(content: str) -> tuple[str, tuple[Text, ...]]:
     """Replace ```mermaid fences with termaid diagrams. The rest stays markdown."""

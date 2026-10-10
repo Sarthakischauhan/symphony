@@ -222,4 +222,6 @@ async def execute(agent: Any, value: str) -> str:
         return "Use Zeron's conversation controls to clear the visible transcript."
     if command == "quit":
         return "Close the Zeron window to exit."
+    if command == "voice":
+        return "Voice mode listens in the Symphony TUI. Press ctrl+a or type /voice there."
     raise ValueError(f"Unknown command: /{command}. Type /help to see commands.")

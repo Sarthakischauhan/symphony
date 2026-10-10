@@ -107,6 +107,23 @@ def test_thought_preview_rows_in_a_group_strip_markers() -> None:
     assert len(collapsed.splitlines()) == 2
 
 
+def test_markdown_links_keep_their_target() -> None:
+    from markdown_it.tree import SyntaxTreeNode
+    from rich.style import Style
+    from rich.text import Text
+
+    from coding_agent.tui.transcript.thinking_markdown import PARSER, append_inline
+
+    text = Text()
+    root = SyntaxTreeNode(PARSER.parse("[docs](https://example.com/docs) and plain"))
+    inline = root.children[0].children[0]
+    for child in inline.children:
+        append_inline(text, child, Style(), Style())
+    spans = [span for span in text.spans if span.style and span.style.link]
+    assert spans
+    assert spans[0].style.link == "https://example.com/docs"
+
+
 def test_plain_text_separates_blocks_but_not_inline_spans() -> None:
     source = "# Plan\n\nfoo**bar** and `x`\nnext\n\n- one\n- *two*\n\n---\n\n```\ncode\n```"
     assert thinking_plain_text(source) == "Plan · foobar and x next · one · two · code"

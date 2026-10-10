@@ -48,8 +48,40 @@ class TranscriptScroll(VerticalScroll):
     def on_mount(self) -> None:
         self.anchor()
 
+    def _wheel_leaves_tail(self, event: events.MouseScrollUp | events.MouseScrollDown) -> bool:
+        """A plain wheel tick is the reader leaving the tail, not the stream.
+
+        Pointer scrolling does not release Textual's anchor (keyboard does).
+        Worse, a follow animation sets ``scroll_target_y`` at the end before
+        ``scroll_y`` arrives. A wheel tick then computes its next target from
+        that end, so the page never moves and the next layout snaps back.
+        Stop the animation and release before the tick is applied.
+        """
+        if event.ctrl or event.shift:
+            return False
+        self.app.animator.force_stop_animation(self, "scroll_y")
+        self.app.animator.force_stop_animation(self, "scroll_x")
+        if self.is_anchored:
+            self.release_anchor()
+        return True
+
+    def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        self._wheel_leaves_tail(event)
+        super()._on_mouse_scroll_down(event)
+
+    def _on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        self._wheel_leaves_tail(event)
+        super()._on_mouse_scroll_up(event)
+
     def anchor(self, anchor: bool = True) -> None:
-        """Follow new content with a short scroll instead of an instant jump."""
+        """Follow new content with a short scroll instead of an instant jump.
+
+        A reader who already scrolled away owns the viewport. Re-anchoring
+        them (a stream paint, a composer layout) is what makes the wheel
+        look dead.
+        """
+        if anchor and self._anchored and self._anchor_released:
+            return
         self._anchored = anchor
         if anchor:
             self.scroll_end(animate=True, duration=0.35, easing="out_cubic")

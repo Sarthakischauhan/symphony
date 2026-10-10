@@ -19,7 +19,11 @@ from coding_agent.tui.tools.activity import (
     same_activity_group,
 )
 from coding_agent.tui.tools.labels import header_target, patch_path, tool_detail, tool_label
-from coding_agent.tui.transcript.messages import SelectableStatic, clip_text
+from coding_agent.tui.transcript.messages import (
+    SelectableStatic,
+    clip_text,
+    return_composer_focus,
+)
 from coding_agent.tui.transcript.thinking_markdown import thinking_plain_text
 
 
@@ -320,6 +324,7 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
     def on_click(self, event: events.Click) -> None:
         event.stop()
         self.toggle()
+        self.app.call_after_refresh(return_composer_focus, self)
 
     def on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:
