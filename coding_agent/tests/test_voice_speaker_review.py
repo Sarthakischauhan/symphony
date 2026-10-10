@@ -217,6 +217,46 @@ def test_close_connected_session_cleans_up(monkeypatch):
     player.finish.assert_not_called()
 
 
+def test_close_from_worker_listener_does_not_join_itself(monkeypatch):
+    listening = threading.Event()
+    release = threading.Event()
+
+    class WaitingSocket(Socket):
+        async def __anext__(self):
+            listening.set()
+            while not release.is_set():
+                await asyncio.sleep(0.001)
+            return '{"type":"audio.done"}'
+
+    socket = WaitingSocket()
+
+    async def connect(*args, **kwargs):
+        return socket
+
+    install_socket(monkeypatch, connect)
+    errors = []
+
+    def on_speaking(speaking):
+        if not speaking:
+            try:
+                speaker.close()
+            except Exception as exc:
+                errors.append(exc)
+
+    speaker = speak.StreamingSpeaker(on_speaking=on_speaking)
+    try:
+        assert listening.wait(2)
+        release.set()
+        speaker._thread.join(2)
+        assert not speaker._thread.is_alive()
+        assert not errors
+        assert socket.closed
+        assert speaker._loop.is_closed()
+    finally:
+        release.set()
+        speaker.close()
+
+
 def test_connection_failure_closes_loop(monkeypatch):
     async def connect(*args, **kwargs):
         await asyncio.sleep(0)

@@ -96,17 +96,21 @@ class VoiceStream:
     def close(self) -> None:
         """Stop even a session that is still connecting; safe before start."""
         with self._lifecycle_lock:
+            already_closing = self._closing.is_set()
             self._closing.set()
             thread = self._thread
             loop = self._loop
-            if loop is not None:
+            if loop is not None and not already_closing:
                 def cancel() -> None:
                     if self._session_task is not None:
                         self._session_task.cancel()
                 with contextlib.suppress(RuntimeError):
                     loop.call_soon_threadsafe(cancel)
-        # Never join from the UI thread. The socket thread exits on its own
-        # once the session task is cancelled; joining it stalls the cursor.
+        # Queuing cancellation does not complete shutdown. Join outside the
+        # lifecycle lock so cleanup can finish, but bound the wait in case a
+        # provider is unresponsive. A worker callback must not join itself.
+        if thread is not None and threading.current_thread() is not thread:
+            thread.join(timeout=2)
         with self._lifecycle_lock:
             if self._thread is thread and (thread is None or not thread.is_alive()):
                 self._thread = None

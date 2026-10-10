@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Optional
 from textual import events
 from textual.containers import VerticalScroll
 from textual.geometry import Offset
+from textual.message import Message
 from textual.widget import Widget
 
 from coding_agent.tui.chrome.footer import ComposerOverlay
@@ -35,6 +36,15 @@ if TYPE_CHECKING:
     # tools.* imports transcript.messages, so the runtime imports stay local.
     from coding_agent.tui.tools.calls import ToolCallWidget
     from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary
+
+
+class NoticeEvent(Message):
+    """Local UI failure/status event; never an assistant message."""
+
+    def __init__(self, text: str, tone: str = "info") -> None:
+        super().__init__()
+        self.text = text
+        self.tone = tone
 
 
 class TranscriptScroll(VerticalScroll):
@@ -263,7 +273,11 @@ class TranscriptSurface:
             tool.append_output(chunk)
 
     def add_notice(self, text: str, tone: str = "info") -> None:
-        notice = Notice(text, tone)
+        self.post_message(NoticeEvent(text, tone))
+
+    def on_notice_event(self, event: NoticeEvent) -> None:
+        event.stop()
+        notice = Notice(event.text, event.tone)
         if self._busy and self._process is not None:
             self._mount_process_item(notice)
         else:

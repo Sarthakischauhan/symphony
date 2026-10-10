@@ -78,6 +78,11 @@ async def serve(
             config=ensure_spawn_settings(workspace, overrides={"unattended": True}) if unattended else None,
         )
         load_state(agent)
+        persistence = getattr(agent, "persistence", None)
+        if persistence is not None:
+            # Zeron talks to Symphony over stdio. Its chats must not appear
+            # in the TUI resume picker.
+            persistence.client = "zeron"
     except Exception as exc:
         _package().write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         return 1

@@ -213,6 +213,9 @@ class CodingAgentApp(
         self._ui_state.phase = "idle"
         self._ui_state.detail = "ready"
         self.session_id = self._agent.session_id
+        persistence = getattr(self._agent, "persistence", None)
+        if persistence is not None:
+            persistence.client = "tui"
         self._register_active_session()
         topbar.set_context(self.workspace, self._ui_state.model_id)
         self._presenter.refresh_chrome()

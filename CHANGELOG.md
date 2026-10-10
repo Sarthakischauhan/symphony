@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Harness and provider failures, including SSL errors, render as red chips
+  in the TUI instead of plain transcript text. Local notices are posted as
+  Textual events and rendered by the UI handler.
+- Fixed voice shutdown races: cancelling pending TTS/realtime connections
+  now waits for bounded worker cleanup, and repeated closes do not interrupt it.
+- TUI resume hides Zeron and other non-TUI sessions. New sessions record a
+  `client` (`tui`, `zeron`, or `run`); older untagged chats stay listed.
 - Voice mode (`Ctrl+A` / `/voice`) keeps listening until you say **done** or
   press **Ctrl+A** again. Escape still cancels without starting a turn.
   Each transcribed utterance appears in the composer while you are still speaking.

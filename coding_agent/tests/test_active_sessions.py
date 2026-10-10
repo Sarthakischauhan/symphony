@@ -56,9 +56,23 @@ def test_resume_hides_active_sessions(monkeypatch) -> None:
     assert [option.session_id for option in everything] == ["open-1", "closed-1"]
 
 
+def test_resume_hides_zeron_sessions() -> None:
+    class Persistence:
+        async def list_sessions(self):
+            return [
+                _session("tui-1", "fix the footer", client="tui"),
+                _session("zeron-1", "from the other app", client="zeron"),
+                _session("old-1", "untagged older chat", client=""),
+            ]
+
+    options = asyncio.run(load_session_options(Persistence(), closed_only=False))
+    assert [option.session_id for option in options] == ["tui-1", "old-1"]
+
+
 class _session:  # noqa: N801 - tiny stand-in for SessionSummary
-    def __init__(self, session_id: str, first_message: str) -> None:
+    def __init__(self, session_id: str, first_message: str, client: str = "") -> None:
         self.session_id = session_id
         self.updated_at = "2026-08-12T16:00:00+00:00"
         self.message_count = 2
         self.first_message = first_message
+        self.client = client

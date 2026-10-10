@@ -76,11 +76,16 @@ class StreamingSpeaker:
 
     def close(self) -> None:
         with self._lock:
-            self._closed = True
-            with contextlib.suppress(RuntimeError):
-                self._loop.call_soon_threadsafe(self._cancel)
-        # The session task is already cancelled. Joining the thread here runs
-        # on the UI thread during a text delta and is what froze the cursor.
+            if not self._closed:
+                self._closed = True
+                with contextlib.suppress(RuntimeError):
+                    self._loop.call_soon_threadsafe(self._cancel)
+        # Cancellation is only queued above. Wait for socket/player cleanup,
+        # without holding the lock needed by the session's finally block.
+        # Bound the wait for an unresponsive provider, and allow listeners on
+        # the worker thread to close the speaker without joining themselves.
+        if threading.current_thread() is not self._thread:
+            self._thread.join(timeout=2)
 
     def _submit(self, text: str | None) -> None:
         with contextlib.suppress(RuntimeError):

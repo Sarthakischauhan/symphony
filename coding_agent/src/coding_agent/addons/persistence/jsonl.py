@@ -78,6 +78,7 @@ class SessionSummary:
     updated_at: str
     message_count: int = 0
     first_message: str = ""
+    client: str = ""
 
 
 class JsonlPersistence:
@@ -176,7 +177,13 @@ class JsonlPersistence:
         if meta is not None:
             return meta
         created = _utc_now()
-        meta = {"version": 1, "session_id": session_id, "created_at": created, "updated_at": created}
+        meta = {
+            "version": 1,
+            "session_id": session_id,
+            "created_at": created,
+            "updated_at": created,
+            "client": getattr(self, "client", "") or "",
+        }
         self._write_metadata(session_id, meta)
         return meta
 
@@ -385,10 +392,21 @@ class JsonlPersistence:
             return self._entries[session_id]
         return self._read_entries(session_id)
 
+    def _stamp_client(self, session_id: str) -> None:
+        """Record the product once. A later client must not overwrite it."""
+        client = getattr(self, "client", "") or ""
+        if not client:
+            return
+        meta = self._ensure_metadata(session_id)
+        if meta.get("client"):
+            return
+        self._write_metadata(session_id, {**meta, "client": client, "updated_at": _utc_now()})
+
     def _append_entries(self, session_id: str, entries: List[Dict[str, Any]]) -> None:
         if not entries:
             return
         with self._session_lock(session_id):
+            self._stamp_client(session_id)
             self._ensure_metadata(session_id)
             path = self._path(session_id)
             mark = self._mark(path)
@@ -705,6 +723,7 @@ class JsonlPersistence:
         messages: List[Message],
     ) -> None:
         with self._lock, self._session_lock(session_id):
+            self._stamp_client(session_id)
             entries = self._read_entries(session_id)
             incoming = archive([self._message_payload(message) for message in messages],
                                self.session_dir(session_id))
@@ -811,6 +830,13 @@ class JsonlPersistence:
                 # message. Do not decode every JSON object in large transcripts.
                 first_message = ""
                 message_count = 0
+                client = ""
+                try:
+                    meta = self._read_metadata(session_id)
+                except ValueError:
+                    meta = None
+                if isinstance(meta, dict):
+                    client = str(meta.get("client") or "")
                 with path.open(encoding="utf-8") as handle:
                     for raw in handle:
                         if not raw.strip():
@@ -845,6 +871,7 @@ class JsonlPersistence:
                             updated_at=updated,
                             message_count=message_count,
                             first_message=first_message,
+                            client=client,
                         ),
                     )
                 )

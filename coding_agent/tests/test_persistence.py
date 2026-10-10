@@ -130,6 +130,12 @@ def test_list_sessions_counts_typed_message_entries(tmp_path: Path) -> None:
         assert sessions[0].session_id == "typed"
         assert sessions[0].message_count == 3
         assert sessions[0].first_message == "hello from current format"
+        assert sessions[0].client == ""
+
+        store.client = "tui"
+        await store.save_conversation(session_id="typed", messages=messages)
+        stamped = await store.list_sessions()
+        assert stamped[0].client == "tui"
 
     asyncio.run(_run())
 

@@ -50,6 +50,9 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
         config=ensure_spawn_settings(workspace, overrides={"unattended": True}),
     )
     print(f"session {agent.session_id}", flush=True)
+    persistence = getattr(agent, "persistence", None)
+    if persistence is not None:
+        persistence.client = "run"
     register_active(
         agent.session_id,
         workspace=workspace,

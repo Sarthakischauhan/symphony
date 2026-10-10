@@ -25,6 +25,19 @@ _TOASTABLE_JEV_ACTIONS = frozenset({"replan", "retry", "review", "gather", "ask"
 _JEV_TOAST_REASON_LIMIT = 120
 
 
+def _failure_message(payload: Mapping[str, Any]) -> str:
+    """Turn a run_failed payload into the text of a red error chip."""
+    message = str(payload.get("message") or payload.get("error") or "").strip()
+    if not message:
+        message = "The run failed."
+    lowered = message.lower()
+    if "bad_record_mac" in lowered or "bad record mac" in lowered:
+        return "SSL connection failed · bad record mac. Try the turn again."
+    if "ssl" in lowered or "certificate" in lowered:
+        return f"SSL connection failed · {message}"
+    return message
+
+
 def jev_recommendation_update(decision: Any) -> Optional[str]:
     """ComposerOverlay text for a user-facing Jev decision, else None."""
     if decision is None:
@@ -442,7 +455,7 @@ class EventPresenter:
         self.state.phase = "idle"
         self.state.detail = "failed"
         self.view.set_thinking("Stopped with an error")
-        self.view.add_notice(str(payload.get("message") or payload), "error")
+        self.view.add_notice(_failure_message(payload), "error")
         self.view.finish_process("Stopped with an error", collapse=False)
 
     def _on_run_cancelled(self, payload: Mapping[str, Any]) -> None:

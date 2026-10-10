@@ -47,6 +47,26 @@ def test_close_cancels_connection_startup(monkeypatch):
     assert voice._thread is None
 
 
+def test_close_from_worker_does_not_join_itself(monkeypatch):
+    errors = []
+
+    async def session(self):
+        try:
+            self.close()
+        except Exception as exc:
+            errors.append(exc)
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(module.VoiceStream, "_session", session)
+    voice = module.VoiceStream()
+    voice.start()
+    assert voice._closed.wait(2)
+    voice.close()
+    assert not errors
+    assert voice._thread is None
+    assert voice._loop is None
+
+
 @pytest.mark.parametrize("failure", ["initial_send", "mic", "disconnect"])
 def test_session_always_cleans_up(monkeypatch, failure):
     cleaned = []
