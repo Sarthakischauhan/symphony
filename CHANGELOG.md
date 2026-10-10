@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Memory extraction requests the model's lowest advertised reasoning effort and
+  an output cap of at least 8,192 tokens, so reasoning models no longer return
+  empty captures. Stored `learning.max_output_tokens` values below that floor
+  (the old 900 default) are raised and rewritten on launch. A provider stream
+  reset now discards partial capture text. Empty or invalid extraction output
+  logs a warning, shows a "memory capture" notice, and marks the job `failed`
+  after three attempts instead of retrying silently every run.
 - Cancel, run failures, and run limits use the same composer banner as a
   model switch. `update_banner` builds that banner from the event.
 - Fixed voice shutdown races: cancelling pending TTS/realtime connections

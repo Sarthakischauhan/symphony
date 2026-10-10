@@ -63,7 +63,10 @@ stateDiagram-v2
 ```
 
 `Extracting` is an execution state, not a persisted job status. On disk, an
-unfinished job remains `pending`; completed jobs are marked `complete`.
+unfinished job remains `pending`; completed jobs are marked `complete`. A job
+whose extraction output is empty, unparseable, or invalid records `attempts`
+and `last_error`; at `MAX_CAPTURE_ATTEMPTS` (3) it is marked `failed` and the
+worker skips it.
 
 A new user message does **not** discard pending captures. The worker attempts
 each job once per drain, avoiding a tight retry loop on provider failure.
@@ -93,7 +96,7 @@ knowledge remains untrusted reference data.
 flowchart TD
     Job["Durable capture job"] --> Extract["Structured extraction model call"]
     Extract --> Valid{"Valid response?"}
-    Valid -->|No| Retry["Leave job pending for a later retry"]
+    Valid -->|No| Retry["Count the attempt; warn; mark failed after three"]
     Valid -->|Yes| Filter["Keep observations with confidence at least 0.7"]
     Filter --> Commit["Publish inbox observations"]
     Commit --> Complete["Mark capture job complete"]

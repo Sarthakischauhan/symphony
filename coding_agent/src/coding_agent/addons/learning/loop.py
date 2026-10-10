@@ -9,6 +9,7 @@ from typing import Awaitable, Callable, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from core_ai.models import get_model
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
 from core_harness import HarnessResult
@@ -17,7 +18,7 @@ from coding_agent.config import LearningConfig
 from coding_agent.addons.learning.prompts import CAPTURE_SYSTEM_PROMPT
 from coding_agent.addons.learning.sanitize import sanitize_task, sanitize_text
 from core_ai.content import text_from_content
-from coding_agent.addons.learning.store import LearningStore
+from coding_agent.addons.learning.store import MAX_CAPTURE_ATTEMPTS, LearningStore
 
 logger = logging.getLogger(__name__)
 Emit = Callable[[str, dict[str, object]], Awaitable[None]]
@@ -62,6 +63,21 @@ def two_line_summary(text: str) -> str:
     return "\n".join(sanitize_text(line, max_chars=140) for line in lines[:2])
 
 
+_THINKING_ORDER = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+
+
+def _capture_effort(model_id: str) -> str | None:
+    """Lowest reasoning effort the catalog advertises for ``model_id``.
+
+    Extraction is a small structured task; reasoning only competes with the
+    JSON for output tokens. Unknown models keep the provider default.
+    """
+    provider, _, name = model_id.partition(":")
+    model = get_model(provider, name)
+    levels = dict(model.thinking_level_map) if model is not None else {}
+    return next((levels[level] for level in _THINKING_ORDER if levels.get(level)), None)
+
+
 def _capture_messages(messages: list[Message] | list[dict]) -> list[dict]:
     """Bound and sanitize evidence before it reaches disk or another model."""
     result = []
@@ -97,6 +113,8 @@ class LearningLoop:
         self.context_max_chars = context_max_chars
         self._worker: asyncio.Task[None] | None = None
         self._recaps: dict[str, Emit] = {}
+        # Control-plane emit for capture notices; bound by ``LearningAddon``.
+        self.emit: Emit | None = None
 
     def capture(self, task: str, messages: list[Message] | list[dict]) -> str:
         """Persist synchronously BEFORE spawning; later turns never cancel this job."""
@@ -159,6 +177,11 @@ class LearningLoop:
                     self.store.consolidate()
                 except asyncio.CancelledError:
                     raise
+                except ValueError as exc:
+                    # Empty, unparseable, or invalid output: count it so a job
+                    # that keeps producing bad output stops being retried.
+                    await self._bad_output(job_id, exc)
+                    continue
                 except Exception:
                     logger.exception("memory capture failed; pending job will retry next run")
                     continue
@@ -170,6 +193,27 @@ class LearningLoop:
                     except Exception:
                         logger.exception("memory recap delivery failed")
 
+    async def _bad_output(self, job_id: str, error: ValueError) -> None:
+        try:
+            failed = self.store.record_capture_failure(job_id, error)
+        except (OSError, ValueError):
+            logger.exception("memory capture failure could not be recorded")
+            return
+        state = (f"gave up after {MAX_CAPTURE_ATTEMPTS} attempts; job marked failed" if failed
+                 else "will retry next run")
+        logger.warning("memory capture returned no usable output for job %s (%s): %s",
+                       job_id[:12], state, error)
+        if self.emit is None:
+            return
+        try:
+            await self.emit("run_summary", {
+                "label": "memory capture",
+                "summary": sanitize_text(f"Memory capture got no usable output ({state}): {error}",
+                                         max_chars=280),
+            })
+        except Exception:
+            logger.exception("memory capture notice delivery failed")
+
     async def _extract(self, job: dict) -> LearningReview:
         evidence = json.dumps({"task": sanitize_task(job["task"]),
                                "messages": _capture_messages(job["messages"])}, ensure_ascii=False)
@@ -180,13 +224,20 @@ class LearningLoop:
         size = 0
         async for event in self.registry.stream(
             self.model_id, messages, tools=[], max_output_tokens=self.max_output_tokens,
+            reasoning_effort=_capture_effort(self.model_id),
         ):
-            if event.type == "text_delta" and event.delta:
+            if event.type == "retry" and event.retry_resets_stream:
+                # The provider restarts the response; keep only the new attempt.
+                chunks.clear()
+                size = 0
+            elif event.type == "text_delta" and event.delta:
                 size += len(event.delta)
                 if size > 16000:
                     raise ValueError("capture response exceeds bound")
                 chunks.append(event.delta)
         payload = "".join(chunks).strip()
+        if not payload:
+            raise ValueError("capture response contained no text")
         if payload.startswith("```"):
             payload = payload.strip("`").removeprefix("json").strip()
         decoded = json.loads(payload)
