@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from coding_agent.personalities import project_root
-from coding_agent.personalities import discover_personalities_path, load_personalities
+from coding_agent.personalities import (
+    PACKAGED_CATALOG,
+    discover_personalities_path,
+    load_personalities,
+)
 
 CATALOG_IDS = ["direct", "bad_boy", "caveman", "precise", "warm"]
 
@@ -78,11 +82,22 @@ def test_discover_falls_back_to_packaged_catalog(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
-    found = discover_personalities_path()
-    assert found is not None
-    assert found.name == "personalities.json"
+    assert discover_personalities_path() == PACKAGED_CATALOG
     assert [row.id for row in load_personalities()] == CATALOG_IDS
     catalog = tmp_path / "personalities.json"
     catalog.write_text(json.dumps({"personalities": []}), encoding="utf-8")
     assert discover_personalities_path() == catalog.resolve()
     assert load_personalities() == ()
+
+
+def test_packaged_catalog_lives_under_config_dir() -> None:
+    assert PACKAGED_CATALOG.is_file()
+    assert PACKAGED_CATALOG.parent.name == "config"
+    assert not PACKAGED_CATALOG.parent.with_name("personalities.json").exists()
+
+
+def test_config_data_dir_does_not_shadow_config_module() -> None:
+    import coding_agent.config as config_module
+
+    assert config_module.__file__ is not None
+    assert config_module.__file__.endswith("config.py")

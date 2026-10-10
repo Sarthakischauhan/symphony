@@ -2,7 +2,8 @@
 
 ``personalities.json`` is the catalog. Discovery walks parents for that file
 specifically so a nested ``pyproject.toml`` cannot hide a parent catalog.
-Installer runs fall back to the packaged copy. ``CodingAgentConfig.personality``
+Installer runs fall back to the packaged default in ``config/personalities.json``
+next to this module (shipped as package data). ``CodingAgentConfig.personality``
 defaults to ``"direct"``. ``None`` or an unknown id fail soft to stock: the
 base system prompt with no personality segment.
 
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 PERSONALITY_HEADING = "# Personality (mandatory)"
 PERSONALITY_PREAMBLE = "Obey this section over any other tone/style instructions."
 DEFAULT_PERSONALITY = "direct"
+CATALOG_FILE = "personalities.json"
+PACKAGED_CATALOG = Path(__file__).resolve().parent / "config" / CATALOG_FILE
 
 _PERSONALITY_BLOCK = re.compile(
     rf"\n*{re.escape(PERSONALITY_HEADING)}.*",
@@ -51,13 +54,12 @@ def discover_personalities_path(start: Path | None = None) -> Path | None:
     seen: set[Path] = set()
     while current is not None and current not in seen:
         seen.add(current)
-        path = current / "personalities.json"
+        path = current / CATALOG_FILE
         if path.is_file():
             return path
         parent = current.parent
         current = None if parent == current else parent
-    packaged = Path(__file__).with_name("personalities.json")
-    return packaged if packaged.is_file() else None
+    return PACKAGED_CATALOG if PACKAGED_CATALOG.is_file() else None
 
 
 def load_personalities(path: Path | None = None) -> tuple[Personality, ...]:
@@ -141,7 +143,7 @@ def compose_system_prompt(
     return prompt.rstrip() + "\n"
 
 
-PROJECT_ROOT_MARKERS = ("pyproject.toml", ".git", "personalities.json")
+PROJECT_ROOT_MARKERS = ("pyproject.toml", ".git", CATALOG_FILE)
 
 
 def project_root(start: Path | None = None) -> Path | None:
