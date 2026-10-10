@@ -37,6 +37,9 @@ class ScriptedCapture:
     def release(self) -> None:
         self.gate.set()
 
+    def close(self) -> None:
+        self.closed = True
+
 
 class ScriptedTranscriber:
     def __init__(self, text: str = "rename the helper") -> None:
@@ -115,7 +118,7 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
         def error(self) -> str:
             return ""
 
-        def close(self) -> None:
+        def close(self, *, timeout: float = 0.0) -> None:
             said.append("closed")
 
     stream = Stream()

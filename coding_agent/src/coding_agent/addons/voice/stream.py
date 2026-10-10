@@ -25,18 +25,32 @@ from coding_agent.tui.composer.voice import GROK_TTS_VOICE, grok_voice_credentia
 VOICE_REALTIME_MODEL = "grok-voice-think-fast-2.0"
 REALTIME_URL = "wss://api.x.ai/v1/realtime"
 SAMPLE_RATE = 24_000
+# 40 ms of mono int16 per callback and per socket message: 25 sends a second.
+MIC_BLOCK_FRAMES = SAMPLE_RATE * 40 // 1000
+# Mic blocks waiting for the socket. Past this the oldest is dropped, so a
+# slow link costs at most ~1.3 s of latency instead of growing without bound.
+MIC_QUEUE_BLOCKS = 32
+# The audio is base64 and needs no escaping, so the JSON is two fixed halves.
+_APPEND_HEAD = '{"type": "input_audio_buffer.append", "audio": "'
+_APPEND_TAIL = '"}'
 
 SpeakListener = Callable[[bool], None]
 
 
 class VoiceStream:
-    """Background thread that owns the realtime socket and the microphone."""
+    """Background thread that owns the realtime socket and the microphone.
+
+    ``start`` and ``close`` never block the caller (the Textual loop), and
+    either may be called any number of times in any order. ``start`` after
+    ``close`` begins a new session at once; its thread first waits for the
+    previous one to release the socket and the microphone.
+    """
 
     def __init__(self, *, on_speaking: SpeakListener | None = None) -> None:
         self._on_speaking = on_speaking
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._ready = threading.Event()
+        # Set when the current session's thread has exited.
         self._closed = threading.Event()
         self._error = ""
         self._speaking = False
@@ -44,10 +58,12 @@ class VoiceStream:
         # does not talk over the agent. It opens again for the final answer.
         self._listen = threading.Event()
         self._listen.set()
+        # One event per session, so closing an old session cannot stop a new one.
         self._closing = threading.Event()
         self._lifecycle_lock = threading.Lock()
         self._session_task: asyncio.Task[None] | None = None
         self._socket: Any = None
+        self._stop: asyncio.Event | None = None
 
     @property
     def speaking(self) -> bool:
@@ -59,14 +75,18 @@ class VoiceStream:
 
     def start(self) -> None:
         with self._lifecycle_lock:
-            if self._thread is not None and self._thread.is_alive():
+            previous = self._thread
+            if previous is not None and previous.is_alive() and not self._closing.is_set():
                 return
-            self._ready.clear()
+            closing = threading.Event()
+            self._closing = closing
             self._closed.clear()
-            self._closing.clear()
             self._error = ""
-            self._thread = threading.Thread(target=self._run, name="grok-voice", daemon=True)
-            self._thread.start()
+            thread = threading.Thread(
+                target=self._run, args=(previous, closing), name="grok-voice", daemon=True,
+            )
+            self._thread = thread
+            thread.start()
         # Do not wait here. The caller is the Textual loop, and a connect that
         # takes seconds freezes the cursor even though the terminal still
         # accepts keystrokes.
@@ -93,8 +113,13 @@ class VoiceStream:
         with contextlib.suppress(RuntimeError):
             loop.call_soon_threadsafe(schedule)
 
-    def close(self) -> None:
-        """Stop even a session that is still connecting; safe before start."""
+    def close(self, *, timeout: float = 0.0) -> None:
+        """Stop even a session that is still connecting; safe before start.
+
+        Only queues cancellation, so the Textual loop never waits on the
+        provider. ``timeout`` waits that long for the thread (app shutdown and
+        tests). A worker callback never joins itself.
+        """
         with self._lifecycle_lock:
             already_closing = self._closing.is_set()
             self._closing.set()
@@ -106,22 +131,23 @@ class VoiceStream:
                         self._session_task.cancel()
                 with contextlib.suppress(RuntimeError):
                     loop.call_soon_threadsafe(cancel)
-        # Queuing cancellation does not complete shutdown. Join outside the
-        # lifecycle lock so cleanup can finish, but bound the wait in case a
-        # provider is unresponsive. A worker callback must not join itself.
-        if thread is not None and threading.current_thread() is not thread:
-            thread.join(timeout=2)
+        if timeout > 0 and thread is not None and threading.current_thread() is not thread:
+            thread.join(timeout=timeout)
         with self._lifecycle_lock:
             if self._thread is thread and (thread is None or not thread.is_alive()):
                 self._thread = None
 
-    def _run(self) -> None:
+    def _run(self, previous: threading.Thread | None, closing: threading.Event) -> None:
+        # The previous session may still be closing its socket and mic. Wait
+        # here, off the UI thread, so two sessions never hold the device.
+        if previous is not None:
+            previous.join()
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
         try:
             self._session_task = loop.create_task(self._session())
-            if self._closing.is_set():
+            if closing.is_set():
                 self._session_task.cancel()
             loop.run_until_complete(self._session_task)
         except asyncio.CancelledError:
@@ -137,23 +163,22 @@ class VoiceStream:
             loop.run_until_complete(loop.shutdown_asyncgens())
             self._socket = None
             self._session_task = None
+            self._stop = None
             self._loop = None
             loop.close()
-            self._ready.set()
-            self._closed.set()
+            if self._thread is threading.current_thread():
+                self._closed.set()
 
     async def _session(self) -> None:
         try:
             import websockets
         except ImportError:
             self._error = "Voice mode needs the websockets package."
-            self._ready.set()
             return
         try:
             token, headers = grok_voice_credentials()
         except Exception as exc:  # UnavailableVoice or a credential read failure
             self._error = str(exc)
-            self._ready.set()
             return
         query = urlencode({"model": VOICE_REALTIME_MODEL})
         url = f"{REALTIME_URL}?{query}"
@@ -162,21 +187,22 @@ class VoiceStream:
                 url,
                 additional_headers={"Authorization": f"Bearer {token}", **headers},
                 max_size=8 * 1024 * 1024,
+                # The closing handshake must not hold the mic (and the next
+                # session) for websockets' default 10 s.
+                close_timeout=1,
             )
         except Exception as exc:
             self._error = f"Voice stream failed · {exc}"
-            self._ready.set()
             return
         self._socket = socket
-        self._stop = asyncio.Event()
+        stop = self._stop = asyncio.Event()
         tasks: list[asyncio.Task[Any]] = []
         try:
             await socket.send(json.dumps(_session_update()))
-            self._ready.set()
             tasks = [
                 asyncio.create_task(self._pump_mic(socket)),
                 asyncio.create_task(self._pump_events(socket)),
-                asyncio.create_task(self._stop.wait()),
+                asyncio.create_task(stop.wait()),
             ]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
@@ -190,7 +216,7 @@ class VoiceStream:
                 await socket.close()
 
     async def _say(self, text: str) -> None:
-        socket = getattr(self, "_socket", None)
+        socket = self._socket
         if socket is None:
             return
         try:
@@ -210,12 +236,8 @@ class VoiceStream:
 
         except Exception as exc:
             self._error = f"Voice stream failed · {exc}"
-            self._stop.set()
-
-    async def _shutdown(self) -> None:
-        stop = getattr(self, "_stop", None)
-        if stop is not None:
-            stop.set()
+            if self._stop is not None:
+                self._stop.set()
 
     async def _pump_mic(self, socket: Any) -> None:
         """Read PCM from the default input and append it to the voice buffer."""
@@ -223,20 +245,25 @@ class VoiceStream:
             import sounddevice as sd
         except ImportError as exc:
             raise RuntimeError("Voice mode needs the sounddevice package.") from exc
+        except OSError as exc:  # The binding imports, then cannot load PortAudio.
+            raise RuntimeError("Voice mode needs the PortAudio library.") from exc
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=32)
+        queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=MIC_QUEUE_BLOCKS)
+        listen = self._listen
 
         def enqueue(chunk: bytes) -> None:
             # This runs on the event loop, where QueueFull actually occurs.
-            if self._stop.is_set() or not self._listen.is_set():
-                return
             if queue.full():
                 queue.get_nowait()  # Keep recent audio instead of increasing latency.
             queue.put_nowait(chunk)
 
-        def _callback(indata: bytes, frames: int, time_info: Any, status: Any) -> None:
+        def _callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
             del frames, time_info, status
-            chunk = bytes(indata)
+            # Held: drop the block here, without a copy or a loop wakeup.
+            if not listen.is_set():
+                return
+            # Encoding reads PortAudio's reused buffer directly: one copy.
+            chunk = base64.b64encode(indata)
             try:
                 loop.call_soon_threadsafe(enqueue, chunk)
             except RuntimeError:
@@ -248,17 +275,16 @@ class VoiceStream:
                 channels=1,
                 dtype="int16",
                 callback=_callback,
-                blocksize=SAMPLE_RATE // 25,
+                blocksize=MIC_BLOCK_FRAMES,
             )
         except Exception as exc:
             raise RuntimeError(f"Voice microphone failed · {exc}") from exc
         with stream:
-            while not self._stop.is_set():
+            while True:
                 chunk = await queue.get()
-                if not self._listen.is_set():
+                if not listen.is_set():
                     continue
-                payload = base64.b64encode(chunk).decode("ascii")
-                await socket.send(json.dumps({"type": "input_audio_buffer.append", "audio": payload}))
+                await socket.send(_APPEND_HEAD + chunk.decode("ascii") + _APPEND_TAIL)
 
     async def _pump_events(self, socket: Any) -> None:
         player = _PcmPlayer(on_speaking=self._set_speaking)

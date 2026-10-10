@@ -72,6 +72,9 @@ class Capture:
             raise self.error
         return b"fake wav"
 
+    def close(self):
+        self.closed = True
+
 
 class Transcriber:
     def __init__(self, text):
@@ -192,7 +195,7 @@ def test_addon_startup_failure_restores_ui_and_closes(monkeypatch, startup):
             if startup == "arm_raises":
                 raise RuntimeError("startup failed")
 
-        def close(self):
+        def close(self, *, timeout=0.0):
             self.closed = True
 
     def register(addon):
@@ -265,3 +268,17 @@ def test_turn_handoff_failure_restores_ui():
     _drain(app)
     assert_restored(app, timer)
     assert app.notices[-1] == ("Voice mode failed · handoff failed", "error")
+
+
+@pytest.mark.parametrize("reason", ["escape", "done"])
+def test_leaving_voice_mode_releases_the_microphone(reason):
+    # The worker may be blocked inside listen(); closing the capture is what
+    # lets it return instead of holding the mic until the recording cap.
+    app = FakeApp()
+    capture = Capture()
+    voice_mode.start_voice(app, capture=capture, transcriber=Transcriber("hello"))
+    app._voice_parts = ["hello"]
+    voice_mode.stop_voice(app, reason=reason)
+    assert capture.closed
+    assert app._voice_session is None
+    assert app.turns == (["hello"] if reason == "done" else [])

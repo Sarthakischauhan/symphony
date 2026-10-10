@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Protocol
 
 # Speech-to-text model. grok-voice-think-fast-2.0 is a realtime speech model and
@@ -29,6 +30,9 @@ class VoiceCapture(Protocol):
     """Records one utterance. ``None`` means the microphone stopped."""
 
     def listen(self) -> bytes | None: ...
+
+    def close(self) -> None:
+        """Release the microphone; a blocked ``listen`` returns ``None`` soon after."""
 
 
 class UnavailableVoice(RuntimeError):
@@ -251,7 +255,18 @@ def _load_sounddevice() -> Any:
                 "Voice mode could not install the microphone package. "
                 "Run: uv sync --package symphony-code --extra voice"
             ) from exc
+        except OSError as exc:
+            raise UnavailableVoice(_NO_PORTAUDIO) from exc
+    except OSError as exc:
+        # sounddevice imports, then cannot find libportaudio. pip cannot fix that.
+        raise UnavailableVoice(_NO_PORTAUDIO) from exc
     return sd
+
+
+_NO_PORTAUDIO = (
+    "Voice mode needs the PortAudio library. "
+    "Install it (brew install portaudio, or apt install libportaudio2)."
+)
 
 
 def _install_voice_extra() -> None:
@@ -280,42 +295,62 @@ def _install_voice_extra() -> None:
             return
 
 
+# 32 ms per callback (512 frames at 16 kHz): a finer end-of-speech check than
+# the old 50 ms poll, ~31 wakeups a second, and not left to the host's choice.
+CAPTURE_BLOCK_MS = 32
+# int16 RMS. Normal speech sits well above this; a quiet room does not.
+SPEECH_RMS = 500
+
+
 def record_wav(
     sd: Any,
     *,
     seconds: float = 8,
     sample_rate: int = 16_000,
     silence_seconds: float = 0.7,
+    stop: threading.Event | None = None,
 ) -> bytes:
     """Record mono 16-bit PCM until the speaker pauses, then wrap it in a WAV.
 
-    A fixed sleep made every utterance wait the full ``seconds`` before it
-    could be transcribed. Recording now ends after ``silence_seconds`` of quiet
-    once speech has started, and ``seconds`` is only the safety cap.
+    Recording ends after ``silence_seconds`` of quiet once speech has started;
+    ``seconds`` is only the safety cap. The PortAudio callback decides that
+    from the frames it has counted and sets an event, so this thread blocks on
+    the event instead of waking to poll. Setting ``stop`` ends it early.
 
     ``RawInputStream`` keeps the samples in a ``bytearray``. ``sd.rec`` would
     allocate a NumPy array and force that dependency on every user.
     """
-    import audioop
     import io
-    import time
+    import warnings
     import wave
 
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from audioop import rms  # Removed in Python 3.13.
+    except ImportError:
+        rms = _pcm16_rms
+
+    ended = stop if stop is not None else threading.Event()
     captured = bytearray()
     heard_speech = False
-    last_speech = time.monotonic()
-    started = last_speech
-    # int16 RMS. Normal speech sits well above this; a quiet room does not.
-    speech_rms = 500
+    quiet_frames = 0
+    silence_frames = int(silence_seconds * sample_rate)
 
-    def _on_audio(indata: bytes, frames: int, time_info: Any, status: Any) -> None:
-        nonlocal heard_speech, last_speech
-        del frames, time_info, status
-        chunk = bytes(indata)
-        captured.extend(chunk)
-        if audioop.rms(chunk, 2) >= speech_rms:
+    def _on_audio(indata: Any, frames: int, time_info: Any, status: Any) -> None:
+        nonlocal heard_speech, quiet_frames
+        del time_info, status
+        if ended.is_set():
+            return
+        # PortAudio reuses ``indata``; this extend is the only copy.
+        captured.extend(indata)
+        if rms(indata, 2) >= SPEECH_RMS:
             heard_speech = True
-            last_speech = time.monotonic()
+            quiet_frames = 0
+        else:
+            quiet_frames += frames
+        if heard_speech and quiet_frames >= silence_frames:
+            ended.set()
 
     try:
         stream = sd.RawInputStream(
@@ -323,14 +358,12 @@ def record_wav(
             channels=1,
             dtype="int16",
             callback=_on_audio,
+            blocksize=sample_rate * CAPTURE_BLOCK_MS // 1000,
         )
     except Exception as exc:  # PortAudio errors are not ImportError
         raise UnavailableVoice(f"Microphone unavailable · {exc}") from exc
     with stream:
-        while time.monotonic() - started < seconds:
-            time.sleep(0.05)
-            if heard_speech and time.monotonic() - last_speech >= silence_seconds:
-                break
+        ended.wait(seconds)
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as handle:
         handle.setnchannels(1)
@@ -340,8 +373,17 @@ def record_wav(
     return buffer.getvalue()
 
 
+def _pcm16_rms(pcm: Any, width: int) -> int:
+    """``audioop.rms`` for mono int16, for Pythons that no longer ship audioop."""
+    del width
+    samples = memoryview(pcm).cast("B").cast("h")
+    if not samples:
+        return 0
+    return int((sum(sample * sample for sample in samples) / len(samples)) ** 0.5)
+
+
 class MicrophoneCapture:
-    """Record one utterance from the default input device.
+    """Record utterances from the default input device until ``close``.
 
     Imported lazily so the TUI still starts on a machine without an audio
     extra installed. The first listen installs ``sounddevice`` into this
@@ -349,5 +391,28 @@ class MicrophoneCapture:
     a crash. Recording itself does not need NumPy.
     """
 
-    def listen(self) -> bytes:
-        return record_wav(_load_sounddevice())
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._closed = False
+        self._recording: threading.Event | None = None
+
+    def listen(self) -> bytes | None:
+        sd = _load_sounddevice()
+        stop = threading.Event()
+        with self._lock:
+            if self._closed:
+                return None
+            self._recording = stop
+        try:
+            audio = record_wav(sd, stop=stop)
+        finally:
+            with self._lock:
+                self._recording = None
+        return None if self._closed else audio
+
+    def close(self) -> None:
+        """Idempotent and non-blocking, so the UI thread may call it."""
+        with self._lock:
+            self._closed = True
+            if self._recording is not None:
+                self._recording.set()

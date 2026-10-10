@@ -127,7 +127,7 @@ def test_close_cancels_pending_connection(monkeypatch):
     install_socket(monkeypatch, connect)
     speaker = speak.StreamingSpeaker()
     assert connecting.wait(2)
-    speaker.close()
+    speaker.close(timeout=2)
     speaker.close()
     speaker.feed("too late.")
     speaker.finish()
@@ -210,7 +210,7 @@ def test_close_connected_session_cleans_up(monkeypatch):
     player = install_socket(monkeypatch, connect)
     speaker = speak.StreamingSpeaker()
     assert listening.wait(2)
-    speaker.close()
+    speaker.close(timeout=2)
     assert not speaker._thread.is_alive()
     assert socket.closed
     player.close.assert_called_once()

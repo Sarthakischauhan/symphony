@@ -52,15 +52,16 @@ class VoiceAddon(Addon):
             self._open = True
         return self.stream.error
 
-    def close(self) -> None:
+    def close(self, *, timeout: float = 0.0) -> None:
+        """Stop speech and the stream. Waits up to ``timeout`` for their threads."""
         self._armed = False
         for speaker in (self._speaker, self._playback):
             if speaker is not None:
-                speaker.close()
+                speaker.close(timeout=timeout)
         self._speaker = None
         self._playback = None
         if self._open:
-            self.stream.close()
+            self.stream.close(timeout=timeout)
         self._open = False
 
     def feed(self, text: str) -> None:

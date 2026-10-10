@@ -41,6 +41,7 @@ class StreamingSpeaker:
         self._sent = ""
         self._pending = ""
         self._error = ""
+        self._task: asyncio.Task[None] | None = None
         self._thread.start()
 
     def feed(self, text: str, *, force: bool = False) -> None:
@@ -74,27 +75,29 @@ class StreamingSpeaker:
             self._finished = True
             self._submit(None)
 
-    def close(self) -> None:
+    def close(self, *, timeout: float = 0.0) -> None:
+        """Cancel the session. Idempotent; does not block unless ``timeout``.
+
+        The UI thread calls this, so by default it only queues cancellation
+        and the worker cleans up the socket and player on its own. App
+        shutdown passes a ``timeout`` to wait for that, bounded in case the
+        provider is unresponsive. A listener on the worker never joins itself.
+        """
         with self._lock:
             if not self._closed:
                 self._closed = True
                 with contextlib.suppress(RuntimeError):
                     self._loop.call_soon_threadsafe(self._cancel)
-        # Cancellation is only queued above. Wait for socket/player cleanup,
-        # without holding the lock needed by the session's finally block.
-        # Bound the wait for an unresponsive provider, and allow listeners on
-        # the worker thread to close the speaker without joining themselves.
-        if threading.current_thread() is not self._thread:
-            self._thread.join(timeout=2)
+        if timeout > 0 and threading.current_thread() is not self._thread:
+            self._thread.join(timeout=timeout)
 
     def _submit(self, text: str | None) -> None:
         with contextlib.suppress(RuntimeError):
             self._loop.call_soon_threadsafe(self._commands.put_nowait, text)
 
     def _cancel(self) -> None:
-        task = getattr(self, "_task", None)
-        if task is not None:
-            task.cancel()
+        if self._task is not None:
+            self._task.cancel()
 
     def _run(self) -> None:
         asyncio.set_event_loop(self._loop)

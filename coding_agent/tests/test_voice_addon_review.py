@@ -15,7 +15,7 @@ class FakeStream:
     def hold(self):
         pass
 
-    def close(self):
+    def close(self, *, timeout=0.0):
         pass
 
 
@@ -34,7 +34,7 @@ class FakeSpeaker:
     def finish(self, text):
         self.finished.append(text)
 
-    def close(self):
+    def close(self, *, timeout=0.0):
         self.closed = True
 
 

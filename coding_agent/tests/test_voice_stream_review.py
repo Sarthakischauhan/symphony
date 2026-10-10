@@ -12,7 +12,6 @@ from coding_agent.addons.voice import stream as module
 
 def test_close_before_start_and_restart(monkeypatch):
     async def session(self):
-        self._ready.set()
         await asyncio.Event().wait()
 
     monkeypatch.setattr(module.VoiceStream, "_session", session)
@@ -21,7 +20,7 @@ def test_close_before_start_and_restart(monkeypatch):
     for _ in range(2):
         voice.start()
         assert voice._thread.is_alive()
-        voice.close()
+        voice.close(timeout=2)
         assert voice._thread is None
         assert voice._closed.is_set()
         assert voice._loop is None
@@ -41,7 +40,7 @@ def test_close_cancels_connection_startup(monkeypatch):
     starter = threading.Thread(target=voice.start)
     starter.start()
     assert entered.wait(2)
-    voice.close()
+    voice.close(timeout=2)
     starter.join(2)
     assert not starter.is_alive()
     assert voice._thread is None
