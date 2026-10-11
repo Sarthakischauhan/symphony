@@ -46,9 +46,15 @@ def test_load_harness_config_ignores_removed_context_settings(tmp_path: Path) ->
     )
     config = load_harness_config(path)
     assert config.max_turns == 3
-    assert not hasattr(config, "tool_output_dir")
-    assert not hasattr(config, "tool_result_prune_tokens")
-    assert not hasattr(config, "context_compact_threshold")
+    dumped = config.model_dump()
+    for removed in (
+        "tool_output_dir",
+        "tool_result_prune_tokens",
+        "tool_result_keep_recent",
+        "context_compact_threshold",
+        "compaction_keep_recent",
+    ):
+        assert removed not in dumped
 
 
 def test_load_harness_config_reads_nested_harness_section(tmp_path: Path) -> None:

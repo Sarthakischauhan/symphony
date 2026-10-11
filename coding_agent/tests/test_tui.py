@@ -3547,9 +3547,13 @@ def test_display_from_content_rebuilds_clickable_markers() -> None:
 def test_textual_image_renders_bytes() -> None:
     from textual_image.widget import Image as TextualImage
 
+    from PIL import Image as PILImage
+
     preview = textual_image(PNG_1X1)
     assert isinstance(preview, TextualImage)
-    assert preview.image is not None
+    with PILImage.open(preview.image) as decoded:
+        assert decoded.size == (1, 1)
+    assert (preview.styles.max_width.value, preview.styles.max_height.value) == (88, 28)
 
 
 def test_subagent_card_opens_nested_session_screen(
