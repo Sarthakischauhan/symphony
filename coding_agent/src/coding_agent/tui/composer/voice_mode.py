@@ -6,6 +6,7 @@ composer border color without hiding or resizing the input.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from coding_agent.config.credentials import OFFLINE_HINT
@@ -21,13 +22,17 @@ from coding_agent.tui.composer.voice import (
 )
 
 
+@dataclass(eq=False)
+class VoiceSession:
+    """One listening session. Its identity tells a stale worker it lost."""
+
+    capture: VoiceCapture
+
+
 def toggle_voice(app: Any) -> None:
     """Start voice mode, or stop listening and submit what was heard."""
     if getattr(app, "_voice_active", False):
-        stop_voice(app, reason="done")
-        return
-    if getattr(app, "_busy", False):
-        app.add_notice("Voice mode is unavailable while a turn is running.", "warning")
+        commit_voice(app)
         return
     if getattr(app, "_agent", None) is None:
         app.add_notice(OFFLINE_HINT, "error")
@@ -40,30 +45,137 @@ def start_voice(
     *,
     capture: VoiceCapture | None = None,
     transcriber: VoiceTranscriber | None = None,
+    stream: Any = None,
 ) -> None:
-    """Keep the composer visible and listen until the user says done or presses Ctrl+A."""
-    # A cancelled thread can still finish. Bind both dependencies and a unique
-    # session token now, not when the worker eventually starts running.
-    session = object()
-    app._voice_session = session
+    """Listen on the realtime socket until a 3 s pause or Enter.
+
+    Partial transcripts are painted as they arrive. ``capture`` and
+    ``transcriber`` remain for tests of the older utterance recorder; a live
+    session does not record a clip and then upload it.
+    """
     app._voice_active = True
     app._voice_parts = []
+    app._voice_text = ""
     app._voice_finish = False
     try:
-        app._voice_capture = capture if capture is not None else MicrophoneCapture()
-        app._voice_transcriber = transcriber if transcriber is not None else GrokVoiceTranscriber()
         _set_voice_border(app, True)
         app.add_notice(
-            "Voice mode · listening. Say done, or press Ctrl+A, to run. Esc cancels.",
+            "Voice mode · listening. A 3 second pause or Enter runs it. Esc cancels.",
         )
-        bound_capture = app._voice_capture
-        bound_transcriber = app._voice_transcriber
-        app.run_worker(
-            lambda: _listen(app, bound_capture, bound_transcriber, session),
-            exclusive=True, group="voice", thread=True,
+        # An explicit or patched recorder is the local clip path (tests). A
+        # live session passes neither and listens on the realtime socket.
+        if capture is not None or transcriber is not None or _uses_clip_path():
+            _start_clip_session(app, capture, transcriber)
+            return
+        error = ensure_voice_addon(
+            app,
+            stream=stream,
+            on_transcript=lambda text: _on_live_transcript(app, text),
+            on_commit=lambda: _on_live_commit(app),
         )
+        if error:
+            _abort_voice(app, error)
     except Exception as exc:
-        _finish_voice(app, "", f"Voice mode failed · {exc}", session)
+        _abort_voice(app, f"Voice mode failed · {exc}")
+
+
+def _uses_clip_path() -> bool:
+    """True when a test replaced the recorder, here or on the voice module.
+
+    ``/voice`` calls this function. A patch of the names above is invisible
+    to it unless the lookup happens at call time.
+    """
+    import coding_agent.tui.composer.voice as voice
+
+    return (
+        voice.MicrophoneCapture is not _CLIP_CAPTURE
+        or voice.GrokVoiceTranscriber is not _CLIP_TRANSCRIBER
+    )
+
+
+_CLIP_CAPTURE = MicrophoneCapture
+_CLIP_TRANSCRIBER = GrokVoiceTranscriber
+
+
+def _on_live_transcript(app: Any, text: str) -> None:
+    """Paint a transcript delta. Called from the socket thread.
+
+    The final transcript can land after the commit decision. Keep it, but do
+    not repaint the composer once the turn has taken the text.
+    """
+    app._voice_text = text
+    if not getattr(app, "_voice_active", False) or getattr(app, "_voice_finish", False):
+        return
+    _post(app, _show_voice_transcript, app, text)
+
+
+def _post(app: Any, callback: Any, *args: Any) -> None:
+    """Run on the UI thread. A callback already there runs directly."""
+    import threading
+
+    if getattr(app, "_thread_id", None) == threading.get_ident():
+        callback(*args)
+        return
+    app.call_from_thread(callback, *args)
+
+
+def _on_live_commit(app: Any) -> None:
+    """The utterance ended (3 s pause or Enter). Submit the latest transcript."""
+    if getattr(app, "_voice_finish", False) or not getattr(app, "_voice_active", False):
+        return
+    app._voice_finish = True
+    _post(app, _finish_live, app)
+
+
+def _finish_live(app: Any) -> None:
+    """Submit on the UI thread, reading the transcript after pending deltas."""
+    if not getattr(app, "_voice_active", False):
+        return
+    text = str(getattr(app, "_voice_text", "") or "").strip()
+    _finish_voice(app, text, "")
+
+
+def _start_clip_session(
+    app: Any, capture: VoiceCapture | None, transcriber: VoiceTranscriber | None,
+) -> None:
+    """Test path: one local recording, then the scripted transcript."""
+    import coding_agent.tui.composer.voice as voice
+
+    app._voice_capture = capture if capture is not None else voice.MicrophoneCapture()
+    session = VoiceSession(app._voice_capture)
+    app._voice_session = session
+    app._voice_transcriber = transcriber if transcriber is not None else voice.GrokVoiceTranscriber()
+    app.run_worker(
+        lambda: _listen(app, app._voice_capture, app._voice_transcriber, session),
+        exclusive=True, group="voice", thread=True,
+    )
+
+
+def _abort_voice(app: Any, error: str) -> None:
+    app._voice_active = False
+    app._voice_session = None
+    try:
+        close_voice_addon(app)
+    except Exception:
+        pass
+    _restore_composer(app)
+    app.add_notice(error, "error")
+
+
+def commit_voice(app: Any) -> None:
+    """Enter or Ctrl+A ends the utterance now instead of waiting out the pause."""
+    if not getattr(app, "_voice_active", False) or getattr(app, "_voice_finish", False):
+        return
+    if getattr(app, "_voice_session", None) is not None:
+        stop_voice(app, reason="done")
+        return
+    addon = getattr(app, "_voice_addon", None)
+    commit = getattr(getattr(addon, "stream", None), "commit", None)
+    if callable(commit):
+        commit()
+        return
+    app._voice_finish = True
+    _finish_voice(app, str(getattr(app, "_voice_text", "") or "").strip(), "")
 
 
 def stop_voice(app: Any, *, reason: str) -> None:
@@ -74,12 +186,17 @@ def stop_voice(app: Any, *, reason: str) -> None:
         # in another listen(); it must not append that clip after this.
         app._voice_finish = True
         parts = list(getattr(app, "_voice_parts", []) or [])
-        _finish_voice(app, " ".join(parts).strip(), "", session)
+        text = " ".join(parts).strip() or str(getattr(app, "_voice_text", "") or "").strip()
+        _finish_voice(app, text, "", session)
         return
     app._voice_active = False
     app._voice_session = None
     app._voice_parts = []
     app._voice_finish = False
+    if session is not None:
+        # Unblocks the worker's listen() and releases the microphone now,
+        # not when the utterance cap runs out.
+        session.capture.close()
     try:
         close_voice_addon(app)
     except Exception as exc:
@@ -100,7 +217,7 @@ def _is_done_phrase(text: str) -> bool:
 
 
 def _listen(
-    app: Any, capture: VoiceCapture, transcriber: VoiceTranscriber, session: object,
+    app: Any, capture: VoiceCapture, transcriber: VoiceTranscriber, session: VoiceSession,
 ) -> None:
     """Keep capturing until the user says done or presses Ctrl+A.
 
@@ -114,7 +231,8 @@ def _listen(
         try:
             audio = capture.listen()
             if audio is None:
-                app.call_from_thread(_finish_voice, app, " ".join(parts).strip(), "", session)
+                if app._voice_session is session:
+                    app.call_from_thread(_finish_voice, app, " ".join(parts).strip(), "", session)
                 return
             text = transcriber.transcribe(audio, model=GROK_VOICE_MODEL).strip()
         except UnavailableVoice as exc:
@@ -136,7 +254,7 @@ def _listen(
             return
 
 
-def _remember_voice_part(app: Any, text: str, session: object) -> None:
+def _remember_voice_part(app: Any, text: str, session: VoiceSession) -> None:
     """Keep an utterance for Ctrl+A without starting the agent yet."""
     if not getattr(app, "_voice_active", False) or getattr(app, "_voice_session", None) is not session:
         return
@@ -150,12 +268,17 @@ def _remember_voice_part(app: Any, text: str, session: object) -> None:
     _show_voice_transcript(app, " ".join(parts))
 
 
-def _finish_voice(app: Any, text: str, error: str, session: object) -> None:
-    if not getattr(app, "_voice_active", False) or getattr(app, "_voice_session", None) is not session:
+def _finish_voice(app: Any, text: str, error: str, session: VoiceSession | None = None) -> None:
+    if not getattr(app, "_voice_active", False):
         return
-    # Keep the border blinking through transcription, execution, and speech.
+    if session is not None and getattr(app, "_voice_session", None) is not session:
+        return
+    # Keep the border blinking through execution and the spoken summary.
     app._voice_active = False
     app._voice_session = None
+    if session is not None:
+        # Ctrl+A may land while the worker is still inside listen().
+        session.capture.close()
     if error:
         _restore_composer(app)
         app.add_notice(error, "error")
@@ -210,14 +333,19 @@ def submit_voice_turn(app: Any, text: str) -> None:
     # mounts its own copy in the conversation.
     _show_voice_transcript(app, "")
     turn = QueuedTurn(text, text, (), (), voice=True)
+    # A turn already running keeps this one. It shows in the queue and starts
+    # when the current run finishes, the same as a typed message would.
     if app._busy:
         app.queue_turn(turn)
+        _restore_composer(app)
         return
     app._start_turn(turn)
 
 
-def ensure_voice_addon(app: Any) -> str:
-    """Reuse the voice add-on and open/arm its resources for one voice turn."""
+def ensure_voice_addon(
+    app: Any, *, stream: Any = None, on_transcript: Any = None, on_commit: Any = None,
+) -> str:
+    """Reuse the voice add-on and open its realtime socket for this listen."""
     from coding_agent.addons.voice import VoiceAddon
 
     agent = app._agent
@@ -234,8 +362,21 @@ def ensure_voice_addon(app: Any) -> str:
                     return
                 app.call_from_thread(_set_voice_border, app, speaking)
 
-            existing = VoiceAddon(on_speaking=_speaking)
+            existing = VoiceAddon(
+                stream=stream,
+                on_speaking=_speaking,
+                on_transcript=on_transcript,
+                on_commit=on_commit,
+            )
             harness.register_addon(existing)
+        # The addon outlives one listen. This session's callbacks replace the
+        # previous one's, including when the stream was built before them.
+        voice_stream = getattr(existing, "stream", None)
+        if voice_stream is not None:
+            if on_transcript is not None:
+                voice_stream._on_transcript = on_transcript
+            if on_commit is not None:
+                voice_stream._on_commit = on_commit
         app._voice_addon = existing
         # Open before arming: an unsuccessful startup must not enable speech
         # for the next ordinary text turn.
@@ -262,12 +403,17 @@ def feed_voice(app: Any, text: str) -> None:
         feed(text)
 
 
-def close_voice_addon(app: Any) -> None:
+def close_voice_addon(app: Any, *, timeout: float = 0.0) -> None:
+    """Stop speech and the realtime socket without blocking the caller.
+
+    ``timeout`` waits that long for the audio threads to exit; only app
+    shutdown asks for it.
+    """
     addon = getattr(app, "_voice_addon", None)
     app._voice_addon = None
     try:
         if addon is not None:
-            addon.close()
+            addon.close(timeout=timeout)
     finally:
         _set_voice_border(app, False)
 

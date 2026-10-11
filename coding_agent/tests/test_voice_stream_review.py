@@ -12,7 +12,6 @@ from coding_agent.addons.voice import stream as module
 
 def test_close_before_start_and_restart(monkeypatch):
     async def session(self):
-        self._ready.set()
         await asyncio.Event().wait()
 
     monkeypatch.setattr(module.VoiceStream, "_session", session)
@@ -21,7 +20,7 @@ def test_close_before_start_and_restart(monkeypatch):
     for _ in range(2):
         voice.start()
         assert voice._thread.is_alive()
-        voice.close()
+        voice.close(timeout=2)
         assert voice._thread is None
         assert voice._closed.is_set()
         assert voice._loop is None
@@ -41,7 +40,7 @@ def test_close_cancels_connection_startup(monkeypatch):
     starter = threading.Thread(target=voice.start)
     starter.start()
     assert entered.wait(2)
-    voice.close()
+    voice.close(timeout=2)
     starter.join(2)
     assert not starter.is_alive()
     assert voice._thread is None
@@ -111,12 +110,15 @@ def test_session_always_cleans_up(monkeypatch, failure):
     assert bool(voice.error) == (failure != "disconnect")
 
 
-def test_response_done_keeps_session_open(monkeypatch):
+def test_response_done_closes_the_socket(monkeypatch):
     class Player:
         def __init__(self, **kwargs):
             pass
 
         def finish(self):
+            return True
+
+        def release(self):
             pass
 
         def close(self):
@@ -135,7 +137,9 @@ def test_response_done_keeps_session_open(monkeypatch):
         voice = module.VoiceStream()
         voice._stop = asyncio.Event()
         await voice._pump_events(Socket())
-        assert not voice._stop.is_set()
+        # A finished spoken line hangs up. The minute rate must not run
+        # through the rest of the coding turn.
+        assert voice._stop.is_set()
 
     asyncio.run(run())
 
@@ -240,12 +244,17 @@ def test_playback_duplicate_done_replacement_and_close(monkeypatch, tmp_path):
     player = module._PcmPlayer(on_speaking=states.append)
     player.write(b"\0\0")
     player.finish()
+    # A second done is the same response, not a new one. It must not kill
+    # the player that just started.
     player.finish()
     assert states == [True]
-    player.write(b"\0\0")
-    player.finish()
+    assert not processes[0].killed
+    player.close()
     assert processes[0].killed and processes[0].waits
     assert not paths[0].exists()
+    player._closed = False
+    player.write(b"\0\0")
+    player.finish()
     player.close()
     player.close()
     assert processes[1].killed and processes[1].waits

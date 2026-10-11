@@ -4,8 +4,16 @@
 
 - Cancel, run failures, and run limits use the same composer banner as a
   model switch. `update_banner` builds that banner from the event.
+- Voice audio cleanup: leaving voice mode releases the microphone at once
+  instead of when the 8 s recording cap runs out; recording waits on an event
+  set from the audio callback instead of polling every 50 ms; a held realtime
+  mic drops blocks in the callback without copying them or waking the loop;
+  closing the TTS/realtime sockets no longer blocks the Textual loop (a new
+  session waits for the old one on its own thread, and only app exit waits,
+  bounded); a missing PortAudio library is reported as a voice error.
+  `coding_agent/benchmarks/voice_bench.py` measures it with a fake microphone.
 - Fixed voice shutdown races: cancelling pending TTS/realtime connections
-  now waits for bounded worker cleanup, and repeated closes do not interrupt it.
+  cleans up on the worker, and repeated closes do not interrupt it.
 - The TUI stores its chats in `~/.symphony/tui/sessions`. Resume reads only
   that directory, so Zeron chats in `~/.symphony/sessions` never appear.
   Existing bundles tagged `client: tui` move across on first launch.
