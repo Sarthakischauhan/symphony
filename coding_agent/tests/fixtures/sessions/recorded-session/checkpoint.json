@@ -1,0 +1,1 @@
+{"type": "checkpoint", "version": 1, "session_id": "recorded-session", "turn": 4, "usage": {"prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0}, "context_limit": null, "context_left": null, "status": "completed", "metadata": {"goal": "ship it"}}

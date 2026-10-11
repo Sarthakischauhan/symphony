@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,19 +27,52 @@ class _IndexedFile:
 
 
 class WorkspaceFileIndex:
-    """Walk the workspace once, then filter in memory until invalidated."""
+    """Walk the workspace once, then filter in memory until invalidated.
+
+    The TUI calls ``rebuild`` from a worker thread and filters the last
+    finished walk with ``cached_matches`` meanwhile, so a large tree never
+    walks on the UI thread. ``matches`` stays synchronous for other callers.
+    """
 
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
         self._entries: tuple[_IndexedFile, ...] | None = None
+        self._fresh = False
+        self._generation = 0
+        self._lock = threading.Lock()
+
+    @property
+    def fresh(self) -> bool:
+        """True when the last walk finished after the last ``invalidate``."""
+        return self._fresh
 
     def invalidate(self) -> None:
-        self._entries = None
+        """Mark the walk stale. The old entries keep serving until a rebuild lands."""
+        with self._lock:
+            self._generation += 1
+            self._fresh = False
+
+    def rebuild(self) -> bool:
+        """Walk the workspace; safe off the UI thread. False if invalidated meanwhile."""
+        with self._lock:
+            generation = self._generation
+        entries = _scan_workspace(self.workspace)
+        with self._lock:
+            self._entries = entries
+            self._fresh = generation == self._generation
+            return self._fresh
 
     def matches(self, query: str) -> tuple[FileOption, ...]:
-        if self._entries is None:
-            self._entries = _scan_workspace(self.workspace)
-        return _rank_files(self._entries, query)
+        if not self._fresh:
+            self.rebuild()
+        return self.cached_matches(query) or ()
+
+    def cached_matches(self, query: str) -> tuple[FileOption, ...] | None:
+        """Rank the last finished walk, or ``None`` before the first one."""
+        entries = self._entries
+        if entries is None:
+            return None
+        return _rank_files(entries, query)
 
 
 def active_file_mention(value: str) -> tuple[int, str] | None:

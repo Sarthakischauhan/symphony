@@ -1040,6 +1040,8 @@ def test_diff_modal_shows_file_names_and_change_stats(
         async with app.run_test() as pilot:
             app.push_screen(DiffModal(tmp_path))
             await pilot.pause()
+            await app.workers.wait_for_complete()  # git diff runs in a worker
+            await pilot.pause()
 
             card = app.screen.query_one(DiffFileCard)
             assert card.path == "src/app.py"
@@ -2686,6 +2688,8 @@ def test_at_file_selector_uses_existing_composer_menu(
             prompt = app.query_one("#prompt")
             prompt.value = "Review @tur"
             await pilot.pause()
+            await app.workers.wait_for_complete()  # the @ index walks in a worker
+            await pilot.pause()
 
             menu = app.query_one("#slash-menu", SlashMenu)
             assert menu.display
@@ -2721,6 +2725,8 @@ def test_file_selector_scrolls_to_keep_selection_visible(
             await pilot.pause()
             prompt = app.query_one("#prompt")
             prompt.value = "Review @file_"
+            await pilot.pause()
+            await app.workers.wait_for_complete()  # the @ index walks in a worker
             await pilot.pause()
 
             menu = app.query_one("#slash-menu", SlashMenu)

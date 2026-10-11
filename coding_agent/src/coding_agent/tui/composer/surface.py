@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from textual import events
 from textual.widgets import Button, OptionList, Static, TextArea
+from textual.worker import WorkerState, get_current_worker
 
 from coding_agent.config.credentials import OFFLINE_HINT
 from coding_agent.tui.commands import (
@@ -22,7 +23,6 @@ from coding_agent.tui.composer.slash_menu import SlashMenu
 from coding_agent.tui.screens.file_selector import (
     active_file_mention,
     complete_file_mention,
-    file_matches,
 )
 from coding_agent.tui.tools.images import build_user_content
 from coding_agent.tui.transcript import UserMessage
@@ -118,6 +118,50 @@ class ComposerSurface:
         self._pending_question_agent_id = ""
         self._cancel_active_run("queued_send_now")
 
+    def _composer_menu(self) -> SlashMenu:
+        approval_menu = self.query_one("#approval-menu", SlashMenu)
+        return (
+            approval_menu
+            if approval_menu.display
+            else self.query_one("#slash-menu", SlashMenu)
+        )
+
+    def _show_file_matches(self, menu: SlashMenu, query: str) -> None:
+        """Filter the last finished walk now; walk again in a worker if stale.
+
+        The first ``@`` of a session has nothing to filter yet, so the menu
+        fills when that walk lands (``_file_index_ready``).
+        """
+        cached = self._file_index.cached_matches(query)
+        if cached is not None:
+            menu.set_files(cached)
+        if self._file_index.fresh:
+            return
+        walking = any(
+            worker.group == "file-index"
+            and worker.state in {WorkerState.PENDING, WorkerState.RUNNING}
+            for worker in self.workers
+        )
+        if not walking:
+            self.run_worker(
+                self._walk_workspace, thread=True, group="file-index", exit_on_error=False
+            )
+
+    def _walk_workspace(self) -> None:
+        """Worker thread: rebuild the ``@`` index, then refresh the menu."""
+        self._file_index.rebuild()
+        if not get_current_worker().is_cancelled:
+            self.call_from_thread(self._file_index_ready)
+
+    def _file_index_ready(self) -> None:
+        if self._pending_question_id is not None:
+            return
+        prompt = self.query_one("#prompt", PromptInput)
+        mention = active_file_mention(prompt.text)
+        if mention is not None:
+            _start, query = mention
+            self._show_file_matches(self._composer_menu(), query)
+
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id != "prompt":
             return
@@ -126,22 +170,11 @@ class ComposerSurface:
         text = event.text_area.text
         if text and not text.startswith("/") and "@" not in text:
             return
-        approval_menu = self.query_one("#approval-menu", SlashMenu)
-        menu = (
-            approval_menu
-            if approval_menu.display
-            else self.query_one("#slash-menu", SlashMenu)
-        )
+        menu = self._composer_menu()
         mention = active_file_mention(event.text_area.text)
         if mention is not None:
             _start, query = mention
-            menu.set_files(
-                file_matches(
-                    self.workspace,
-                    query,
-                    index=getattr(self, "_file_index", None),
-                )
-            )
+            self._show_file_matches(menu, query)
         elif event.text_area.text.startswith("/model "):
             current = self._agent.harness.model_id if self._agent is not None else ""
             menu.set_models(

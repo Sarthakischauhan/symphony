@@ -36,6 +36,64 @@ def _partial_heading(lowered: str) -> int:
     return 0
 
 
+class SpokenSummaryStream:
+    """``split_spoken_summary(text)[0]`` for one reply that only grows.
+
+    The presenter asks for the visible text on every streamed delta. Lowering
+    and searching the whole reply each time made a reply O(n^2). This keeps
+    the last heading position and searches only the characters added since
+    the previous call, plus enough overlap for a heading split across deltas.
+    A text shorter than the last one is a restarted reply and starts over.
+    """
+
+    _HEADING = _SPOKEN_SUMMARY.lower()
+
+    def __init__(self) -> None:
+        self._scanned = 0
+        self._marker = -1
+        self._before_marker = ""
+        # ``str.lower`` can lengthen a character (U+0130). Positions in the
+        # lowered window then stop matching the original text, so such a
+        # reply falls back to the whole-text split.
+        self._aligned = True
+
+    def visible(self, text: str) -> str:
+        if len(text) < self._scanned:
+            self.__init__()
+        added = text[self._scanned:]
+        if self._aligned and len(added.lower()) != len(added):
+            self._aligned = False
+        if not self._aligned:
+            self._scanned = len(text)
+            return split_spoken_summary(text)[0]
+        start = max(0, self._scanned - (len(self._HEADING) - 1))
+        found = text[start:].lower().rfind(self._HEADING)
+        self._scanned = len(text)
+        if found >= 0:
+            # Any match in the window ends past the old one, so it is the last.
+            self._marker = start + found
+            self._before_marker = text[: self._marker].rstrip()
+        if self._marker >= 0:
+            return self._before_marker
+        partial = _partial_heading(self._tail(text).lower())
+        if partial:
+            return text[: len(text) - partial].rstrip()
+        return text
+
+    def _tail(self, text: str) -> str:
+        """The trailing whitespace plus the heading-length run before it."""
+        size = 32
+        while True:
+            window = text[-size:]
+            stripped = window.rstrip()
+            if stripped or size >= len(text):
+                break
+            size *= 2
+        trailing = len(window) - len(stripped)
+        return text[-(trailing + len(self._HEADING) - 1):]
+
+
+
 def spoken_summary(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
     """The summary the model wrote into its final answer, ready for TTS.
 

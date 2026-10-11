@@ -10,7 +10,7 @@ from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
-from coding_agent.addons.voice.summary import split_spoken_summary
+from coding_agent.addons.voice.summary import SpokenSummaryStream, split_spoken_summary
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.partial_args import string_field
@@ -175,6 +175,7 @@ class EventPresenter:
         self.workspace = workspace
         self._schedule_flush = schedule_flush
         self._assistant_open = False
+        self._spoken = SpokenSummaryStream()
         self._tool_names: dict[str, str] = {}
         self._tool_argument_chunks: dict[str, list[str]] = {}
         self._tool_argument_tails: dict[str, str] = {}
@@ -500,6 +501,7 @@ class EventPresenter:
             self._finish_reasoning()
             self._reasoning_parts.clear()
             self.state.stream_text = ""
+            self._spoken = SpokenSummaryStream()
             self.state.reasoning_text = ""
             if self._assistant_open:
                 self.view.set_assistant("")
@@ -533,9 +535,10 @@ class EventPresenter:
         is_new = not self._assistant_open
         if is_new:
             self.state.stream_text = ""
+            self._spoken = SpokenSummaryStream()
         self.state.append_text(delta)
         self._assistant_open = True
-        visible, _spoken = split_spoken_summary(self.state.stream_text)
+        visible = self._spoken.visible(self.state.stream_text)
         self._buffer_assistant(visible, new=is_new)
         speak = getattr(self.view, "feed_voice", None)
         if callable(speak):
