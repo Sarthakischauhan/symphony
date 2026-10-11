@@ -9,62 +9,58 @@ class FakeStream:
     error = ""
     _on_speaking = None
 
+    def __init__(self):
+        self.said = []
+        self.closed = False
+
     def start(self):
         pass
 
     def hold(self):
         pass
 
-    def close(self, *, timeout=0.0):
-        pass
-
-
-class FakeSpeaker:
-    instances = []
-
-    def __init__(self, **kwargs):
-        self.fed = []
-        self.finished = []
-        self.closed = False
-        self.instances.append(self)
-
-    def feed(self, text, **kwargs):
-        self.fed.append((text, kwargs))
-
-    def finish(self, text):
-        self.finished.append(text)
+    def say(self, text):
+        self.said.append(text)
 
     def close(self, *, timeout=0.0):
         self.closed = True
 
 
-def test_typed_turn_stays_silent_after_voice_turn(monkeypatch):
-    FakeSpeaker.instances = []
-    monkeypatch.setattr(module, "StreamingSpeaker", FakeSpeaker)
-    addon = module.VoiceAddon(stream=FakeStream())
+def test_typed_turn_stays_silent_after_voice_turn():
+    stream = FakeStream()
+    addon = module.VoiceAddon(stream=stream)
     addon.arm()
+    addon._open = True
     addon.feed("Voice answer.")
-    asyncio.run(addon.after_run(result=SimpleNamespace(output_text="Voice answer.", reply_aloud=True)))
+    asyncio.run(addon.after_run(result=SimpleNamespace(
+        output_text="Voice answer.\n\n## Spoken summary\nI updated the helper.",
+        reply_aloud=True,
+    )))
     addon.arm()
+    addon._open = True
     addon.feed("Typed answer.")
     asyncio.run(addon.after_run(result=SimpleNamespace(output_text="Typed answer.", reply_aloud=False)))
-    assert len(FakeSpeaker.instances) == 1
-    assert FakeSpeaker.instances[0].finished == ["Voice answer."]
-    assert not FakeSpeaker.instances[0].closed
+    assert stream.said == ["I updated the helper."]
+    # A typed turn does not speak and does not tear the socket down.
+    assert not stream.closed
     addon.close()
-    assert FakeSpeaker.instances[0].closed
+    assert stream.closed
 
 
-def test_rearming_resets_first_clause_and_cancellation_closes_speaker(monkeypatch):
-    FakeSpeaker.instances = []
-    monkeypatch.setattr(module, "StreamingSpeaker", FakeSpeaker)
-    addon = module.VoiceAddon(stream=FakeStream())
+def test_rearming_speaks_each_summary_on_the_same_socket():
+    stream = FakeStream()
+    addon = module.VoiceAddon(stream=stream)
     for text in ("First", "Second"):
         addon.arm()
+        addon._open = True
         addon.feed(text)
-        asyncio.run(addon.after_run(result=SimpleNamespace(output_text=text, reply_aloud=True)))
-        speaker = FakeSpeaker.instances[-1]
-        assert speaker.finished == [text]
-        addon.close()
-        assert speaker.closed
+        spoken = f"Done with {text.lower()}."
+        asyncio.run(addon.after_run(result=SimpleNamespace(
+            output_text=f"{text}\n\n## Spoken summary\n{spoken}",
+            reply_aloud=True,
+        )))
+        assert stream.said[-1] == spoken
+        assert not stream.closed
+    addon.close()
+    assert stream.closed
     assert addon.fork_for_child(None) is None

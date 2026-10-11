@@ -6,9 +6,9 @@ import os
 import threading
 from typing import Any, Protocol
 
-# Speech-to-text model. grok-voice-think-fast-2.0 is a realtime speech model and
-# is not accepted by POST /v1/stt, which 404s on any other id. Transcribe 2.0
-# is the documented STT model. The chat model is never switched.
+# Speech-to-text model. The realtime alias is not accepted by POST /v1/stt.
+# Transcribe 2.0 is the STT model xAI documents as the default. The chat
+# model is never switched.
 GROK_VOICE_MODEL = "grok-voice-transcribe-2.0"
 GROK_VOICE_FULL_ID = f"grok:{GROK_VOICE_MODEL}"
 # Built-in TTS voice. eve is the API default.
@@ -152,10 +152,13 @@ def spoken_summary(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
     """The summary the model wrote into its final answer, ready for TTS.
 
     The section is part of the same response, not a later call. If the model
-    left it out, the opening of the answer is spoken instead.
+    left it out, nothing is spoken: reading the answer aloud would dictate
+    the whole output.
     """
-    answer, section = split_spoken_summary(text)
-    return spoken_text(section or answer, limit=limit)
+    _answer, section = split_spoken_summary(text)
+    if not section:
+        return ""
+    return spoken_text(section, limit=limit)
 
 
 def spoken_text(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:

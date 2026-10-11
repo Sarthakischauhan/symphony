@@ -68,13 +68,21 @@ def fake_portaudio(monkeypatch):
 class Socket:
     def __init__(self):
         self.appends = 0
+        self.commits = 0
+        self.acks = 0
+        self.sent: list[str] = []
         self.first = threading.Event()
         self.closed = threading.Event()
 
     async def send(self, message):
+        self.sent.append(message)
         if "input_audio_buffer.append" in message:
             self.appends += 1
             self.first.set()
+        elif "input_audio_buffer.commit" in message:
+            self.commits += 1
+        elif "response.create" in message:
+            self.acks += 1
 
     def __aiter__(self):
         return self
@@ -269,3 +277,122 @@ def test_tui_and_voice_work_without_audio_libraries():
     )
     assert "mic: Voice mode could not install the microphone package" in out
     assert "stream: Voice mode needs the websockets package." in out
+
+
+class ScriptedInput(FakeInput):
+    """One loud block, then quiet, delivered as fast as the callback returns."""
+
+    def __init__(self, *, callback, blocksize=0, loud_blocks=1, **kwargs):
+        super().__init__(callback=callback, blocksize=blocksize, **kwargs)
+        self.loud_blocks = loud_blocks
+        self.sent = 0
+
+    def _run(self):
+        loud = memoryview(bytearray((4000).to_bytes(2, "little", signed=True) * self.frames))
+        quiet = memoryview(bytearray(2 * self.frames))
+        # Speech plus the 3 s pause, counted in blocks, then a few extra that
+        # must not produce a second commit.
+        total = self.loud_blocks + stream_module.PAUSE_COMMIT_BLOCKS + 5
+        while not self.halt.is_set() and self.sent < total:
+            block = loud if self.sent < self.loud_blocks else quiet
+            self.callback(block, self.frames, None, None)
+            self.sent += 1
+
+
+def test_pause_commits_once_and_stops_sending(monkeypatch, fake_socket):
+    monkeypatch.setitem(
+        sys.modules, "sounddevice", types.SimpleNamespace(RawInputStream=ScriptedInput),
+    )
+    voice = stream_module.VoiceStream()
+    voice.start()
+    deadline = time.monotonic() + 2
+    while not fake_socket or fake_socket[-1].commits == 0:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    time.sleep(0.05)
+    socket = fake_socket[-1]
+    assert socket.commits == 1
+    assert socket.acks == 1
+    # The loud block and the quiet blocks before the pause are sent, then no more.
+    assert 1 <= socket.appends <= stream_module.PAUSE_COMMIT_BLOCKS + 1
+    assert "input_audio_buffer.commit" in socket.sent[-2]
+    assert "response.create" in socket.sent[-1]
+    voice.close(timeout=2)
+
+
+def test_enter_commits_without_waiting_for_the_pause(monkeypatch, fake_socket):
+    class Holding(FakeInput):
+        """One loud block, then quiet. Only Enter can end the turn."""
+
+        def _run(self):
+            loud = memoryview(bytearray((4000).to_bytes(2, "little", signed=True) * self.frames))
+            quiet = memoryview(bytearray(2 * self.frames))
+            sent = 0
+            # Stop well short of the 3 s pause so the commit can only be Enter.
+            while not self.halt.wait(0.005) and sent < stream_module.PAUSE_COMMIT_BLOCKS // 3:
+                self.callback(loud if sent == 0 else quiet, self.frames, None, None)
+                sent += 1
+
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(RawInputStream=Holding))
+    voice = stream_module.VoiceStream()
+    voice.start()
+    assert _wait_appends(fake_socket), (
+        f"sockets={len(fake_socket)} error={voice.error!r} alive={voice._thread.is_alive()} "
+        f"opened={FakeInput.opened}"
+    )
+    voice.commit()
+    deadline = time.monotonic() + 2
+    while fake_socket[-1].commits == 0:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert fake_socket[-1].commits == 1
+    voice.commit()  # A second Enter does not commit again.
+    time.sleep(0.05)
+    assert fake_socket[-1].commits == 1
+    voice.close(timeout=2)
+
+
+def test_transcript_delta_is_published_as_it_arrives(monkeypatch, fake_portaudio):
+    seen: list[str] = []
+
+    class Talking(Socket):
+        async def __anext__(self):
+            while not self.first.is_set():
+                await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            if self._step == 0:
+                self._step = 1
+                return '{"type": "conversation.item.input_audio_transcription.delta", "delta": "add a "}'
+            if self._step == 1:
+                self._step = 2
+                return '{"type": "conversation.item.input_audio_transcription.completed", "transcript": "add a voice bar"}'
+            await asyncio.Event().wait()
+
+        def __init__(self):
+            super().__init__()
+            self._step = 0
+
+    sockets = []
+
+    async def connect(*args, **kwargs):
+        sockets.append(Talking())
+        return sockets[-1]
+
+    monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
+    monkeypatch.setattr(stream_module, "grok_voice_credentials", lambda: ("fake", {}))
+    voice = stream_module.VoiceStream(on_transcript=seen.append)
+    voice.start()
+    deadline = time.monotonic() + 2
+    while seen != ["add a ", "add a voice bar"]:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    voice.close(timeout=2)
+
+
+def _wait_appends(sockets: list) -> bool:
+    deadline = time.monotonic() + 2
+    while not sockets or not sockets[-1].appends:
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+    return True

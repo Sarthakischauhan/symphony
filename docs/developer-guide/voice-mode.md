@@ -1,9 +1,13 @@
 # Voice mode: capture, agent execution, and speech
 
 Voice mode is an optional Symphony TUI feature, entered with **Ctrl+A** or
-`/voice`. It does not change the coding model. The implementation currently
-uses separate transcription, realtime, and streaming-TTS connections; it is
-not a single end-to-end speech-to-code websocket.
+`/voice`. It does not change the coding model. Listening is one realtime
+socket: mic audio goes up as the user speaks, transcript deltas come back
+immediately, and the utterance is committed after a 3 second pause or Enter.
+That one socket speaks both lines: a short acknowledgement when the
+utterance is committed, and later only the spoken summary. The written
+answer stays in the chat and is not dictated. There is no separate TTS or
+STT connection on this path.
 
 ## Call and protocol map
 
@@ -17,24 +21,23 @@ sequenceDiagram
     participant RT as xAI Realtime
     participant Agent as CodingAgent
     participant Model as Chat provider
-    participant TTS as xAI TTS
     participant Player as Local player
 
     User->>UI: Ctrl+A or /voice
     UI->>UI: Guard busy or offline, blink composer border
-    loop Until done or Ctrl+A again
-        UI->>Mic: Record until a pause, 8 second cap
-        Mic-->>UI: WAV bytes
-        UI->>STT: POST audio, language en
-        Note over UI,STT: Bearer XAI_API_KEY, else stored Grok token
-        STT-->>UI: Transcript shown in the composer, not submitted
+    UI->>Addon: Open the realtime socket and arm one voice turn
+    Addon->>RT: Connect grok-voice-latest
+    Addon->>RT: session.update, voice eve, PCM 24 kHz, no server VAD
+    loop While the user speaks
+        UI->>RT: input_audio_buffer.append (one PCM block)
+        RT-->>UI: input_audio_transcription.delta, shown in the composer
+        RT-->>Player: Brief acknowledgement audio only
     end
-    alt Escape, capture error, or only the word done
-        UI->>UI: Drop the clip or show a notice, restore composer
-    else Finished with Ctrl+A or the word done
-        UI->>Addon: Open and arm one voice turn
-        Addon->>RT: Connect grok-voice-think-fast-2.0
-        Addon->>RT: session.update, voice eve, PCM 24 kHz
+    alt Escape
+        UI->>UI: Drop the transcript, restore composer
+    else 3 second pause or Enter
+        UI->>RT: input_audio_buffer.commit, then response.create for one acknowledgement
+        UI->>UI: Submit the transcript as the coding turn
         Note over Addon,RT: Realtime mic is not the coding prompt
         UI->>UI: Clear composer and queue the voice turn
         UI->>Agent: Start turn with reply_aloud
@@ -48,12 +51,9 @@ sequenceDiagram
         end
         Agent->>Agent: Copy reply_aloud onto the result, then clear it
         Agent->>Addon: after_run
-        Addon->>Addon: Speak the Spoken summary, or the answer opening
-        Addon->>TTS: Open websocket only after the run
-        Addon->>TTS: text.delta for the summary, then text.done
-        TTS-->>Addon: MP3 audio, then audio.done
+        Addon->>RT: Say only the Spoken summary, verbatim
+        RT-->>Player: PCM of that summary, not the written answer
         Addon->>Player: Play with ffplay, mpv, or afplay
-        Addon->>RT: Close the realtime socket
         UI->>UI: Stop the border blink after speech
     end
 ```
@@ -63,9 +63,8 @@ sequenceDiagram
 | Purpose | Endpoint / transport | Request and response |
 | --- | --- | --- |
 | Transcription | `POST https://api.x.ai/v1/stt`, HTTPS multipart | `model=grok-voice-transcribe-2.0`, `language=en`, WAV `file`; JSON `text`. Model fields precede file. 30s timeout. |
-| Realtime audio | `wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-2.0`, WebSocket JSON | `session.update`, base64 `input_audio_buffer.append`; PCM audio response deltas. This connection does **not** submit coding turns. |
-| Spoken agent output | `wss://api.x.ai/v1/tts`, WebSocket JSON / binary | Query: `voice=eve`, `language=en`, `codec=mp3`, `optimize_streaming_latency=1`. Send `text.delta` and `text.done`; receive binary MP3 or `audio.delta`, then `audio.done`. |
-| MP3 helper (not normal streamed output) | `POST https://api.x.ai/v1/tts`, HTTPS JSON | `text`, `voice_id=eve`, `language=en`; MP3 response. Used by the standalone synthesis helper, not `VoiceAddon.feed`. |
+| Realtime audio | `wss://api.x.ai/v1/realtime?model=grok-voice-latest`, WebSocket JSON | `session.update` (no server VAD), base64 `input_audio_buffer.append`, then `input_audio_buffer.commit` and `response.create` after 3 s of quiet or Enter. Transcript deltas update the composer. The created response is one spoken acknowledgement. |
+| Spoken summary | Same realtime socket | `conversation.item.create` with the summary text, then `response.create` telling the model to say that sentence only. PCM comes back on the socket already open. The chat answer is not this audio. |
 | Coding model | Existing configured provider protocol | Unchanged: provider-specific streaming request, tools, approvals, persistence, and final response. |
 
 All xAI audio connections use a Bearer token: `XAI_API_KEY` takes precedence;
@@ -83,16 +82,15 @@ normal answer with a `## Spoken summary` section. The system prompt is not
 changed, so the provider prefix cache still matches. The note is not persisted
 and does not add a model call.
 `VoiceAddon.after_run` speaks that section (fences stripped, length capped).
-If the model omits it, the opening of the answer is spoken instead. The
+If the model omits it, nothing is spoken. The whole answer is never dictated. The
 section is stripped before the answer is shown or saved, including while the
 heading is still streaming, so the chat never displays it. Streamed deltas,
 tool output, and reasoning are not dictated. There is no canned
 "working on it" sentence.
 
-Socket setup, TTS generation, and the local player still add latency. With
-`ffplay` or `mpv`, MP3 bytes are written as they arrive; with only `afplay`,
-audio must be buffered before file playback. This is not a guarantee that
-sound starts at the same instant as the first visible token.
+The acknowledgement and the summary are both PCM from the same socket.
+Playback writes one WAV when that response finishes, so the first sound is
+not the first visible token.
 
 The voice addon stays registered but is armed for one voice turn only. Later
 typed turns and child harnesses stay silent. Cancellation/quit closes voice
@@ -104,29 +102,27 @@ There is no separate voice bar and no composer hide/show transition.
 
 ## Owners and limits
 
-- `tui/composer/voice.py`: credentials, fixed-duration WAV capture, STT client,
-  border-color constants, and standalone HTTP TTS/playback helpers.
-- `tui/composer/voice_mode.py`: user entry, capture worker, stale-result guard,
-  transcript handoff, addon activation, and UI recovery.
-- `addons/voice/addon.py`: per-run opt-in, streamed text forwarding, tail flush,
-  and resource ownership.
-- `addons/voice/speak.py` and `stream.py`: streaming-TTS and realtime socket
-  workers, respectively, plus local audio playback.
+- `tui/composer/voice.py`: credentials, the test-only WAV recorder and REST
+  STT client, border colors, and the spoken-summary splitter.
+- `tui/composer/voice_mode.py`: user entry, live transcript, commit on pause
+  or Enter, and UI recovery.
+- `addons/voice/addon.py`: per-run opt-in. Speaks the summary on the realtime
+  socket and never opens TTS.
+- `addons/voice/stream.py`: the one speech-to-speech socket, microphone, and
+  PCM playback. `speak.py` is the unused TTS helper and is not on this path.
 
-Listening continues across utterances. A pause ends one recording so it can
-be transcribed into the composer, but the agent does not run until the user
-says **done** or presses **Ctrl+A** again. The composer shows the transcript
-so far and is cleared when the turn starts. Escape cancels without submitting. The word "done"
-is the stop signal and is not included in the prompt. Eight seconds is only
-the safety cap on one recording. Stopping does not instantly interrupt the
-recorder already in progress; that clip is still transcribed, then the turn
-starts. Audio is sent to xAI, and assistant text
-sent to TTS can contain workspace information. Input/output language is
-currently hardcoded to English. `sounddevice` is optional and first use tries
-to install it in the running interpreter; PortAudio/device availability and
-a local player are also required. The realtime connection duplicates an
-otherwise REST-STT-plus-TTS design and is a future simplification candidate;
-it should not be described as a continuous coding conversation.
+One listen is one utterance. Audio is appended while the user speaks, and the
+composer shows transcript deltas as they arrive, on the same socket. The turn
+starts when the speaker has been quiet for 3 seconds, or when they press
+Enter (Ctrl+A does the same). Escape cancels without submitting. The
+realtime model speaks a brief acknowledgement on commit. After the run, the
+same socket speaks the spoken-summary section and nothing else. That spoken
+line is not the chat answer. Audio is sent to xAI, and the summary can
+contain workspace information. Input/output
+language is currently hardcoded to English. `sounddevice` is optional and
+first use tries to install it in the running interpreter; PortAudio/device
+availability and a local player are also required. The older local WAV
+recorder and REST STT client remain for tests and are not on the live path.
 
 ## Verification
 

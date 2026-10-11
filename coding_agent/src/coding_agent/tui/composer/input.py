@@ -71,6 +71,15 @@ class PromptInput(TextArea):
             return
         if event.key != "enter":
             return
+        # Voice mode is listening. Enter commits the utterance; it must not
+        # submit the partial transcript as a typed turn.
+        if getattr(self.app, "_voice_active", False):
+            from coding_agent.tui.composer.voice_mode import commit_voice
+
+            commit_voice(self.app)
+            event.prevent_default()
+            event.stop()
+            return
         from coding_agent.tui.composer.slash_menu import SlashMenu
 
         approval_menu = self.app.query_one("#approval-menu", SlashMenu)

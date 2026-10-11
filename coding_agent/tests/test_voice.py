@@ -122,48 +122,21 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
             said.append("closed")
 
     stream = Stream()
-    fed: list[str] = []
-
-    class Speaker:
-        def __init__(self, *, on_speaking: object = None) -> None:
-            del on_speaking
-            self._sent = ""
-            self._pending = ""
-
-        def feed(self, text: str, *, force: bool = False) -> None:
-            from coding_agent.addons.voice.speak import _split_ready
-
-            fresh = text[len(self._sent):] if text.startswith(self._sent) else text
-            self._pending += fresh
-            self._sent = text
-            speakable, rest = _split_ready(self._pending)
-            if force and not speakable and self._pending.strip():
-                speakable, rest = self._pending.strip(), ""
-            self._pending = rest
-            if speakable:
-                fed.append(speakable)
-
-        def finish(self, text: str = "") -> None:
-            fed.append(f"finish:{text}")
-
     addon = VoiceAddon(stream=stream)  # type: ignore[arg-type]
-    from coding_agent.addons.voice import addon as addon_module
-
-    monkeypatch.setattr(addon_module, "StreamingSpeaker", Speaker)
     addon.arm()
     assert addon.open() == ""
     # Streaming text is not dictated. Only the finished answer of a voice
     # question is, and only once the run completes.
     addon.feed("Renamed it. The helper is updated")
     addon.feed("Renamed it. The helper is updated now.")
-    assert fed == []
+    assert said == []
 
     async def _typed() -> None:
         await addon.before_run(messages=[SimpleNamespace(role="user", content="typed")])
         await addon.after_run(result=SimpleNamespace(output_text="Typed replies stay silent.", reply_aloud=False))
 
     asyncio.run(_typed())
-    assert fed == []
+    assert said == []
     assert stream.held
 
     addon.arm()
@@ -182,7 +155,8 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
         )
 
     asyncio.run(_voice())
-    assert fed == ["finish:I renamed the helper and updated its callers."]
+    # Spoken on the speech-to-speech socket. The written answer is not said.
+    assert said == ["I renamed the helper and updated its callers."]
 
 
 def test_spoken_text_strips_fences_and_limits_length() -> None:
@@ -195,7 +169,8 @@ def test_spoken_text_strips_fences_and_limits_length() -> None:
         "I renamed the helper and updated its callers.",
     )
     assert split_spoken_summary("Renamed the helper.\n\n## Spoken") == ("Renamed the helper.", "")
-    assert spoken_summary("No marker here. The work is done.") == "No marker here. The work is done."
+    # No spoken section means silence. The whole answer is not dictated.
+    assert spoken_summary("No marker here. The work is done.") == ""
     assert spoken_text("```python\nprint(1)\n```\n\nDone.") == "Done."
     assert spoken_text("") == ""
     long = "word " * 200
@@ -282,6 +257,72 @@ def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.Mo
                 if submitted:
                     break
             assert submitted == ["fix the footer"]
+
+    asyncio.run(_run())
+
+
+def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> None:
+    """The realtime socket paints words as they arrive. Enter sends the turn."""
+    from types import SimpleNamespace
+
+    app = CodingAgentApp(workspace=tmp_path)
+    started: list[str] = []
+    harness = SimpleNamespace(addons=[], register_addon=lambda addon: harness.addons.append(addon))
+    app._agent = SimpleNamespace(harness=harness)
+    app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
+
+    class LiveStream:
+        def __init__(self) -> None:
+            self._on_transcript = None
+            self._on_commit = None
+            self._transcript = ""
+            self.commits = 0
+
+        def commit(self) -> None:
+            self.commits += 1
+            if self._on_commit is not None:
+                self._on_commit()
+
+        def say(self, text: str) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def hold(self) -> None:
+            return None
+
+        def close(self, *, timeout: float = 0.0) -> None:
+            return None
+
+        @property
+        def error(self) -> str:
+            return ""
+
+    stream = LiveStream()
+
+    async def _run() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            start_voice(app, stream=stream)
+            await pilot.pause()
+            assert app._voice_active
+            app._voice_addon.stream._on_transcript("add a voice bar")
+            for _ in range(20):
+                await pilot.pause(0.05)
+                if "voice bar" in app.query_one("#prompt", PromptInput).text:
+                    break
+            prompt = app.query_one("#prompt", PromptInput)
+            assert "add a voice bar" in prompt.text
+            assert started == []
+            await pilot.press("enter")
+            for _ in range(20):
+                await pilot.pause(0.05)
+                if started:
+                    break
+            assert stream.commits == 1
+            assert started == ["add a voice bar"]
+            assert not app._voice_active
 
     asyncio.run(_run())
 

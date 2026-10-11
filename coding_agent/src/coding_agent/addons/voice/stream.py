@@ -1,9 +1,9 @@
 """One background speech-to-speech socket for the life of a voice session.
 
-The socket is ``wss://api.x.ai/v1/realtime`` with ``grok-voice-think-fast-2.0``,
-the cheapest current Grok voice model. Mic audio goes in as PCM. Spoken audio
-comes back as PCM and is played on the default output. ``close`` runs when the
-app quits.
+The socket is ``wss://api.x.ai/v1/realtime`` with ``grok-voice-latest``, the
+alias xAI documents for the current speech-to-speech model. Mic audio goes in
+as PCM. On commit the model speaks one short acknowledgement and nothing else.
+``close`` runs when the app quits.
 """
 
 from __future__ import annotations
@@ -22,7 +22,9 @@ from urllib.parse import urlencode
 
 from coding_agent.tui.composer.voice import GROK_TTS_VOICE, grok_voice_credentials
 
-VOICE_REALTIME_MODEL = "grok-voice-think-fast-2.0"
+# xAI's documented alias for the current speech-to-speech model. A pinned
+# id goes stale; this one tracks the latest voice model they serve.
+VOICE_REALTIME_MODEL = "grok-voice-latest"
 REALTIME_URL = "wss://api.x.ai/v1/realtime"
 SAMPLE_RATE = 24_000
 # 40 ms of mono int16 per callback and per socket message: 25 sends a second.
@@ -30,11 +32,26 @@ MIC_BLOCK_FRAMES = SAMPLE_RATE * 40 // 1000
 # Mic blocks waiting for the socket. Past this the oldest is dropped, so a
 # slow link costs at most ~1.3 s of latency instead of growing without bound.
 MIC_QUEUE_BLOCKS = 32
+# Quiet this long after speech, and the utterance is committed. Enter commits
+# sooner. The pause is counted from audio blocks, not from a UI timer.
+PAUSE_COMMIT_S = 3.0
+PAUSE_COMMIT_BLOCKS = int(PAUSE_COMMIT_S * 1000 / 40)
+# int16 RMS. Normal speech sits well above this; a quiet room does not.
+SPEECH_RMS = 500
 # The audio is base64 and needs no escaping, so the JSON is two fixed halves.
 _APPEND_HEAD = '{"type": "input_audio_buffer.append", "audio": "'
 _APPEND_TAIL = '"}'
+_COMMIT = '{"type": "input_audio_buffer.commit"}'
+# Commit alone does not make the model speak. This asks for the one line
+# the session instructions allow: a short acknowledgement, not the answer.
+_ACK = (
+    '{"type": "response.create", "response": {"instructions": '
+    '"Reply with one short acknowledgement of what the user just asked. '
+    'One sentence. Do not answer, explain, or give steps."}}'
+)
 
 SpeakListener = Callable[[bool], None]
+TranscriptListener = Callable[[str], None]
 
 
 class VoiceStream:
@@ -46,8 +63,16 @@ class VoiceStream:
     previous one to release the socket and the microphone.
     """
 
-    def __init__(self, *, on_speaking: SpeakListener | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        on_speaking: SpeakListener | None = None,
+        on_transcript: TranscriptListener | None = None,
+        on_commit: Callable[[], None] | None = None,
+    ) -> None:
         self._on_speaking = on_speaking
+        self._on_transcript = on_transcript
+        self._on_commit = on_commit
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         # Set when the current session's thread has exited.
@@ -58,6 +83,11 @@ class VoiceStream:
         # does not talk over the agent. It opens again for the final answer.
         self._listen = threading.Event()
         self._listen.set()
+        # Set from the UI thread (Enter). The mic callback consumes it.
+        self._commit_now = False
+        self._committed = False
+        self._transcript = ""
+        self._commit_sent = False
         # One event per session, so closing an old session cannot stop a new one.
         self._closing = threading.Event()
         self._lifecycle_lock = threading.Lock()
@@ -82,6 +112,10 @@ class VoiceStream:
             self._closing = closing
             self._closed.clear()
             self._error = ""
+            self._commit_now = False
+            self._committed = False
+            self._transcript = ""
+            self._commit_sent = False
             thread = threading.Thread(
                 target=self._run, args=(previous, closing), name="grok-voice", daemon=True,
             )
@@ -98,6 +132,14 @@ class VoiceStream:
     def resume(self) -> None:
         """Send mic audio again."""
         self._listen.set()
+
+    def commit(self) -> None:
+        """End the utterance now. Enter lands here; a 3 s pause does too.
+
+        The flag is read on the audio callback, so this never touches the
+        socket or waits, and the UI thread stays free.
+        """
+        self._commit_now = True
 
     def say(self, text: str) -> None:
         """Queue ``text`` on the open socket. The socket stays up to play it."""
@@ -216,6 +258,11 @@ class VoiceStream:
                 await socket.close()
 
     async def _say(self, text: str) -> None:
+        """Speak ``text`` on this same socket. It is not the chat answer.
+
+        The words are a separate spoken line. The coding transcript stays
+        whatever the chat model wrote.
+        """
         socket = self._socket
         if socket is None:
             return
@@ -227,12 +274,18 @@ class VoiceStream:
                         "item": {
                             "type": "message",
                             "role": "user",
-                            "content": [{"type": "input_text", "text": f"Say this to the user: {text}"}],
+                            "content": [{
+                                "type": "input_text",
+                                "text": f"Say this to the user, verbatim, and nothing else: {text}",
+                            }],
                         },
                     }
                 )
             )
-            await socket.send(json.dumps({"type": "response.create"}))
+            await socket.send(json.dumps({
+                "type": "response.create",
+                "response": {"instructions": f"Say exactly: {text}"},
+            }))
 
         except Exception as exc:
             self._error = f"Voice stream failed · {exc}"
@@ -248,26 +301,58 @@ class VoiceStream:
         except OSError as exc:  # The binding imports, then cannot load PortAudio.
             raise RuntimeError("Voice mode needs the PortAudio library.") from exc
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=MIC_QUEUE_BLOCKS)
+        queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=MIC_QUEUE_BLOCKS)
         listen = self._listen
+        quiet_blocks = 0
+        heard_speech = False
 
-        def enqueue(chunk: bytes) -> None:
+        def enqueue(chunk: bytes | None) -> None:
             # This runs on the event loop, where QueueFull actually occurs.
+            # A commit marker is never dropped: it is what ends the utterance.
+            if chunk is None:
+                if queue.full():
+                    queue.get_nowait()
+                queue.put_nowait(None)
+                return
             if queue.full():
-                queue.get_nowait()  # Keep recent audio instead of increasing latency.
+                dropped = queue.get_nowait()  # Keep recent audio, not the commit.
+                if dropped is None:
+                    queue.get_nowait()
+                    queue.put_nowait(None)
             queue.put_nowait(chunk)
 
         def _callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
+            nonlocal quiet_blocks, heard_speech
             del frames, time_info, status
             # Held: drop the block here, without a copy or a loop wakeup.
-            if not listen.is_set():
+            if not listen.is_set() or self._committed:
                 return
-            # Encoding reads PortAudio's reused buffer directly: one copy.
+            if self._commit_now:
+                self._commit_now = False
+                self._committed = True
+                try:
+                    loop.call_soon_threadsafe(enqueue, None)
+                except RuntimeError:
+                    return
+                return
+            # RMS reads the reused buffer; encoding is the one copy.
+            if _pcm16_rms(indata) >= SPEECH_RMS:
+                heard_speech = True
+                quiet_blocks = 0
+            elif heard_speech:
+                quiet_blocks += 1
             chunk = base64.b64encode(indata)
             try:
                 loop.call_soon_threadsafe(enqueue, chunk)
             except RuntimeError:
                 return
+            if heard_speech and quiet_blocks >= PAUSE_COMMIT_BLOCKS and not self._committed:
+                self._committed = True
+                try:
+                    loop.call_soon_threadsafe(enqueue, None)
+                except RuntimeError:
+                    self._committed = False
+                    return
 
         try:
             stream = sd.RawInputStream(
@@ -282,6 +367,14 @@ class VoiceStream:
         with stream:
             while True:
                 chunk = await queue.get()
+                if chunk is None:
+                    await socket.send(_COMMIT)
+                    await socket.send(_ACK)
+                    # Drop audio that arrived with the commit. The mic stays
+                    # open but quiet until the run finishes and hold() lands.
+                    self._listen.clear()
+                    self._finish_commit()
+                    return
                 if not listen.is_set():
                     continue
                 await socket.send(_APPEND_HEAD + chunk.decode("ascii") + _APPEND_TAIL)
@@ -298,7 +391,12 @@ class VoiceStream:
                 except json.JSONDecodeError:
                     continue
                 kind = str(event.get("type") or "")
-                if kind in {"response.output_audio.delta", "response.audio.delta"}:
+                if kind in {
+                    "conversation.item.input_audio_transcription.delta",
+                    "conversation.item.input_audio_transcription.completed",
+                }:
+                    self._take_transcript(event, final=kind.endswith("completed"))
+                elif kind in {"response.output_audio.delta", "response.audio.delta"}:
                     audio = event.get("delta") or ""
                     if isinstance(audio, str) and audio:
                         player.write(base64.b64decode(audio))
@@ -307,6 +405,27 @@ class VoiceStream:
         finally:
             player.close()
             self._set_speaking(False)
+
+    def _take_transcript(self, event: dict[str, Any], *, final: bool) -> None:
+        """Publish the words heard so far. Deltas arrive while the user speaks."""
+        text = event.get("delta") or event.get("transcript") or event.get("text") or ""
+        if not isinstance(text, str) or not text:
+            return
+        if final or not self._transcript:
+            self._transcript = text
+        elif text.startswith(self._transcript):
+            self._transcript = text
+        else:
+            self._transcript = (self._transcript + text).strip()
+        if self._on_transcript is not None:
+            self._on_transcript(self._transcript)
+
+    def _finish_commit(self) -> None:
+        """The utterance is on the wire. Hand it to the caller once."""
+        if self._commit_sent or self._on_commit is None:
+            return
+        self._commit_sent = True
+        self._on_commit()
 
     def _set_speaking(self, speaking: bool) -> None:
         if speaking == self._speaking:
@@ -322,11 +441,15 @@ def _session_update() -> dict[str, Any]:
         "session": {
             "voice": GROK_TTS_VOICE,
             "instructions": (
-                "You are Symphony's voice. Speak while the user is talking only to "
-                "acknowledge briefly. When asked to say a specific sentence, say that "
+                "You are Symphony's voice. Speak only a brief acknowledgement of what "
+                "the user just said. Do not answer the task, give steps, or continue "
+                "the conversation. When asked to say a specific sentence, say that "
                 "sentence and nothing else."
             ),
-            "turn_detection": {"type": "server_vad"},
+            # The client commits after a 3 s pause or Enter. Server VAD would
+            # cut the utterance on its own, shorter, silence.
+            "turn_detection": None,
+            "input_audio_transcription": {"model": VOICE_REALTIME_MODEL},
             "audio": {
                 "input": {"format": {"type": "audio/pcm", "rate": SAMPLE_RATE}},
                 "output": {"format": {"type": "audio/pcm", "rate": SAMPLE_RATE}},
@@ -419,6 +542,18 @@ class _PcmPlayer:
             self._pcm.clear()
             self._stop_player()
             self._on_speaking(False)
+
+
+def _pcm16_rms(pcm: Any) -> int:
+    """RMS of one mono int16 block. No audioop and no NumPy: both cost an import."""
+    samples = memoryview(pcm).cast("B").cast("h")
+    count = len(samples)
+    if not count:
+        return 0
+    total = 0
+    for sample in samples:
+        total += sample * sample
+    return int((total / count) ** 0.5)
 
 
 def _write_wav(pcm: bytes) -> str:

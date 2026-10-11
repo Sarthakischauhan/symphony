@@ -1,8 +1,8 @@
-"""Harness hook that speaks the model's own text while the run is going.
+"""Harness hook that speaks on the same speech-to-speech socket.
 
-There is no canned line. ``feed`` is called with the assistant text as it
-streams, and a TTS socket speaks each finished sentence immediately. ``after_run``
-only flushes the tail and closes the mic socket.
+``feed`` keeps nothing: streamed assistant text is not dictated. ``after_run``
+speaks only the spoken-summary section, through the realtime socket that
+already acknowledged the user. There is no second TTS connection.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from typing import Any
 
 from core_harness.addons.addon import Addon
 
-from coding_agent.addons.voice.speak import StreamingSpeaker
 from coding_agent.addons.voice.stream import VoiceStream
 
 
@@ -25,13 +24,15 @@ class VoiceAddon(Addon):
         stream: VoiceStream | None = None,
         *,
         on_speaking: Any = None,
+        on_transcript: Any = None,
+        on_commit: Any = None,
     ) -> None:
-        self.stream = stream or VoiceStream(on_speaking=on_speaking)
+        self.stream = stream or VoiceStream(
+            on_speaking=on_speaking, on_transcript=on_transcript, on_commit=on_commit,
+        )
         self._open = False
-        self._speaker: StreamingSpeaker | None = None
         self._started_speech = False
         self._armed = False
-        self._playback: StreamingSpeaker | None = None
 
     def arm(self) -> None:
         """Opt in exactly one microphone-originated run; typed runs stay silent."""
@@ -53,13 +54,8 @@ class VoiceAddon(Addon):
         return self.stream.error
 
     def close(self, *, timeout: float = 0.0) -> None:
-        """Stop speech and the stream. Waits up to ``timeout`` for their threads."""
+        """Stop the speech-to-speech socket. Waits up to ``timeout`` for its thread."""
         self._armed = False
-        for speaker in (self._speaker, self._playback):
-            if speaker is not None:
-                speaker.close(timeout=timeout)
-        self._speaker = None
-        self._playback = None
         if self._open:
             self.stream.close(timeout=timeout)
         self._open = False
@@ -83,26 +79,20 @@ class VoiceAddon(Addon):
         # Only a question that arrived by voice is dictated. The flag lives on
         # the harness for the run and is copied onto its result.
         if not bool(getattr(result, "reply_aloud", False)):
+            # Typed turns stay silent, but the socket stays up for the next
+            # voice question. Closing it here made the following turn reopen.
             self.stream.hold()
-            if self._open:
-                self.stream.close()
-            self._open = False
             return
         from coding_agent.tui.composer.voice import spoken_summary
 
         text = spoken_summary(str(getattr(result, "output_text", "") or ""))
-        speaker = self._speaker
-        self._speaker = None
+        # Same socket that heard the user. The spoken line is the summary,
+        # not the chat answer, and no TTS socket is opened for it.
         if text:
-            if speaker is None:
-                speaker = StreamingSpeaker(on_speaking=getattr(self.stream, "_on_speaking", None))
-            speaker.finish(text)
-        elif speaker is not None:
-            speaker.close()
-            speaker = None
-        self._playback = speaker
+            self.stream.hold()
+            self.stream.say(text)
+            return
         self.stream.hold()
-        # The TTS tail must finish naturally. Explicit close cancels playback.
         if self._open:
             self.stream.close()
         self._open = False
