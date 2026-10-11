@@ -1,9 +1,13 @@
-# <img src="docs/assets/symphony-mark.svg" alt="" width="36" height="36" align="center"> Symphony
+<p align="center">
+  <img src="docs/assets/symphony-logo.svg" alt="Symphony" width="585">
+</p>
+
+# Symphony
 
 An agent harness, MIT licensed. Keep the loop product-agnostic, keep providers
 swappable, and drive every UI from a single control-plane event stream.
 
-<p>
+<p align="center">
   <a href="./docs/getting-started/installation.md"><strong>Install</strong></a>
   ·
   <a href="./docs/getting-started/quickstart.md"><strong>Quickstart</strong></a>
