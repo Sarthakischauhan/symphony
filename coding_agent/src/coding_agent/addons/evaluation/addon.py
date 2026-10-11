@@ -61,7 +61,6 @@ class JevAddon(Addon):
         self.last_decision: Optional[PolicyDecision] = None
         self.gated_action = CONTINUE_NORMALLY
         self.follow_ups = 0
-        self._queued_nudge: Optional[str] = None
         self._allowed_tools: Optional[frozenset[str]] = None
         self._harness: Any = None
 
@@ -124,7 +123,6 @@ class JevAddon(Addon):
 
     async def before_run(self, **payload: Any) -> None:
         self._clear_nudge(payload)
-        self._queued_nudge = None
         self._allowed_tools = None
 
     async def after_run(self, **payload: Any) -> None:
@@ -143,7 +141,7 @@ class JevAddon(Addon):
             final=final,
             tool_calls=tool_calls,
         )
-        self._queued_nudge = self._dispatch(payload, self.last_decision)
+        self._dispatch(payload, self.last_decision)
 
     def consume_follow_up(self) -> Optional[str]:
         """Return one revision prompt for a violated rule or opt-in retry."""

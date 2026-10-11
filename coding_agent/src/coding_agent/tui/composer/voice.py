@@ -180,36 +180,6 @@ def spoken_text(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
     return cleaned[: limit - 1].rstrip() + "…"
 
 
-def synthesize_speech(text: str, *, voice_id: str = GROK_TTS_VOICE) -> bytes:
-    """Turn a reply into MP3 bytes via POST /v1/tts. Empty text yields no audio."""
-    spoken = spoken_text(text)
-    if not spoken:
-        return b""
-    api_key, extra_headers = grok_voice_credentials()
-    import httpx
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        **extra_headers,
-    }
-    response = httpx.post(
-        f"{XAI_AUDIO_BASE_URL}/tts",
-        headers=headers,
-        json={"text": spoken, "voice_id": voice_id, "language": "en"},
-        timeout=60.0,
-    )
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        detail = exc.response.text.strip().splitlines()
-        suffix = f" · {detail[0][:180]}" if detail else ""
-        raise UnavailableVoice(
-            f"Voice playback failed · {exc.response.status_code}{suffix}"
-        ) from exc
-    return response.content
-
-
 def play_mp3(audio: bytes) -> None:
     """Play MP3 bytes on the default output. No extra audio package required."""
     if not audio:

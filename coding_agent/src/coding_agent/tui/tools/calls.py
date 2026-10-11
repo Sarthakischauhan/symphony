@@ -16,10 +16,9 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.tools.activity import parse_activity, strip_activity_json, take_activity
+from coding_agent.tui.tools.activity import strip_activity_json, take_activity
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.tools.labels import (
-    TOOL_LABELS,
     generate_image_result,
     header_target,
     read_file_detail,
@@ -63,7 +62,6 @@ class BashToolHeader(Horizontal, can_focus=True):
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
-    LABELS = TOOL_LABELS
     # Cards (image preview, child transcript, Bash output, patch diff) stay
     # mounted as their own transcript entry instead of becoming a row in an
     # Explored group; either way the widget is mounted once and updated.
@@ -124,9 +122,6 @@ class ToolCallWidget(Collapsible):
         self._body.display = not collapsed
         self.refresh_content()
 
-    def _disclosure_symbol(self) -> str:
-        return "▸" if self.collapsed else "▾"
-
     def set_arguments(self, arguments: Mapping[str, Any] | None, raw: str = "") -> None:
         incoming = dict(arguments or {})
         if incoming:
@@ -152,10 +147,6 @@ class ToolCallWidget(Collapsible):
         self.activity_verb = activity.verb
         self.activity_reason = activity.reason
         self.activity_group = activity.group
-
-    def set_activity(self, activity: Mapping[str, Any] | None) -> None:
-        self._apply_activity(parse_activity(activity))
-        self.refresh_content()
 
     def set_result(self, result: Any) -> None:
         if self._duration is None:
@@ -185,14 +176,6 @@ class ToolCallWidget(Collapsible):
             result_color = "#d66b73" if self.status == "failed" else "#666666"
             rows.append(Text(f"{icon}  {result}", style=result_color))
         return rows
-
-    def _marker(self) -> str:
-        return {
-            "preparing": "○",
-            "running": "●",
-            "done": "✓",
-            "failed": "×",
-        }.get(self.status, "○")
 
     def _refresh_status_class(self) -> None:
         if self._styled_status == self.status:

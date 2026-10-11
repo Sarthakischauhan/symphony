@@ -184,7 +184,6 @@ def create_app(
 
     app = FastAPI(title="core-server", version=PACKAGE_VERSION, lifespan=lifespan)
     app.state.run_backend = backend
-    app.state.run_manager = getattr(backend, "manager", backend)
     install_middlewares(app, config)
     app.include_router(create_router(config, run_backend=backend))
     return app

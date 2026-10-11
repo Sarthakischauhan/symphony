@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-import re
 import time
 from dataclasses import dataclass
 from time import monotonic
@@ -114,7 +113,7 @@ class ThinkingStatus(Static):
         self._sync_animation_timer()
         self.update(Text(f"✻  {value}", style="#666666"))
 
-    def set_churning(self, turn: int) -> None:
+    def set_churning(self) -> None:
         """Show the normal waiting state for a model turn."""
         self._churning = True
         self._working = True
@@ -396,8 +395,6 @@ class ReasoningWidget(Collapsible):
     """A live thought whose inner scroll area is anchored to its newest text."""
 
     def __init__(self, content: str = "") -> None:
-        self._summary_heading: str | None = None
-        self._content_without_heading = content
         # Collapsible's constructor can invoke the collapsed watcher before
         # set_content(), so initialize the deferred body state first.
         self._body_source = ""
@@ -450,9 +447,6 @@ class ReasoningWidget(Collapsible):
 
     def set_content(self, content: str) -> None:
         self.reasoning_text = content
-        self._summary_heading, self._content_without_heading = (
-            self._extract_summary_heading(content)
-        )
         self._body_source = content
         self._body_streaming = True
         if not self.collapsed:
@@ -461,22 +455,6 @@ class ReasoningWidget(Collapsible):
     def _sync_body(self) -> None:
         """Apply the latest source only when the thought is visible."""
         self._body.show_markdown(self._body_source, streaming=self._body_streaming)
-
-    @staticmethod
-    def _extract_summary_heading(content: str) -> tuple[str | None, str]:
-        """Return a standalone leading Markdown heading and the remaining body."""
-        match = re.match(
-            r"\A[ \t]*(?:"
-            r"#{1,6}[ \t]+(?P<atx>[^\n]+?)[ \t]*#*"
-            r"|\*\*(?P<bold>[^\n]+?)\*\*"
-            r"|__(?P<underscore>[^\n]+?)__"
-            r")[ \t]*(?:\n[ \t]*\n|\Z)",
-            content,
-        )
-        if match is None:
-            return None, content
-        heading = next(value for value in match.groupdict().values() if value)
-        return heading.strip(), content[match.end() :]
 
     def on_mount(self) -> None:
         # Anchored, the inner area follows new text until the reader scrolls it.

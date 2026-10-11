@@ -31,7 +31,6 @@ class UiRunState:
     turn: Optional[int] = None
     stream_text: str = ""
     reasoning_text: str = ""
-    stream_started: bool = False
     tool_args_preview: str = ""
     metrics: RunMetrics = field(default_factory=RunMetrics)
     detail: str = ""
@@ -46,7 +45,6 @@ class UiRunState:
         self.turn = None
         self.stream_text = ""
         self.reasoning_text = ""
-        self.stream_started = False
         self.tool_args_preview = ""
         self.metrics = RunMetrics(
             context_limit=context.context_limit,
@@ -61,20 +59,13 @@ class UiRunState:
         self.phase = "thinking"
         self.stream_text = ""
         self.reasoning_text = ""
-        self.stream_started = False
         self.tool_args_preview = ""
         self.detail = f"turn {turn}"
 
     def append_text(self, delta: str) -> None:
         self.phase = "streaming"
-        self.stream_started = True
         self.stream_text += delta
         self.detail = "streaming"
-
-    def append_reasoning(self, delta: str) -> None:
-        self.phase = "thinking"
-        self.reasoning_text += delta
-        self.detail = "reasoning"
 
     def update_usage(self, payload: Mapping[str, object]) -> None:
         m = self.metrics
@@ -152,15 +143,3 @@ class UiRunState:
             parts.append(f"context_left={m.context_left}")
 
         return "  ·  ".join(parts)
-
-    def live_line(self) -> str:
-        if self.phase == "streaming" and self.stream_text:
-            return f"assistant> {self.stream_text}"
-        if self.phase == "tool":
-            preview = self.tool_args_preview
-            return f"thinking · tool {preview}".rstrip()
-        if self.phase == "thinking":
-            return "thinking…"
-        if self.phase == "paused":
-            return "paused"
-        return ""

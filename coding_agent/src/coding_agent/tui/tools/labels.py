@@ -65,12 +65,6 @@ def patch_path(arguments: Mapping[str, Any], raw_arguments: str = "", result: st
     return ""
 
 
-def header_command(reason: str, summary: str, limit: int) -> str:
-    """Live-card detail: the file or command, not the activity reason."""
-    del reason
-    return summary
-
-
 def tool_header_text(label: str, target: str, status: str) -> Content:
     """Status-colored tool name plus a muted target, without parsing the target as markup."""
     color = {
