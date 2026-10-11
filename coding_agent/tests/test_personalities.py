@@ -13,7 +13,7 @@ from coding_agent.config import (
     ensure_spawn_settings,
     load_coding_agent_config,
 )
-from coding_agent.personalities import (
+from coding_agent.config.personalities import (
     PERSONALITY_HEADING,
     PERSONALITY_PREAMBLE,
     compose_system_prompt,

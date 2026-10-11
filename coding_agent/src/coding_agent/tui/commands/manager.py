@@ -13,7 +13,7 @@ from coding_agent.agent import build_agent
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.presentation import session_images
 from coding_agent.config import ensure_spawn_settings
-from coding_agent.credentials import OFFLINE_HINT, load_provider_env
+from coding_agent.config.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.addons.langfuse import ensure_langfuse_installed
 from textual.containers import Container
 from textual.widgets import Static

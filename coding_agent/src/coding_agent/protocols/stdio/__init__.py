@@ -11,7 +11,7 @@ tests patch them here.
 import sys
 
 from coding_agent.agent import build_agent
-from coding_agent.credentials import load_provider_env
+from coding_agent.config.credentials import load_provider_env
 from coding_agent.protocols.stdio.catalog import model_catalog
 from coding_agent.protocols.stdio.server import main, serve
 from coding_agent.protocols.stdio.transport import (

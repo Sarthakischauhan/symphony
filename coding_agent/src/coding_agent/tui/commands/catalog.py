@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from core_ai import list_models
-from coding_agent.personalities import load_personalities
+from coding_agent.config.personalities import load_personalities
 
 
 @dataclass(frozen=True)

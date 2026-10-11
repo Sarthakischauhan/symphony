@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual import events
 from textual.widgets import Button, OptionList, Static, TextArea
 
-from coding_agent.credentials import OFFLINE_HINT
+from coding_agent.config.credentials import OFFLINE_HINT
 from coding_agent.tui.commands import (
     command_matches,
     effort_matches,

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from coding_agent.credentials import OFFLINE_HINT
+from coding_agent.config.credentials import OFFLINE_HINT
 from coding_agent.tui.composer import voice_mode
 from coding_agent.tui.composer.voice import GROK_VOICE_MODEL, UnavailableVoice
 
