@@ -130,6 +130,8 @@ class JsonlPersistence:
         self._entries: Dict[str, List[Dict[str, Any]]] = {}
         self._marks: Dict[str, int] = {}
         self._held: Dict[str, list[int]] = {}
+        # Product that owns new sessions ("tui", "zeron", ...). Empty means unknown.
+        self.client: str = ""
         # Product fields (goal, todo, live background jobs) merged into every
         # checkpoint so an interrupted run can be continued later.
         self.checkpoint_metadata: Callable[[], Dict[str, Any]] = dict
@@ -220,7 +222,7 @@ class JsonlPersistence:
             "session_id": session_id,
             "created_at": created,
             "updated_at": created,
-            "client": getattr(self, "client", "") or "",
+            "client": self.client or "",
         }
         self._write_metadata(session_id, meta)
         return meta
@@ -432,7 +434,7 @@ class JsonlPersistence:
 
     def _stamp_client(self, session_id: str) -> None:
         """Record the product once. A later client must not overwrite it."""
-        client = getattr(self, "client", "") or ""
+        client = self.client or ""
         if not client:
             return
         meta = self._ensure_metadata(session_id)

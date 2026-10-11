@@ -7,10 +7,12 @@ import re
 import time
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
+from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.activity import choose_completion_verb
+from coding_agent.tui.tools.partial_args import string_field
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
@@ -42,11 +44,8 @@ def _jev_last_decision(view: Any) -> Any:
     harness = getattr(agent, "harness", None) if agent is not None else None
     if harness is None:
         return None
-    addon = next(
-        (item for item in getattr(harness, "addons", ()) if getattr(item, "name", "") == "jev"),
-        None,
-    )
-    return getattr(addon, "last_decision", None) if addon is not None else None
+    addon = harness.find_addon(JevAddon)
+    return addon.last_decision if addon is not None else None
 
 
 def _clean_reasoning(text: str) -> str:
@@ -80,9 +79,9 @@ def _tool_arguments_from_protocol(raw: str) -> Optional[dict[str, Any]]:
         return decoded
     arguments: dict[str, Any] = {}
     for key in ("path", "command", "query", "pattern"):
-        match = re.search(rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"', raw)
-        if match:
-            arguments[key] = json.loads(f'"{match.group(1)}"')
+        value = string_field(raw, key)
+        if value is not None:
+            arguments[key] = value
     return arguments or None
 
 

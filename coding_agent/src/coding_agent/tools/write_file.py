@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field
 
-from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+from coding_agent.tools.base import NonEmptyPath, ToolArgsModel, WorkspaceTool
 
 
 class WriteFileArgs(ToolArgsModel):
@@ -13,20 +13,12 @@ class WriteFileArgs(ToolArgsModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
 
-    path: str = Field(
+    path: NonEmptyPath = Field(
         ...,
         min_length=1,
         description="Path to write. Relative paths start at the working directory.",
     )
     content: str = Field(..., description="Complete whitespace-significant UTF-8 file content.")
-
-    @field_validator("path")
-    @classmethod
-    def _strip_path_only(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("path must be a non-empty string")
-        return stripped
 
 
 class WriteFileTool(WorkspaceTool):
