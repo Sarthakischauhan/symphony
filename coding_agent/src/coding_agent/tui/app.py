@@ -13,7 +13,7 @@ from textual.widgets import Static
 
 from coding_agent.agent import AgentMode, CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
-from coding_agent.credentials import OFFLINE_HINT, load_provider_env
+from coding_agent.config.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.addons.persistence.active import register_active, release_active
 from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.chrome import ComposerOverlay, TopBar
@@ -159,6 +159,7 @@ class CodingAgentApp(
         self._voice_active = False
         self._voice_timer = None
         self._voice_addon = None
+        self._voice_session = None
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
@@ -339,7 +340,12 @@ class CodingAgentApp(
     async def on_unmount(self) -> None:
         from coding_agent.tui.composer.voice_mode import close_voice_addon
 
-        close_voice_addon(self)
+        if self._voice_session is not None:
+            # A listen() still running in a thread worker would hold the mic.
+            self._voice_session.capture.close()
+        # Exiting: give the audio threads a bounded moment to release the
+        # devices instead of leaving them to interpreter shutdown.
+        close_voice_addon(self, timeout=2.0)
         release_active()
         harness = getattr(self._agent, "harness", None)
         shutdown_children = getattr(harness, "shutdown_children", None)

@@ -194,7 +194,7 @@ def test_command_attachments_are_rejected_without_inference(monkeypatch):
 
 def test_reload_refreshes_live_agent_configuration(monkeypatch, tmp_path):
     from coding_agent.protocols.stdio import commands
-    import coding_agent.credentials as credentials
+    import coding_agent.config.credentials as credentials
     called = []
     monkeypatch.setattr(credentials, "load_provider_env", lambda workspace, **kwargs: called.append("env"))
     config = SimpleNamespace(personality="warm")

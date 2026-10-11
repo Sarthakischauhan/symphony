@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.credentials import (
+from coding_agent.config.credentials import (
     global_env_path,
     load_provider_env,
     save_provider_key,
@@ -157,7 +157,7 @@ def test_load_provider_env_reads_global_when_workspace_missing(
 
 
 def test_reload_updates_file_values_but_preserves_process_overrides(tmp_path, monkeypatch):
-    import coding_agent.credentials as credentials
+    import coding_agent.config.credentials as credentials
     monkeypatch.setattr(credentials, "_LOADED_ENV", {})
     path = tmp_path / ".env"
     path.write_text("OPENAI_API_KEY=first\nANTHROPIC_API_KEY=file\n")

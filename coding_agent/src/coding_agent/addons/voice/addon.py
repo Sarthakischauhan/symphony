@@ -1,8 +1,9 @@
-"""Harness hook that speaks the model's own text while the run is going.
+"""Harness hook that speaks the summary through TTS.
 
-There is no canned line. ``feed`` is called with the assistant text as it
-streams, and a TTS socket speaks each finished sentence immediately. ``after_run``
-only flushes the tail and closes the mic socket.
+``feed`` keeps nothing: streamed assistant text is not dictated. The realtime
+socket only listens and speaks the short acknowledgement, then closes.
+``after_run`` speaks the spoken-summary section on a TTS socket, which stays
+open until that audio finishes.
 """
 
 from __future__ import annotations
@@ -25,13 +26,16 @@ class VoiceAddon(Addon):
         stream: VoiceStream | None = None,
         *,
         on_speaking: Any = None,
+        on_transcript: Any = None,
+        on_commit: Any = None,
     ) -> None:
-        self.stream = stream or VoiceStream(on_speaking=on_speaking)
+        self.stream = stream or VoiceStream(
+            on_speaking=on_speaking, on_transcript=on_transcript, on_commit=on_commit,
+        )
         self._open = False
-        self._speaker: StreamingSpeaker | None = None
         self._started_speech = False
         self._armed = False
-        self._playback: StreamingSpeaker | None = None
+        self._speaker: StreamingSpeaker | None = None
 
     def arm(self) -> None:
         """Opt in exactly one microphone-originated run; typed runs stay silent."""
@@ -46,21 +50,27 @@ class VoiceAddon(Addon):
         return None
 
     def open(self) -> str:
-        """Start the background stream. Returns an error string, or ``""``."""
+        """Start the background stream. Returns an error string, or ``""``.
+
+        A finished utterance closes its own socket, so the next listen starts
+        a new one instead of talking to a dead connection.
+        """
+        if self._open and not getattr(self.stream, "alive", True):
+            self._open = False
         if not self._open:
             self.stream.start()
             self._open = True
         return self.stream.error
 
-    def close(self) -> None:
+    def close(self, *, timeout: float = 0.0) -> None:
+        """Stop speech and the realtime socket. Waits up to ``timeout``."""
         self._armed = False
-        for speaker in (self._speaker, self._playback):
-            if speaker is not None:
-                speaker.close()
+        speaker = self._speaker
         self._speaker = None
-        self._playback = None
+        if speaker is not None:
+            speaker.close(timeout=timeout)
         if self._open:
-            self.stream.close()
+            self.stream.close(timeout=timeout)
         self._open = False
 
     def feed(self, text: str) -> None:
@@ -82,26 +92,18 @@ class VoiceAddon(Addon):
         # Only a question that arrived by voice is dictated. The flag lives on
         # the harness for the run and is copied onto its result.
         if not bool(getattr(result, "reply_aloud", False)):
-            self.stream.hold()
-            if self._open:
-                self.stream.close()
-            self._open = False
+            # A typed turn never speaks. The listen socket, if one is up,
+            # hangs up with the acknowledgement and is not held open here.
             return
         from coding_agent.tui.composer.voice import spoken_summary
 
         text = spoken_summary(str(getattr(result, "output_text", "") or ""))
-        speaker = self._speaker
-        self._speaker = None
-        if text:
-            if speaker is None:
-                speaker = StreamingSpeaker(on_speaking=getattr(self.stream, "_on_speaking", None))
-            speaker.finish(text)
-        elif speaker is not None:
-            speaker.close()
-            speaker = None
-        self._playback = speaker
-        self.stream.hold()
-        # The TTS tail must finish naturally. Explicit close cancels playback.
-        if self._open:
-            self.stream.close()
-        self._open = False
+        if not text:
+            return
+        # TTS, not another realtime socket. The realtime model speaks an
+        # acknowledgement and then its response.done tears the connection
+        # down, which was cutting this line off before it could be heard.
+        # The TTS socket stays up until audio.done and plays the MP3 itself.
+        speaker = StreamingSpeaker(on_speaking=getattr(self.stream, "_on_speaking", None))
+        speaker.finish(text)
+        self._speaker = speaker

@@ -8,7 +8,7 @@ generates it from `CodingAgentConfig` field defaults.
 Pass the settings path or a loaded `CodingAgentConfig` into `CodingAgent` /
 `CoreHarness`. Constructors do not take a long list of config kwargs.
 
-See [`coding_agent/config.example.json`](../../coding_agent/config.example.json)
+See [`config/coding_agent/config.example.json`](../../config/coding_agent/config.example.json)
 for the user-facing shape.
 
 Coding agents have no turn, tool-call, runtime, or token limit by default.
@@ -159,7 +159,10 @@ See [`docs/user-guide/langfuse.md`](langfuse.md).
 `personality` selects one named heading from `personalities.json`
 (`direct`, `bad_boy`, `caveman`, `precise`, `warm`). Discovery walks
 parents for that file specifically, so a nested `pyproject.toml` cannot
-hide a parent catalog; installer runs fall back to the packaged copy.
+hide a parent catalog; installer runs fall back to the packaged default
+at `coding_agent/config/personalities.json` inside the installed package.
+Drop your own `personalities.json` in the project (or any parent
+directory) to override it.
 The default is `"direct"`. Set it to `null` for the stock system prompt
 with no personality segment; unknown ids fail soft to the same stock
 prompt. `/personality` switches the heading immediately (config +

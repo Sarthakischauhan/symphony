@@ -47,10 +47,10 @@ from coding_agent.addons.evaluation import JEV_SYSTEM_SEGMENT
 from coding_agent.addons.learning import LearningLoop, LearningStore
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
 from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
-from coding_agent.personalities import compose_system_prompt
+from coding_agent.config.personalities import compose_system_prompt
 from coding_agent.addons.plan.store import PlanStore
 from coding_agent.addons.plugins import LoadedPlugin, PluginManager
-from coding_agent.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
+from coding_agent.config.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
 from coding_agent.tools import BashJobs, EnterPlanModeTool, ExitPlanModeTool, build_tools
 

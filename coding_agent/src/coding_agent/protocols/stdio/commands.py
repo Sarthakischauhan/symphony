@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from coding_agent.config import ensure_spawn_settings, symphony_dir
-from coding_agent.personalities import load_personalities
+from coding_agent.config.personalities import load_personalities
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
 from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
@@ -206,7 +206,7 @@ async def execute(agent: Any, value: str) -> str:
         entries = sorted(root.iterdir()) if root.exists() else []
         return "\n".join(path.name for path in entries) or "No active agents."
     if command == "reload":
-        from coding_agent.credentials import load_provider_env
+        from coding_agent.config.credentials import load_provider_env
 
         load_provider_env(agent.workspace, reload=True)
         agent.config = ensure_spawn_settings(agent.workspace)
