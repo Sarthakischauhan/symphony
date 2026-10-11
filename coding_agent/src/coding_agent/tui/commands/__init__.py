@@ -1,6 +1,6 @@
 """Slash-command catalogs and handlers for the coding-agent TUI."""
 
-from coding_agent.tui.commands.catalog import (
+from coding_agent.commands.catalog import (
     EFFORT_CATALOG,
     EFFORTS,
     MODE_CATALOG,

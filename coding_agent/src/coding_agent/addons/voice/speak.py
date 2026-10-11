@@ -19,7 +19,8 @@ import threading
 from typing import Callable
 from urllib.parse import urlencode
 
-from coding_agent.tui.composer.voice import GROK_TTS_VOICE, grok_voice_credentials
+from coding_agent.addons.voice.credentials import GROK_TTS_VOICE, grok_voice_credentials
+from coding_agent.addons.voice.playback import play_mp3
 
 TTS_URL = "wss://api.x.ai/v1/tts"
 SpeakListener = Callable[[bool], None]
@@ -237,8 +238,6 @@ class _Mp3Stream:
             # macOS has afplay and no ffplay or mpv. afplay cannot read an
             # MP3 stream, so the bytes were buffered above and never played.
             if self._buffer:
-                from coding_agent.tui.composer.voice import play_mp3
-
                 audio = bytes(self._buffer)
                 self._buffer.clear()
                 self._on_speaking(True)

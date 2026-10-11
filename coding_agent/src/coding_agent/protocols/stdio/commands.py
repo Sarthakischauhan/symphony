@@ -12,7 +12,7 @@ from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.config.personalities import load_personalities
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
-from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
+from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
 
 
 def catalog(workspace: Path | None = None) -> list[dict[str, Any]]:

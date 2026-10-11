@@ -186,7 +186,7 @@ def test_fallback_failure_resets_speaking(monkeypatch):
     marks = []
     player = speak._Mp3Stream(on_speaking=marks.append)
     player._buffer.extend(b"mp3")
-    monkeypatch.setattr("coding_agent.tui.composer.voice.play_mp3", Mock(side_effect=OSError("no audio")))
+    monkeypatch.setattr(speak, "play_mp3", Mock(side_effect=OSError("no audio")))
     with pytest.raises(OSError, match="no audio"):
         player.finish()
     assert marks == [True, False]

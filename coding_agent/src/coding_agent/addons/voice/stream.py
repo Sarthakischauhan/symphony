@@ -21,7 +21,7 @@ import threading
 from typing import Any, Callable
 from urllib.parse import urlencode
 
-from coding_agent.tui.composer.voice import GROK_TTS_VOICE, grok_voice_credentials
+from coding_agent.addons.voice.credentials import GROK_TTS_VOICE, grok_voice_credentials
 
 # The speech-to-speech model. Pinned: the "latest" alias is not what the
 # account is billed or served as, and a pin does not drift under a user.
