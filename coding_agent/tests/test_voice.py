@@ -97,6 +97,10 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
     from coding_agent.addons.voice.addon import VoiceAddon
 
     said: list[str] = []
+    monkeypatch.setattr(
+        "coding_agent.addons.voice.addon.StreamingSpeaker",
+        lambda **kwargs: type("Speaker", (), {"finish": lambda self, text="": said.append(text), "close": lambda self, timeout=0.0: None})(),
+    )
 
     class Stream:
         def __init__(self) -> None:

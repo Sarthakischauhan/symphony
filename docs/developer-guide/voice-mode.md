@@ -65,7 +65,7 @@ sequenceDiagram
 | --- | --- | --- |
 | Transcription | `POST https://api.x.ai/v1/stt`, HTTPS multipart | `model=grok-voice-transcribe-2.0`, `language=en`, WAV `file`; JSON `text`. Model fields precede file. 30s timeout. |
 | Realtime audio | `wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-2.0`, WebSocket JSON | `session.update` (no server VAD), base64 `input_audio_buffer.append`, then `input_audio_buffer.commit` and `response.create` after 3 s of quiet or Enter. Transcript deltas update the composer. The created response is one spoken acknowledgement. |
-| Spoken summary | Same realtime endpoint, a new WebSocket opened after the run | No microphone. `conversation.item.create` with the summary text, then `response.create` telling the model to say that sentence only. PCM comes back; the socket closes on `response.done`. The chat answer is not this audio. |
+| Spoken summary | `wss://api.x.ai/v1/tts`, WebSocket opened after the run | `voice=eve`, `language=en`, `codec=mp3`. One `text.delta` of the summary, then `text.done`. MP3 is played as it arrives; the socket stays up until `audio.done`. Not the realtime socket: that one closes on the acknowledgement and was cutting this line off. |
 | Coding model | Existing configured provider protocol | Unchanged: provider-specific streaming request, tools, approvals, persistence, and final response. |
 
 All xAI audio connections use a Bearer token: `XAI_API_KEY` takes precedence;
@@ -89,13 +89,13 @@ heading is still streaming, so the chat never displays it. Streamed deltas,
 tool output, and reasoning are not dictated. There is no canned
 "working on it" sentence.
 
-The acknowledgement and the summary are both PCM, on two short sockets. The
-listen socket closes when the acknowledgement finishes, so it is not held
-through the coding run. The summary socket opens with no microphone, speaks
-that one section, and closes on `response.done`. Playback writes one WAV when
-the response finishes, so the first sound is not the first visible token. A
-summary socket that closed on the acknowledgement's `response.done`, or that
-opened the microphone, never played the line.
+The acknowledgement is PCM from the realtime socket, which closes when that
+response finishes so it is not held through the coding run. The summary is
+MP3 from a separate TTS socket opened after the run. That socket stays open
+until `audio.done`, which is what the realtime socket would not do: its
+`response.done` arrived with the first audio and playback never got the line.
+Streaming MP3 starts as frames arrive, so the first sound is still not the
+first visible token.
 
 The voice addon stays registered but is armed for one voice turn only. Later
 typed turns and child harnesses stay silent. Cancellation/quit closes voice
@@ -111,18 +111,18 @@ There is no separate voice bar and no composer hide/show transition.
   STT client, border colors, and the spoken-summary splitter.
 - `tui/composer/voice_mode.py`: user entry, live transcript, commit on pause
   or Enter, and UI recovery.
-- `addons/voice/addon.py`: per-run opt-in. Speaks the summary on the realtime
-  socket and never opens TTS.
-- `addons/voice/stream.py`: the one speech-to-speech socket, microphone, and
-  PCM playback. `speak.py` is the unused TTS helper and is not on this path.
+- `addons/voice/addon.py`: per-run opt-in. Speaks the summary through TTS
+  after the run, not on the realtime socket.
+- `addons/voice/stream.py`: the listen socket, microphone, and acknowledgement
+  playback. `speak.py` is the TTS socket used for the summary.
 
 One listen is one utterance. Audio is appended while the user speaks, and the
 composer shows transcript deltas as they arrive, on the same socket. The turn
 starts when the speaker has been quiet for 3 seconds, or when they press
 Enter (Ctrl+A does the same). Escape cancels without submitting. The
 realtime model speaks a brief acknowledgement on commit, then the socket
-closes. After the run, a new short connection speaks the spoken-summary
-section and nothing else, then closes too. That spoken line is not the chat
+closes. After the run, TTS speaks the spoken-summary section and nothing
+else. That spoken line is not the chat
 answer. A voice utterance while a turn is already running is queued in the
 composer and sent when the current run finishes. Audio is sent to xAI, and
 the summary can contain workspace information. Input/output

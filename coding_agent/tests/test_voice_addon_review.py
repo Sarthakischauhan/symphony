@@ -5,6 +5,18 @@ from types import SimpleNamespace
 from coding_agent.addons.voice import addon as module
 
 
+class _Speaker:
+    def __init__(self, stream):
+        self._stream = stream
+
+    def finish(self, text=""):
+        if text:
+            self._stream.said.append(text)
+
+    def close(self, *, timeout=0.0):
+        self._stream.closed = True
+
+
 class FakeStream:
     error = ""
     _on_speaking = None
@@ -26,8 +38,9 @@ class FakeStream:
         self.closed = True
 
 
-def test_typed_turn_stays_silent_after_voice_turn():
+def test_typed_turn_stays_silent_after_voice_turn(monkeypatch):
     stream = FakeStream()
+    monkeypatch.setattr(module, "StreamingSpeaker", lambda **kwargs: _Speaker(stream))
     addon = module.VoiceAddon(stream=stream)
     addon.arm()
     addon._open = True
@@ -47,8 +60,9 @@ def test_typed_turn_stays_silent_after_voice_turn():
     assert stream.closed
 
 
-def test_rearming_speaks_each_summary_on_the_same_socket():
+def test_rearming_speaks_each_summary_on_the_same_socket(monkeypatch):
     stream = FakeStream()
+    monkeypatch.setattr(module, "StreamingSpeaker", lambda **kwargs: _Speaker(stream))
     addon = module.VoiceAddon(stream=stream)
     for text in ("First", "Second"):
         addon.arm()
