@@ -10,6 +10,7 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import Any, Mapping
 
+from coding_agent.commands.catalog import EFFORTS
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.protocols.stdio import commands as command_module
 from coding_agent.protocols.stdio.commands import load_state
@@ -34,8 +35,6 @@ def _request_id(command: Mapping[str, Any], kind: str) -> str | None:
 async def _run_turn(agent: Any, prompt: str, attachments: Sequence[str], effort: str | None) -> None:
     try:
         if effort is not None:
-            from coding_agent.tui.commands.catalog import EFFORTS
-
             if effort not in EFFORTS:
                 raise ValueError(f"Unsupported reasoning effort: {effort}")
             agent.harness.reasoning_effort = None if effort == "default" else effort

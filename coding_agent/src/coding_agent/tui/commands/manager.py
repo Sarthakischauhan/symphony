@@ -30,7 +30,7 @@ from coding_agent.tui.screens import (
     PlanModal,
     ProviderOnboardScreen,
 )
-from coding_agent.tui.commands.catalog import (
+from coding_agent.commands.catalog import (
     EFFORT_CATALOG,
     MODE_CATALOG,
     SLASH_COMMANDS,

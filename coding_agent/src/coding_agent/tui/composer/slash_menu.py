@@ -10,7 +10,7 @@ from textual import events
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
-from coding_agent.tui.commands.catalog import (
+from coding_agent.commands.catalog import (
     EffortOption,
     ModeOption,
     ModelOption,

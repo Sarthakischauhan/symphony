@@ -14,6 +14,7 @@ from core_harness.addons.addon import Addon
 
 from coding_agent.addons.voice.speak import StreamingSpeaker
 from coding_agent.addons.voice.stream import VoiceStream
+from coding_agent.addons.voice.summary import spoken_summary
 
 
 class VoiceAddon(Addon):
@@ -95,8 +96,6 @@ class VoiceAddon(Addon):
             # A typed turn never speaks. The listen socket, if one is up,
             # hangs up with the acknowledgement and is not held open here.
             return
-        from coding_agent.tui.composer.voice import spoken_summary
-
         text = spoken_summary(str(getattr(result, "output_text", "") or ""))
         if not text:
             return

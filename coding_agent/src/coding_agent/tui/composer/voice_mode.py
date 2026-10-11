@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from coding_agent.addons.voice.credentials import UnavailableVoice
 from coding_agent.config.credentials import OFFLINE_HINT
 from coding_agent.tui.composer.input import Composer, PromptInput, QueuedTurn
 from coding_agent.tui.composer.voice import (
@@ -16,7 +17,6 @@ from coding_agent.tui.composer.voice import (
     GrokVoiceTranscriber,
     MicrophoneCapture,
     VOICE_BLINK_INTERVAL_S,
-    UnavailableVoice,
     VoiceCapture,
     VoiceTranscriber,
 )

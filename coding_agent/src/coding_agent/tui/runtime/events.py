@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
+from coding_agent.addons.voice.summary import split_spoken_summary
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.transcript.messages import preview_text
@@ -415,8 +416,6 @@ class EventPresenter:
             # Install the authoritative final response while the process is
             # still open; finish_assistant() then freezes it as Markdown.
             # A voice run's spoken section is dictated, never shown.
-            from coding_agent.tui.composer.voice import split_spoken_summary
-
             final_output, _spoken = split_spoken_summary(final_output)
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
@@ -539,8 +538,6 @@ class EventPresenter:
             self.state.stream_text = ""
         self.state.append_text(delta)
         self._assistant_open = True
-        from coding_agent.tui.composer.voice import split_spoken_summary
-
         visible, _spoken = split_spoken_summary(self.state.stream_text)
         self._buffer_assistant(visible, new=is_new)
         speak = getattr(self.view, "feed_voice", None)

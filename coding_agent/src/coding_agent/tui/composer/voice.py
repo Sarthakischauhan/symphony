@@ -1,18 +1,27 @@
-"""Voice capture, xAI transcription, and audio playback helpers."""
+"""Voice capture and xAI transcription for the TUI composer.
+
+Credentials, the spoken-summary split, and MP3 playback belong to the voice
+add-on (``coding_agent.addons.voice``); this module imports them from there.
+"""
 
 from __future__ import annotations
 
-import os
 import threading
 from typing import Any, Protocol
+
+from coding_agent.addons.voice.credentials import (
+    GROK_TTS_VOICE,
+    XAI_AUDIO_BASE_URL,
+    UnavailableVoice,
+    grok_voice_credentials,
+)
+from coding_agent.addons.voice.summary import spoken_text
 
 # Speech-to-text model. The realtime alias is not accepted by POST /v1/stt.
 # Transcribe 2.0 is the STT model xAI documents as the default. The chat
 # model is never switched.
 GROK_VOICE_MODEL = "grok-voice-transcribe-2.0"
 GROK_VOICE_FULL_ID = f"grok:{GROK_VOICE_MODEL}"
-# Built-in TTS voice. eve is the API default.
-GROK_TTS_VOICE = "eve"
 
 # Alternate the composer border every half second.
 VOICE_BLINK_INTERVAL_S = 0.5
@@ -33,36 +42,6 @@ class VoiceCapture(Protocol):
 
     def close(self) -> None:
         """Release the microphone; a blocked ``listen`` returns ``None`` soon after."""
-
-
-class UnavailableVoice(RuntimeError):
-    """Raised when the microphone or the Grok voice model cannot be reached."""
-
-
-# The Grok CLI chat proxy only serves chat models. ``/chat/completions`` there
-# is a 404, so voice audio goes to the xAI audio endpoint. The bearer is still
-# the same device-login token a ``grok:`` model call uses.
-XAI_AUDIO_BASE_URL = "https://api.x.ai/v1"
-
-
-def grok_voice_credentials() -> tuple[str, dict[str, str]]:
-    """Bearer and extra headers for one voice transcription.
-
-    An ``XAI_API_KEY`` wins, same as model calls. Otherwise the stored xAI
-    device login is reused. The chat-proxy base URL is not used: it has no
-    audio route.
-    """
-    api_key = os.getenv("XAI_API_KEY", "").strip()
-    if api_key:
-        return api_key, {}
-    from core_ai.oauth.runtime import oauth_runtime_for
-
-    runtime = oauth_runtime_for("grok")
-    if runtime is None or not runtime.api_key:
-        raise UnavailableVoice(
-            "Voice mode needs a Grok sign-in. Run /provider and choose xAI, or set XAI_API_KEY."
-        )
-    return runtime.api_key, dict(runtime.extra_headers)
 
 
 def transcript_text(body: dict[str, Any]) -> str:
@@ -114,72 +93,6 @@ class GrokVoiceTranscriber:
         return transcript_text(response.json())
 
 
-# Spoken replies stay short so a long tool report is not read in full.
-SPOKEN_REPLY_LIMIT = 600
-
-
-_SPOKEN_SUMMARY = "## Spoken summary"
-
-
-def split_spoken_summary(text: str) -> tuple[str, str]:
-    """Separate the chat answer from the trailing spoken section.
-
-    The heading is only for TTS. A heading that is still being typed stays
-    out of the chat as well, so the customer never sees it appear.
-    """
-    lowered = text.lower()
-    marker = lowered.rfind(_SPOKEN_SUMMARY.lower())
-    if marker < 0:
-        partial = _partial_heading(lowered)
-        if partial:
-            return text[: len(text) - partial].rstrip(), ""
-        return text, ""
-    return text[:marker].rstrip(), text[marker + len(_SPOKEN_SUMMARY):].strip()
-
-
-def _partial_heading(lowered: str) -> int:
-    """How many trailing characters are an unfinished ``## Spoken summary``."""
-    heading = _SPOKEN_SUMMARY.lower()
-    tail = lowered.rstrip()
-    trimmed = len(lowered) - len(tail)
-    for size in range(min(len(heading) - 1, len(tail)), 1, -1):
-        if tail.endswith(heading[:size]):
-            return size + trimmed
-    return 0
-
-
-def spoken_summary(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
-    """The summary the model wrote into its final answer, ready for TTS.
-
-    The section is part of the same response, not a later call. If the model
-    left it out, nothing is spoken: reading the answer aloud would dictate
-    the whole output.
-    """
-    _answer, section = split_spoken_summary(text)
-    if not section:
-        return ""
-    return spoken_text(section, limit=limit)
-
-
-def spoken_text(text: str, *, limit: int = SPOKEN_REPLY_LIMIT) -> str:
-    """Plain text safe to send to TTS. Markup and fences are dropped."""
-    cleaned = text.strip()
-    if not cleaned:
-        return ""
-    kept: list[str] = []
-    in_fence = False
-    for line in cleaned.splitlines():
-        if line.strip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if not in_fence and line.strip():
-            kept.append(line.strip())
-    cleaned = " ".join(kept)
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 1].rstrip() + "…"
-
-
 def synthesize_speech(text: str, *, voice_id: str = GROK_TTS_VOICE) -> bytes:
     """Turn a reply into MP3 bytes via POST /v1/tts. Empty text yields no audio."""
     spoken = spoken_text(text)
@@ -208,41 +121,6 @@ def synthesize_speech(text: str, *, voice_id: str = GROK_TTS_VOICE) -> bytes:
             f"Voice playback failed · {exc.response.status_code}{suffix}"
         ) from exc
     return response.content
-
-
-def play_mp3(audio: bytes) -> None:
-    """Play MP3 bytes on the default output. No extra audio package required."""
-    if not audio:
-        return
-    import subprocess
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as handle:
-        handle.write(audio)
-        path = handle.name
-    try:
-        player = _mp3_player(path)
-        if player is None:
-            raise UnavailableVoice("No audio player found to speak the reply.")
-        subprocess.run(player, check=False, capture_output=True, timeout=120)
-    finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-
-
-def _mp3_player(path: str) -> list[str] | None:
-    import shutil
-    import sys
-
-    if sys.platform == "darwin" and shutil.which("afplay"):
-        return ["afplay", path]
-    if shutil.which("ffplay"):
-        return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path]
-    if shutil.which("mpv"):
-        return ["mpv", "--no-video", "--really-quiet", path]
-    return None
 
 
 def _load_sounddevice() -> Any:

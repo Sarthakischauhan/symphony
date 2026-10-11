@@ -163,7 +163,7 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
 
 
 def test_spoken_text_strips_fences_and_limits_length() -> None:
-    from coding_agent.tui.composer.voice import split_spoken_summary, spoken_summary, spoken_text
+    from coding_agent.addons.voice.summary import split_spoken_summary, spoken_summary, spoken_text
 
     answer = "Renamed the helper.\n\n## Spoken summary\nI renamed the helper and updated its callers."
     assert spoken_summary(answer) == "I renamed the helper and updated its callers."
