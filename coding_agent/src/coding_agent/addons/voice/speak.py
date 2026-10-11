@@ -178,8 +178,10 @@ class StreamingSpeaker:
                 break
             elif kind == "error":
                 self._error = str(event.get("message") or "voice playback failed")
-                return
-        # Draining playback may block; keep the socket loop responsive to close().
+                break
+        # Always finish. An error or a missing streaming player leaves the MP3
+        # in the buffer, and finish() plays that file. Returning early was
+        # dropping it.
         await asyncio.to_thread(player.finish)
 
     def _mark(self, speaking: bool) -> None:
@@ -232,6 +234,8 @@ class _Mp3Stream:
     def finish(self) -> None:
         process = self._process
         if process is None:
+            # macOS has afplay and no ffplay or mpv. afplay cannot read an
+            # MP3 stream, so the bytes were buffered above and never played.
             if self._buffer:
                 from coding_agent.tui.composer.voice import play_mp3
 
