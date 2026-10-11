@@ -2981,6 +2981,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
             model_id="openai:reloaded-model",
             reasoning_effort=None,
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
+            find_addon=lambda _kind: None,
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
         learning_loop=None,
