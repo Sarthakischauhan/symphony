@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import tomllib
 from dataclasses import dataclass
 from importlib.resources import files
@@ -311,11 +312,19 @@ def apply_theme(document: ThemeDocument) -> None:
     APP_CSS = document.app_css
 
 
-def theme_signature(path: Path | None = None) -> tuple[str, int] | None:
-    """Identity of the theme file currently in effect, or None when unreadable."""
+def theme_signature(path: Path | None = None) -> tuple[str, tuple[int, int, str]] | None:
+    """Identity of the theme file currently in effect, or None when unreadable.
+
+    The second item is ``(st_mtime_ns, st_size, sha256 of the bytes)``. The
+    mtime alone misses a rewrite that lands in the same filesystem timestamp
+    tick, and the size misses a same-length edit such as a changed hex color,
+    so the content digest decides those. The file is a few KB, so hashing it
+    on every poll is cheap.
+    """
     try:
         resolved = resolve_theme_path(path)
         stat = resolved.stat()
+        digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
     except (OSError, ThemeConfigError):
         return None
-    return (str(resolved), stat.st_mtime_ns)
+    return (str(resolved), (stat.st_mtime_ns, stat.st_size, digest))
