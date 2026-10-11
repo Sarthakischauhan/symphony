@@ -445,15 +445,15 @@ class VoiceStream:
                     # Play once. Some sessions send audio.done and then
                     # response.done; some send only response.done. The second
                     # call finds an empty buffer and does not cut the WAV.
-                    player.finish()
-                    # The line is complete. Hang up so the minute rate is not
-                    # billed through the coding run. The next listen, and the
-                    # spoken summary, each open their own short connection.
-                    if self._stop is not None:
+                    # Hang up only after playback has started. The socket
+                    # close that follows must not be what stops the sound.
+                    if player.finish() and self._stop is not None:
                         self._stop.set()
         finally:
-            player.close()
-            self._set_speaking(False)
+            # release() drops only audio that never got a done event. Playback
+            # that just started keeps running; close() would kill afplay and
+            # delete the WAV before the summary could be heard.
+            player.release()
 
     def _take_transcript(self, event: dict[str, Any], *, final: bool) -> None:
         """Publish the words heard so far. Deltas arrive while the user speaks."""
@@ -528,21 +528,24 @@ class _PcmPlayer:
             if not self._closed:
                 self._pcm.extend(pcm)
 
-    def finish(self) -> None:
+    def finish(self) -> bool:
+        """Start playback of the audio gathered so far. True once it is playing."""
         with self._lock:
             # audio.done and response.done can both arrive. Play whatever has
             # arrived, once; the second call sees an empty buffer and leaves
             # the player that is already running alone.
             pcm = bytes(self._pcm)
             self._pcm.clear()
+            if self._player is not None:
+                return True
             if not pcm or self._closed:
-                return
+                return False
             self._stop_player()
             path = _write_wav(pcm)
             try:
                 command = _wav_command(path)
                 if command is None:
-                    return
+                    return False
                 process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 self._player = process
                 self._path = path
@@ -552,6 +555,7 @@ class _PcmPlayer:
                 if self._path != path:
                     with contextlib.suppress(OSError):
                         os.remove(path)
+            return self._player is not None
 
     def _wait(self, process: subprocess.Popen[bytes], path: str) -> None:
         try:
@@ -584,9 +588,22 @@ class _PcmPlayer:
         if process is not None:
             self._on_speaking(False)
 
-    def close(self) -> None:
+    def release(self) -> None:
+        """Drop audio that was never finished. Leave a playing WAV alone.
+
+        The socket closing is not the user cancelling. Killing the player here
+        is what made the spoken summary silent: finish() had just started
+        afplay, and this deleted its file.
+        """
         with self._lock:
             if self._closed:
+                return
+            self._closed = True
+            self._pcm.clear()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed and self._player is None:
                 return
             self._closed = True
             self._pcm.clear()

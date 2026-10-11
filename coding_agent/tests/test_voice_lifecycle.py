@@ -402,6 +402,8 @@ def test_summary_speaks_without_a_mic_and_plays_on_response_done(monkeypatch):
         time.sleep(0.01)
     assert b"\x00\x01" in played[0]
     assert FakeInput.opened == 0
+    # The socket closing after response.done must not be what stops the sound.
+    # close() is the user's cancel, and that one does stop playback.
     voice.close(timeout=2)
 
 

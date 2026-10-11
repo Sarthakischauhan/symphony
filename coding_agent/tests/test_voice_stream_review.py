@@ -116,6 +116,9 @@ def test_response_done_closes_the_socket(monkeypatch):
             pass
 
         def finish(self):
+            return True
+
+        def release(self):
             pass
 
         def close(self):
@@ -241,12 +244,17 @@ def test_playback_duplicate_done_replacement_and_close(monkeypatch, tmp_path):
     player = module._PcmPlayer(on_speaking=states.append)
     player.write(b"\0\0")
     player.finish()
+    # A second done is the same response, not a new one. It must not kill
+    # the player that just started.
     player.finish()
     assert states == [True]
-    player.write(b"\0\0")
-    player.finish()
+    assert not processes[0].killed
+    player.close()
     assert processes[0].killed and processes[0].waits
     assert not paths[0].exists()
+    player._closed = False
+    player.write(b"\0\0")
+    player.finish()
     player.close()
     player.close()
     assert processes[1].killed and processes[1].waits
