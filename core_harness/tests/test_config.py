@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -49,6 +50,25 @@ def test_load_harness_config_ignores_removed_context_settings(tmp_path: Path) ->
     assert not hasattr(config, "tool_output_dir")
     assert not hasattr(config, "tool_result_prune_tokens")
     assert not hasattr(config, "context_compact_threshold")
+
+
+def test_removed_context_settings_log_a_deprecation_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"max_turns": 3, "tool_output_dir": "/tmp/x", "compaction_keep_recent": 10}), encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="core_harness.config"):
+        config = load_harness_config(path)
+    assert config.max_turns == 3
+    messages = [record.getMessage() for record in caplog.records if record.name == "core_harness.config"]
+    assert len(messages) == 1
+    assert "compaction_keep_recent, tool_output_dir" in messages[0]
+
+
+def test_current_settings_do_not_log_a_deprecation_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"max_turns": 3}), encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="core_harness.config"):
+        load_harness_config(path)
+    assert not [record for record in caplog.records if record.name == "core_harness.config"]
 
 
 def test_load_harness_config_reads_nested_harness_section(tmp_path: Path) -> None:

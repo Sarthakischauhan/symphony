@@ -15,6 +15,13 @@ The setting is stored as `SYMPHONY_<PROVIDER>_AUTH` in `~/.symphony/.env`.
 You can also select explicitly with `SYMPHONY_OPENAI_AUTH=oauth` (or `key`),
 and similarly for Anthropic or Grok.
 
+## Symphony paths
+
+| Variable | Role |
+| --- | --- |
+| `SYMPHONY_HOME` | User-wide data and config directory used instead of `~/.symphony` (config, `.env`, OAuth tokens, sessions). The process home is not changed. |
+| `SYMPHONY_BENCH_CONFIG` | Path to the `symphony-bench` config TOML. Checked before `/opt/symphony/bench/config.toml` and the repo's `bench/config.toml`. |
+
 
 ## Provider credentials
 
@@ -96,6 +103,7 @@ can list them. They are not added to the checked-in models.dev snapshot.
 | `LANGFUSE_PUBLIC_KEY` | Langfuse project public key (`pk-lf-...`) |
 | `LANGFUSE_SECRET_KEY` | Langfuse project secret key (`sk-lf-...`) |
 | `LANGFUSE_BASE_URL` | Cloud region or self-hosted URL (default `https://cloud.langfuse.com`) |
+| `LANGFUSE_HOST` | Same as `LANGFUSE_BASE_URL` (the Langfuse SDK's name); used only when `LANGFUSE_BASE_URL` is unset |
 
 Both keys must be set or `LangfuseAddon` stays silent. The Python SDK is an
 optional extra (`symphony-code[langfuse]`); `/langfuse` in the TUI installs it
