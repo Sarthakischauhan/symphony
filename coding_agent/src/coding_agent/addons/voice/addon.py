@@ -1,8 +1,9 @@
-"""Harness hook that speaks on the same speech-to-speech socket.
+"""Harness hook that speaks the summary on its own short realtime socket.
 
-``feed`` keeps nothing: streamed assistant text is not dictated. ``after_run``
-speaks only the spoken-summary section, through the realtime socket that
-already acknowledged the user. There is no second TTS connection.
+``feed`` keeps nothing: streamed assistant text is not dictated. The listen
+socket closes after its acknowledgement. ``after_run`` opens a mic-less
+socket, speaks only the spoken-summary section, and that socket closes when
+the line has played. There is no TTS connection.
 """
 
 from __future__ import annotations
@@ -47,7 +48,13 @@ class VoiceAddon(Addon):
         return None
 
     def open(self) -> str:
-        """Start the background stream. Returns an error string, or ``""``."""
+        """Start the background stream. Returns an error string, or ``""``.
+
+        A finished utterance closes its own socket, so the next listen starts
+        a new one instead of talking to a dead connection.
+        """
+        if self._open and not getattr(self.stream, "alive", True):
+            self._open = False
         if not self._open:
             self.stream.start()
             self._open = True
@@ -79,20 +86,20 @@ class VoiceAddon(Addon):
         # Only a question that arrived by voice is dictated. The flag lives on
         # the harness for the run and is copied onto its result.
         if not bool(getattr(result, "reply_aloud", False)):
-            # Typed turns stay silent, but the socket stays up for the next
-            # voice question. Closing it here made the following turn reopen.
-            self.stream.hold()
+            # A typed turn never speaks. The listen socket, if one is up,
+            # hangs up with the acknowledgement and is not held open here.
             return
         from coding_agent.tui.composer.voice import spoken_summary
 
         text = spoken_summary(str(getattr(result, "output_text", "") or ""))
-        # Same socket that heard the user. The spoken line is the summary,
-        # not the chat answer, and no TTS socket is opened for it.
-        if text:
-            self.stream.hold()
-            self.stream.say(text)
+        if not text:
             return
-        self.stream.hold()
-        if self._open:
-            self.stream.close()
-        self._open = False
+        # The summary is its own short connection and does not open the mic.
+        # The listen socket already closed after the acknowledgement. say()
+        # queues the line first so a session that is still connecting speaks
+        # it instead of dropping it. That socket closes when the audio ends.
+        self.stream.say(text)
+        if not getattr(self.stream, "alive", True):
+            self._open = False
+            self.stream.start(speak_only=True)
+            self._open = True

@@ -34,9 +34,6 @@ def toggle_voice(app: Any) -> None:
     if getattr(app, "_voice_active", False):
         commit_voice(app)
         return
-    if getattr(app, "_busy", False):
-        app.add_notice("Voice mode is unavailable while a turn is running.", "warning")
-        return
     if getattr(app, "_agent", None) is None:
         app.add_notice(OFFLINE_HINT, "error")
         return
@@ -83,9 +80,16 @@ def start_voice(
 
 
 def _uses_clip_path() -> bool:
-    """True when a test replaced the recorder this module imported."""
+    """True when a test replaced the recorder, here or on the voice module.
+
+    ``/voice`` calls this function. A patch of the names above is invisible
+    to it unless the lookup happens at call time.
+    """
+    import coding_agent.tui.composer.voice as voice
+
     return (
-        MicrophoneCapture is not _CLIP_CAPTURE or GrokVoiceTranscriber is not _CLIP_TRANSCRIBER
+        voice.MicrophoneCapture is not _CLIP_CAPTURE
+        or voice.GrokVoiceTranscriber is not _CLIP_TRANSCRIBER
     )
 
 
@@ -135,10 +139,12 @@ def _start_clip_session(
     app: Any, capture: VoiceCapture | None, transcriber: VoiceTranscriber | None,
 ) -> None:
     """Test path: one local recording, then the scripted transcript."""
-    app._voice_capture = capture if capture is not None else MicrophoneCapture()
+    import coding_agent.tui.composer.voice as voice
+
+    app._voice_capture = capture if capture is not None else voice.MicrophoneCapture()
     session = VoiceSession(app._voice_capture)
     app._voice_session = session
-    app._voice_transcriber = transcriber if transcriber is not None else GrokVoiceTranscriber()
+    app._voice_transcriber = transcriber if transcriber is not None else voice.GrokVoiceTranscriber()
     app.run_worker(
         lambda: _listen(app, app._voice_capture, app._voice_transcriber, session),
         exclusive=True, group="voice", thread=True,
@@ -327,8 +333,11 @@ def submit_voice_turn(app: Any, text: str) -> None:
     # mounts its own copy in the conversation.
     _show_voice_transcript(app, "")
     turn = QueuedTurn(text, text, (), (), voice=True)
+    # A turn already running keeps this one. It shows in the queue and starts
+    # when the current run finishes, the same as a typed message would.
     if app._busy:
         app.queue_turn(turn)
+        _restore_composer(app)
         return
     app._start_turn(turn)
 

@@ -4,10 +4,11 @@ Voice mode is an optional Symphony TUI feature, entered with **Ctrl+A** or
 `/voice`. It does not change the coding model. Listening is one realtime
 socket: mic audio goes up as the user speaks, transcript deltas come back
 immediately, and the utterance is committed after a 3 second pause or Enter.
-That one socket speaks both lines: a short acknowledgement when the
-utterance is committed, and later only the spoken summary. The written
-answer stays in the chat and is not dictated. There is no separate TTS or
-STT connection on this path.
+Listening uses one speech-to-speech socket, `grok-voice-think-fast-2.0`.
+It hangs up when the acknowledgement finishes, so the coding run is not
+billed as voice time. The spoken summary opens its own short connection on
+the same model and hangs up when that line finishes. The written answer
+stays in the chat and is not dictated. There is no TTS or STT connection.
 
 ## Call and protocol map
 
@@ -26,7 +27,7 @@ sequenceDiagram
     User->>UI: Ctrl+A or /voice
     UI->>UI: Guard busy or offline, blink composer border
     UI->>Addon: Open the realtime socket and arm one voice turn
-    Addon->>RT: Connect grok-voice-latest
+    Addon->>RT: Connect grok-voice-think-fast-2.0
     Addon->>RT: session.update, voice eve, PCM 24 kHz, no server VAD
     loop While the user speaks
         UI->>RT: input_audio_buffer.append (one PCM block)
@@ -63,8 +64,8 @@ sequenceDiagram
 | Purpose | Endpoint / transport | Request and response |
 | --- | --- | --- |
 | Transcription | `POST https://api.x.ai/v1/stt`, HTTPS multipart | `model=grok-voice-transcribe-2.0`, `language=en`, WAV `file`; JSON `text`. Model fields precede file. 30s timeout. |
-| Realtime audio | `wss://api.x.ai/v1/realtime?model=grok-voice-latest`, WebSocket JSON | `session.update` (no server VAD), base64 `input_audio_buffer.append`, then `input_audio_buffer.commit` and `response.create` after 3 s of quiet or Enter. Transcript deltas update the composer. The created response is one spoken acknowledgement. |
-| Spoken summary | Same realtime socket | `conversation.item.create` with the summary text, then `response.create` telling the model to say that sentence only. PCM comes back on the socket already open. The chat answer is not this audio. |
+| Realtime audio | `wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-2.0`, WebSocket JSON | `session.update` (no server VAD), base64 `input_audio_buffer.append`, then `input_audio_buffer.commit` and `response.create` after 3 s of quiet or Enter. Transcript deltas update the composer. The created response is one spoken acknowledgement. |
+| Spoken summary | Same realtime endpoint, a new WebSocket opened after the run | No microphone. `conversation.item.create` with the summary text, then `response.create` telling the model to say that sentence only. PCM comes back; the socket closes on `response.done`. The chat answer is not this audio. |
 | Coding model | Existing configured provider protocol | Unchanged: provider-specific streaming request, tools, approvals, persistence, and final response. |
 
 All xAI audio connections use a Bearer token: `XAI_API_KEY` takes precedence;
@@ -88,9 +89,13 @@ heading is still streaming, so the chat never displays it. Streamed deltas,
 tool output, and reasoning are not dictated. There is no canned
 "working on it" sentence.
 
-The acknowledgement and the summary are both PCM from the same socket.
-Playback writes one WAV when that response finishes, so the first sound is
-not the first visible token.
+The acknowledgement and the summary are both PCM, on two short sockets. The
+listen socket closes when the acknowledgement finishes, so it is not held
+through the coding run. The summary socket opens with no microphone, speaks
+that one section, and closes on `response.done`. Playback writes one WAV when
+the response finishes, so the first sound is not the first visible token. A
+summary socket that closed on the acknowledgement's `response.done`, or that
+opened the microphone, never played the line.
 
 The voice addon stays registered but is armed for one voice turn only. Later
 typed turns and child harnesses stay silent. Cancellation/quit closes voice
@@ -115,10 +120,12 @@ One listen is one utterance. Audio is appended while the user speaks, and the
 composer shows transcript deltas as they arrive, on the same socket. The turn
 starts when the speaker has been quiet for 3 seconds, or when they press
 Enter (Ctrl+A does the same). Escape cancels without submitting. The
-realtime model speaks a brief acknowledgement on commit. After the run, the
-same socket speaks the spoken-summary section and nothing else. That spoken
-line is not the chat answer. Audio is sent to xAI, and the summary can
-contain workspace information. Input/output
+realtime model speaks a brief acknowledgement on commit, then the socket
+closes. After the run, a new short connection speaks the spoken-summary
+section and nothing else, then closes too. That spoken line is not the chat
+answer. A voice utterance while a turn is already running is queued in the
+composer and sent when the current run finishes. Audio is sent to xAI, and
+the summary can contain workspace information. Input/output
 language is currently hardcoded to English. `sounddevice` is optional and
 first use tries to install it in the running interpreter; PortAudio/device
 availability and a local player are also required. The older local WAV

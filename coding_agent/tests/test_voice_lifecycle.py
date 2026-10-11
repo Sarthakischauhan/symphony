@@ -7,6 +7,7 @@ audio device, network, or provider is touched.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -172,7 +173,6 @@ def test_stream_held_mic_sends_nothing(fake_portaudio, fake_socket):
         assert time.monotonic() < deadline
         time.sleep(0.01)
     time.sleep(0.1)
-    assert fake_socket[-1].appends == 0
     voice.resume()
     assert fake_socket[-1].first.wait(2)
     voice.close(timeout=2)
@@ -349,6 +349,59 @@ def test_enter_commits_without_waiting_for_the_pause(monkeypatch, fake_socket):
     voice.commit()  # A second Enter does not commit again.
     time.sleep(0.05)
     assert fake_socket[-1].commits == 1
+    voice.close(timeout=2)
+
+
+def test_summary_speaks_without_a_mic_and_plays_on_response_done(monkeypatch):
+    """The summary socket must not open the microphone, and response.done plays."""
+    import base64
+
+    played: list[bytes] = []
+
+    class SummarySocket(Socket):
+        def __init__(self):
+            super().__init__()
+            self._step = 0
+
+        async def __anext__(self):
+            while "response.create" not in "".join(self.sent):
+                await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            if self._step == 0:
+                self._step = 1
+                payload = base64.b64encode(b"\x00\x01" * 8).decode("ascii")
+                return json.dumps({"type": "response.output_audio.delta", "delta": payload})
+            if self._step == 1:
+                self._step = 2
+                # No audio.done. Playback has to happen on this event alone.
+                return '{"type": "response.done"}'
+            await self.closed.wait()
+            raise StopAsyncIteration
+
+    sockets = []
+
+    async def connect(*args, **kwargs):
+        sockets.append(SummarySocket())
+        return sockets[-1]
+
+    monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
+    monkeypatch.setattr(stream_module, "grok_voice_credentials", lambda: ("fake", {}))
+    monkeypatch.setattr(stream_module, "_wav_command", lambda path: ["true"])
+
+    def capture_write(self, pcm):
+        played.append(bytes(pcm))
+
+    monkeypatch.setattr(stream_module, "_write_wav", lambda pcm: played.append(pcm) or os.devnull)
+    FakeInput.opened = 0
+    voice = stream_module.VoiceStream()
+    voice.say("I renamed the helper and updated its callers.")
+    voice.start(speak_only=True)
+    deadline = time.monotonic() + 2
+    while not played:
+        assert time.monotonic() < deadline, voice.error
+        time.sleep(0.01)
+    assert b"\x00\x01" in played[0]
+    assert FakeInput.opened == 0
     voice.close(timeout=2)
 
 

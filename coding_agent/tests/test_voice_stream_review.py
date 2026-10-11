@@ -110,7 +110,7 @@ def test_session_always_cleans_up(monkeypatch, failure):
     assert bool(voice.error) == (failure != "disconnect")
 
 
-def test_response_done_keeps_session_open(monkeypatch):
+def test_response_done_closes_the_socket(monkeypatch):
     class Player:
         def __init__(self, **kwargs):
             pass
@@ -134,7 +134,9 @@ def test_response_done_keeps_session_open(monkeypatch):
         voice = module.VoiceStream()
         voice._stop = asyncio.Event()
         await voice._pump_events(Socket())
-        assert not voice._stop.is_set()
+        # A finished spoken line hangs up. The minute rate must not run
+        # through the rest of the coding turn.
+        assert voice._stop.is_set()
 
     asyncio.run(run())
 

@@ -1,8 +1,9 @@
-"""One background speech-to-speech socket for the life of a voice session.
+"""One background speech-to-speech socket for one voice listen.
 
-The socket is ``wss://api.x.ai/v1/realtime`` with ``grok-voice-latest``, the
-alias xAI documents for the current speech-to-speech model. Mic audio goes in
-as PCM. On commit the model speaks one short acknowledgement and nothing else.
+The socket is ``wss://api.x.ai/v1/realtime`` with ``grok-voice-think-fast-2.0``.
+Mic audio goes in as PCM. On commit the model speaks one short acknowledgement
+and the socket closes, so it is not billed through the coding run. The spoken
+summary is a second, mic-less connection that closes once that line has played.
 ``close`` runs when the app quits.
 """
 
@@ -22,9 +23,9 @@ from urllib.parse import urlencode
 
 from coding_agent.tui.composer.voice import GROK_TTS_VOICE, grok_voice_credentials
 
-# xAI's documented alias for the current speech-to-speech model. A pinned
-# id goes stale; this one tracks the latest voice model they serve.
-VOICE_REALTIME_MODEL = "grok-voice-latest"
+# The speech-to-speech model. Pinned: the "latest" alias is not what the
+# account is billed or served as, and a pin does not drift under a user.
+VOICE_REALTIME_MODEL = "grok-voice-think-fast-2.0"
 REALTIME_URL = "wss://api.x.ai/v1/realtime"
 SAMPLE_RATE = 24_000
 # 40 ms of mono int16 per callback and per socket message: 25 sends a second.
@@ -88,6 +89,10 @@ class VoiceStream:
         self._committed = False
         self._transcript = ""
         self._commit_sent = False
+        # A summary spoken before this session has connected.
+        self._pending_say = ""
+        # A summary-only session never opens the microphone.
+        self._speak_only = False
         # One event per session, so closing an old session cannot stop a new one.
         self._closing = threading.Event()
         self._lifecycle_lock = threading.Lock()
@@ -103,7 +108,13 @@ class VoiceStream:
     def error(self) -> str:
         return self._error
 
-    def start(self) -> None:
+    @property
+    def alive(self) -> bool:
+        """True while this session's socket thread is still running."""
+        thread = self._thread
+        return thread is not None and thread.is_alive() and not self._closing.is_set()
+
+    def start(self, *, speak_only: bool = False) -> None:
         with self._lifecycle_lock:
             previous = self._thread
             if previous is not None and previous.is_alive() and not self._closing.is_set():
@@ -116,6 +127,13 @@ class VoiceStream:
             self._committed = False
             self._transcript = ""
             self._commit_sent = False
+            # A summary may already be queued by say() before this session exists.
+            self._speak_only = speak_only
+            if speak_only:
+                self._listen.clear()
+            else:
+                self._pending_say = ""
+                self._listen.set()
             thread = threading.Thread(
                 target=self._run, args=(previous, closing), name="grok-voice", daemon=True,
             )
@@ -126,11 +144,15 @@ class VoiceStream:
         # accepts keystrokes.
 
     def hold(self) -> None:
-        """Stop sending mic audio. The socket stays open."""
+        """Stop sending mic audio. The socket stays open until speech ends."""
         self._listen.clear()
 
     def resume(self) -> None:
-        """Send mic audio again."""
+        """Send mic audio again, including after an utterance already committed."""
+        self._committed = False
+        self._commit_sent = False
+        self._commit_now = False
+        self._transcript = ""
         self._listen.set()
 
     def commit(self) -> None:
@@ -142,15 +164,24 @@ class VoiceStream:
         self._commit_now = True
 
     def say(self, text: str) -> None:
-        """Queue ``text`` on the open socket. The socket stays up to play it."""
-        spoken = " ".join(text.split())
+        """Speak ``text`` on this socket once it is connected.
+
+        Called before the socket exists, the line waits and is sent from the
+        session itself. It is never dropped on the floor.
+        """
+        spoken = " ".join(text.split())[:600]
+        if not spoken or self._closing.is_set():
+            return
+        self._pending_say = spoken
         loop = self._loop
-        if not spoken or loop is None or self._closing.is_set():
+        if loop is None:
             return
 
         def schedule() -> None:
-            if self._socket is not None and not self._closing.is_set():
-                asyncio.create_task(self._say(spoken[:600]))
+            if self._socket is not None and not self._closing.is_set() and self._pending_say:
+                pending = self._pending_say
+                self._pending_say = ""
+                asyncio.create_task(self._say(pending))
 
         with contextlib.suppress(RuntimeError):
             loop.call_soon_threadsafe(schedule)
@@ -241,11 +272,18 @@ class VoiceStream:
         tasks: list[asyncio.Task[Any]] = []
         try:
             await socket.send(json.dumps(_session_update()))
+            pending = self._pending_say
+            if pending:
+                self._pending_say = ""
+                await self._say(pending)
             tasks = [
-                asyncio.create_task(self._pump_mic(socket)),
                 asyncio.create_task(self._pump_events(socket)),
                 asyncio.create_task(stop.wait()),
             ]
+            # A summary connection has no microphone. Opening one would capture
+            # the room (and the speaker) for a line that is already text.
+            if not self._speak_only:
+                tasks.insert(0, asyncio.create_task(self._pump_mic(socket)))
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()
@@ -324,7 +362,9 @@ class VoiceStream:
         def _callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
             nonlocal quiet_blocks, heard_speech
             del frames, time_info, status
-            # Held: drop the block here, without a copy or a loop wakeup.
+            # Held or already committed: drop the block, no copy, no wakeup.
+            # resume() clears the committed flag, so the next utterance can
+            # be gathered without opening another microphone.
             if not listen.is_set() or self._committed:
                 return
             if self._commit_now:
@@ -370,11 +410,12 @@ class VoiceStream:
                 if chunk is None:
                     await socket.send(_COMMIT)
                     await socket.send(_ACK)
-                    # Drop audio that arrived with the commit. The mic stays
-                    # open but quiet until the run finishes and hold() lands.
+                    # The mic stays open. Further blocks are dropped until the
+                    # next listen calls resume(), so one commit does not kill
+                    # the session and the next voice turn still has a socket.
                     self._listen.clear()
                     self._finish_commit()
-                    return
+                    continue
                 if not listen.is_set():
                     continue
                 await socket.send(_APPEND_HEAD + chunk.decode("ascii") + _APPEND_TAIL)
@@ -400,8 +441,16 @@ class VoiceStream:
                     audio = event.get("delta") or ""
                     if isinstance(audio, str) and audio:
                         player.write(base64.b64decode(audio))
-                elif kind in {"response.done", "response.output_audio.done", "response.audio.done"}:
+                elif kind in {"response.output_audio.done", "response.audio.done", "response.done"}:
+                    # Play once. Some sessions send audio.done and then
+                    # response.done; some send only response.done. The second
+                    # call finds an empty buffer and does not cut the WAV.
                     player.finish()
+                    # The line is complete. Hang up so the minute rate is not
+                    # billed through the coding run. The next listen, and the
+                    # spoken summary, each open their own short connection.
+                    if self._stop is not None:
+                        self._stop.set()
         finally:
             player.close()
             self._set_speaking(False)
@@ -481,10 +530,11 @@ class _PcmPlayer:
 
     def finish(self) -> None:
         with self._lock:
+            # audio.done and response.done can both arrive. Play whatever has
+            # arrived, once; the second call sees an empty buffer and leaves
+            # the player that is already running alone.
             pcm = bytes(self._pcm)
             self._pcm.clear()
-            # Providers can send both audio.done and response.done. The latter
-            # must not mark still-playing audio as silent.
             if not pcm or self._closed:
                 return
             self._stop_player()

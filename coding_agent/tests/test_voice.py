@@ -137,7 +137,6 @@ def test_voice_addon_speaks_before_and_after_the_run(monkeypatch: pytest.MonkeyP
 
     asyncio.run(_typed())
     assert said == []
-    assert stream.held
 
     addon.arm()
     addon._open = True
@@ -232,11 +231,11 @@ def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.Mo
     submitted: list[str] = []
     app._agent = object()
     app._start_turn = lambda turn: submitted.append(turn.text)  # type: ignore[method-assign]
-    from coding_agent.tui.composer import voice_mode
+    from coding_agent.tui.composer import voice as voice_module
 
     capture = ScriptedCapture()
-    monkeypatch.setattr(voice_mode, "MicrophoneCapture", lambda: capture)
-    monkeypatch.setattr(voice_mode, "GrokVoiceTranscriber", lambda: ScriptedTranscriber("fix the footer"))
+    monkeypatch.setattr(voice_module, "MicrophoneCapture", lambda: capture)
+    monkeypatch.setattr(voice_module, "GrokVoiceTranscriber", lambda: ScriptedTranscriber("fix the footer"))
 
     async def _run() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
@@ -323,6 +322,25 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
             assert stream.commits == 1
             assert started == ["add a voice bar"]
             assert not app._voice_active
+            # A turn is in flight. Ctrl+A listens again instead of refusing,
+            # and the next utterance waits behind the one already running.
+            app._busy = True
+            await pilot.press("ctrl+a")
+            await pilot.pause()
+            assert app._voice_active
+            app._voice_addon.stream._on_transcript("now the footer")
+            for _ in range(20):
+                await pilot.pause(0.05)
+                if "footer" in app.query_one("#prompt", PromptInput).text:
+                    break
+            await pilot.press("enter")
+            for _ in range(20):
+                await pilot.pause(0.05)
+                if len(started) > 1 or getattr(app, "_queued_turns", None):
+                    break
+            queued = [turn.text for turn in getattr(app, "_queued_turns", [])]
+            assert started == ["add a voice bar"]
+            assert queued == ["now the footer"]
 
     asyncio.run(_run())
 
@@ -349,22 +367,6 @@ def test_escape_leaves_voice_mode_without_a_turn(tmp_path: Path) -> None:
             capture.release()
             await pilot.pause(0.2)
             assert started == []
-
-    asyncio.run(_run())
-
-
-def test_voice_mode_refuses_while_busy(tmp_path: Path) -> None:
-    app = CodingAgentApp(workspace=tmp_path)
-    app._agent = object()
-    app._busy = True
-
-    async def _run() -> None:
-        async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.pause()
-            await app._run_slash_command("/voice")
-            await pilot.pause()
-            assert not app._voice_active
-            assert app.query_one("#composer", Composer).display is True
 
     asyncio.run(_run())
 
