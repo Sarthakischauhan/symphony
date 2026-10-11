@@ -156,8 +156,6 @@ class TranscriptView(Protocol):
         event_type: str = "run_summary",
     ) -> None: ...
 
-    def add_run_metrics(self, metrics: str) -> None: ...
-
 
 class EventPresenter:
     """Stateful event reducer that updates a transcript view."""

@@ -477,11 +477,11 @@ def test_read_git_branch_reads_head_without_git_binary(tmp_path: Path) -> None:
 
 
 def test_topbar_text_joins_branch_and_model_with_airy_gap() -> None:
-    line = topbar_text(workspace="~/src/symphony", branch="main", model="gpt-5.6")
+    line = topbar_text(branch="main", model="gpt-5.6")
     assert line.plain == "⎇ main    gpt-5.6"
     prefixed = topbar_text(branch="main", model="anthropic:claude-sonnet-5")
     assert prefixed.plain == "⎇ main    claude-sonnet-5"
-    assert topbar_text(workspace="~/src/symphony").plain == ""
+    assert topbar_text().plain == ""
 
 
 def test_topbar_renders_branch_and_right_aligned_model(
@@ -4193,7 +4193,7 @@ def test_churning_is_text_only_and_thinking_does_not_remount_when_last(
             thinking = app.query_one(ThinkingStatus)
             assert process.timeline_items()[-1] is thinking
 
-            thinking.set_churning(0)
+            thinking.set_churning()
             await pilot.pause()
             assert thinking.styles.opacity == 1.0
             assert any(

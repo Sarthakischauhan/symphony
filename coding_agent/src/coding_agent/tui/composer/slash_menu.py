@@ -214,9 +214,6 @@ class SlashMenu(OptionList):
             self._plans_cache = plans
         self._replace_choices(plans=plans)
 
-    def invalidate_data_cache(self) -> None:
-        self.clear_session_cache()
-
     def set_files(self, files: tuple[FileOption, ...]) -> None:
         if self._files_cache == files:
             files = self._files_cache

@@ -563,10 +563,6 @@ class JsonlPersistence:
                 keys.add((str(run_id), seq))
         return keys
 
-    def flush_events(self) -> None:
-        """No-op. Lifecycle events are appended immediately."""
-        return None
-
     async def append_event(self, *, event_type: str, payload: dict[str, Any]) -> None:
         if event_type in _SKIP_EVENTS:
             return

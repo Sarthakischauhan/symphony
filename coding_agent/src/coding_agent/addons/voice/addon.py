@@ -33,14 +33,12 @@ class VoiceAddon(Addon):
             on_speaking=on_speaking, on_transcript=on_transcript, on_commit=on_commit,
         )
         self._open = False
-        self._started_speech = False
         self._armed = False
         self._speaker: StreamingSpeaker | None = None
 
     def arm(self) -> None:
         """Opt in exactly one microphone-originated run; typed runs stay silent."""
         self._armed = True
-        self._started_speech = False
 
     def fork_for_child(self, parent_harness: Any) -> None:
         return None

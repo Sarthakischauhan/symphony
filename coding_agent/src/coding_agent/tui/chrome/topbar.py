@@ -21,7 +21,6 @@ from coding_agent.config.personalities import project_root
 from coding_agent.tui.theme import SYMPHONY_COLORS
 
 CLUSTER_GAP = " " * 4
-AUTH_MODEL_GAP = " " * 3
 BRANCH_ICON = "⎇"
 
 
@@ -96,8 +95,8 @@ def _locate_git_dir(start: Path) -> Optional[Path]:
     return None
 
 
-def topbar_text(*, workspace: str = "", branch: str = "", model: str = "") -> Text:
-    """Render branch and model; workspace remains a compatibility argument."""
+def topbar_text(*, branch: str = "", model: str = "") -> Text:
+    """Render branch and model."""
     clusters: list[str] = []
     if branch:
         clusters.append(f"{BRANCH_ICON} {branch}")
