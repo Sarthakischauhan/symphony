@@ -17,7 +17,7 @@ from rich.text import Text
 from textual import events
 from textual.widgets import Static
 
-from coding_agent.personalities import project_root
+from coding_agent.config.personalities import project_root
 from coding_agent.tui.theme import SYMPHONY_COLORS
 
 CLUSTER_GAP = " " * 4

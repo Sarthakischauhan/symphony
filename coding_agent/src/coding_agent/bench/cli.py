@@ -26,7 +26,7 @@ from coding_agent.config import (
     PluginsConfig,
     default_coding_agent_harness,
 )
-from coding_agent.credentials import load_provider_env
+from coding_agent.config.credentials import load_provider_env
 
 PERSONALITIES = ("direct", "precise")
 

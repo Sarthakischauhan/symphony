@@ -14,7 +14,7 @@ from textual.message import Message
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from coding_agent.credentials import save_provider_auth, save_provider_settings
+from coding_agent.config.credentials import save_provider_auth, save_provider_settings
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, dismiss_overlay
 from coding_agent.tui.theme import ONBOARD_CSS, PROVIDER_MODAL_CSS, SYMPHONY_RICH_THEME
 from core_ai.oauth import LoginCancelled, LoginFlow, save_token, start_login

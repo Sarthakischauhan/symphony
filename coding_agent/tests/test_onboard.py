@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from textual.widgets import Input, OptionList, Static
 
-from coding_agent.credentials import global_env_path, workspace_env_path
+from coding_agent.config.credentials import global_env_path, workspace_env_path
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.screens.onboard import OnboardApp, ProviderOnboardScreen
 from core_ai.oauth import LoginCancelled

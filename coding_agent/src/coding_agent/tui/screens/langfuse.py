@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Input, Static
 
-from coding_agent.credentials import global_env_path, upsert_dotenv
+from coding_agent.config.credentials import global_env_path, upsert_dotenv
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton
 
 

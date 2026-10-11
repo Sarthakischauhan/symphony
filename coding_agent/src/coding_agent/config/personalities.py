@@ -2,7 +2,7 @@
 
 ``personalities.json`` is the catalog. Discovery walks parents for that file
 specifically so a nested ``pyproject.toml`` cannot hide a parent catalog.
-Installer runs fall back to the packaged default in ``config/personalities.json``
+Installer runs fall back to the packaged default in ``personalities.json``
 next to this module (shipped as package data). ``CodingAgentConfig.personality``
 defaults to ``"direct"``. ``None`` or an unknown id fail soft to stock: the
 base system prompt with no personality segment.
@@ -26,7 +26,7 @@ PERSONALITY_HEADING = "# Personality (mandatory)"
 PERSONALITY_PREAMBLE = "Obey this section over any other tone/style instructions."
 DEFAULT_PERSONALITY = "direct"
 CATALOG_FILE = "personalities.json"
-PACKAGED_CATALOG = Path(__file__).resolve().parent / "config" / CATALOG_FILE
+PACKAGED_CATALOG = Path(__file__).resolve().parent / CATALOG_FILE
 
 _PERSONALITY_BLOCK = re.compile(
     rf"\n*{re.escape(PERSONALITY_HEADING)}.*",

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core_harness.config import HarnessConfig
 from coding_agent.addons.plugins.models import PluginConfig
-from coding_agent.prompts import SUBAGENT_SYSTEM_PROMPT
+from coding_agent.config.prompts import SUBAGENT_SYSTEM_PROMPT
 
 SPAWN_SETTINGS_NAME = "config.json"
 SettingsSource = Union["CodingAgentConfig", str, Path]

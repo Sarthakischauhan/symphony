@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.personalities import project_root
-from coding_agent.personalities import (
+from coding_agent.config.personalities import project_root
+from coding_agent.config.personalities import (
     PACKAGED_CATALOG,
     discover_personalities_path,
     load_personalities,
@@ -100,4 +100,4 @@ def test_config_data_dir_does_not_shadow_config_module() -> None:
     import coding_agent.config as config_module
 
     assert config_module.__file__ is not None
-    assert config_module.__file__.endswith("config.py")
+    assert config_module.__file__.endswith("config/__init__.py")

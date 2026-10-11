@@ -6,8 +6,8 @@ from pathlib import Path
 
 from coding_agent.agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LearningConfig, default_coding_agent_harness
-from coding_agent.personalities import PERSONALITY_HEADING, compose_system_prompt, get
-from coding_agent.prompts import SUBAGENT_SYSTEM_PROMPT, SYSTEM_PROMPT
+from coding_agent.config.personalities import PERSONALITY_HEADING, compose_system_prompt, get
+from coding_agent.config.prompts import SUBAGENT_SYSTEM_PROMPT, SYSTEM_PROMPT
 from core_ai import ModelRegistry
 from core_harness import EventSink
 from core_harness.addons.subagent import ChildConfig, ChildIdentity, SubagentAddon

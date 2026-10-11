@@ -773,7 +773,7 @@ def test_nudge_and_critic_run_rationale_through_bound_text() -> None:
 
 
 def test_jev_mode_segment_precedes_personality_when_enabled(tmp_path: Path) -> None:
-    from coding_agent.personalities import PERSONALITY_HEADING
+    from coding_agent.config.personalities import PERSONALITY_HEADING
 
     enabled = _agent(tmp_path, enabled=True)
     prompt = enabled.harness.system_prompt

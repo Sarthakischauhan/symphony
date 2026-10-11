@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.credentials import OFFLINE_HINT
+from coding_agent.config.credentials import OFFLINE_HINT
 from coding_agent.tui.composer.input import Composer, PromptInput, QueuedTurn
 from coding_agent.tui.composer.voice import (
     GROK_VOICE_MODEL,
