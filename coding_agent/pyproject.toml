@@ -18,14 +18,11 @@ dependencies = [
     "textual>=8.2.8",
     "textual-image>=0.12.0",
     "termaid>=0.9.0",
+    "sounddevice>=0.5.1",
 ]
 
 [project.optional-dependencies]
 langfuse = ["langfuse>=3.0.0"]
-# PortAudio binding used by voice mode. Not a core dependency so a headless
-# checkout still installs; `/voice` installs it on first use.
-voice = ["sounddevice>=0.5.1"]
-
 [project.urls]
 Homepage = "https://github.com/Sarthakischauhan/symphony"
 Documentation = "https://github.com/Sarthakischauhan/symphony/blob/main/docs/packages/symphony-code.md"
