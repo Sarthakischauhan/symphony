@@ -5,10 +5,12 @@ import httpx
 from dotenv import load_dotenv
 
 from core_ai.content import to_anthropic_blocks
+from core_ai.oauth.anthropic import is_claude_code_base_url
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import (
     apply_refreshed_credentials,
     is_auth_failure,
+    is_retryable_http_status,
     iter_sse_json,
     stream_with_retries,
 )
@@ -18,6 +20,22 @@ load_dotenv(override=True)
 
 DEFAULT_MAX_TOKENS = 8192
 Content = Union[str, List[Dict[str, Any]]]
+
+
+def _http_error_message(response: httpx.Response) -> str:
+    """Prefer the Anthropic error message over the raw body."""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])
+        if isinstance(error, str) and error:
+            return error
+    text = (response.text or "").strip()
+    return text or f"HTTP {response.status_code}"
 
 
 class AnthropicProvider(BaseProvider):
@@ -119,7 +137,16 @@ class AnthropicProvider(BaseProvider):
                 headers=self._headers,
                 timeout=60.0,
             ) as response:
-                response.raise_for_status()
+                if response.status_code >= 400:
+                    await response.aread()
+                    detail = _http_error_message(response)
+                    if is_retryable_http_status(response.status_code):
+                        raise httpx.HTTPStatusError(
+                            detail,
+                            request=response.request,
+                            response=response,
+                        )
+                    raise RuntimeError(detail)
                 async for data in iter_sse_json(response):
                     event = self._translate(data)
                     if event is not None:
@@ -187,12 +214,16 @@ class AnthropicProvider(BaseProvider):
             "Accept": "text/event-stream",
             "Content-Type": "application/json",
         }
-        if self.use_bearer:
+        if self._uses_subscription_auth():
             headers["Authorization"] = f"Bearer {self.api_key}"
         else:
             headers["x-api-key"] = self.api_key
         headers.update(self.extra_headers)
         return headers
+
+    def _uses_subscription_auth(self) -> bool:
+        """Setup-token / OAuth calls the Claude Code host. API keys stay on the platform API."""
+        return self.use_bearer or is_claude_code_base_url(self.base_url)
 
     @classmethod
     def _messages_payload(cls, messages: List[Message]) -> tuple[str, List[Dict[str, Any]]]:

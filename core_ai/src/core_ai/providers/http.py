@@ -169,6 +169,51 @@ def retry_reason_for(exc: BaseException) -> str:
     return "connection_error"
 
 
+_RATE_LIMIT_ERROR_TYPES = {
+    "rate_limit_error",
+    "rate_limit_exceeded",
+    "too_many_requests",
+}
+
+
+def _error_identifiers(error: Dict[str, Any], data: Dict[str, Any]) -> set[str]:
+    code_value = error.get("code") or data.get("code")
+    status_value = error.get("status") or data.get("status")
+    error_type_value = error.get("type") or data.get("error_type")
+    return {
+        str(value).lower()
+        for value in (code_value, status_value, error_type_value)
+        if value is not None
+    }
+
+
+def _stream_error_message(error: Dict[str, Any], data: Dict[str, Any], response: Dict[str, Any]) -> str:
+    return str(
+        error.get("message")
+        or data.get("message")
+        or response.get("message")
+        or "Provider stream error"
+    )
+
+
+def _numeric_status(error: Dict[str, Any], data: Dict[str, Any]) -> Optional[int]:
+    for value in (error.get("code") or data.get("code"), error.get("status") or data.get("status")):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def stream_error_reason(identifiers: set[str], numeric_status: Optional[int]) -> str:
+    """Classify an in-band provider error the same way HTTP statuses are classified."""
+    if numeric_status == 429 or identifiers & _RATE_LIMIT_ERROR_TYPES or "429" in identifiers:
+        return "rate_limit"
+    if numeric_status is not None and (numeric_status >= 500 or numeric_status in {408, 409}):
+        return "server_error"
+    return "stream_error"
+
+
 def _raise_stream_error(
     data: Dict[str, Any],
 ) -> None:
@@ -180,28 +225,9 @@ def _raise_stream_error(
     if not isinstance(error, dict):
         error = {"message": error}
 
-    code_value = error.get("code") or data.get("code")
-    status_value = error.get("status") or data.get("status")
-    error_type_value = error.get("type") or data.get("error_type")
-    identifiers = {
-        str(value).lower()
-        for value in (code_value, status_value, error_type_value)
-        if value is not None
-    }
-    message = str(
-        error.get("message")
-        or data.get("message")
-        or response.get("message")
-        or "Provider stream error"
-    )
-
-    numeric_status: Optional[int] = None
-    for value in (code_value, status_value):
-        try:
-            numeric_status = int(value)
-        except (TypeError, ValueError):
-            continue
-        break
+    identifiers = _error_identifiers(error, data)
+    message = _stream_error_message(error, data, response)
+    numeric_status = _numeric_status(error, data)
 
     retryable_status = numeric_status in _RETRYABLE_HTTP_STATUSES or (
         numeric_status is not None and numeric_status >= 500
@@ -213,7 +239,10 @@ def _raise_stream_error(
     )
     if terminal_status or identifiers & _NON_RETRYABLE_STREAM_ERROR_CODES:
         raise RuntimeError(message)
-    raise RetryableStreamError(message)
+    raise RetryableStreamError(
+        message,
+        reason=stream_error_reason(identifiers, numeric_status),
+    )
 
 
 def retry_after(response: httpx.Response, attempt: int) -> float:
