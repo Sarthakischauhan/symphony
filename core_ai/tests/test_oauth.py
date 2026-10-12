@@ -324,8 +324,8 @@ def test_build_default_registry_uses_anthropic_oauth_bearer() -> None:
     assert "x-api-key" not in headers
     assert provider.base_url == "https://api.anthropic.com"
     assert headers["anthropic-beta"] == "oauth-2025-04-20"
-    assert headers["User-Agent"].startswith("claude-cli/")
-    assert headers["x-app"] == "cli"
+    assert "User-Agent" not in headers
+    assert "x-app" not in headers
 
 
 def test_build_default_registry_keeps_anthropic_api_key_on_platform_api(

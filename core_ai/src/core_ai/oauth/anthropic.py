@@ -16,17 +16,15 @@ API_BASE_URL = "https://api.anthropic.com"
 REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 SCOPE = "org:create_api_key user:profile user:inference"
 # Subscription tokens (claude setup-token / claude.ai OAuth) and API keys share
-# the Messages API. Claude Code sends the token as Authorization: Bearer and
-# the API key as x-api-key. There is no separate Claude Code inference host.
+# the Messages API. A setup token is an sk-ant-oat credential sent as
+# Authorization: Bearer. An API key is sent as x-api-key.
 INFERENCE_BASE_URL = API_BASE_URL
 OAUTH_BETA = "oauth-2025-04-20"
-CLAUDE_CODE_USER_AGENT = "claude-cli/2.0.0 (external, symphony)"
 
 
-def is_claude_code_base_url(value: str) -> bool:
-    """Kept for callers that branch on a dedicated host. Both flows use the API host."""
-    del value
-    return False
+def is_oauth_access_token(value: str) -> bool:
+    """True for a claude setup-token / claude.ai OAuth access token."""
+    return "sk-ant-oat" in (value or "")
 
 
 def looks_like_setup_token(value: str) -> bool:

@@ -5,7 +5,7 @@ import httpx
 from dotenv import load_dotenv
 
 from core_ai.content import to_anthropic_blocks
-from core_ai.oauth.anthropic import is_claude_code_base_url
+from core_ai.oauth.anthropic import is_oauth_access_token
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import (
     apply_refreshed_credentials,
@@ -222,8 +222,8 @@ class AnthropicProvider(BaseProvider):
         return headers
 
     def _uses_subscription_auth(self) -> bool:
-        """Setup-token / OAuth calls the Claude Code host. API keys stay on the platform API."""
-        return self.use_bearer or is_claude_code_base_url(self.base_url)
+        """Setup tokens are bearer credentials. API keys stay on x-api-key."""
+        return self.use_bearer or is_oauth_access_token(self.api_key)
 
     @classmethod
     def _messages_payload(cls, messages: List[Message]) -> tuple[str, List[Dict[str, Any]]]:
