@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Literal, Union
+from typing import Any, Final, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core_harness.config import HarnessConfig
 from coding_agent.addons.plugins.models import PluginConfig
@@ -66,14 +66,31 @@ class ToolsConfig(BaseModel):
     search: SearchConfig = Field(default_factory=SearchConfig)
 
 
+# Reasoning models spend hidden reasoning tokens from the same output budget
+# as the extraction JSON. Below this, a reasoning model can return no text.
+LEARNING_MIN_OUTPUT_TOKENS: Final[int] = 8192
+
+
 class LearningConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
-    max_output_tokens: int = Field(default=900, ge=1)
+    max_output_tokens: int = Field(default=LEARNING_MIN_OUTPUT_TOKENS, ge=1)
     max_lessons: int = Field(default=200, ge=1)
     context_limit: int = Field(default=6, ge=1)
     context_max_chars: int = Field(default=1400, ge=1)
+
+    @field_validator("max_output_tokens")
+    @classmethod
+    def at_least_floor(cls, value: int) -> int:
+        """Raise smaller caps to the floor.
+
+        ``ensure_spawn_settings`` wrote the old default (900) into every
+        ``~/.symphony/config.json``, so a stored 900 cannot be told apart from a
+        deliberate choice, and any cap this small starves reasoning models.
+        The resolved value is written back, so old files migrate on launch.
+        """
+        return max(value, LEARNING_MIN_OUTPUT_TOKENS)
 
 
 class SkillsConfig(BaseModel):
@@ -315,6 +332,7 @@ __all__ = [
     "CompactionConfig",
     "EvaluationConfig",
     "LangfuseConfig",
+    "LEARNING_MIN_OUTPUT_TOKENS",
     "LearningConfig",
     "PluginsConfig",
     "ReadFileConfig",

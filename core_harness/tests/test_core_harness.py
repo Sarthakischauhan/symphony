@@ -559,20 +559,29 @@ def test_compaction_ratio_uses_current_model_context_limit() -> None:
     )
 
     assert not state.should_compact(
-        context_left=20_001,
         estimated_tokens=79_999,
         context_limit=100_000,
     )
     assert state.should_compact(
-        context_left=20_000,
         estimated_tokens=80_000,
         context_limit=100_000,
     )
     assert not state.should_compact(
-        context_left=None,
         estimated_tokens=80_000,
         context_limit=200_000,
     )
+
+
+def test_should_compact_takes_estimate_then_limit_positionally() -> None:
+    # context_left was never read, so it is no longer the first parameter.
+    state = HarnessState(
+        compactor=KeepSystemRecentCompactor(),
+        context_compact_ratio=0.8,
+    )
+
+    assert state.should_compact(80_000, 100_000)
+    assert not state.should_compact(79_999, 100_000)
+    assert not state.should_compact(80_000, None)
 
 
 def test_core_harness_estimates_usage_when_provider_omits_it() -> None:

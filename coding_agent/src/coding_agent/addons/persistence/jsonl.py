@@ -21,7 +21,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Union
 
-from coding_agent.addons.persistence.artifacts import append_bytes, publish, safe_path, snapshot
+from coding_agent.addons.persistence.artifacts import (
+    append_bytes,
+    publish,
+    refresh_snapshot,
+    safe_path,
+    snapshot,
+)
 from coding_agent.addons.persistence.images import archive, hydrate
 from core_ai.content import text_from_content
 from core_ai.types import Message
@@ -129,7 +135,12 @@ class JsonlPersistence:
         self._event_keys: Dict[str, set[tuple[str, int]]] = {}
         self._entries: Dict[str, List[Dict[str, Any]]] = {}
         self._marks: Dict[str, int] = {}
+        # Highest journal ``seq`` per cached session, kept current by appends
+        # so a new entry's seq is not a scan over the whole journal.
+        self._high_seq: Dict[str, int] = {}
         self._held: Dict[str, list[int]] = {}
+        # Product that owns new sessions ("tui", "zeron", ...). Empty means unknown.
+        self.client: str = ""
         # Product fields (goal, todo, live background jobs) merged into every
         # checkpoint so an interrupted run can be continued later.
         self.checkpoint_metadata: Callable[[], Dict[str, Any]] = dict
@@ -220,7 +231,7 @@ class JsonlPersistence:
             "session_id": session_id,
             "created_at": created,
             "updated_at": created,
-            "client": getattr(self, "client", "") or "",
+            "client": self.client or "",
         }
         self._write_metadata(session_id, meta)
         return meta
@@ -299,6 +310,7 @@ class JsonlPersistence:
         publish(path, self._encode(entries))
         self._entries.pop(session_id, None)
         self._marks.pop(session_id, None)
+        self._high_seq.pop(session_id, None)
 
     def _sync_legacy(self, session_id: str) -> None:
         """Fold a newer flat JSONL into the bundle. Do not replace an appended transcript."""
@@ -389,37 +401,61 @@ class JsonlPersistence:
     def _artifacts(
         self, session_id: str, entries: List[Dict[str, Any]], *, updated: bool = True
     ) -> None:
+        """Publish metadata, compaction and checkpoint snapshots for ``entries``.
+
+        ``updated`` is the append path: ``entries`` are the lines just written
+        and every artifact is published. Otherwise ``entries`` is a whole
+        journal that was just read, and only artifacts that are missing or
+        differ from what the journal implies are rewritten (crash repair).
+        """
+        write = snapshot if updated else refresh_snapshot
         metadata = self._require_version(session_id) or {}
         directory = self.session_dir(session_id)
         created = next((item.get("created_at") for item in entries
                         if item.get("type") == "header"), None) or _utc_now()
-        self._write_metadata(session_id, {
+        write(self._metadata_path(session_id), {
             **metadata, "version": 1, "session_id": session_id,
             "created_at": metadata.get("created_at") or created,
             "updated_at": _utc_now() if updated else metadata.get("updated_at", created),
         })
+        checkpoint: Optional[Dict[str, Any]] = None
         for entry in entries:
             if entry.get("type") in {"compaction", "compacted"}:
                 seq = entry.get("seq", 0)
                 if isinstance(seq, bool) or not isinstance(seq, int):
                     continue
-                snapshot(safe_path(directory, "compactions", f"{seq}.json"), {**entry, "version": 1})
+                write(safe_path(directory, "compactions", f"{seq}.json"), {**entry, "version": 1})
             elif entry.get("type") == "checkpoint":
-                snapshot(safe_path(directory, "checkpoint.json"),
-                         {key: value for key, value in {**entry, "version": 1}.items()
-                          if key != "messages"})
+                # Each checkpoint replaces the file; only the last one survives.
+                checkpoint = entry
+        if checkpoint is not None:
+            write(safe_path(directory, "checkpoint.json"),
+                  {key: value for key, value in {**checkpoint, "version": 1}.items()
+                   if key != "messages"})
 
     def _read_entries(self, session_id: str) -> List[Dict[str, Any]]:
+        """The journal, parsed once per process and then kept current by appends.
+
+        The transcript only grows, and every append in this process updates
+        the cache and its size mark under the session lock. A size that still
+        matches the mark means nothing else wrote, so the cached list is
+        returned without re-reading or republishing artifacts. Any other size
+        (another process appended, a torn write, first use) re-reads the file
+        and repairs the artifacts.
+        """
         with self._session_lock(session_id):
             self._sync_legacy(session_id)
             self._require_version(session_id)
             path = self._path(session_id)
             mark = self._mark(path)
+            if session_id in self._entries and self._marks.get(session_id) == mark:
+                return self._entries[session_id]
             entries = self._load_transcript(path) if mark >= 0 else []
             if mark >= 0:
                 self._artifacts(session_id, entries, updated=False)
             self._entries[session_id] = entries
             self._marks[session_id] = mark
+            self._high_seq[session_id] = self._max_seq(entries)
             return entries
 
     def _cached_entries(self, session_id: str) -> List[Dict[str, Any]]:
@@ -432,7 +468,7 @@ class JsonlPersistence:
 
     def _stamp_client(self, session_id: str) -> None:
         """Record the product once. A later client must not overwrite it."""
-        client = getattr(self, "client", "") or ""
+        client = self.client or ""
         if not client:
             return
         meta = self._ensure_metadata(session_id)
@@ -450,14 +486,33 @@ class JsonlPersistence:
             mark = self._mark(path)
             if session_id not in self._entries or self._marks.get(session_id) != mark:
                 self._entries[session_id] = self._load_transcript(path) if mark >= 0 else []
+                self._high_seq[session_id] = self._max_seq(self._entries[session_id])
+            # A crash mid-append leaves a torn last line. Start on a fresh line
+            # so the fragment stays one skipped line and does not swallow this
+            # record. This costs a one-byte read per append.
+            separator = b"" if self._ends_with_newline(path, mark) else b"\n"
             entries = archive(entries, self.session_dir(session_id))
-            append_bytes(path, self._encode(entries))
+            append_bytes(path, separator + self._encode(entries))
             self._entries[session_id].extend(entries)
+            self._high_seq[session_id] = max(self._high_seq[session_id], self._max_seq(entries))
             self._marks[session_id] = path.stat().st_size
             self._artifacts(session_id, entries)
 
-    def _next_seq(self, entries: List[Dict[str, Any]]) -> int:
-        return max((int(entry.get("seq", 0)) for entry in entries if str(entry.get("seq", "0")).isdigit()), default=0) + 1
+    @staticmethod
+    def _ends_with_newline(path: Path, size: int) -> bool:
+        if size <= 0:
+            return True
+        with path.open("rb") as handle:
+            handle.seek(size - 1)
+            return handle.read(1) == b"\n"
+
+    @staticmethod
+    def _max_seq(entries: List[Dict[str, Any]]) -> int:
+        return max((int(entry.get("seq", 0)) for entry in entries if str(entry.get("seq", "0")).isdigit()), default=0)
+
+    def _next_seq(self, session_id: str) -> int:
+        """One past the highest seq in the cached journal of ``session_id``."""
+        return self._high_seq[session_id] + 1
 
     def _header(self, session_id: str) -> Dict[str, Any]:
         return {"type": "header", "session_id": session_id, "seq": 1, "created_at": _utc_now()}
@@ -563,10 +618,6 @@ class JsonlPersistence:
                 keys.add((str(run_id), seq))
         return keys
 
-    def flush_events(self) -> None:
-        """No-op. Lifecycle events are appended immediately."""
-        return None
-
     async def append_event(self, *, event_type: str, payload: dict[str, Any]) -> None:
         if event_type in _SKIP_EVENTS:
             return
@@ -589,7 +640,7 @@ class JsonlPersistence:
                 {
                     "type": event_type,
                     "event_type": event_type,
-                    "seq": seq if isinstance(seq, int) else self._next_seq(entries),
+                    "seq": seq if isinstance(seq, int) else self._next_seq(session_id),
                     "payload": dict(payload),
                 }
             )
@@ -638,7 +689,9 @@ class JsonlPersistence:
             event_type = str(entry.get("event_type") or "")
             payload = entry.get("payload")
             if event_type and isinstance(payload, dict):
-                events.append((event_type, dict(payload)))
+                # Not copied: both callers build new dicts (hydrate,
+                # apply_collection) or only read.
+                events.append((event_type, payload))
         return events
 
     async def collect_run_events(
@@ -677,7 +730,7 @@ class JsonlPersistence:
         pending = [key for key in targets if key not in already]
         if not pending:
             return []
-        next_seq = self._next_seq(entries)
+        next_seq = self._next_seq(session_id)
         overlays: List[Dict[str, Any]] = []
         for offset, (event_run_id, event_seq) in enumerate(pending):
             overlays.append(
@@ -779,7 +832,7 @@ class JsonlPersistence:
             if stored == incoming[: len(stored)] and len(incoming) >= len(stored):
                 extra = incoming[len(stored) :]
                 if extra:
-                    next_seq = self._next_seq(entries)
+                    next_seq = self._next_seq(session_id)
                     self._append_entries(
                         session_id,
                         [self._message_entry(item, seq=next_seq + index) for index, item in enumerate(extra)],
@@ -792,7 +845,7 @@ class JsonlPersistence:
                 # files to thousands of duplicate message lines.
                 extra = incoming[len(stored) :] if len(incoming) > len(stored) else []
                 if extra:
-                    next_seq = self._next_seq(entries)
+                    next_seq = self._next_seq(session_id)
                     self._append_entries(
                         session_id,
                         [self._message_entry(item, seq=next_seq + index) for index, item in enumerate(extra)],
@@ -801,16 +854,13 @@ class JsonlPersistence:
             # A rewrite means the harness compacted its runtime context. Keep
             # the complete transcript and append only a checkpoint plus the
             # retained suffix; compaction must never erase TUI history.
-            previous_seq = max(
-                (int(entry.get("seq", 0)) for entry in entries
-                 if str(entry.get("seq", "0")).isdigit()), default=0
-            )
+            previous_seq = self._next_seq(session_id) - 1
             candidates = list(incoming)
             system = next((item for item in candidates if item.get("role") == "system"), None)
             if system is not None:
                 candidates.remove(system)
             summary = candidates.pop(0) if candidates else {"role": "user", "content": ""}
-            next_seq = self._next_seq(entries)
+            next_seq = self._next_seq(session_id)
             boundary = {
                 "type": "compaction",
                 "version": 1,
@@ -920,8 +970,8 @@ class JsonlPersistence:
         ]
 
     async def save_checkpoint(self, *, checkpoint: Checkpoint) -> None:
-        payload = checkpoint.model_dump()
-        payload.pop("messages", None)
+        # The journal already holds the messages; do not dump them every turn.
+        payload = checkpoint.model_dump(exclude={"messages"})
         payload["metadata"] = {**self.checkpoint_metadata(), **payload["metadata"]}
         with self._lock, self._session_lock(checkpoint.session_id):
             entries = self._read_entries(checkpoint.session_id)

@@ -26,6 +26,7 @@ from core_harness.context import ContextReport, build_context_report, estimate_p
 
 from coding_agent.addons import (
     ApprovalAddon,
+    JevAddon,
     LearningAddon,
     PlanModeAddon,
     PlanModeState,
@@ -319,7 +320,7 @@ class CodingAgent:
         mode = self.mode
         task_text = text_from_content(user_input)
         self.apply_system_prompt()
-        jev_addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)
+        jev_addon = self.harness.find_addon(JevAddon)
         if jev_addon is not None:
             jev_addon.follow_ups = 0
 
@@ -361,11 +362,10 @@ class CodingAgent:
         return {"goal": self.goal, "todo": self.plan_mode.plan_path, "background_jobs": self.bash_jobs.running()}
 
     def _jev_follow_up(self) -> Optional[str]:
-        addon = next((item for item in self.harness.addons if getattr(item, "name", "") == "jev"), None)
-        consume = getattr(addon, "consume_follow_up", None)
-        if not callable(consume):
+        addon = self.harness.find_addon(JevAddon)
+        if addon is None:
             return None
-        prompt = consume()
+        prompt = addon.consume_follow_up()
         return prompt if isinstance(prompt, str) and prompt.strip() else None
 
     def apply_system_prompt(self) -> None:

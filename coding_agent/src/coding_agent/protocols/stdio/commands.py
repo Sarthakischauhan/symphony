@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from coding_agent.config import ensure_spawn_settings, symphony_dir
+from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.config.personalities import load_personalities
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
-from coding_agent.tui.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
+from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
 
 
 def catalog(workspace: Path | None = None) -> list[dict[str, Any]]:
@@ -162,14 +163,11 @@ async def execute(agent: Any, value: str) -> str:
         agent.apply_system_prompt()
         return f"Personality: {choices[argument].name}."
     if command == "jev":
-        value = argument.lower()
-        if not argument or value == "toggle":
-            enabled = not agent.config.evaluation.enabled
-        else:
-            enabled = value not in {"off", "false", "disable", "0"}
+        change = parse_jev_argument(agent.config.evaluation.enabled, argument)
+        enabled = change.enabled
         settings: dict[str, Any] = {"enabled": enabled}
-        if argument and value not in {"on", "enable", "true", "1", "off", "false", "disable", "0", "toggle"}:
-            settings["rule"] = argument
+        if change.rule is not None:
+            settings["rule"] = change.rule
         agent.config = ensure_spawn_settings(agent.workspace, overrides={"evaluation": settings})
         agent.apply_system_prompt()
         return f"Jev {'enabled' if enabled else 'disabled'} for the next turn."

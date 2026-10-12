@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Mapping
 
 from textual.content import Content
 
+from coding_agent.tui.tools.partial_args import string_field
 from coding_agent.tui.transcript.messages import clip_text, compact_json
 
 TOOL_LABELS = {
@@ -49,9 +49,9 @@ def patch_path(arguments: Mapping[str, Any], raw_arguments: str = "", result: st
     path = str(arguments.get("path") or "").strip()
     if path:
         return path
-    match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', raw_arguments)
-    if match:
-        return json.loads(f'"{match.group(1)}"')
+    raw_path = string_field(raw_arguments, "path")
+    if raw_path is not None:
+        return raw_path
     for pattern in (
         r"^(?:patched|updated) (.+?)(?: \(|$)",
         r"^noop: .* in (.+?); no change",
@@ -63,12 +63,6 @@ def patch_path(arguments: Mapping[str, Any], raw_arguments: str = "", result: st
         if match:
             return match.group(1).strip()
     return ""
-
-
-def header_command(reason: str, summary: str, limit: int) -> str:
-    """Live-card detail: the file or command, not the activity reason."""
-    del reason
-    return summary
 
 
 def tool_header_text(label: str, target: str, status: str) -> Content:
@@ -109,10 +103,8 @@ def result_preview(tool_name: str, result: str) -> str:
 def read_file_detail(arguments: Mapping[str, Any], raw_arguments: str) -> str:
     path = arguments.get("path")
     if not path:
-        match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', raw_arguments or "")
-        if match:
-            path = json.loads(f'"{match.group(1)}"')
-        else:
+        path = string_field(raw_arguments or "", "path")
+        if path is None:
             return raw_arguments
     offset = int(arguments.get("offset") or 1)
     limit = int(arguments.get("limit") or 0)

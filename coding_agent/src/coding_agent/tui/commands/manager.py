@@ -10,6 +10,8 @@ from typing import Any, Iterable
 from core_ai import find_provider, get_model, get_provider
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.agent import build_agent
+from coding_agent.addons.evaluation.addon import JevAddon
+from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.presentation import session_images
 from coding_agent.config import ensure_spawn_settings
@@ -30,7 +32,7 @@ from coding_agent.tui.screens import (
     PlanModal,
     ProviderOnboardScreen,
 )
-from coding_agent.tui.commands.catalog import (
+from coding_agent.commands.catalog import (
     EFFORT_CATALOG,
     MODE_CATALOG,
     SLASH_COMMANDS,
@@ -106,27 +108,11 @@ async def _finish_langfuse_setup(app: Any) -> None:
     await reload_project(app)
 
 
-def jev_enabled_from_argument(current: bool, argument: str) -> bool | None:
-    """Resolve `/jev` as a mode toggle. ``None`` means the argument was invalid."""
-    needle = argument.strip().lower()
-    if needle in {"", "toggle"}:
-        return not current
-    if needle in {"on", "enable", "true", "1"}:
-        return True
-    if needle in {"off", "disable", "false", "0"}:
-        return False
-    return None
-
-
 def toggle_jev(app: Any, argument: str = "") -> None:
     """Enable or disable critic mode without switching the chat model."""
     current = bool(getattr(getattr(app, "config", None), "evaluation", None) and app.config.evaluation.enabled)
-    enabled = jev_enabled_from_argument(current, argument)
-    if enabled is None:
-        rule = argument.strip()
-        enabled = True
-    else:
-        rule = None
+    change = parse_jev_argument(current, argument)
+    enabled, rule = change.enabled, change.rule
     app.enable_jev = enabled
     settings = {"enabled": enabled}
     if rule is not None:
@@ -399,9 +385,9 @@ async def reload_project(app: Any) -> None:
             client="tui",
         )
         session_rule = getattr(app, "jev_rule", "")
-        for addon in getattr(reloaded_agent.harness, "addons", ()):
-            if getattr(addon, "name", "") == "jev":
-                addon.config.rule = session_rule
+        jev_addon = reloaded_agent.harness.find_addon(JevAddon)
+        if jev_addon is not None:
+            jev_addon.config.rule = session_rule
         reloaded_agent.set_mode(app.mode)
         reloaded_model = reloaded_agent.harness.model_id
         reloaded_info = _model_info(reloaded_model)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -173,6 +174,45 @@ def test_theme_signature_changes_when_the_file_is_rewritten(tmp_path: Path) -> N
     assert after is not None
     assert before[0] == after[0]
     assert before[1] != after[1]
+
+
+def test_theme_signature_detects_same_size_rewrite_in_the_same_tick(tmp_path: Path) -> None:
+    from coding_agent.tui.theme.load import theme_signature
+
+    theme = tmp_path / "theme.toml"
+    original = packaged_theme_path().read_text(encoding="utf-8")
+    theme.write_text(original, encoding="utf-8")
+    stat = theme.stat()
+    before = theme_signature(theme)
+    edited = original.replace("#", "%", 1)
+    assert edited != original and len(edited) == len(original)
+    theme.write_text(edited, encoding="utf-8")
+    # Pin the timestamps back so mtime and size both match the original write.
+    os.utime(theme, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert theme.stat().st_mtime_ns == stat.st_mtime_ns
+    assert theme.stat().st_size == stat.st_size
+    after = theme_signature(theme)
+    assert before is not None
+    assert after is not None
+    assert before != after
+
+
+def test_theme_signature_is_stable_for_an_untouched_file_and_changes_on_touch(tmp_path: Path) -> None:
+    from coding_agent.tui.theme.load import theme_signature
+
+    theme = tmp_path / "theme.toml"
+    theme.write_text(packaged_theme_path().read_text(encoding="utf-8"), encoding="utf-8")
+    stat = theme.stat()
+    assert theme_signature(theme) == theme_signature(theme)
+    before = theme_signature(theme)
+    os.utime(theme, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    assert theme_signature(theme) != before
+
+
+def test_theme_signature_is_none_for_a_missing_file(tmp_path: Path) -> None:
+    from coding_agent.tui.theme.load import theme_signature
+
+    assert theme_signature(tmp_path / "missing.toml") is None
 
 
 def test_themed_markdown_uses_loaded_palette() -> None:

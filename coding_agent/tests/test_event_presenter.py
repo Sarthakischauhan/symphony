@@ -6,6 +6,11 @@ from typing import Any, Mapping, Optional
 
 import pytest
 
+from core_harness import CoreHarness, HarnessConfig
+
+from coding_agent.addons.evaluation.addon import JevAddon
+from coding_agent.addons.evaluation.evaluators import StubEvaluator
+from coding_agent.config import EvaluationConfig
 from coding_agent.tui.runtime.events import EventPresenter
 from coding_agent.tui.runtime.state import UiRunState
 
@@ -503,19 +508,24 @@ def test_jev_recommendation_update_clips_reason() -> None:
     assert clipped.endswith("…")
 
 
+def _harness_with_jev_decision(decision: Any) -> CoreHarness:
+    jev = JevAddon(EvaluationConfig(), evaluator=StubEvaluator())
+    jev.last_decision = decision
+    return CoreHarness(
+        registry=None,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="",
+        config=HarnessConfig(),
+        addons=[jev],
+    )
+
+
 def test_run_completed_shows_jev_toast_for_user_facing_decision() -> None:
     from types import SimpleNamespace
 
     presenter, view, _ = _presenter()
     view._agent = SimpleNamespace(
-        harness=SimpleNamespace(
-            addons=[
-                SimpleNamespace(
-                    name="jev",
-                    last_decision=SimpleNamespace(action="review", reason="claims look unsupported"),
-                )
-            ]
-        )
+        harness=_harness_with_jev_decision(SimpleNamespace(action="review", reason="claims look unsupported"))
     )
     presenter.handle("run_started", {"ts": 1.0})
     presenter.handle("run_completed", {"ts": 2.0, "output_text": "done"})
@@ -531,14 +541,7 @@ def test_run_completed_skips_toast_when_jev_silent_or_missing() -> None:
     assert view.updates == []
 
     view._agent = SimpleNamespace(
-        harness=SimpleNamespace(
-            addons=[
-                SimpleNamespace(
-                    name="jev",
-                    last_decision=SimpleNamespace(action="continue_normally", reason="ok"),
-                )
-            ]
-        )
+        harness=_harness_with_jev_decision(SimpleNamespace(action="continue_normally", reason="ok"))
     )
     presenter.handle("run_started", {"ts": 3.0})
     presenter.handle("run_completed", {"ts": 4.0})

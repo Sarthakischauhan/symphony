@@ -477,11 +477,11 @@ def test_read_git_branch_reads_head_without_git_binary(tmp_path: Path) -> None:
 
 
 def test_topbar_text_joins_branch_and_model_with_airy_gap() -> None:
-    line = topbar_text(workspace="~/src/symphony", branch="main", model="gpt-5.6")
+    line = topbar_text(branch="main", model="gpt-5.6")
     assert line.plain == "⎇ main    gpt-5.6"
     prefixed = topbar_text(branch="main", model="anthropic:claude-sonnet-5")
     assert prefixed.plain == "⎇ main    claude-sonnet-5"
-    assert topbar_text(workspace="~/src/symphony").plain == ""
+    assert topbar_text().plain == ""
 
 
 def test_topbar_renders_branch_and_right_aligned_model(
@@ -1039,6 +1039,8 @@ def test_diff_modal_shows_file_names_and_change_stats(
     async def _run() -> None:
         async with app.run_test() as pilot:
             app.push_screen(DiffModal(tmp_path))
+            await pilot.pause()
+            await app.workers.wait_for_complete()  # git diff runs in a worker
             await pilot.pause()
 
             card = app.screen.query_one(DiffFileCard)
@@ -2686,6 +2688,8 @@ def test_at_file_selector_uses_existing_composer_menu(
             prompt = app.query_one("#prompt")
             prompt.value = "Review @tur"
             await pilot.pause()
+            await app.workers.wait_for_complete()  # the @ index walks in a worker
+            await pilot.pause()
 
             menu = app.query_one("#slash-menu", SlashMenu)
             assert menu.display
@@ -2721,6 +2725,8 @@ def test_file_selector_scrolls_to_keep_selection_visible(
             await pilot.pause()
             prompt = app.query_one("#prompt")
             prompt.value = "Review @file_"
+            await pilot.pause()
+            await app.workers.wait_for_complete()  # the @ index walks in a worker
             await pilot.pause()
 
             menu = app.query_one("#slash-menu", SlashMenu)
@@ -2981,6 +2987,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
             model_id="openai:reloaded-model",
             reasoning_effort=None,
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
+            find_addon=lambda _kind: None,
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
         learning_loop=None,
@@ -3547,9 +3554,13 @@ def test_display_from_content_rebuilds_clickable_markers() -> None:
 def test_textual_image_renders_bytes() -> None:
     from textual_image.widget import Image as TextualImage
 
+    from PIL import Image as PILImage
+
     preview = textual_image(PNG_1X1)
     assert isinstance(preview, TextualImage)
-    assert preview.image is not None
+    with PILImage.open(preview.image) as decoded:
+        assert decoded.size == (1, 1)
+    assert (preview.styles.max_width.value, preview.styles.max_height.value) == (88, 28)
 
 
 def test_subagent_card_opens_nested_session_screen(
@@ -4193,7 +4204,7 @@ def test_churning_is_text_only_and_thinking_does_not_remount_when_last(
             thinking = app.query_one(ThinkingStatus)
             assert process.timeline_items()[-1] is thinking
 
-            thinking.set_churning(0)
+            thinking.set_churning()
             await pilot.pause()
             assert thinking.styles.opacity == 1.0
             assert any(

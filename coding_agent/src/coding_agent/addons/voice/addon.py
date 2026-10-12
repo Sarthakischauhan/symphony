@@ -14,6 +14,7 @@ from core_harness.addons.addon import Addon
 
 from coding_agent.addons.voice.speak import StreamingSpeaker
 from coding_agent.addons.voice.stream import VoiceStream
+from coding_agent.addons.voice.summary import spoken_summary
 
 
 class VoiceAddon(Addon):
@@ -33,14 +34,12 @@ class VoiceAddon(Addon):
             on_speaking=on_speaking, on_transcript=on_transcript, on_commit=on_commit,
         )
         self._open = False
-        self._started_speech = False
         self._armed = False
         self._speaker: StreamingSpeaker | None = None
 
     def arm(self) -> None:
         """Opt in exactly one microphone-originated run; typed runs stay silent."""
         self._armed = True
-        self._started_speech = False
 
     def fork_for_child(self, parent_harness: Any) -> None:
         return None
@@ -95,8 +94,6 @@ class VoiceAddon(Addon):
             # A typed turn never speaks. The listen socket, if one is up,
             # hangs up with the acknowledgement and is not held open here.
             return
-        from coding_agent.tui.composer.voice import spoken_summary
-
         text = spoken_summary(str(getattr(result, "output_text", "") or ""))
         if not text:
             return

@@ -25,7 +25,6 @@ from coding_agent.tui.transcript.messages import (
     Welcome,
 )
 from coding_agent.tui.transcript.process import (
-    ProcessComplete,
     ReasoningWidget,
     RunProcess,
     ThinkingStatus,
@@ -159,7 +158,7 @@ class TranscriptSurface:
             self.set_thinking("Churning")
         assert self._thinking is not None
         self._thinking.set_visible(True)
-        self._thinking.set_churning(turn)
+        self._thinking.set_churning()
         if self._process is not None:
             self._process.place_thinking_last()
 
@@ -313,10 +312,6 @@ class TranscriptSurface:
         self._close_tool_group()
         if self._process is not None:
             self._process.complete(title, collapse=collapse, verb=verb, duration=duration)
-
-    def add_run_completion(self, title: str) -> None:
-        """Place compact run metrics after the finalized assistant reply."""
-        self._mount_transcript(ProcessComplete(title))
 
     def mount_transcript(self, widget: Widget) -> None:
         """Public adapter used by the persisted-history loader."""

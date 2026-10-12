@@ -10,7 +10,7 @@ from textual import events
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
-from coding_agent.tui.commands.catalog import (
+from coding_agent.commands.catalog import (
     EffortOption,
     ModeOption,
     ModelOption,
@@ -213,9 +213,6 @@ class SlashMenu(OptionList):
         else:
             self._plans_cache = plans
         self._replace_choices(plans=plans)
-
-    def invalidate_data_cache(self) -> None:
-        self.clear_session_cache()
 
     def set_files(self, files: tuple[FileOption, ...]) -> None:
         if self._files_cache == files:

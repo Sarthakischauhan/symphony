@@ -8,7 +8,6 @@ publishes and leaves the rest unknown rather than guessing.
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import time
 from dataclasses import dataclass
@@ -140,14 +139,6 @@ def directory_size(path: str | Path | None) -> int | None:
                 except OSError:
                     continue
         return total
-    except OSError:
-        return None
-
-
-def disk_free(path: str | Path | None = None) -> int | None:
-    """Free bytes on the volume that holds ``path`` (or the cwd)."""
-    try:
-        return shutil.disk_usage(path or ".").free
     except OSError:
         return None
 

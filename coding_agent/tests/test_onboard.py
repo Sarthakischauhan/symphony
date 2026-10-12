@@ -13,6 +13,7 @@ from textual.widgets import Input, OptionList, Static
 from coding_agent.config.credentials import global_env_path, workspace_env_path
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.screens.onboard import OnboardApp, ProviderOnboardScreen
+from coding_agent.tui.transcript.messages import Notice
 from core_ai.oauth import LoginCancelled
 from core_ai.oauth.types import LoginPrompt, OAuthToken
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
@@ -340,10 +341,13 @@ def test_provider_command_unknown_name_stays_on_chat(tmp_path: Path) -> None:
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
+            before = app.screen
             await app._command_manager.run("/provider nope")
             await pilot.pause()
-            assert app.screen is app.screen
+            assert app.screen is before
             assert not isinstance(app.screen, ProviderOnboardScreen)
+            notices = [item.message_text for item in app.query(Notice)]
+            assert any(text.startswith("Unknown provider: nope.") for text in notices)
 
     asyncio.run(_run())
 
@@ -359,6 +363,7 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
             model_id="openai:gpt-5.6-luna",
             reasoning_effort=None,
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
+            find_addon=lambda _kind: None,
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
         learning_loop=None,

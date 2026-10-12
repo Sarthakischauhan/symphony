@@ -144,9 +144,11 @@ coding_agent/src/coding_agent/
     persistence/      # JSONL sessions
     plugins/          # trusted plugin discovery and loading
     skills/           # skills add-on, registry, tool + bundled skill resources
+    voice/            # voice add-on: sockets, credentials, spoken summary, playback
+  commands/           # slash-command catalog shared by the TUI and stdio (no Textual)
   protocols/stdio/    # JSONL host transport: frames, catalog, command loop
   tools/              # one file per workspace tool
-  tui/                # Textual app, driven by CP events
+  tui/                # Textual app, driven by CP events; nothing outside imports it
 
 core_server/src/core_server/
   app.py              # FastAPI app, /runs, /models, /health

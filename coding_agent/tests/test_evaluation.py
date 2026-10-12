@@ -46,7 +46,7 @@ from coding_agent.addons.evaluation.protocol import EvaluationFinding, Evaluatio
 from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.__main__ import build_parser
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS
-from coding_agent.tui.commands.manager import jev_enabled_from_argument
+from coding_agent.commands.jev_argument import JevChange, parse_jev_argument
 
 
 class QuietRegistry:
@@ -807,10 +807,10 @@ def test_jev_flag_parses_into_evaluation_config(tmp_path: Path) -> None:
 def test_slash_jev_is_mode_toggle_not_model_switch() -> None:
     names = [command.name for command in SLASH_COMMANDS]
     assert "jev" in names
-    assert jev_enabled_from_argument(False, "") is True
-    assert jev_enabled_from_argument(True, "off") is False
-    assert jev_enabled_from_argument(False, "on") is True
-    assert jev_enabled_from_argument(True, "model") is None
+    assert parse_jev_argument(False, "") == JevChange(enabled=True)
+    assert parse_jev_argument(True, "off") == JevChange(enabled=False)
+    assert parse_jev_argument(False, "on") == JevChange(enabled=True)
+    assert parse_jev_argument(True, "model") == JevChange(enabled=True, rule="model")
 
 
 def test_child_does_not_inherit_jev(tmp_path: Path) -> None:

@@ -39,8 +39,13 @@ Extraction uses a separate structured model request. It can produce up to eight
 workspace observations, never global writes or memory deletions. Low-confidence
 observations (below 0.7) are not promoted. Unsupported claims, routine progress,
 secrets, and transcript instructions are excluded by the extraction prompt and
-validation. Failed or invalid extractions remain queued for retry, rather than
-blocking the main conversation. Observations are consolidated after extraction;
+validation. Extraction asks for the lowest reasoning effort the model's catalog
+entry advertises, with an output cap of at least 8,192 tokens (hidden reasoning
+spends the same budget as the JSON); smaller stored caps are raised on launch.
+Provider errors leave the job queued for retry. Empty, unparseable, or invalid
+output logs a warning and shows a "memory capture" notice in the TUI; after three
+such attempts the job is marked `failed` and is no longer retried. None of this
+blocks the main conversation. Observations are consolidated after extraction;
 remaining inbox records are also processed on worker restart.
 
 The `memory` tool handles explicit additions, replacements and removals.

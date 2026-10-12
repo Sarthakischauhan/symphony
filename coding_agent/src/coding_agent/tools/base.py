@@ -6,11 +6,23 @@ import asyncio
 import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Type
+from typing import Annotated, Any, ClassVar, Dict, Type
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, ValidationError
 
 from core_harness import Tool
+
+
+def _strip_path(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("path must be a non-empty string")
+    return stripped
+
+
+# A path argument with surrounding whitespace removed. Use it on models that
+# keep str_strip_whitespace off so file content stays whitespace-exact.
+NonEmptyPath = Annotated[str, AfterValidator(_strip_path)]
 
 
 class WorkspaceTool(Tool, ABC):

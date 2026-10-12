@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -11,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from core_ai.models.registry import context_limits
 
 SettingsSource = Union["HarnessConfig", str, Path]
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SUBAGENT_SYSTEM_PROMPT = (
     "You are a subagent spawned to complete one focused task. Use tools as "
@@ -53,6 +56,11 @@ class HarnessConfig(BaseModel):
             "compaction_keep_recent",
         }
         if isinstance(data, dict) and any(key in data for key in removed):
+            logger.warning(
+                "Ignoring removed harness config keys: %s. Delete them from your config; "
+                "they will be rejected in a future release.",
+                ", ".join(sorted(key for key in removed if key in data)),
+            )
             data = dict(data)
             for key in removed:
                 data.pop(key, None)

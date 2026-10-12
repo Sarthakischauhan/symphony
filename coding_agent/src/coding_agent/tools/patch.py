@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import difflib
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field
 
-from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
+from coding_agent.tools.base import NonEmptyPath, ToolArgsModel, WorkspaceTool
 
 CHAR_FOLD = str.maketrans(
     {
@@ -35,7 +35,7 @@ CHAR_FOLD = str.maketrans(
 class PatchArgs(ToolArgsModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
 
-    path: str = Field(
+    path: NonEmptyPath = Field(
         ...,
         min_length=1,
         description="Existing file path. Relative paths start at the working directory.",
@@ -43,14 +43,6 @@ class PatchArgs(ToolArgsModel):
     old_str: str = Field(..., min_length=1, description="Exact whitespace-significant text to replace.")
     new_str: str = Field(..., description="Exact replacement text; empty deletes the match.")
     replace_all: bool = Field(default=False, description="Replace all matches instead of requiring one.")
-
-    @field_validator("path")
-    @classmethod
-    def strip_path_only(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("path must be a non-empty string")
-        return stripped
 
 
 class PatchTool(WorkspaceTool):

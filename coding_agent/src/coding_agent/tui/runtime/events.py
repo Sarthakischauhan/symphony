@@ -7,10 +7,13 @@ import re
 import time
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
+from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
+from coding_agent.addons.voice.summary import SpokenSummaryStream, split_spoken_summary
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.activity import choose_completion_verb
+from coding_agent.tui.tools.partial_args import string_field
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
@@ -42,11 +45,8 @@ def _jev_last_decision(view: Any) -> Any:
     harness = getattr(agent, "harness", None) if agent is not None else None
     if harness is None:
         return None
-    addon = next(
-        (item for item in getattr(harness, "addons", ()) if getattr(item, "name", "") == "jev"),
-        None,
-    )
-    return getattr(addon, "last_decision", None) if addon is not None else None
+    addon = harness.find_addon(JevAddon)
+    return addon.last_decision if addon is not None else None
 
 
 def _clean_reasoning(text: str) -> str:
@@ -80,9 +80,9 @@ def _tool_arguments_from_protocol(raw: str) -> Optional[dict[str, Any]]:
         return decoded
     arguments: dict[str, Any] = {}
     for key in ("path", "command", "query", "pattern"):
-        match = re.search(rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"', raw)
-        if match:
-            arguments[key] = json.loads(f'"{match.group(1)}"')
+        value = string_field(raw, key)
+        if value is not None:
+            arguments[key] = value
     return arguments or None
 
 
@@ -156,8 +156,6 @@ class TranscriptView(Protocol):
         event_type: str = "run_summary",
     ) -> None: ...
 
-    def add_run_metrics(self, metrics: str) -> None: ...
-
 
 class EventPresenter:
     """Stateful event reducer that updates a transcript view."""
@@ -177,6 +175,7 @@ class EventPresenter:
         self.workspace = workspace
         self._schedule_flush = schedule_flush
         self._assistant_open = False
+        self._spoken = SpokenSummaryStream()
         self._tool_names: dict[str, str] = {}
         self._tool_argument_chunks: dict[str, list[str]] = {}
         self._tool_argument_tails: dict[str, str] = {}
@@ -415,8 +414,6 @@ class EventPresenter:
             # Install the authoritative final response while the process is
             # still open; finish_assistant() then freezes it as Markdown.
             # A voice run's spoken section is dictated, never shown.
-            from coding_agent.tui.composer.voice import split_spoken_summary
-
             final_output, _spoken = split_spoken_summary(final_output)
             self.view.set_assistant(final_output)
         self.view.finish_assistant()
@@ -504,6 +501,7 @@ class EventPresenter:
             self._finish_reasoning()
             self._reasoning_parts.clear()
             self.state.stream_text = ""
+            self._spoken = SpokenSummaryStream()
             self.state.reasoning_text = ""
             if self._assistant_open:
                 self.view.set_assistant("")
@@ -537,11 +535,10 @@ class EventPresenter:
         is_new = not self._assistant_open
         if is_new:
             self.state.stream_text = ""
+            self._spoken = SpokenSummaryStream()
         self.state.append_text(delta)
         self._assistant_open = True
-        from coding_agent.tui.composer.voice import split_spoken_summary
-
-        visible, _spoken = split_spoken_summary(self.state.stream_text)
+        visible = self._spoken.visible(self.state.stream_text)
         self._buffer_assistant(visible, new=is_new)
         speak = getattr(self.view, "feed_voice", None)
         if callable(speak):

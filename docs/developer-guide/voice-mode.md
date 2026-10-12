@@ -107,14 +107,19 @@ There is no separate voice bar and no composer hide/show transition.
 
 ## Owners and limits
 
-- `tui/composer/voice.py`: credentials, the test-only WAV recorder and REST
-  STT client, border colors, and the spoken-summary splitter.
+- `tui/composer/voice.py`: the test-only WAV recorder and REST STT client,
+  and border colors. It imports credentials, the summary splitter, and
+  playback from the add-on; nothing under `addons/voice/` imports the TUI.
 - `tui/composer/voice_mode.py`: user entry, live transcript, commit on pause
   or Enter, and UI recovery.
 - `addons/voice/addon.py`: per-run opt-in. Speaks the summary through TTS
   after the run, not on the realtime socket.
 - `addons/voice/stream.py`: the listen socket, microphone, and acknowledgement
   playback. `speak.py` is the TTS socket used for the summary.
+- `addons/voice/credentials.py` (xAI bearer, TTS voice id, `UnavailableVoice`),
+  `summary.py` (the `## Spoken summary` splitter and TTS text cleanup), and
+  `playback.py` (MP3 fallback player). The stdio host and the add-on load
+  without Textual; `tests/test_import_isolation.py` checks that.
 
 One listen is one utterance. Audio is appended while the user speaks, and the
 composer shows transcript deltas as they arrive, on the same socket. The turn

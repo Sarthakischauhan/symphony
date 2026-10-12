@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, TypeVar, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -27,6 +27,8 @@ from core_harness.models import (
 )
 from core_harness.context import HarnessState, normalize_tool_protocol
 from core_harness.tools import Tool
+
+AddonT = TypeVar("AddonT", bound=Addon)
 
 
 class CoreHarness:
@@ -98,6 +100,13 @@ class CoreHarness:
             raise ValueError(f"duplicate addon name: {addon.name!r}")
         addon.attach(self)
         self.addons.append(addon)
+
+    def find_addon(self, kind: Type[AddonT]) -> Optional[AddonT]:
+        """Return the first registered addon that is an instance of ``kind``."""
+        for addon in self.addons:
+            if isinstance(addon, kind):
+                return addon
+        return None
 
     async def notify_addons(self, hook: str, **payload: Any) -> Any:
         if hook == "before_tool":
@@ -184,10 +193,10 @@ class CoreHarness:
     def _subagent_addon(self):
         from core_harness.addons.subagent import SubagentAddon
 
-        for addon in self.addons:
-            if isinstance(addon, SubagentAddon):
-                return addon
-        raise RuntimeError("spawn requires a registered SubagentAddon")
+        addon = self.find_addon(SubagentAddon)
+        if addon is None:
+            raise RuntimeError("spawn requires a registered SubagentAddon")
+        return addon
 
     async def begin_child(
         self,

@@ -58,12 +58,6 @@ class ContextReport:
             return None
         return min(self.stored_tokens / self.context_limit, 1.0)
 
-    @property
-    def sent_utilization(self) -> Optional[float]:
-        if not self.context_limit:
-            return None
-        return min(self.sent_tokens / self.context_limit, 1.0)
-
 
 _ROLE_LABELS = {
     "system": "System",
@@ -234,7 +228,6 @@ class HarnessState:
 
     def should_compact(
         self,
-        context_left: Optional[int],
         estimated_tokens: Optional[int] = None,
         context_limit: Optional[int] = None,
     ) -> bool:
@@ -258,7 +251,6 @@ class HarnessState:
     ) -> List[Message]:
         """Compact messages when the configured context threshold is reached."""
         if not self.should_compact(
-            context_left,
             tokens_used,
             context_limit,
         ):

@@ -56,12 +56,18 @@ def publish(path: Path, payload: bytes) -> None:
 
 
 def append_bytes(path: Path, payload: bytes) -> None:
-    """Append one durable record. The line and its directory are fsynced first."""
+    """Append one durable record. The line is fsynced before this returns.
+
+    The directory is fsynced only when this call created the file: appending
+    to an existing file adds no directory entry, and the file fsync already
+    makes the new length durable.
+    """
     if not payload:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise ValueError(f"unsafe artifact symlink: {path}")
+    created = not path.exists()
     flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -76,8 +82,29 @@ def append_bytes(path: Path, payload: bytes) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
-    fsync_dir(path.parent)
+    if created:
+        fsync_dir(path.parent)
+
+
+def _snapshot_bytes(payload: dict[str, Any]) -> bytes:
+    return (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def snapshot(path: Path, payload: dict[str, Any]) -> None:
-    publish(path, (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+    publish(path, _snapshot_bytes(payload))
+
+
+def refresh_snapshot(path: Path, payload: dict[str, Any]) -> None:
+    """Publish ``payload`` only when the file is missing or holds other bytes.
+
+    Re-reading a journal repairs artifacts a crash left stale. When they are
+    already current this costs one small read instead of two fsyncs.
+    """
+    encoded = _snapshot_bytes(payload)
+    if not path.is_symlink():
+        try:
+            if path.read_bytes() == encoded:
+                return
+        except OSError:
+            pass
+    publish(path, encoded)

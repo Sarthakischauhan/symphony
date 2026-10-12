@@ -11,13 +11,20 @@ from textual import events
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.widgets import Static
+from textual.worker import get_current_worker
 
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import DIFF_MODAL_CSS
 from coding_agent.tui.tools.calls import diff_stats
 
 
+# Cards mount in batches so a large diff never holds the UI loop for one
+# long layout pass; the loop paints and takes keys between batches.
+CARD_MOUNT_BATCH = 16
 _HUNK_RE = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)")
+# git diff runs in a worker thread; a hung git (lock, network FS) ends here
+# with a message instead of holding the worker forever.
+GIT_DIFF_TIMEOUT_S = 10.0
 
 
 def read_workspace_diff(workspace: Path) -> str:
@@ -30,6 +37,7 @@ def read_workspace_diff(workspace: Path) -> str:
             check=False,
             capture_output=True,
             text=True,
+            timeout=GIT_DIFF_TIMEOUT_S,
         )
     except Exception as exc:  # noqa: BLE001
         return f"Failed to run git diff: {exc}"
@@ -127,9 +135,11 @@ def _numbered_diff(body: str) -> Text:
 class DiffFileCard(Container):
     """One changed file with its compact header and patch."""
 
-    def __init__(self, path: str, body: str) -> None:
+    def __init__(self, path: str, body: str, *, patch: Text | None = None) -> None:
         self.path = path
         self.body = body
+        # ``patch`` is the rendered body when a worker already built it.
+        self.patch = patch
         self.additions, self.deletions = diff_stats(body.splitlines())
         super().__init__(classes="diff-file-card")
 
@@ -141,7 +151,8 @@ class DiffFileCard(Container):
             yield Static("▾", classes="diff-file-chevron")
             yield Static(Text(self.path, style="bold #d0d0d0"), classes="diff-file-path")
             yield Static(stats, classes="diff-file-stats")
-        yield Static(_numbered_diff(self.body), classes="diff-patch", markup=False)
+        patch = self.patch if self.patch is not None else _numbered_diff(self.body)
+        yield Static(patch, classes="diff-patch", markup=False)
 
     def toggle_collapsed(self) -> bool:
         """Toggle this card and return whether it is now collapsed."""
@@ -173,45 +184,29 @@ class DiffModal(ModalBase[None]):
         self._cards: list[DiffFileCard] = []
 
     def compose(self):  # type: ignore[no-untyped-def]
-        diff_text = read_workspace_diff(self.workspace)
-        self._file_data = split_diff(diff_text)
-        path, first_body = self._file_data[0] if self._file_data else ("", "")
-        additions, deletions = diff_stats(first_body.splitlines())
-
+        # git diff can take seconds on a large tree. It runs in a worker after
+        # mount; the frame and a loading state paint first.
         with Container(id="diff-pane", classes="modal-pane"):
             # Keep the left side compact, then use a dedicated spacer to pin the
             # file count and close affordance to the right edge.
             yield Horizontal(
                 Static("diff", id="diff-title"),
-                Static(path, id="diff-path"),
+                Static("", id="diff-path"),
                 Static(
                     Text.assemble(
-                        (f"+{additions}", "bold #8fc49a"),
+                        ("+0", "bold #8fc49a"),
                         ("  ", "#777777"),
-                        (f"−{deletions}", "bold #df8b91"),
+                        ("−0", "bold #df8b91"),
                     ),
                     id="diff-total-stats",
                 ),
                 Static("", id="diff-header-spacer"),
-                Static(
-                    f"1 of {len(self._file_data)} files" if self._file_data else "0 files",
-                    id="diff-file-counter",
-                ),
+                Static("loading", id="diff-file-counter"),
                 ModalCloseButton("esc  close", id="modal-close"),
                 id="diff-header",
             )
             with ModalScroll(id="diff-body", classes="modal-body"):
-                if not self._file_data:
-                    is_clean = diff_text.strip() in {"", "No local changes found."}
-                    yield EmptyState(
-                        "Working tree is clean" if is_clean else "Diff unavailable",
-                        diff_text.strip() or "There are no uncommitted changes to review.",
-                    )
-                else:
-                    for current_path, current_body in self._file_data:
-                        card = DiffFileCard(current_path, current_body)
-                        self._cards.append(card)
-                        yield card
+                yield EmptyState("Loading diff", "Running git diff…", id="diff-loading")
             yield Static(
                 "↑↓ scroll    n next file    p previous file    enter collapse    esc close",
                 id="diff-hint",
@@ -219,8 +214,42 @@ class DiffModal(ModalBase[None]):
             )
 
     def on_mount(self) -> None:
-        if self._cards:
-            self._show_file(0, scroll=False)
+        self.run_worker(self._read_diff, thread=True, group="workspace-diff", exit_on_error=False)
+
+    def _read_diff(self) -> None:
+        """Worker thread: run git, split and render the patches, then hand off."""
+        diff_text = read_workspace_diff(self.workspace)
+        files = split_diff(diff_text)
+        patches = [_numbered_diff(file_body) for _path, file_body in files]
+        if not get_current_worker().is_cancelled:
+            self.app.call_from_thread(self._show_diff, diff_text, files, patches)
+
+    async def _show_diff(
+        self, diff_text: str, files: list[tuple[str, str]], patches: list[Text]
+    ) -> None:
+        if not self.is_attached:
+            return  # closed while git was running
+        self._file_data = files
+        body = self.query_one("#diff-body", ModalScroll)
+        await self.query_one("#diff-loading", EmptyState).remove()
+        if not self._file_data:
+            is_clean = diff_text.strip() in {"", "No local changes found."}
+            self.query_one("#diff-file-counter", Static).update("0 files")
+            await body.mount(EmptyState(
+                "Working tree is clean" if is_clean else "Diff unavailable",
+                diff_text.strip() or "There are no uncommitted changes to review.",
+            ))
+            return
+        self._cards = [
+            DiffFileCard(path, file_body, patch=patch)
+            for (path, file_body), patch in zip(files, patches)
+        ]
+        for start in range(0, len(self._cards), CARD_MOUNT_BATCH):
+            await body.mount_all(self._cards[start:start + CARD_MOUNT_BATCH])
+            if start == 0:
+                self._show_file(0, scroll=False)
+            if not self.is_attached:
+                return
 
     def on_key(self, event: events.Key) -> None:
         """Keep modal shortcuts active while the scroll container has focus."""

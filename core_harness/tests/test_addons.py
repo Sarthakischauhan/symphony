@@ -356,3 +356,29 @@ def test_child_config_addon_factory_is_used_instead_of_forks() -> None:
     names = [addon.name for addon in seen[0]]
     assert names == ["factory"]
     assert getattr(seen[0][0], "name") == "factory"
+
+
+def test_find_addon_returns_first_instance_of_kind_or_none() -> None:
+    class Named(Addon):
+        name = "named"
+
+    class NamedChild(Named):
+        name = "named-child"
+
+    class Other(Addon):
+        name = "other"
+
+    child = NamedChild()
+    harness = CoreHarness(
+        registry=None,  # type: ignore[arg-type]
+        model_id="fake:test-model",
+        system_prompt="",
+        config=HarnessConfig(),
+        addons=[Other(), child, Named()],
+    )
+    assert harness.find_addon(NamedChild) is child
+    assert harness.find_addon(Named) is child
+    assert isinstance(harness.find_addon(Other), Other)
+    assert harness.find_addon(SubagentAddon) is None
+    with pytest.raises(RuntimeError, match="spawn requires a registered SubagentAddon"):
+        harness._subagent_addon()
