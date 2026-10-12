@@ -110,6 +110,10 @@ class LearningAddon(Addon):
                       limit=self.loop.context_limit, max_chars=self.loop.context_max_chars,
                       context=payload.get("context"))
 
+    def attach(self, harness: Any) -> None:
+        """Capture notices (bad extraction output) go to this harness's control plane."""
+        self.loop.emit = harness.emit
+
     def fork_for_child(self, parent_harness: Any) -> None:
         """Skip inherit: child runs do not observe or record learning."""
         del parent_harness

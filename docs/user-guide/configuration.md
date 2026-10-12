@@ -56,7 +56,7 @@ Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`
   },
   "learning": {
     "enabled": true,
-    "max_output_tokens": 900,
+    "max_output_tokens": 8192,
     "max_lessons": 200,
     "context_limit": 6,
     "context_max_chars": 1400

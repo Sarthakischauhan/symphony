@@ -14,7 +14,7 @@ from core_harness.models import UsageTotals
 
 from coding_agent import CodingAgent
 from coding_agent.agent import default_addons
-from coding_agent.config import CodingAgentConfig, LearningConfig
+from coding_agent.config import LEARNING_MIN_OUTPUT_TOKENS, CodingAgentConfig, LearningConfig
 from coding_agent.addons.learning import (
     MEMORY_CONTEXT_PREFIX,
     LearningAddon,
@@ -103,7 +103,7 @@ def test_reflection_is_scheduled_and_saved(tmp_path: Path) -> None:
     lessons, max_output_tokens = asyncio.run(scenario())
     assert len(lessons) == 1
     assert "focused tests" in lessons[0]["text"]
-    assert max_output_tokens == LearningConfig().max_output_tokens == 900
+    assert max_output_tokens == LearningConfig().max_output_tokens == LEARNING_MIN_OUTPUT_TOKENS
 
 
 def test_should_save_false_is_normal(tmp_path: Path) -> None:
