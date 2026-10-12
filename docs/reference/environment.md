@@ -42,7 +42,7 @@ OpenAI, Anthropic, and Grok:
 | Provider | What to do |
 | --- | --- |
 | OpenAI | Browser PKCE against ChatGPT. Symphony listens on `http://localhost:1455/auth/callback`. If the tab does not bounce back, paste that localhost URL. Tokens call `https://chatgpt.com/backend-api/codex`. |
-| Anthropic | Preferred: run `claude setup-token` (Claude Code) and paste the token. Alternative: open the shown Claude authorize URL and paste the `code#state` from the redirect. Subscription tokens call `https://api.anthropic.com/api/claude_code`. An `ANTHROPIC_API_KEY` still uses `https://api.anthropic.com`. |
+| Anthropic | Preferred: run `claude setup-token` (Claude Code) and paste the token. Alternative: open the shown Claude authorize URL and paste the `code#state` from the redirect. Both call `https://api.anthropic.com/v1/messages`. A setup token is sent as `Authorization: Bearer`. An `ANTHROPIC_API_KEY` is sent as `x-api-key`. |
 | Grok | RFC 8628 device login. Open the shown URL, enter the user code, wait. Subscription traffic goes to `https://cli-chat-proxy.grok.com/v1`. An `XAI_API_KEY` still uses the console API at `https://api.x.ai/v1`. |
 
 Gemini, OpenRouter, Vercel AI Gateway, Ollama, and local servers stay API-key /

@@ -322,8 +322,8 @@ def test_build_default_registry_uses_anthropic_oauth_bearer() -> None:
     headers = provider._headers
     assert headers["Authorization"] == "Bearer oat"
     assert "x-api-key" not in headers
-    assert provider.base_url == "https://api.anthropic.com/api/claude_code"
-    assert headers["anthropic-beta"] == "oauth-2025-04-20,claude-code-20250219"
+    assert provider.base_url == "https://api.anthropic.com"
+    assert headers["anthropic-beta"] == "oauth-2025-04-20"
     assert headers["User-Agent"].startswith("claude-cli/")
     assert headers["x-app"] == "cli"
 
@@ -355,7 +355,7 @@ def test_build_default_registry_honors_anthropic_oauth_preference_over_api_key(
     provider = registry._providers["anthropic"]
     assert provider.api_key == "oat"
     assert provider.use_bearer
-    assert provider.base_url == "https://api.anthropic.com/api/claude_code"
+    assert provider.base_url == "https://api.anthropic.com"
     assert provider._headers["Authorization"] == "Bearer oat"
 
 
