@@ -131,9 +131,10 @@ else. That spoken line is not the chat
 answer. A voice utterance while a turn is already running is queued in the
 composer and sent when the current run finishes. Audio is sent to xAI, and
 the summary can contain workspace information. Input/output
-language is currently hardcoded to English. `sounddevice` is optional and
-first use tries to install it in the running interpreter; PortAudio/device
-availability and a local player are also required. The older local WAV
+language is currently hardcoded to English. `sounddevice` is installed as a
+required `symphony-code` dependency. PortAudio/device availability and a local
+player are also required; installing the Python package does not grant
+microphone permissions. The older local WAV
 recorder and REST STT client remain for tests and are not on the live path.
 
 ## Verification

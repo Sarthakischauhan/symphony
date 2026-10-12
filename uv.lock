@@ -1261,6 +1261,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "symphony-core" },
     { name = "symphony-harness" },
+    { name = "sounddevice" },
     { name = "termaid" },
     { name = "textual" },
     { name = "textual-image", version = "0.12.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -1286,14 +1287,14 @@ requires-dist = [
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "sounddevice", marker = "extra == 'voice'", specifier = ">=0.5.1" },
+    { name = "sounddevice", specifier = ">=0.5.1" },
     { name = "symphony-core", editable = "core_ai" },
     { name = "symphony-harness", editable = "core_harness" },
     { name = "termaid", specifier = ">=0.9.0" },
     { name = "textual", specifier = ">=8.2.8" },
     { name = "textual-image", specifier = ">=0.12.0" },
 ]
-provides-extras = ["langfuse", "voice"]
+provides-extras = ["langfuse"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
