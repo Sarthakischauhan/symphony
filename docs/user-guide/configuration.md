@@ -1,193 +1,40 @@
-# Configuration
+# Configure Symphony Code
 
-Starting a coding agent writes a complete settings file to
-`~/.symphony/config.json`. That file is the source of truth for the
-spawn. There is no packaged defaults JSON. If the file is missing, spawn
-generates it from `CodingAgentConfig` field defaults.
+Set up a model provider, choose defaults, and decide how the coding agent asks before acting. For workspace setup, start with the [quickstart](../getting-started/quickstart.md); the complete environment-variable list is in the [environment reference](../reference/environment.md).
 
-Pass the settings path or a loaded `CodingAgentConfig` into `CodingAgent` /
-`CoreHarness`. Constructors do not take a long list of config kwargs.
+## Providers and models
 
-See [`config/coding_agent/config.example.json`](../../config/coding_agent/config.example.json)
-for the user-facing shape.
+On first launch, Symphony can help configure a provider. In the TUI, use `/provider` to add or change credentials and `/model` to choose a model. API keys can also be set in the process environment or `.env` files. Do not commit credentials. Provider priority, subscription login, local providers, and model overrides are documented in the [environment reference](../reference/environment.md).
 
-Coding agents have no turn, tool-call, runtime, or token limit by default.
-Existing settings still apply; set `harness.max_turns`, `harness.max_tool_calls`,
-`harness.max_runtime_seconds`, and `harness.max_tokens` to `null` to disable them.
+## Settings file
 
-## Example file
+Coding-agent settings are stored in the user-wide `~/.symphony/config.json` file, or in the directory selected by `SYMPHONY_HOME`. The same settings apply across projects; workspace paths do not select a separate config file. First launch creates the file with defaults. You can edit it directly, but keep valid JSON and use the documented schema.
+
+Configuration is loaded and maintained as a complete settings file. The TUI creates `~/.symphony/config.json` with defaults on first launch; edit that file to customize settings. For example, to require a prompt before bash commands:
 
 ```json
 {
-  "harness": {
-    "max_parallel_tool_calls": 3,
-    "max_spawn_depth": 1,
-    "context_warn_threshold": 32000,
-    "context_compact_ratio": 0.8,
-    "context_target_tokens": 80000,
-    "compaction_keep_recent_tools": 32,
-    "tool_result_max_chars": 32000
-  },
   "approvals": {
     "mode": "ask",
-    "broad_patch_chars": 400,
-    "require_for_bash": true,
-    "require_for_overwrite": true,
-    "require_for_broad_patch": true,
-    "allow": [],
-    "deny": []
-  },
-  "tools": {
-    "bash": {
-      "default_timeout_seconds": 30,
-      "max_timeout_seconds": 120,
-      "max_output_bytes": 32000,
-      "max_background_seconds": 3600
-    },
-    "read_file": {
-      "max_text_bytes": 32000,
-      "max_image_bytes": 8000000
-    },
-    "search": {
-      "default_max_results": 100,
-      "default_max_line_chars": 240,
-      "binary_sniff_bytes": 8192
-    }
-  },
-  "learning": {
-    "enabled": true,
-    "max_output_tokens": 8192,
-    "max_lessons": 200,
-    "context_limit": 6,
-    "context_max_chars": 1400
-  },
-  "compaction": {
-    "max_output_tokens": 700,
-    "max_transcript_chars": 24000
-  },
-  "langfuse": {
-    "enabled": true,
-    "sample_rate": 1.0,
-    "max_payload_chars": 32000
-  },
-  "personality": "direct",
-  "evaluation": {
-    "enabled": false,
-    "rule": "",
-    "honour_follow_up": false,
-    "provider": "vercel",
-    "model": "typesafe-ai/jev",
-    "on_error": "fail-open",
-    "brief_max_chars": 2000,
-    "plan_max_chars": 2000,
-    "final_max_chars": 4000
+    "require_for_bash": true
   }
 }
 ```
 
-## Approvals
+The schema is validated and rejects unrecognized or invalid settings. Keep other existing settings when editing the file.
 
-- `ask` — interactive gates for bash, overwrite, and broad patches.
-- `always_allow` — every tool call is authorized without a prompt.
-- Rules live in `coding_agent.addons.approvals`; the TUI only renders the question.
-- **Always allow** lasts for the agent's session in any client (TUI or stdio
-  host), covers child agents, and is not written to this file.
-- `deny` / `allow` are fnmatch patterns matched on the bash command, or on the
-  path for `write_file`, `patch`, and `generate_image`. `deny` is checked first
-  and blocks the call in every mode, including `always_allow` and unattended
-  runs; `allow` skips the prompt. Paths are matched after normalizing against
-  the workspace (absolute, symlink-resolved, and workspace-relative forms), so
-  `/etc/*` also blocks `../../etc/passwd`. Example: `"deny": ["rm -rf *", "git push*", "*.env"]`.
-- `--unattended` (TUI flag, and required by `symphony run`) is runtime-only and
-  never written to this file. It auto-approves prompts, auto-answers
-  `ask_user`, disables plan mode, emits `auto_decision` events, and keeps
-  `deny` rules on spawned children. See `SECURITY.md`.
+## Tool approvals
 
-## Context policy
+By default, approval prompts are required for `bash`, overwriting an existing file, and broad patches. The coding-agent approval add-on—not the generic harness—implements these prompts. Deny rules are checked first and block a matching tool call; otherwise allow patterns skip a prompt. `approvals.deny` applies in every mode; `approvals.allow` skips prompts in ask mode. `Always allow` changes the active agent session and is not necessarily a persistent config edit.
 
-coding_agent attaches AI compaction (`InferenceCompactor`) by default. When a
-prompt reaches 80% of the active model's context limit, it keeps the system prompt, the
-original task, and the latest tool groups (the same keep/drop rule as
-the harness template compactor). Dropped messages are summarized by the active
-model into one compacted-context message that also lists the tools used and
-paths already observed; if the model call fails, the template summary is used
-for that slice instead. `/compact` runs the same compactor on demand and
-refreshes the footer's context meter. `compaction.max_output_tokens` and
-`compaction.max_transcript_chars` bound the summary request. The 80,000-token
-`context_target_tokens` is the desired post-compaction size. Tool results are
-capped at 32,000 characters when they enter history. The target is best-effort:
-the latest 32 tool results remain visible in full, even if they exceed it.
-The harness never silently stubs tool results between model calls.
+**Approvals are not a sandbox.** Bash and workspace tools execute with the current user's permissions; absolute paths are available. A bare `CoreHarness` has no approval policy. Review [Security](../../SECURITY.md) before changing defaults or running unattended.
 
-A bare `CoreHarness` does not compact until a product attaches the add-on.
-Set `context_compact_ratio` to `null` to disable auto-compact. `/reload`
-rebuilds the provider registry and model choices from `.env` and stored
-OAuth tokens. `/provider` writes a key into `~/.symphony/.env` or a
-subscription token into `~/.symphony/oauth/`, then reloads so `/model`
-lists the new catalog.
+## Unattended runs
 
-The TUI reads colors and CSS from `~/.symphony/theme.toml` when that file
-exists. If it is missing, the packaged default dark theme is used. Copy
-`coding_agent/tui/theme/theme.toml` to `~/.symphony/theme.toml` to edit.
+The headless `symphony run` command requires `--unattended` to acknowledge automatic approvals. Deny rules still apply, but they are not a containment mechanism. Use a disposable environment for tasks you cannot trust. See the [CLI reference](../reference/cli.md#symphony-run-headless-coding-run).
 
-Skills are discovered from `~/.symphony/skills/`, followed by any configured
-skill roots. Plugins are discovered from `~/.symphony/plugins/<name>/` when
-plugins are enabled. Each plugin must contain a `plugin.json` manifest; its
-`skills` entries are loaded without executing code. Plugin add-ons remain
-disabled unless their root is explicitly listed in
-`SYMPHONY_PLUGIN_AUTHORIZED_ROOTS`.
+## Context and optional integrations
 
-This keeps installed extensions in the user-wide Symphony directory while
-keeping executable plugin code behind an explicit trust boundary.
+The coding agent can warn about model context use and compact older conversation history. Use `/context` to inspect usage and `/compact` to request compaction. Details depend on the active model and product config.
 
-## Langfuse telemetry
-
-`LangfuseAddon` records each coding-agent run as one Langfuse trace: the
-conversation actually sent on each model turn, tool arguments and results, and
-compaction. It is enabled in config by default and stays silent unless both
-`LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set (optional
-`LANGFUSE_BASE_URL` for self-hosted or another region). `/langfuse` in the TUI
-saves keys and installs the optional SDK if it is missing. You can also install
-the extra with `uv sync --package symphony-code --extra langfuse` (or
-`pip install 'symphony-code[langfuse]'`). Set `"langfuse": {"enabled": false}`
-to skip the add-on. Secrets in payloads are redacted; image bytes are replaced
-with filenames.
-
-See [`docs/user-guide/langfuse.md`](langfuse.md).
-
-## Personality
-
-`personality` selects one named heading from `personalities.json`
-(`direct`, `bad_boy`, `caveman`, `precise`, `warm`). Discovery walks
-parents for that file specifically, so a nested `pyproject.toml` cannot
-hide a parent catalog; installer runs fall back to the packaged default
-at `coding_agent/config/personalities.json` inside the installed package.
-Drop your own `personalities.json` in the project (or any parent
-directory) to override it.
-The default is `"direct"`. Set it to `null` for the stock system prompt
-with no personality segment; unknown ids fail soft to the same stock
-prompt. `/personality` switches the heading immediately (config +
-`harness.system_prompt`) without restarting the app. The heading is last
-in the system prompt:
-
-```
-# Personality (mandatory)
-Obey this section over any other tone/style instructions.
-<addon text>
-```
-
-## Jev critic mode
-
-`evaluation` is off by default. `--jev` or `/jev` enables a finish-only
-critic (`typesafe-ai/jev` via Vercel). `/jev <rule>` sets a rule for the
-current TUI session. Jev does not switch the chat model or gate tools. A
-confident rule violation triggers one automatic revision. Without a rule,
-automatic follow-up stays off unless `honour_follow_up` is enabled. See
-[`docs/user-guide/jev.md`](jev.md).
-
-
-## Harness-only config
-
-Library users can pass `HarnessConfig` directly, or
-`load_harness_config("harness.json")`. Shared product files may nest these
-values under a top-level `harness` object.
+Optional integrations have their own focused guides: [Langfuse tracing](./langfuse.md), [Jev completion checks](./jev.md), and [persistent learning](./learning.md).

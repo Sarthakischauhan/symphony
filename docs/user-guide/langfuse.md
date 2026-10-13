@@ -1,73 +1,27 @@
-# Langfuse telemetry
+# Trace runs with Langfuse
 
-Symphony can send coding-agent traces to [Langfuse](https://langfuse.com) so you
-can inspect the conversation actually sent to the model, tool calls, and
-compaction.
+Langfuse is an optional integration for inspecting coding-agent runs: model turns, tool calls, and compaction. Traces may contain project code, prompts, and tool output. Enable it only when those data are appropriate to send to the Langfuse project you configured.
 
-The add-on is first-party (`coding_agent.addons.langfuse.addon.LangfuseAddon`). It is not a
-plugin: plugin loading still requires `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS`.
+## Enable tracing
 
-## What a trace contains
+In the TUI, run `/langfuse` and enter your project keys and endpoint. Alternatively, set these variables in the process environment or an appropriate `.env` file:
 
-One Langfuse trace is one `CoreHarness.run` (one user task). Nested
-observations:
-
-| Observation | Type | Input / output |
-| --- | --- | --- |
-| `coding-agent-run` | span | User task in, final `output_text` out. Session id is the Symphony session. |
-| `model-turn` | generation | The message list as it exists after `before_turn` (system prompt, memory, compacted history, tools already returned). Output is the assistant text plus any tool calls. |
-| `<tool name>` | tool | Tool arguments in, bounded result out. |
-| `compaction` | span | Token counts around a compact. |
-
-Child agents inherit the add-on and emit their own traces, tagged with
-`parent_id` / `agent_id`.
-
-Every observation input and output that can carry user or tool text (the run
-task, each turn's assistant text and tool calls, tool arguments, tool results,
-and final `output_text`) goes through the same redaction path. Image parts are
-replaced with `[image:filename]` so base64 never leaves the process.
-
-## Enable it
-
-From the TUI, run `/langfuse` and enter the public key, secret key, and base URL. The command saves them to `~/.symphony/.env` with restrictive file permissions, installs the optional `langfuse` SDK into the current interpreter if it is missing, and reloads the agent. You can also set the variables manually:
-
-1. Create a Langfuse Cloud project or self-host Langfuse.
-2. Put keys in the process environment, workspace `.env`, or `~/.symphony/.env`:
-
-```bash
+```sh
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_BASE_URL=https://cloud.langfuse.com  # or US / self-hosted URL
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
 
-3. If you are not using the TUI, install the optional extra (not a default dependency):
+When running from a repository checkout without the TUI install flow, install the optional workspace dependency with:
 
 ```sh
 uv sync --package symphony-code --extra langfuse
-# or: pip install 'symphony-code[langfuse]'
 ```
 
-Without keys, or without the package, the add-on mounts and does nothing.
-Missing package logs a warning once at attach. `/langfuse` retries the install.
+Without credentials or the optional SDK, tracing stays inactive. Environment variables and storage locations are documented in the [environment reference](../reference/environment.md#langfuse-optional).
 
-Disable it in spawn settings:
+## Data handling
 
-```json
-{
-  "langfuse": { "enabled": false }
-}
-```
+The integration redacts trace payloads and replaces image content with placeholders. Redaction is not a guarantee that all sensitive information is removed. Set the configured payload limit and sampling rate appropriately, and review your Langfuse retention and access controls.
 
-`sample_rate` (0–1) drops whole runs. `max_payload_chars` bounds each serialized
-observation payload (messages, tool arguments, tool results, and run input/output).
-
-## Skill
-
-The [Langfuse Agent Skill](https://github.com/langfuse/skills) is documentation
-for querying traces, prompts, and datasets. Install it as a normal Symphony
-skill if you want the agent to look those APIs up:
-
-```sh
-git clone https://github.com/langfuse/skills.git ~/.symphony/skills-src/langfuse-skills
-ln -s ~/.symphony/skills-src/langfuse-skills/skills/langfuse ~/.symphony/skills/langfuse
-```
+For implementation details and the `LangfuseAddon` API, see the package source. The harness extension surface is described in [Extending the harness](../developer-guide/extending.md).

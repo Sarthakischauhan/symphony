@@ -1,31 +1,19 @@
 # symphony-browser
 
-Symphony browser-use agent. The core harness loop drives the page.
+A browser-use agent built on Symphony's Python harness. It opens a page in Chromium, exposes browser actions as tools, and returns the model's final response. Import it as `browser_agent`.
+
+**Availability:** workspace package only; it is not currently published on PyPI. See the [source installation guide](../docs/getting-started/installation.md).
+
+## Run it from the workspace
 
 ```sh
 uv sync
 uv run --package symphony-browser playwright install chromium
-uv run symphony-browser "Search for travel and report the price."
+uv run --package symphony-browser symphony-browser "Open the first article about espresso" --url https://example.com
 ```
 
-Import as `browser_agent`. Command: `symphony-browser`.
+The default search opens DuckDuckGo. Only HTTP and HTTPS URLs are accepted. Do not include credentials in a prompt: the task is recorded in events and optional traces. Browser content is untrusted input; review actions and outputs.
 
-The goal is the user message of `CoreHarness.run`. The chat model calls the
-browser tools (`observe_page`, `click`, `type_text`, `press_enter`,
-`select_option`, `scroll_down`, `scroll_up`, `wait`) and its last message,
-the one with no tool call, is the answer.
+## Build with the library
 
-Jev is not this loop. It returns a choice, not a tool call, so it cannot
-drive the harness. The `symphony-code` finish check (`--jev`) is unchanged
-and unrelated.
-
-Full write-up: [docs/packages/symphony-browser.md](../docs/packages/symphony-browser.md).
-
-The model is whichever chat provider is configured, the same resolution as
-`symphony`. `--model provider:model` overrides it. Flags:
-[docs/reference/cli.md](../docs/reference/cli.md#symphony-browser).
-
-Do not put credentials in a goal: it is the harness prompt, so it is emitted
-and traced.
-
-Not published to PyPI. Workspace package only.
+See the [browser agent guide](../docs/packages/symphony-browser.md) for a library example, tool behavior, and limitations. The [CLI reference](../docs/reference/cli.md#symphony-browser) lists command options.

@@ -7,13 +7,16 @@ Guidance for coding agents (and humans) making changes to Symphony.
 A [uv](https://docs.astral.sh/uv/) workspace of five Python packages. Names
 differ by layer on purpose; use the right one for the context you are in:
 
-| Directory | PyPI distribution | Python import | Command(s) |
-| --- | --- | --- | --- |
-| `core_ai/` | `symphony-core` | `core_ai` | — |
-| `core_harness/` | `symphony-harness` | `core_harness` | — |
-| `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases `symphony-code`, `coding-agent-tui`) |
-| `core_server/` | `core-server` (not published) | `core_server` | `core-server` |
-| `browser_agent/` | `symphony-browser` (not published) | `browser_agent` | `symphony-browser` |
+| Workspace directory | Import | Workspace command |
+| --- | --- | --- |
+| `core_ai/` | `core_ai` | — |
+| `core_harness/` | `core_harness` | — |
+| `coding_agent/` | `coding_agent` | `symphony` (`symphony-code`, `coding-agent-tui` aliases) |
+| `core_server/` | `core_server` | `core-server` |
+| `browser_agent/` | `browser_agent` | `symphony-browser` |
+
+These are workspace packages; do not imply they are installable from PyPI until
+published releases are available. See the [source installation guide](docs/getting-started/installation.md).
 
 Dependency direction is strictly `core_ai` → `core_harness` → `coding_agent` /
 `core_server` / `browser_agent`. The harness must stay product-agnostic: anything that knows
@@ -58,8 +61,8 @@ a live API from a test.
 
 ## Where things are documented
 
-- `README.md` — overview, install, names table
-- `docs/` — user and developer docs (the canonical versions)
-- `<package>/README.md` — PyPI-facing copies; keep them consistent with `docs/`
-- `plan.md` — what exists, what is next
-- `SECURITY.md` — reporting and the current trust model
+- `README.md` — project overview and source-install path
+- `docs/` — canonical user, package, developer, and reference guides; start at `docs/README.md`
+- `<package>/README.md` — concise package entry points that link to the canonical guides; keep release instructions accurate
+- `plan.md` — current implementation status and open backlog
+- `SECURITY.md` — vulnerability reporting and the current trust model

@@ -1,106 +1,56 @@
-# Quickstart
+# Your first coding task
 
-Get one clean conversation working before you change config, spawn subagents,
-or wire the HTTP server.
+This walkthrough takes you from a source checkout to a change you can inspect on disk. If Symphony is not installed yet, follow [Install from source](./installation.md) first.
 
-## 1. Launch and add a provider
+## 1. Start in the project you want to edit
 
-```sh
-uv run --package symphony-code symphony
-```
-
-If no API key or subscription is set, Symphony asks which provider to use (OpenAI, Anthropic,
-Gemini, Grok, OpenRouter, Vercel AI Gateway, Ollama, or a local server). OpenAI, Anthropic, and Grok can
-sign in with a ChatGPT / Claude / xAI subscription, or you can paste an API
-key. Keys go to `~/.symphony/.env`; subscription tokens go to
-`~/.symphony/oauth/`. Add another provider from the same screen, or later
-with `/provider`.
-
-You can still export a key yourself before launch:
-
-```sh
-export OPENAI_API_KEY=sk-...
-uv run --package symphony-code symphony
-```
-
-The default workspace is the current directory. Point it somewhere else with
-`--workspace`:
+From the Symphony repository, launch it with your target workspace:
 
 ```sh
 uv run --package symphony-code symphony --workspace /path/to/project
 ```
 
-<video src="../demo.mp4" controls muted loop playsinline poster="../demo.png" width="800">
-  <a href="../demo.mp4">Demo: create hello.py, write a test, run pytest — 1 passed</a>
-</video>
+On first launch, add a provider when prompted, or set an API key before starting. For example:
 
-## 2. Run a prompt you can verify
-
-Ask for something that must touch the workspace:
-
-```text
-Create hello.py with a greet() function and a test, then run it.
+```sh
+export OPENAI_API_KEY=sk-...
+uv run --package symphony-code symphony --workspace /path/to/project
 ```
 
-Success looks like the demo above: Write / Bash rows in the transcript, then
-`hello.py` and `test_hello.py` on disk, and pytest reporting **1 passed**. An
-approval prompt may ask before overwrite or bash.
+Keys entered during onboarding are stored under `~/.symphony`; see [provider configuration](../user-guide/configuration.md) before changing how credentials are stored.
 
-## 3. Try the interface
+## 2. Ask for a checkable change
 
-- Type `/` to open the slash-command menu.
-- `/provider` adds another provider (subscription login or API key) without restarting.
-- `/model` lists the generated catalog for providers that have credentials.
-- `Tab` toggles **build** vs **plan**. Plan mode writes `.symphony/plans/…_plan.md`.
-- Type `@` after whitespace to insert a workspace path.
-- `Esc` or `Ctrl+X` cancels the in-flight run.
+Try a small task with an obvious result:
 
-## 4. Resume a session
+```text
+Create hello.py with a greet() function and a test, then run the test.
+```
+
+Read the proposed actions. Symphony may ask before running shell commands or overwriting files. Inspect the resulting diff and test output yourself; a model's completion message is not proof that a task is correct.
+
+## 3. Use the controls
+
+- Type `/` to discover slash commands; `/model` selects a model.
+- Type `/mode` to switch between build and plan modes.
+- Type `@` at the end of a workspace-path mention to get file suggestions.
+- Press `Esc` or `Ctrl+X` to cancel an active run.
+- Press `Ctrl+B` to open the agent dashboard; `Ctrl+G` opens subagent sessions.
+
+The [TUI guide](../user-guide/tui.md) explains the transcript and keyboard controls. The [tool guide](../user-guide/tools.md) describes what the agent can do in your workspace.
+
+## 4. Continue later
+
+Start the session picker with:
 
 ```sh
 uv run --package symphony-code symphony --resume
 ```
 
-Sessions live in `~/.symphony/sessions/`. If resume lists the
-conversation you just had, persistence is working.
+Session storage and recovery options are explained in [Sessions](../user-guide/sessions.md).
 
-## 5. Same loop, as a library
+## Next steps
 
-```python
-from core_ai import build_default_registry, default_model_id
-from coding_agent import CodingAgent
-
-registry = build_default_registry()
-agent = CodingAgent(
-    registry=registry,
-    model_id=default_model_id(registry),
-    workspace=".",
-)
-result = await agent.run("Create hello.py with a greet() function and a test, then run it.")
-print(result.output_text)
-```
-
-The harness itself has no coding-agent assumptions. Wrap any Python callable:
-
-```python
-from core_ai import build_default_registry, default_model_id
-from core_harness import CoreHarness, Tool
-
-def read_file(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-registry = build_default_registry()
-harness = CoreHarness(
-    registry=registry,
-    model_id=default_model_id(registry),
-    system_prompt="You are a concise coding assistant.",
-    tools=[Tool(read_file)],
-)
-result = await harness.run("Inspect README.md and summarize it.")
-print(result.output_text)
-```
-
-**What to read next:** daily use is the [TUI](../user-guide/tui.md). Building
-your own agent is [symphony-harness](../packages/symphony-harness.md). How the
-pieces fit is [Architecture](../developer-guide/architecture.md).
+- [Configure providers, approvals, and defaults](../user-guide/configuration.md)
+- [Read the CLI reference](../reference/cli.md)
+- [Build a custom agent with the harness](../packages/symphony-harness.md)

@@ -1,335 +1,37 @@
-# Symphony Plan
+# Project status and roadmap
 
-- [x] Implement local skills and plugin discovery/loading (see `coding_agent/skills-plugins-plan.md`); hot unloading and package installation remain out of scope.
+This file is the maintainer's snapshot of what exists and what remains. It is not an installation guide: run Symphony from the repository workspace using the [installation guide](docs/getting-started/installation.md). Package release availability is stated in the package guides and should be checked there before installing.
 
-What is in the tree today, and what is next. Everything in "Current state" is
-verifiable against `main`; anything not yet built lives under "Open backlog".
-Update this file in the PR that changes the facts.
+## Current system
 
-| Directory | PyPI distribution | Python import | Command(s) |
+Symphony is a Python workspace with replaceable model providers, a reusable agent loop, and separate consumers. Its primary entry point is Symphony Code, a terminal coding agent. The harness can also be consumed by the browser agent and HTTP server.
+
+| Workspace component | Import | Workspace command | Responsibility |
 | --- | --- | --- | --- |
-| `core_ai/` | `symphony-core` | `core_ai` | — |
-| `core_harness/` | `symphony-harness` | `core_harness` | — |
-| `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases `symphony-code`, `coding-agent-tui`) |
-| `core_server/` | `core-server` (workspace only) | `core_server` | `core-server` |
-| `browser_agent/` | `symphony-browser` (workspace only) | `browser_agent` | `symphony-browser` |
+| `core_ai/` | `core_ai` | — | Providers, model catalog, shared stream types |
+| `core_harness/` | `core_harness` | — | Agent loop, tools, events, limits, extensions |
+| `coding_agent/` | `coding_agent` | `symphony` | Coding tools, approvals, sessions, terminal UI |
+| `browser_agent/` | `browser_agent` | `symphony-browser` | Browser-use agent |
+| `core_server/` | `core_server` | `core-server` | HTTP/SSE interface |
 
----
+The project is not currently published on PyPI. This checkout is authoritative for current behavior; package names above describe workspace components, not installable releases.
 
-## 1. Goal
+## Design constraints
 
-Ship a reusable agent stack where the harness is product-agnostic and every
-UI is driven by one typed control-plane event stream. The plane observes,
-drives, and authorizes; it does not persist, compact, or spawn.
+- Keep provider-specific behavior behind the `core_ai` contracts.
+- Keep workspace, terminal, and coding-product assumptions out of `core_harness`.
+- Drive UIs and transports from typed events, not scraped stdout.
+- Make tool capabilities and trust boundaries explicit; approval is not sandboxing.
+- Document shipped behavior separately from proposals and backlog.
 
-| Layer | Package | Role |
-| --- | --- | --- |
-| Providers | `core_ai` | Provider registry, generated model catalog, `Message` / `StreamEvent` |
-| Loop | `core_harness` | Multi-turn tool loop, control plane, limits, compaction, add-ons, subagents |
-| Product | `coding_agent` | Workspace coding agent (tools, JSONL sessions, Textual TUI, learning) |
-| Product | `browser_agent` | Browser-use agent. Jev chooses each action; Playwright executes it |
-| Transport | `core_server` | FastAPI wrapper that streams harness events over SSE |
+See [Architecture](docs/developer-guide/architecture.md), [Security](SECURITY.md), and [Contributing](AGENTS.md) for maintained guidance.
 
----
+## Backlog
 
-## 2. Current state
+The following are directions, not promises or currently shipped behavior. Confirm with maintainers before taking on an item.
 
-### `core_ai` (symphony-core)
+- Publish and document supported packages on PyPI; add tested versioned install instructions when that happens.
+- Improve usability and operational tooling for long-running and unattended agent sessions.
+- Continue evaluating provider compatibility and catalog refresh workflows.
 
-- Providers: OpenAI (Responses and Chat Completions, plus `gpt-image-*`),
-  Anthropic Messages, Gemini `streamGenerateContent`, Grok / OpenRouter /
-  Vercel AI Gateway Chat Completions, Ollama and generic local
-  OpenAI-compatible servers (opt-in; no localhost probe). All translate to
-  the shared `StreamEvent` contract, including `reasoning_delta` and retry
-  signals (429, SSL MAC, 5xx, connection).
-- `build_default_registry()` registers every provider with a credential, plus
-  Ollama (`OLLAMA_ENABLED` / `OLLAMA_BASE_URL` / `OLLAMA_HOST`) and local
-  (`LOCAL_BASE_URL`); `default_model_id()` resolves `SYMPHONY_MODEL`,
-  provider-specific overrides, then the first registered provider.
-- Canonical text/image `Message.content` parts translated per provider.
-- Model catalog: `src/core_ai/models/generated.py` is a checked-in snapshot
-  produced from models.dev by `scripts/generate_models.py`. It records id,
-  provider, API family, reasoning flag, and effort levels. Installing or
-  building the package ships the snapshot unchanged; a refresh is an explicit
-  maintainer action (`CORE_AI_REFRESH_CATALOG=1` opts one build in).
-
-### `core_harness` (symphony-harness)
-
-- `CoreHarness.run()` is the public façade for a run. `turn_runner.py`
-  orchestrates one turn; `loop/` holds the session, provider stream, and
-  tool dispatch (including tool-output and run-limit checks). `context/`
-  holds `HarnessState`, token estimates, pruning, and the keep/drop planner.
-- Tool protocol: every call ends `success`, `error`, `timeout`, or
-  `cancelled`; results are bounded at insert time; stale tool bodies can be
-  pruned on a copy of the conversation.
-- Event sink: `EventSink.emit` (default records in memory). The harness
-  stamps `run_id`, `session_id`, `seq`, `ts`, `schema_version`, `agent_id`,
-  `parent_id` on every event. Catalog: `ControlPlaneEventType` (run/turn
-  lifecycle, deltas, tools, usage, context, compaction, injection,
-  `agent_*`, `question_asked`). `emit` calls the sink's own `deliver` and
-  then every `subscribe` listener. Questions for a person go through
-  `sink.interaction` (`InteractionPort`; `HumanInteraction` asks through the
-  event stream).
-- Inbound operations: `CoreHarness.submit` takes `Interrupt`, `Answer`, and
-  `UserInput`. The TUI, the JSONL host, and the ACP host all send these.
-  Cancelling the run's `asyncio.Task` still works; both emit
-  `run_cancelled` / `HarnessCancelled`.
-- `symphony acp`: Agent Client Protocol host (version 1) over stdio. Prompt,
-  cancel, streaming updates, permission requests, and a `_symphony/steer`
-  extension. See `coding_agent/src/coding_agent/protocols/acp/README.md`.
-- Limits: `max_turns`, `max_tool_calls`, `max_runtime_seconds`, `max_tokens`
-  → `run_limit_exceeded` / `HarnessLimitExceeded`.
-- Add-ons (`Addon` with `before_run` / `before_turn` / `before_tool` /
-  `after_turn` / `after_run` / `on_tool` / `on_compact` / `fork_for_child`):
-  `PersistenceAddon`, `CompactionAddon` (+ template
-  `KeepSystemRecentCompactor` and exported `plan_keep_drop`),
-  `SubagentAddon`. `before_tool` may return a deny reason. There is no
-  telemetry exporter and no skill loader.
-- Subagents: `CoreHarness.spawn()` / `spawn_agent`; lifecycle events on the
-  parent sink; child events tagged with `agent_id` / `parent_id`; parallel
-  children (up to three per turn); `max_spawn_depth`.
-- Parallel tool execution for tools that opt in (`max_parallel_tool_calls`).
-- Approval is product-owned. `symphony-code` mounts `ApprovalAddon`
-  (`before_tool`); children skip it. The harness does not authorize tools.
-
-### `coding_agent` (symphony-code)
-
-- Optional TUI voice mode (`Ctrl+A` / `/voice`): microphone capture and xAI
-  REST transcription that keeps listening until the user says **done** or
-  presses **Ctrl+A** again, then streaming TTS of the agent's own text.
-  The configured coding model and approval flow are unchanged; voice output
-  is scoped to microphone-originated parent turns. See the
-  [call/protocol diagram](docs/developer-guide/voice-mode.md) for endpoints,
-  resource lifecycle, prerequisites, and remaining limitations.
-
-Tools, one module each under `WorkspaceTool` (`tools/base.py`), which binds a
-working directory for relative paths and generates pydantic schemas. Absolute
-and `~` paths are allowed:
-
-| Tool | Module | Purpose |
-| --- | --- | --- |
-| `read_file` | `tools/read_file.py` | Read text (with line numbers) or images |
-| `write_file` | `tools/write_file.py` | Create / overwrite text |
-| `patch` | `tools/patch.py` | Exact-text edit; a miss returns nearby lines |
-| `bash` | `tools/bash.py` | Async shell in the workspace (streamed, capped, timed out) |
-| `search` | `tools/search.py` | File name / content search, `.gitignore`-aware |
-| `generate_image` | `tools/generate_image.py` | Generate an image and write it to a path |
-| `ask_user` | `tools/ask_user.py` | Clarifying questions through the control plane |
-| `spawn_agent` | via `SubagentAddon` | Focused child agent |
-
-- Default add-ons (`agent.default_addons`): `PersistenceAddon` (JSONL),
-  `AiCompactionAddon` (`InferenceCompactor`: harness keep/drop plan + a
-  model-written summary of dropped work), `SubagentAddon`, optional
-  `LangfuseAddon` (silent without Langfuse keys / SDK), optional `JevAddon`,
-  and `LearningAddon` when a `LearningLoop` is passed. Children skip
-  learning (`fork_for_child` returns `None`; spawn `addon_factory` omits it).
-- Approvals (`coding_agent.addons.approvals.ApprovalPolicy` + `ApprovalConfig`):
-  ask before `bash`, overwrite, or a broad patch; `always_allow` mode;
-  allow-once answers. The TUI renders the question; it does not own the
-  rules. Children still run without per-tool prompts (`SECURITY.md`).
-- Config: `.symphony/config.json` → `CodingAgentConfig` (harness, approvals,
-  tools, learning, compaction, langfuse). Defaults: 24 turns, 40 tool calls, 10 minutes.
-- Credentials: environment, workspace `.env`, `~/.symphony/.env`, and
-  `~/.symphony/oauth/` for ChatGPT / Claude / xAI subscription tokens;
-  first-run onboarding and `/provider` write those files.
-- Learning: after a run, `LearningLoop` asks the active model to review the
-  transcript (capped at 900 output tokens), emits a two-line `run_summary`,
-  and stores sanitized lessons in `.symphony/learning/lessons.jsonl` (bounded,
-  atomic rewrite). Prior lessons are injected into later system prompts as
-  historical notes. Disable with `--no-learning` / `learning.enabled=false`.
-- Plan mode (`plan.py`): `Tab` toggles build / plan; plans are saved under
-  `.symphony/plans/`.
-- Headless bench (`coding_agent.bench`, `symphony bench`): non-interactive
-  `CodingAgent.run` with `--workspace`, `--instruction` (file or stdin),
-  `--model`, `--max-turns`, `--timeout`, `--personality direct|precise`,
-  optional `--jev` (off by default). Writes `workspace.patch` and
-  `result.json`. Docker image `symphony-bench:latest` (`bench/Dockerfile`)
-  mounts the workspace at `/testbed`. Harbor adapter: `bench.agent:SymphonyAgent`.
-- Textual TUI (`tui/`): streamed transcript with reasoning and tool panels,
-  `@path` completion, slash commands (`/model`, `/personality`, `/mode`,
-  `/effort`, `/plan`, `/provider`, `/new`, `/reload`, `/compact`, `/status`,
-  `/context`, `/learning`, `/diff`, `/clear`, `/help`, `/quit`), context footer, image
-  rendering, subagent cards and nested screens, session resume (`--resume`),
-  `Esc` / `Ctrl+X` cancel. See `coding_agent/TUI_ARCHITECTURE.md`.
-
-### `core_server` (core-server)
-
-- `POST /runs` streams control-plane events as SSE with
-  `id: <run_id>:<seq>`; `GET /models` returns the Chat SDK registry shape and
-  `/runs` rejects unadvertised slugs; `GET /health`.
-- Request-body, message, and history limits; bounded SSE queue; client
-  disconnect sends the harness cancel command.
-- CORS denies browser origins by default; no built-in authentication.
-- `ask_user` is opt-in until the server supports responding to a running run.
-- Not published to PyPI.
-
-### `browser_agent` (symphony-browser)
-
-- Second product on the harness. Jev is the policy: one evaluation-model
-  request per step chooses `CLICK`, `TYPE_TEXT`, `SELECT`, scroll, wait,
-  `DONE`, or `BLOCKED`, plus the element index. The chat tool loop is not
-  the decider, because an evaluation model cannot emit free tool arguments.
-- `CoreHarness.emit` still stamps `run_id`, `session_id`, `agent_id`, and
-  `jev_decision` so a UI reads the same control plane.
-- Text is not generated by Jev. Quoted strings and "search for …" phrases in
-  the goal are choices. Otherwise Grok (`XAI_API_KEY`, the catalog Grok
-  default unless `--text-model grok:<id>` says otherwise) writes the one string.
-- `gate_decision.gate` decides what runs: repeat guard, live target, http(s)
-  page, goal-met promotion, confidence floor. Secret field values never
-  leave the page; typed secrets are `***` in events and results.
-- Credentials, first match unless `SYMPHONY_JEV_PROVIDER` is set:
-  `AI_GATEWAY_API_KEY` / `VERCEL_AI_GATEWAY_API_KEY` (`typesafe-ai/jev`),
-  `TYPESAFE_API_KEY` (`jev-latest` on `https://api.typesafe.ai/v1/systemone`),
-  `OPENROUTER_API_KEY` (`~typesafe/jev-latest`). A forced provider without
-  its key, or an unknown `SYMPHONY_JEV_PROVIDER`, is an error.
-- `symphony-browser "what to do"` starts at a web search for that query and drives Chromium.
-  Add `--url` to start on a specific http(s) page.
-  No chat provider: the command exits with a setup error. Tests mock the model
-  and do not call a live API.
-- Playwright is a package dependency. The Chromium binary is not downloaded
-  by `uv sync`; install it with `uv run --package symphony-browser playwright
-  install chromium`. CI's test job installs it (`playwright install
-  --with-deps chromium`), so the end-to-end test runs. The sandbox is on;
-  `--no-sandbox` is for root or containers.
-- Not published to PyPI.
-
-### Repository
-
-- CI (`.github/workflows/ci.yml`): ruff lint, full test suite against the
-  installed workspace packages (with Playwright Chromium installed for the
-  browser end-to-end test), and a build of the three published packages;
-  actions and uv pinned. Releases publish via trusted publishing
-  (`publish.yml`).
-- MIT licensed (`LICENSE`); vulnerability reporting in `SECURITY.md`;
-  contributor conventions in `AGENTS.md`.
-
----
-
-## 3. Design principles
-
-1. **One tool per file.** Same shape everywhere (`WorkspaceTool` + `run` + register).
-2. **Harness stays product-agnostic.** Coding-agent specifics live in `coding_agent`.
-3. **Working directory, not a jail.** Relative paths and bash cwd start at
-   the launch directory. Absolute and `~` paths are allowed. Approval prompts
-   gate `bash`, overwrites, and broad patches. There is no container or
-   OS-level isolation; do not describe one.
-4. **Control plane for UX.** UIs subscribe to events; nothing scrapes stdout.
-5. **Tests without keys.** Providers are mocked; no test calls a live API.
-6. **Generated code is script-owned.** `generated.py` is refreshed by a
-   maintainer command, never as a side effect of install or build.
-
----
-
-## 4. Open backlog
-
-Nothing below exists in the tree yet. Items under **Symphony-later** are
-specified so a later `symphony` run on this repo can implement them; they are
-not part of 0.1.0.
-
-### Symphony-later
-
-**One protocol for every client.** The ACP host covers a prompt turn. Not
-built: `session/load`, image prompts, free-text questions (ACP elicitation),
-session modes and config options, slash commands as ACP commands, a
-WebSocket transport in `core-server`, and one shared slash-command
-implementation (the TUI and the JSONL host each have their own).
-
-These are product features the agent can build on itself after 0.1.0 ships.
-Do not start them in the release cut. Each item is one focused PR.
-
-**Durable memory.** Today `LearningStore` appends
-`.symphony/learning/lessons.jsonl` and injects the most recent lessons into
-the next system prompt. There is no retrieval and no curated playbook.
-
-- Keep the JSONL lesson log as the source of truth. Do not add a vector
-  database for the first version of this work.
-- Select lessons by task overlap (simple token/overlap score is enough),
-  not "last N".
-- Add a periodic synthesis pass that consolidates many lessons into
-  `.symphony/learning/playbook.md` and injects that instead of the raw tail.
-- Add a reviewed/trusted flag on a lesson. Unreviewed lessons stay
-  available but ranked below reviewed ones.
-- Tests: mock the provider; never call a live API.
-
-**Skills / plugin add-on.** Today add-ons are constructed in Python and
-passed to `CoreHarness`. There is no directory discovery.
-
-Detailed implementation and acceptance criteria:
-[Skills and plugins plan](coding_agent/skills-plugins-plan.md).
-
-- Discover skill metadata under `.symphony/skills/` and `~/.symphony/skills/`;
-  a product `SkillsAddon` supplies the catalog and explicit read-only skill roots.
-  Reuse `read_file` for instructions and references; add no skill-loading tools.
-  Extend only its read boundary, keeping writes and other tools unchanged.
-- Add local plugin manifests that package skills and optional existing-style
-  addon factories. Resolve plugins in `coding_agent` before harness construction;
-  do not introduce another runtime or replace the control plane.
-- Keep skills as instruction resources. Never import Python or execute scripts
-  merely because a skill was discovered or loaded.
-- Require explicit enablement and host authorization before importing executable
-  plugins. Discuss this trust-model addition before implementation and update
-  `SECURITY.md` when shipped. Model-facing actions retain existing approval paths.
-- Deliver skill resources, agent integration, local plugin loading, and docs in
-  focused phases. Remote installation, marketplaces, and hot reload are deferred.
-
-**Compaction as a view.** Today compaction rewrites message entries in the
-JSONL session. The TUI already hides compacted context from the transcript.
-
-- Append a `compaction` record (summary + which messages dropped). Never
-  delete user-visible messages from the log.
-- `load_conversation` for the model projects the compact view (Pi-style
-  `convertToLlm`). Resume and the TUI read the full log.
-- Token deltas stay unstored.
-
-**Approval remainder.** Policy lives in `ApprovalAddon` (`before_tool`).
-Children skip the add-on.
-
-- Typed authorization request/decision objects (allow/deny/reason, no
-  implicit approve on empty/cancel).
-- Per-run question IDs; stale answers cannot authorize another call.
-- Child permission inheritance is a trust-model change: discuss and update
-  `SECURITY.md` before spawning children with the parent's ask-mode.
-
-### Coding agent
-
-- Configurable tool allowlist / denylist (today: approvals only, no way to
-  disable a tool from config).
-- Repository-structure context for the model (a token-budgeted repo map).
-  No AST layer exists; earlier versions of this file described one that was
-  never merged.
-
-### Harness
-
-- A harness-level telemetry exporter (JSONL or OTel). `symphony-code` now
-  ships an optional Langfuse add-on; the harness itself still has none.
-
-### Server
-
-- Responding to `ask_user` on a running run (needed before enabling that tool
-  by default).
-- Authentication (currently expected from a reverse proxy).
-- Publishing `core-server` to PyPI.
-
-### New consumers
-
-None. The browser-use agent shipped as `browser_agent`.
-
----
-
-## 5. Non-goals (near term)
-
-- Full IDE / LSP integration.
-- Remote sandbox / container isolation for `bash`.
-- Putting approval, cancel, or pause back onto the harness event sink.
-- A plugin loader or durable memory system in 0.1.0.
-- Perfect ripgrep parity in `search` (Python search is enough for v1).
-
----
-
-## 6. How to use this doc
-
-1. Pick an item from the open backlog.
-2. Prefer a focused PR (tools ≠ TUI ≠ harness).
-3. When work merges, move the fact into "Current state" and delete it from
-   the backlog. Do not leave checked boxes describing things that are not in
-   the tree.
+Update this page when a concrete roadmap item is selected; detailed implementation plans belong with the associated work, not in the user documentation.

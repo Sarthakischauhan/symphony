@@ -1,36 +1,20 @@
 # symphony-code
 
-The coding agent. Workspace tools + a Textual TUI, sitting on
-`symphony-harness`. Import it as `coding_agent`.
+The ready-to-run coding product built on `symphony-harness`. It combines workspace tools, approval prompts, persistent sessions, and a Textual terminal UI. The Python import is `coding_agent`; the TUI command is `symphony`.
 
-<video src="../demo.mp4" controls muted loop playsinline poster="../demo.png" width="800">
-  <a href="../demo.mp4">Demo: create hello.py, write a test, run pytest — 1 passed</a>
-</video>
+**Availability:** not currently published on PyPI. Run from a source checkout as described in the [installation guide](../getting-started/installation.md).
 
-That clip is a live run. The agent wrote `hello.py`, wrote `test_hello.py`, and
-ran `python -m pytest` — **1 passed**.
+## Run a task
 
 ```sh
-uv add symphony-code
-uv run --package symphony-code symphony --workspace .
+uv run --package symphony-code symphony --workspace /path/to/project
 ```
 
-If no API key or subscription is set, the TUI asks which provider to use. `/provider` adds
-another later (ChatGPT / Claude / xAI login, or an API key).
+If no provider has been configured, first launch offers setup. The commands `symphony-code` and `coding-agent-tui` are aliases. Try a verifiable task in the [quickstart](../getting-started/quickstart.md).
 
+## Use as a library
 
-`symphony`, `symphony-code`, and `coding-agent-tui` are the same command.
-
-Ask something you can verify on disk:
-
-```text
-Create hello.py with a greet() function and a test, then run it.
-```
-
-You should see `Write` / `Bash` rows in the transcript, then the files on disk.
-`Esc` cancels. `/` is the command menu. `Tab` toggles **build** / **plan**.
-
-## Library
+From the repository workspace:
 
 ```python
 from core_ai import build_default_registry, default_model_id
@@ -40,25 +24,16 @@ registry = build_default_registry()
 agent = CodingAgent(
     registry=registry,
     model_id=default_model_id(registry),
-    workspace=".",
-)
-print((await agent.run("Fix the failing test")).output_text)
+    workspace=".")
+result = await agent.run("Fix the failing test")
+print(result.output_text)
 ```
 
-## Docs
+The application manages provider setup, workspace tools, approval behavior, sessions, and UI. The reusable agent accepts a registry, model, and workspace; build other products directly on [symphony-harness](./symphony-harness.md).
 
-| | |
-| --- | --- |
-| [TUI](../user-guide/tui.md) | Keybindings, plan mode, images |
-| [Tools](../user-guide/tools.md) | `read_file`, `write_file`, `patch`, `search`, `bash`, `spawn_agent` |
-| [Configuration](../user-guide/configuration.md) | `.symphony/config.json`, approvals |
-| [Langfuse](../user-guide/langfuse.md) | Optional traces of sent prompts and tools |
-| [Jev](../user-guide/jev.md) | Optional finish check with session rules (`--jev` / `/jev`) |
-| [Sessions](../user-guide/sessions.md) | JSONL, `--resume` |
-| [Slash commands](../reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
+## Choose a guide
 
-The agent asks before bash, overwrite, or a broad patch. Approval rules live
-in `coding_agent.addons.approvals`; the TUI only renders the question. Sessions
-persist in `~/.symphony/sessions/<session_id>/` bundles containing transcripts,
-images, compaction summaries, checkpoints, and memory/learning provenance.
-`/session` inspects the archive; legacy flat JSONL sessions migrate on access.
+- [Daily TUI use](../user-guide/tui.md) · [slash commands](../reference/slash-commands.md)
+- [Configuration and approvals](../user-guide/configuration.md) · [tools](../user-guide/tools.md)
+- [Sessions and resume](../user-guide/sessions.md) · [learning](../user-guide/learning.md)
+- [CLI reference](../reference/cli.md) · [Security policy](../../SECURITY.md)

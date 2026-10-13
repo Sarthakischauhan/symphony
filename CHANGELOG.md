@@ -116,8 +116,7 @@
 - Optional `LangfuseAddon` on `symphony-code` records the conversation sent
   each model turn, plus tools and compaction, when `LANGFUSE_PUBLIC_KEY` and
   `LANGFUSE_SECRET_KEY` are set. `/langfuse` saves keys and installs the
-  optional SDK if it is missing. You can still install `symphony-code[langfuse]`
-  yourself. Disable with `"langfuse": {"enabled": false}`. Observation
+  optional SDK if it is missing. In the workspace, install the optional SDK with `uv sync --package symphony-code --extra langfuse`. Disable with `"langfuse": {"enabled": false}`. Observation
   input/output (run task, turn text and tool calls, tool arguments, and final
   `output_text`) is redacted before it leaves the process. Root spans no longer
   pass `session_id` into Langfuse v4 `start_observation` (that TypeError was
@@ -135,8 +134,11 @@
 
 ## 0.1.0 — first public release
 
-Three packages on PyPI: `symphony-core`, `symphony-harness`, `symphony-code`.
-`core-server` stays in the workspace and is not published.
+The 0.1.0 project release included distributions named `symphony-core`,
+`symphony-harness`, and `symphony-code`. This history does not guarantee that
+the packages are currently installable from PyPI; check the current
+[installation guide](docs/getting-started/installation.md). `core-server` was
+kept in the workspace and was not part of that release.
 
 ### symphony-core
 

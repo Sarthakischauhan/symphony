@@ -1,100 +1,28 @@
 # symphony-core
 
-`symphony-core` is the smallest package. It does not run an agent. It routes
-`provider:model` ids, streams OpenAI / Anthropic / Gemini / Grok / OpenRouter /
-Vercel AI Gateway / Ollama / local OpenAI-compatible servers through one event
-contract, and ships a generated catalog of tool-calling text models.
+Provider integrations and shared model-stream types for Symphony agents. The package imports as `core_ai`. It does not run an agent by itself.
 
-```sh
-uv add symphony-core
-```
+**Availability:** not currently published on PyPI. Use it from a repository checkout; see [Install from source](../getting-started/installation.md).
 
-Import it as `core_ai`. The public API is re-exported from that module.
-
-See also the [PyPI-facing README](../../core_ai/README.md).
-
-## What it provides
-
-- `ModelRegistry` routes `provider:model` requests.
-- `OpenAIProvider`, `AnthropicProvider`, `GeminiProvider`, `GrokProvider`,
-  `OpenRouterProvider`, `VercelProvider`, `OllamaProvider`, `LocalProvider`
-  stream model output.
-- `build_default_registry()` registers every cloud provider that has
-  credentials (API key or a stored ChatGPT / Claude / xAI token), plus
-  Ollama/local when opted in.
-- Generated catalog: `ModelCatalog`, `ModelInfo`, `list_models()`, `get_model()`.
-- `Message` and `StreamEvent` are the provider-neutral contracts.
-- Canonical text/image `Message.content` parts, translated per provider
-  (`image_url`, `input_image`, Anthropic `image.source`, Gemini `inlineData`).
-
-## Minimal usage
+## Use a configured provider
 
 ```python
-from core_ai import build_default_registry, default_model_id, list_models
+from core_ai import build_default_registry, default_model_id
 
 registry = build_default_registry()
-model_id = default_model_id(registry)   # first available: OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel, Ollama, Local
-openai_models = list_models("openai")
-print(model_id, len(openai_models))
+model_id = default_model_id(registry)
+print(model_id)  # provider:model
 ```
 
-## How models are chosen
+A provider is registered when its credentials are available; local providers are opt-in. Set model credentials and defaults as described in the [environment reference](../reference/environment.md).
 
-1. An explicit id (`--model`, constructor `model_id`, or a run request).
-2. `SYMPHONY_MODEL`.
-3. Provider-specific `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `GEMINI_MODEL` /
-   `GROK_MODEL` / `OPENROUTER_MODEL` / `VERCEL_MODEL` / `OLLAMA_MODEL` /
-   `LOCAL_MODEL`.
-4. `default_model_id()` — default for the first registered provider, in
-   OpenAI → Anthropic → Gemini → Grok → OpenRouter → Vercel → Ollama → Local order.
+## Public building blocks
 
-Unqualified ids are assigned to OpenAI when OpenAI is registered, otherwise to
-the first registered provider. Unqualified names beginning with `claude-`,
-`gemini-`, or `grok-` are assigned to those providers in the server. `default_model_id()`
-raises if no credential or local opt-in is set.
+- `ModelRegistry` selects a provider from `provider:model` identifiers.
+- Provider adapters stream through the shared `Message` and `StreamEvent` contracts.
+- `build_default_registry()` discovers supported configured providers.
+- `ModelCatalog`, `ModelInfo`, `list_models()`, and `get_model()` expose the checked-in model catalog.
 
-## Streaming contract
+The catalog is a checked-in snapshot. Normal builds do not refresh it or require a network connection. Maintainer refresh instructions live with [`core_ai`](../../core_ai/README.md).
 
-Providers translate streamed text, reasoning, tool calls, usage, completion,
-and retry signals (429, SSL MAC, 5xx, connection) into `StreamEvent`. OpenAI
-selects Responses or Chat Completions from the catalog (with an `o1` / `o3` /
-`o4` fallback). Anthropic uses Messages. Gemini uses streamGenerateContent.
-Grok, OpenRouter, Vercel AI Gateway, Ollama, and local servers use Chat
-Completions. Vercel evaluation models such as `typesafe-ai/jev` use
-`POST /v4/ai/evaluation-model` on the Gateway protocol base (chat stays on
-`/v1/chat/completions`). OpenRouter and Vercel send `max_tokens` with
-`stream_options`. Ollama/local omit `stream_options` and send `max_tokens`.
-
-## Model catalog
-
-The shipped catalog in `src/core_ai/models/generated.py` is a checked-in
-snapshot produced by the maintainer script `scripts/generate_models.py`.
-Installing or building the package ships the snapshot unchanged; nothing
-contacts the network at install time.
-
-- Source of ids: the curated [models.dev](https://models.dev) catalog
-  (`https://models.dev/api.json`).
-- Only text-output models with tool-calling support are emitted for OpenAI,
-  Anthropic, Gemini, and Grok.
-- Refresh explicitly and commit the result:
-
-```sh
-cd core_ai
-uv run python scripts/generate_models.py
-```
-
-- `CORE_AI_GENERATE_STRICT=1` makes the script fail instead of keeping the
-  old snapshot when models.dev is unreachable. `CORE_AI_MODELS_DEV=0` skips
-  the network; `MODELS_DEV_URL` points at a mirror.
-- `CORE_AI_REFRESH_CATALOG=1` at build time opts a single build into a strict
-  refresh through the Hatch hook. Default builds never refresh.
-
-```python
-from core_ai import ModelInfo, get_model, list_models
-from core_ai.models import register_model
-
-model = get_model("openai", "gpt-4.1")
-register_model(ModelInfo(id="local-model", provider="custom", api="chat_completions"))
-```
-
-Provider credentials: [Environment](../reference/environment.md).
+To add tools and a model-driven run loop, continue to [symphony-harness](./symphony-harness.md).

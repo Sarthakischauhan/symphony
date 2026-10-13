@@ -1,58 +1,50 @@
-# <img src="assets/symphony-logo.svg" alt="" width="32" height="32" align="center"> Symphony documentation
+# Documentation
 
-Symphony is an MIT-licensed agent harness. These pages are the user-facing docs
-for every package in the workspace.
+Find the guide for the task you came to do. Symphony is a Python workspace for building and running AI agents. Its packages are **not currently published on PyPI**; [install from source](./getting-started/installation.md).
 
-If you just want to run it:
+## Run an agent
 
-```sh
-git clone https://github.com/Sarthakischauhan/symphony.git
-cd symphony
-uv sync
-uv run --package symphony-code symphony
-```
+1. [Install the workspace](./getting-started/installation.md).
+2. [Complete a first coding task](./getting-started/quickstart.md).
+3. Choose a daily-use guide:
 
-
-Then read **[Installation](./getting-started/installation.md)** and
-**[Quickstart](./getting-started/quickstart.md)**.
-
-## Contents
-
-| Section | What's covered |
+| Goal | Guide |
 | --- | --- |
-| [Installation](./getting-started/installation.md) | Source install, library install, provider keys |
-| [Quickstart](./getting-started/quickstart.md) | First TUI conversation, then a library run |
-| [symphony-core](./packages/symphony-core.md) | Providers, catalog, streaming types |
-| [symphony-harness](./packages/symphony-harness.md) | Loop, tools, events, limits, subagents |
-| [symphony-code](./packages/symphony-code.md) | Workspace agent and TUI |
-| [symphony-browser](./packages/symphony-browser.md) | Browser-use agent on the core harness loop |
-| [core-server](./packages/core-server.md) | FastAPI + SSE |
-| [TUI](./user-guide/tui.md) | Composer, modes, keybindings, images |
-| [Configuration](./user-guide/configuration.md) | `~/.symphony/config.json`, approvals, context |
-| [Langfuse](./user-guide/langfuse.md) | Optional traces of sent prompts and tools |
-| [Jev](./user-guide/jev.md) | Finish check on `symphony-code` |
-| [Tools](./user-guide/tools.md) | Workspace tool surface |
-| [Learning](./user-guide/learning.md) | Automatic capture, curated topics, and recall |
-| [Learning flow](./developer-guide/learning-flow.md) | Mermaid diagrams of capture, recovery, consolidation, retrieval, and memory scopes |
-| [Sessions](./user-guide/sessions.md) | JSONL resume |
-| [Architecture](./developer-guide/architecture.md) | How the packages fit |
-| [Extending the harness](./developer-guide/extending.md) | Addon hooks; Learning as the canonical example |
-| [Changelog](../CHANGELOG.md) | 0.1.0 first-release notes |
-| [Events](./developer-guide/events.md) | Control-plane catalog |
-| [CLI](./reference/cli.md) | Flags for `symphony`, `symphony bench`, `symphony-browser`, and `core-server` |
-| [Bench](../bench/README.md) | Headless CLI, `symphony-bench` image, Harbor smoke |
-| [Environment](./reference/environment.md) | Keys, models, base URLs |
-| [Slash commands](./reference/slash-commands.md) | Every TUI command |
+| Work in the terminal UI | [TUI and controls](./user-guide/tui.md) |
+| Configure providers, models, and approvals | [Configuration](./user-guide/configuration.md) · [environment reference](./reference/environment.md) |
+| Understand workspace tools and access | [Tools](./user-guide/tools.md) |
+| Resume or protect saved conversations | [Sessions](./user-guide/sessions.md) |
+| Use persistent learning | [Learning and memory](./user-guide/learning.md) |
+| Enable voice, tracing, or completion checks | [Voice](./developer-guide/voice-mode.md) · [Langfuse](./user-guide/langfuse.md) · [Jev](./user-guide/jev.md) |
+| Automate a run or use a browser | [CLI reference](./reference/cli.md) · [Browser agent](./packages/symphony-browser.md) |
 
-Package READMEs (`core_ai/`, `core_harness/`, `coding_agent/`, `core_server/`,
-`browser_agent/`)
-are the PyPI-facing versions of the same material. Prefer this `docs/` tree
-when you are reading in GitHub.
+## Build with the harness
 
-| Directory | PyPI distribution | Python import | Command(s) |
-| --- | --- | --- | --- |
-| `core_ai/` | `symphony-core` | `core_ai` | — |
-| `core_harness/` | `symphony-harness` | `core_harness` | — |
-| `coding_agent/` | `symphony-code` | `coding_agent` | `symphony` (aliases `symphony-code`, `coding-agent-tui`) |
-| `core_server/` | `core-server` (workspace only) | `core_server` | `core-server` |
-| `browser_agent/` | `symphony-browser` (workspace only) | `browser_agent` | `symphony-browser` |
+| You need | Start here |
+| --- | --- |
+| Model providers and stream types | [symphony-core](./packages/symphony-core.md) |
+| A reusable agent loop, tools, and events | [symphony-harness](./packages/symphony-harness.md) |
+| A ready-to-run coding agent | [symphony-code](./packages/symphony-code.md) |
+| A browser-use agent | [symphony-browser](./packages/symphony-browser.md) |
+| An HTTP/SSE interface | [core-server](./packages/core-server.md) |
+
+These are workspace packages, not currently installable PyPI releases. Package-specific READMEs provide short entry points; this `docs/` tree contains the guides.
+
+## Develop Symphony
+
+| Goal | Guide |
+| --- | --- |
+| Understand package boundaries and run lifecycle | [Architecture](./developer-guide/architecture.md) |
+| Add product behavior to the harness | [Extending the harness](./developer-guide/extending.md) |
+| Consume or change the event contract | [Event overview](./developer-guide/events.md) · [complete payload catalog](../core_harness/docs/events.md) |
+| Work on learning or local extensions | [Learning pipeline](./developer-guide/learning-flow.md) · [Skills and plugins](./developer-guide/skills-and-plugins.md) |
+| Work on terminal interface internals | [TUI architecture](../coding_agent/TUI_ARCHITECTURE.md) · [performance investigation](./developer-guide/tui-performance.md) |
+| Contribute, run checks, or report a security issue | [AGENTS.md](../AGENTS.md) · [Security policy](../SECURITY.md) |
+
+## Reference and project history
+
+- [CLI commands and flags](./reference/cli.md)
+- [Slash commands](./reference/slash-commands.md)
+- [Environment variables](./reference/environment.md)
+- [Changelog](../CHANGELOG.md)
+- [Maintainer status and roadmap](../plan.md)

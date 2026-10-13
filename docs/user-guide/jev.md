@@ -1,42 +1,15 @@
-# Jev
+# Jev completion checks
 
-Jev is TypeSafe's evaluation model. Symphony uses it as an optional finish
-check on `symphony-code`. It does not drive the browser agent: that agent is
-a core harness loop, and an evaluation model returns a choice, not a tool call.
+Jev is an optional evaluator for a completed Symphony Code run. It checks the result against a rule you provide; it is not a tool-approval system and does not replace human review.
 
-## Finish check (`symphony-code`)
+## Enable it
 
-Jev is an optional evaluator for `symphony-code`. It checks a completed run;
-it does not replace the chat model or restrict tools while the agent works.
+Start the TUI with `--jev`, or use `/jev` during a session. `/jev <rule>` sets a completion rule for that TUI session. For example, ask it to verify that a test passes or that a named file exists.
 
-Enable it with `--jev`, `/jev on`, or set a rule for the current TUI session:
+The evaluator uses Vercel AI Gateway credentials and a Jev evaluation model. Configure `AI_GATEWAY_API_KEY` (or `VERCEL_AI_GATEWAY_API_KEY`) as described in the [environment reference](../reference/environment.md#jev-critic-optional). Missing credentials fail open: the evaluation is skipped rather than blocking the completed run.
 
-```text
-/jev make sure the code being generated is not verbose and easy to follow
-```
+A confident rule violation can trigger one automatic revision attempt. With no rule, follow-up remains off by default. Normal coding-agent approval prompts still apply to that revision.
 
-The rule remains active in that TUI session until you replace it or turn Jev
-off with `/jev off`. It is not saved to `~/.symphony/config.json`. `/jev` with
-no argument toggles the mode. `--jev` enables the finish check without a
-session rule.
+## When to use it
 
-After each completed run, Jev sees a bounded, redacted summary of the request,
-plan, tool observations, modified files, final answer, and the active rule.
-It answers whether the task is complete, whether work remains, whether claims
-need review, and whether the rule was satisfied. A rule violation requires an
-explicit probability of at least 0.8; a bare boolean or label is not enough.
-
-If Jev confidently finds a rule violation, Symphony asks the chat model to
-revise the work to meet the rule. It permits **one automatic revision per user
-task**, then stops to avoid a loop. Other finish findings may add a critic note
-or request review. Without a rule, automatic follow-up remains off unless
-`evaluation.honour_follow_up` is enabled explicitly.
-
-Jev runs after the agent's work, so it does not block `bash`, edits, or other
-tools. Evaluator errors and missing Vercel credentials fail open. The evaluator
-uses `typesafe-ai/jev` through Vercel AI Gateway
-`POST /v4/ai/evaluation-model` with `AI_GATEWAY_API_KEY` or
-`VERCEL_AI_GATEWAY_API_KEY`.
-
-The browser agent does not call Jev. See
-[symphony-browser](../packages/symphony-browser.md).
+Use Jev for a narrow, observable completion condition—not as proof that a change is correct. Inspect the actual diff and run relevant tests yourself. See [Configuration](./configuration.md) and the [CLI reference](../reference/cli.md#symphony-terminal-ui).

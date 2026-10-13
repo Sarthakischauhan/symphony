@@ -1,192 +1,46 @@
 # Architecture
 
-Symphony is the harness. Agents are separate consumers that plug into it.
+Symphony separates provider mechanics, the reusable agent loop, and products built on the loop. Keep product assumptions out of the harness so other agents and interfaces can reuse it.
 
-Keep the harness product-agnostic, keep the provider layer swappable, and
-drive every UI from a single control-plane event stream instead of scraping
-output. Parent runs can spawn child agents; those children reuse the same
-stream, tagged with `parent_id` and `agent_id`.
-
-For the optional TUI audio path, see [Voice mode](voice-mode.md), including
-its Mermaid sequence diagram and HTTPS/WebSocket protocol map.
-
-## Layers
-
-| Layer | Package | Role |
-| --- | --- | --- |
-| Harness | `symphony-harness` | Turns, tools, control-plane events, compaction |
-| Harness | `symphony-core` | OpenAI, Anthropic, Gemini, Grok, OpenRouter, Vercel AI Gateway; catalog; streaming types |
-| Agent | `symphony-code` | Workspace tools, JSONL sessions, Textual TUI |
-| Agent | `symphony-browser` | Browser-use agent. Jev chooses each action |
-| Server | `core-server` | FastAPI wrapper that streams those events over SSE |
-
-```mermaid
-flowchart TD
-    subgraph UI["UIs"]
-        TUI["symphony-code TUI"]
-        SSE["core-server SSE"]
-    end
-
-    subgraph EV["events"]
-        SINK["EventSink.emit"]
-    end
-
-    subgraph SYM["core_harness · the loop"]
-        U["user message"] --> M["model stream"]
-        M --> TC["tool calls"]
-        TC --> HOOK["before_tool add-on"]
-        HOOK --> RT["run tools"]
-        RT --> M
-        TC --> FR["final reply"]
-    end
-
-    AI["core_ai · providers"] --> M
-
-    subgraph COD["coding_agent"]
-        WT["workspace tools"]
-        POL["ApprovalAddon"]
-        JSONL["JSONL sessions"]
-        ADD["addons: persist / compact / spawn / learn"]
-    end
-
-    TUI --> SINK
-    SSE --> SINK
-    SYM --> SINK
-    POL --> HOOK
-    ADD --> SYM
-    WT --> TC
-    JSONL --> ADD
-```
-
-The harness is a library loop: tools, model, compaction, and an event sink
-for UIs. It does not authorize tools. Product approval lives
-in `coding_agent.addons.approvals.ApprovalAddon` (`before_tool`). Clients send
-`Interrupt`, `Answer`, and `UserInput` operations through `CoreHarness.submit`;
-the TUI, the stdio host, and the ACP host all use it. To attach product
-behavior (Learning, Langfuse, Jev), see
-[Extending the harness](./extending.md).
-
-## A turn
-
-A turn is `CodingAgent.run` → `CoreHarness.run` → `TurnRunner` →
-`ModelRegistry.stream` → authorize → `WorkspaceTool.execute`. No façade
-objects in between.
-
-```mermaid
-sequenceDiagram
-    participant U as UI
-    participant CP as control plane
-    participant P as approval policy
-    participant H as harness
-    participant M as model
-    participant T as tool
-
-    U->>H: user message
-    H->>CP: emit run_started
-    CP-->>U: event
-    H->>M: stream
-    M-->>CP: text_delta / tool calls
-    CP-->>U: events
-    H->>P: before_tool
-    P->>P: prompt_for
-    alt policy asks
-        P->>U: question
-        U-->>P: allow / deny / always
-    end
-    alt allowed
-        H->>T: execute
-        T-->>H: result
-    end
-    H->>CP: emit run_completed
-```
-
-## Source layout
+## Package boundaries
 
 ```text
-core_ai/src/core_ai/
-  content.py          # multimodal parts
-  types.py            # Message, StreamEvent
-  registry.py         # provider:model routing
-  models/             # generated catalog snapshot (scripts/generate_models.py owns generated.py)
-  providers/
-    base.py           # BaseProvider contract
-    openai.py         # chat + responses + images
-    anthropic.py
-    gemini.py
-    grok.py
-    http.py           # SSE + 429 / SSL MAC / hard-error retry
-    catalog.py        # provider catalog helpers
-    defaults.py       # credential-aware default registry
+core_ai ──► core_harness ──► coding_agent
+                         ├──► core_server
+                         └──► browser_agent
 
-core_harness/src/core_harness/
-  harness.py          # CoreHarness façade: tools, limits, add-ons, spawn, run
-  turn_runner.py      # one-turn orchestration
-  tools.py            # Tool adapter
-  events.py           # EventSink event sink (default records in memory), InteractionPort
-  ops.py              # Interrupt, Answer, UserInput: what CoreHarness.submit accepts
-  models.py           # ControlPlaneEventType, ToolCall, HarnessResult
-  config.py           # HarnessConfig, load_harness_config
-  errors.py           # HarnessCancelled, HarnessLimitExceeded
-  context/            # token estimates, result bounds, HarnessState, keep/drop planner
-  loop/               # session, stream, tool dispatch + tool/run limits
-  addons/             # Addon base, persistence, compaction, subagent
-
-coding_agent/src/coding_agent/
-  agent.py            # CodingAgent + default_addons
-  config.py           # .symphony/config.json model
-  credentials.py      # ~/.symphony/.env handling
-  prompts.py          # system + plan-mode prompts
-  addons/             # product add-ons and their supporting machinery
-    approvals.py      # approval policy and harness gate
-    plan/             # plan-mode gate + saved plans (.symphony/plans/)
-    compaction/       # compaction add-on + InferenceCompactor
-    learning/         # learning add-on, lesson store, capture loop, run_summary
-    langfuse/         # tracing add-on, Langfuse install + serializers
-    evaluation/       # Jev add-on, critic policy, handlers, evaluators
-    persistence/      # JSONL sessions
-    plugins/          # trusted plugin discovery and loading
-    skills/           # skills add-on, registry, tool + bundled skill resources
-    voice/            # voice add-on: sockets, credentials, spoken summary, playback
-  commands/           # slash-command catalog shared by the TUI and stdio (no Textual)
-  protocols/stdio/    # JSONL host transport: frames, catalog, command loop
-  protocols/acp/      # Agent Client Protocol host: JSON-RPC, event and question mapping
-  tools/              # one file per workspace tool
-  tui/                # Textual app, driven by CP events; nothing outside imports it
-
-core_server/src/core_server/
-  app.py              # FastAPI app, /runs, /models, /health
-  sse.py              # SSE control plane
-  config.py           # ServerConfig / build_config
-  request_limits.py   # body / message / history caps
+All three consumers depend on both core packages.
 ```
 
-Each package is a small set of modules, one concept per file. Leaf packages of
-20-line files are avoided.
+- **`core_ai`** maps provider APIs to shared model, message, and stream types.
+- **`core_harness`** owns agent turns, tool dispatch, run limits, cancellation, add-on hooks, and typed events. It does not know about files, terminals, or product session layouts.
+- **`coding_agent`** supplies workspace tools, approvals, sessions, learning, and the terminal interface. It is a consumer of the harness, not the harness itself.
+- **`browser_agent`** supplies browser-specific tools and a browser session.
+- **`core_server`** exposes harness runs and events over HTTP/SSE.
 
-## Design principles
+The current checkout is a uv workspace; package purposes and guides are listed in the [docs index](../README.md#build-with-the-harness).
 
-1. One tool per file. Same shape everywhere (`WorkspaceTool` + `run` + register).
-2. Harness stays product-agnostic. Coding-agent specifics live in `coding_agent`.
-3. Working directory, not a jail. Relative paths start at the launch
-   directory; absolute and `~` paths are allowed. `bash` runs with the user's
-   permissions behind an approval prompt; there is no container or OS-level
-   isolation.
-4. Events for UX. UIs subscribe to the sink and send operations through
-   `CoreHarness.submit`. They
-   do not scrape stdout, and they do not own persistence or compaction.
-5. Tests without keys first. Unit-test tools and harness; keep live tests opt-in.
+## What happens during a run
 
-## What's next
+1. A product creates a harness with a registry, model id, tools, sink, and optional add-ons.
+2. The harness sends the conversation to the selected provider and streams normalized events.
+3. When the model requests a tool, the harness invokes registered add-on hooks and executes the callable.
+4. The result joins the conversation; the loop continues until the model finishes or a run limit, cancellation, or failure ends it.
+5. The harness emits terminal events. Products decide how to display, persist, or forward them.
 
-0.1.0 is the first public cut. Durable memory, a skill/plugin loader, and
-compaction-as-a-view (full user log, compact model projection) are specified
-under "Symphony-later" in [`plan.md`](../../plan.md). A browser-use agent is
-the next consumer of the same harness.
+A product can extend the loop through [add-on hooks](./extending.md). Event names and payloads are described in the [event overview](./events.md) and [full schema catalog](../../core_harness/docs/events.md).
 
-## Development
+## Design constraints
 
-```sh
-uv sync
-uv run pytest
-uv run --package symphony-code symphony
-```
+- **Providers stay replaceable:** products consume shared message and stream contracts, not vendor response objects.
+- **Tools are explicit capabilities:** a harness only receives tools its caller registers. It does not provide a sandbox or automatic approval layer.
+- **Events are the interface for observers:** UIs and servers consume the stream instead of scraping console output.
+- **Products own product behavior:** approvals, files, sessions, and user interaction belong in consumers/add-ons, not the generic loop.
+
+## Explore the implementation
+
+- [Harness API guide](../packages/symphony-harness.md)
+- [Add-on lifecycle](./extending.md)
+- [TUI implementation architecture](../../coding_agent/TUI_ARCHITECTURE.md)
+- [TUI performance investigation](./tui-performance.md)
+- [Contributing and test commands](../../AGENTS.md)
