@@ -10,7 +10,7 @@ On first launch, Symphony can help configure a provider. In the TUI, use `/provi
 
 Coding-agent settings are stored in the user-wide `~/.symphony/config.json` file, or in the directory selected by `SYMPHONY_HOME`. The same settings apply across projects; workspace paths do not select a separate config file. First launch creates the file with defaults. You can edit it directly, but keep valid JSON and use the documented schema.
 
-Configuration is loaded and maintained as a complete settings file; use [`config/coding_agent/config.example.json`](../../config/coding_agent/config.example.json) as the shape reference. For example, to require a prompt before bash commands:
+Configuration is loaded and maintained as a complete settings file. The TUI creates `~/.symphony/config.json` with defaults on first launch; edit that file to customize settings. For example, to require a prompt before bash commands:
 
 ```json
 {
