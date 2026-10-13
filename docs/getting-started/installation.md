@@ -1,96 +1,45 @@
-# Installation
+# Install from source
 
-Symphony is a [uv](https://docs.astral.sh/uv/) workspace of four Python packages.
-The shipped product is **symphony-code** (the Textual TUI). The other packages
-are libraries you can import on their own.
+Symphony is **not currently published on PyPI**. The supported way to try it today is to clone the repository and run its uv workspace. Do not use `pip install` or `uv add` for Symphony packages until this page announces a published release.
 
-> **Requirements:** Python **3.11+** and uv. You need at least one provider
-> credential. If none is set, the TUI walks you through choosing a provider
-> and pasting an API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-> `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`,
-> or `AI_GATEWAY_API_KEY`).
+## Requirements
 
-## Install from source
+- Python 3.11 or newer
+- [uv](https://docs.astral.sh/uv/)
+- An API key or supported provider login to run a model; you can set up a provider on first launch
 
-This is the path that always works today. It installs the workspace, the TUI,
-the harness, and the server together.
+## Clone and launch
 
 ```sh
 git clone https://github.com/Sarthakischauhan/symphony.git
 cd symphony
 uv sync
-```
-
-Then launch the TUI from the repo root:
-
-```sh
 uv run --package symphony-code symphony
 ```
 
-If a key is already in the environment, that provider is used immediately.
-Otherwise the TUI asks which provider to add.
-
-`symphony`, `symphony-code`, and `coding-agent-tui` are aliases for the same
-entry point.
-
-## Install as a library
-
-The three published packages are `symphony-core`, `symphony-harness`, and
-`symphony-code`. `core-server` stays in the workspace for now. GitHub Releases
-build wheels and upload them to PyPI.
+The current directory is the default workspace. To open another project:
 
 ```sh
-uv add symphony-core
-uv add symphony-harness
-uv add symphony-code
+uv run --package symphony-code symphony --workspace /path/to/project
 ```
+
+The commands `symphony`, `symphony-code`, and `coding-agent-tui` launch the same terminal application. Supported provider setup is covered in [Quickstart](./quickstart.md); full environment variables are in the [reference](../reference/environment.md).
+
+## Use a workspace package as a library
+
+The repository includes separate packages for providers (`core_ai`), the agent loop (`core_harness`), and the coding agent (`coding_agent`). They can be imported while working in this source checkout. For now, use the workspace rather than a package-index install:
 
 ```sh
-pip install symphony-core symphony-harness symphony-code
+uv sync
+uv run python -c 'from core_harness import CoreHarness; print(CoreHarness)'
 ```
 
-PyPI names and import names differ on purpose:
+For a runnable example, see [Build with the harness](../packages/symphony-harness.md). Package and import names are listed in the [documentation index](../README.md#build-with-the-harness).
 
-| Package | Import | Install for |
-| --- | --- | --- |
-| `symphony-core` | `core_ai` | Providers, catalog, `Message` / `StreamEvent` |
-| `symphony-harness` | `core_harness` | Agent loop, tools, control plane |
-| `symphony-code` | `coding_agent` | Workspace tools + TUI (`symphony`) |
-| `core-server` | `core_server` | FastAPI SSE server (workspace only) |
-
-## Provider credentials
-
-Every cloud provider with a key or a stored subscription token is registered.
-Ollama and local OpenAI-compatible servers are opt-in (set `OLLAMA_ENABLED=1` /
-`OLLAMA_BASE_URL` / `OLLAMA_HOST`, or `LOCAL_BASE_URL`). Set keys in the
-environment, `~/.symphony/.env`, a workspace `.env` (local override), or from
-the TUI: first-run onboarding and `/provider`. ChatGPT, Claude, and xAI can
-also sign in with a subscription; those tokens are stored in
-`~/.symphony/oauth/`.
-
-
-| Provider | Credential | Optional |
-| --- | --- | --- |
-| OpenAI | `OPENAI_API_KEY` or ChatGPT login | `OPENAI_MODEL`, `OPENAI_BASE_URL` |
-| Anthropic | `ANTHROPIC_API_KEY` or `claude setup-token` | `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` |
-| Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `GEMINI_MODEL`, `GEMINI_BASE_URL` |
-| Grok | `XAI_API_KEY` or xAI device login | `GROK_MODEL` / `XAI_MODEL`, `XAI_BASE_URL`. Subscription login uses `cli-chat-proxy.grok.com`; an API key uses `api.x.ai`. |
-| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` |
-| Vercel AI Gateway | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` | `VERCEL_MODEL` / `AI_GATEWAY_MODEL`, `AI_GATEWAY_BASE_URL` |
-| Ollama | `OLLAMA_ENABLED=1` or `OLLAMA_BASE_URL` | `OLLAMA_HOST`, `OLLAMA_MODEL` |
-| Local | `LOCAL_BASE_URL` | `LOCAL_API_KEY`, `LOCAL_MODEL` |
-
-
-`SYMPHONY_MODEL` overrides all of the provider-specific model variables. Model
-ids are `provider:model`, for example `anthropic:claude-sonnet-5`.
-
-See the full [environment reference](../reference/environment.md).
-
-## Verify the install
+## Check the checkout
 
 ```sh
 uv run pytest
 ```
 
-If the TUI opens, shows a composer, and `/status` prints a model id, the
-install is good. Next: the [Quickstart](./quickstart.md).
+Continue to the [quickstart](./quickstart.md) to configure a provider and complete a first task. PyPI instructions will be added here only when distributions are actually published.

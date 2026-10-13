@@ -1,66 +1,35 @@
-# Extending the harness
+# Extend the harness
 
-`CoreHarness` is an extension surface. Product behavior attaches as an
-`Addon` and is notified through `notify_addons`. There is no second
-control plane.
+Use an `Addon` when product behavior needs to observe or influence a harness run without adding product-specific dependencies to `core_harness`. Add-ons are invoked at run, turn, tool, and compaction boundaries.
 
-## Hooks
+## Add an add-on
 
-Override the no-op methods on `Addon`. Signatures stay on that class:
+Subclass `core_harness.addons.Addon` and override only the hooks you need:
 
-| Hook | Role |
-| --- | --- |
-| `before_run` / `after_run` | Observe a `CoreHarness.run` |
-| `before_turn` / `after_turn` | Observe each model/tool turn |
-| `before_tool` | May return a deny reason; otherwise allow |
-| `on_tool` / `on_compact` | Record a finished tool or compaction |
+| Hook | Runs when | Typical use |
+| --- | --- | --- |
+| `before_run` / `after_run` | A run starts or ends | Initialize run state or record the result |
+| `before_turn` / `after_turn` | A model/tool turn starts or ends | Inject context or observe model activity |
+| `before_tool` | Before a registered tool executes | Enforce product policy; return a deny reason to block a call |
+| `on_tool` / `on_compact` | A tool or compaction finishes | Record product-side outcomes |
+| `fork_for_child` | A child harness is created | Return a child add-on to inherit behavior, or `None` to skip it |
 
-`CoreHarness.run` is the other public seam. It returns `HarnessResult`
-(`output_text`, `messages`, `tool_calls`, `usage`, context fields).
+Check the `Addon` class and existing product add-ons for exact hook signatures; do not assume hook payloads beyond what the source defines.
 
-## `fork_for_child`: inherit vs skip
+## Keep ownership clear
 
-`fork_for_child` is the inherit path onto a child harness. Return a new
-instance to inherit, or `None` (the default) to skip. When
-`ChildConfig.addons` or `addon_factory` is set, that list **replaces**
-forks.
+- The harness invokes hooks but does not decide which product features should be installed.
+- Products register add-ons when building their harness. A child may inherit, omit, or receive a replacement set of add-ons.
+- Approval behavior is a coding-agent add-on, not a security boundary provided by the generic harness.
+- Events needed by every consumer belong in the harness event contract; product-only display state should remain product-specific.
 
-| Add-on | Policy |
-| --- | --- |
-| `LangfuseAddon` | **Inherit** — child runs get their own tracer |
-| `LearningAddon` | **Skip** — children do not observe or record learning |
-| `JevAddon` | **Skip** — children are not evaluated |
+The canonical product example is [`LearningAddon`](../../coding_agent/src/coding_agent/addons/learning/). The coding agent also includes Langfuse and Jev integrations; see the [architecture guide](./architecture.md) for package ownership.
 
-`coding_agent.default_addons` mounts Learning when a `LearningLoop` is
-passed. The spawn `addon_factory` omits it, matching skip.
+## Verify an extension
 
-## Canonical example: Learning
+1. Test the hook directly, including denial and exceptions where relevant.
+2. Test child behavior explicitly if the extension is inherited by spawned agents.
+3. Confirm the harness remains independent of product modules.
+4. Update the [event overview](./events.md) and [full event catalog](../../core_harness/docs/events.md) if the public event contract changes.
 
-Learning is observe/record only. `coding_agent` owns `LearningConfig`
-and registers `LearningAddon` in `default_addons`. The harness does not
-import learning. Learning does not import `core_harness.loop` or
-`turn_runner`.
-
-```python
-from core_harness.addons import Addon
-
-class LearningAddon(Addon):
-    name = "learning"
-
-    def fork_for_child(self, parent_harness):
-        return None  # skip
-
-    async def before_run(self, **payload):
-        self.loop.cancel()
-
-    async def before_turn(self, **payload):
-        # inject memory into the current system message
-        ...
-
-    async def after_run(self, **payload):
-        self.loop.schedule(payload["task"], payload["result"], emit=payload.get("emit"))
-```
-
-`LangfuseAddon` and `JevAddon` are siblings on the same hook surface
-(inherit vs skip as in the table). Do not add harness events, badges, or
-TUI chrome to extend this path.
+See [contributor conventions](../../AGENTS.md) for test and dependency rules.

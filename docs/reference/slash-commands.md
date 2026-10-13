@@ -1,32 +1,31 @@
 # Slash commands
 
-Type `/` in the composer to discover commands. Tab or Enter selects from the
-menu.
+Type `/` in the Symphony Code composer to discover commands. Select a suggestion with Tab or Enter. Commands not relevant to your current session or provider may not be available.
 
-| Command | What it does |
+| Command | Action |
 | --- | --- |
-| `/model [id]` | Show the credential-filtered catalog, or switch model |
-| `/personality [id]` | Show the personality catalog, or switch (`direct`, `bad_boy`, `caveman`, `precise`, `warm`) |
-| `/mode [mode]` | View or switch **build** / **plan** |
-| `/effort [level]` | Set reasoning effort (`none` … `max`) |
-| `/plan [text]` | Enter plan mode; with text, submit it as the next planning turn |
-| `/plans [name]` | Pick or open a saved workspace plan |
-| `/provider [name]` | Sign in with a ChatGPT / Claude / xAI subscription, or paste an API key |
-| `/langfuse` | Save Langfuse telemetry keys to `~/.symphony/.env` |
-| `/jev [on\|off\|rule]` | Toggle the Jev finish check or set a rule for this TUI session |
-| `/new` | Start a fresh persisted session |
-| `/reload` | Reload `~/.symphony/.env` (and workspace `.env` if present) and rebuild the provider registry |
-| `/compact` | Summarize older turns with the model; keep system prompt, original task, and recent turns |
-| `/status` | Session, model, and context details |
-| `/dashboard` | Live Symphony agents with CPU, memory, and disk. Same layout as the Ctrl+G subagent list |
-| `/context` | Stored vs sent tokens by role |
-| `/learning` | Markdown-rendered lessons |
-| `/diff` | Current workspace diff in a modal |
+| `/model [id]` | List configured models or switch the active model |
+| `/provider [name]` | Add or switch provider credentials |
+| `/mode [mode]` | Show or switch the current mode |
+| `/plan` | Enter plan mode |
+| `/plans [plan]` | Choose and open a workspace plan |
+| `/effort [level]` | Set model reasoning effort when supported |
+| `/personality [id]` | Choose a prompt personality |
+| `/jev [on\|off\|rule]` | Configure the optional completion check |
+| `/langfuse` | Configure optional Langfuse tracing |
+| `/voice` | Start voice input; available when voice support is configured |
+| `/installed` | View installed skills and plugins |
+| `/compact` | Summarize older conversation context |
+| `/context` | Inspect context usage |
+| `/status` | Show session and model information |
+| `/session` | Inspect session images, compactions, memory, and recorded events |
+| `/learning` | Browse curated memory topics and pending captures |
+| `/dashboard` | Show active Symphony agents |
+| `/diff` | Inspect the workspace diff |
+| `/new` | Start a fresh conversation |
+| `/reload` | Reload provider environment and registry |
 | `/clear` | Clear the visible transcript |
 | `/help` | Show available commands |
-| `/quit` | Exit Symphony (`/exit` also works) |
+| `/quit` | Exit the application (`/exit` also works) |
 
-## Effort levels
-
-`default`, `none`, `low`, `medium`, `high`, `xhigh`, `max`. Availability
-depends on the active model.
+The installed command and TUI keyboard controls are documented in the [CLI reference](./cli.md) and [TUI guide](../user-guide/tui.md).

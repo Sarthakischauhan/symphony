@@ -1,7 +1,6 @@
 # Harness events
 
-Canonical user-facing catalog:
-**[docs/developer-guide/events.md](../../docs/developer-guide/events.md)**.
+Detailed harness event schema and payload catalog. For a consumer-oriented summary of the lifecycle and guidance, see the [control-plane event overview](../../docs/developer-guide/events.md).
 
 `CoreHarness` emits ordered control-plane events with an `event_type` and a
 `payload`. Every `event_type` below is a member of

@@ -1,33 +1,21 @@
 # symphony-code
 
-The coding agent. Workspace tools + a Textual TUI, sitting on
-`symphony-harness`. Import it as `coding_agent`.
+Run an AI coding agent in your terminal, or import the coding-agent API from the Symphony workspace. Package import name: `coding_agent`.
+
+**Availability:** this package is not currently published on PyPI. To run it today, use a checkout of the repository:
 
 ```sh
-uv add symphony-code
-uv run --package symphony-code symphony --workspace .
+git clone https://github.com/Sarthakischauhan/symphony.git
+cd symphony
+uv sync
+uv run --package symphony-code symphony --workspace /path/to/project
 ```
 
-If no API key or subscription is set, the TUI asks which provider to use.
-OpenAI, Anthropic, and Grok can sign in with a subscription; keys go to
-`~/.symphony/.env` and tokens to `~/.symphony/oauth/`. `/provider` adds another later.
+`symphony`, `symphony-code`, and `coding-agent-tui` are aliases for the same terminal application. Configure a provider on first launch, or set credentials beforehand. See the [installation guide](../docs/getting-started/installation.md) and [quickstart](../docs/getting-started/quickstart.md).
 
-`symphony`, `symphony-code`, and `coding-agent-tui` are the same command.
+## Use the library
 
-<video src="../docs/demo.mp4" controls muted loop playsinline poster="../docs/demo.png" width="800">
-  <a href="../docs/demo.mp4">Demo: create hello.py, write a test, run pytest — 1 passed</a>
-</video>
-
-Ask something you can verify on disk:
-
-```text
-Create hello.py with a greet() function and a test, then run it.
-```
-
-You should see `Write` / `Bash` rows in the transcript, then `hello.py` on
-disk. `Esc` cancels. `/` is the command menu. `Tab` toggles **build** / **plan**.
-
-## Library
+From the repository workspace:
 
 ```python
 from core_ai import build_default_registry, default_model_id
@@ -37,32 +25,21 @@ registry = build_default_registry()
 agent = CodingAgent(
     registry=registry,
     model_id=default_model_id(registry),
-    workspace=".",
-)
-print((await agent.run("Fix the failing test")).output_text)
+    workspace=".")
+result = await agent.run("Fix the failing test")
+print(result.output_text)
 ```
 
-## Docs
+## Next steps
 
-| | |
-| --- | --- |
-| [symphony-code](../docs/packages/symphony-code.md) | Watch a run, then install |
-| [TUI](../docs/user-guide/tui.md) | Keybindings, plan mode, images |
-| [Tools](../docs/user-guide/tools.md) | `read_file`, `write_file`, `patch`, `search`, `bash`, `spawn_agent` |
-| [Configuration](../docs/user-guide/configuration.md) | `.symphony/config.json`, approvals |
-| [Langfuse](../docs/user-guide/langfuse.md) | Optional traces of sent prompts and tools |
-| [Jev](../docs/user-guide/jev.md) | Optional finish check with session rules (`--jev` / `/jev`) |
-| [Skills and plugins](../docs/developer-guide/skills-and-plugins.md) | Local skills, trusted addons, and removal |
-| [Slash commands](../docs/reference/slash-commands.md) | `/model`, `/plan`, `/resume`, … |
+- [Terminal UI and controls](../docs/user-guide/tui.md)
+- [Configuration and approvals](../docs/user-guide/configuration.md)
+- [Tools and workspace access](../docs/user-guide/tools.md)
+- [Sessions and resume](../docs/user-guide/sessions.md)
+- [Package API guide](../docs/packages/symphony-code.md)
 
-The agent asks before bash, overwrite, or a broad patch. Approval rules live
-in `coding_agent.addons.approvals`; the TUI only renders the question. Sessions
-persist in `~/.symphony/sessions/<session_id>/` (`--resume`), with transcripts,
-images, compaction summaries, checkpoints, and memory/learning provenance.
-`/session` inspects the complete archive; legacy flat JSONL sessions migrate on access.
+**Safety:** tools run with the current user's permissions; approval prompts do not sandbox commands or restrict paths. Read the [security policy](../SECURITY.md) before use.
 
-Subagents run in the background by default and return results automatically to
-the parent runtime. Press **Ctrl+G** to inspect their saved or live transcripts,
-with the same tool/thought compaction as the parent. **Esc** returns to the parent;
-**Ctrl+X** in the child view cancels that child. Child histories persist separately
-in their own session files; closing the app stops active children.
+<video src="../docs/demo.mp4" controls muted loop playsinline poster="../docs/demo.png" width="800">
+  <a href="../docs/demo.mp4">Watch Symphony create a Python file, add a test, and run pytest.</a>
+</video>

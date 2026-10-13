@@ -1,146 +1,93 @@
-# CLI
+# Command-line reference
 
-## symphony
+Use the [source installation guide](../getting-started/installation.md) before running these workspace commands. For the common interactive workflow, start with the [quickstart](../getting-started/quickstart.md).
 
-Textual coding-agent TUI. Aliases: `symphony-code`, `coding-agent-tui`,
-`python -m coding_agent.tui`.
+## `symphony` terminal UI
+
+The default command opens Symphony Code. `symphony-code` and `coding-agent-tui` are aliases.
 
 ```sh
 uv run --package symphony-code symphony [options]
 ```
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--workspace PATH` | current directory | Working directory: relative paths, bash cwd, `.symphony` |
-| `--model ID` | `SYMPHONY_MODEL` or first available provider | `provider:model` id |
-| `--resume` | off | Pick a saved session interactively. Sessions still owned by a live Symphony process (`~/.symphony/active`) are hidden |
-| `--resume --continue` | off | No picker: if the most recent session's last checkpoint is still `running` (the process was killed), continue it headless and unattended with one note naming the interruption time, stopped orphaned background jobs, and the original goal. Otherwise prints that there is nothing to continue. |
-| `--unattended` | off | No human in the loop: auto-approve (`approvals.deny` still applies, also to children), auto-answer `ask_user`, no plan mode. Not a sandbox. |
-| `--no-learning` | learning on | Disable post-run reflection |
-| `--jev` | off | Enable the Jev finish check (does not switch the chat model) |
+| Option | What it does |
+| --- | --- |
+| `--workspace PATH` | Choose the project working directory (default: current directory) |
+| `--model ID` | Select a `provider:model` id |
+| `--resume` | Choose a saved session |
+| `--resume --continue` | Continue the latest interrupted session unattended |
+| `--unattended` | Run without human prompts; see [Security](../../SECURITY.md) |
+| `--no-learning` | Disable automatic learning |
+| `--jev` | Enable Jev findings (does not change the chat model) |
 
-## symphony run
+Daily controls are in the [TUI guide](../user-guide/tui.md); interactive commands are in the [slash-command reference](./slash-commands.md).
 
-Headless unattended run of one task with your normal `~/.symphony` config,
-credentials, and deny rules. The session is persisted to JSONL like a TUI
-session; one log line per notable event goes to stdout.
+## `symphony run`: headless coding run
 
-```sh
-uv run --package symphony-code symphony run --unattended [--detach] [--model ID] [--workspace PATH] "<task>"
-```
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--unattended` | required | Acknowledges auto-approval (see `SECURITY.md`) |
-| `--detach` | off | Re-exec in a new session with stdin closed, print pid, log path, and session id, write `~/.symphony/sessions/<sid>/run.json`, and exit. Output goes to `<sid>/run.log`. No daemon manager: stop it with `kill <pid>`. |
-| `--model ID` | `last_model` / first available | `provider:model` id |
-| `--workspace PATH` | `.` | Working directory |
-| `--session-id ID` | new uuid | Session id to write |
-
-## symphony bench
-
-Headless, non-interactive run. Same `CodingAgent` / harness `run()` as the TUI.
-Keys come from the environment. Writes `workspace.patch` and `result.json` in
-the workspace. Exit 0 means the agent finished; a grader owns pass/fail.
+`symphony run` requires `--unattended`: it automatically handles approval prompts and human questions. Read the [security warning](../../SECURITY.md) before using it.
 
 ```sh
-uv run --package symphony-code symphony bench --workspace /testbed --instruction instruction.md
+uv run --package symphony-code symphony run --unattended "Fix the failing test" \
+  --workspace /path/to/project [--detach] [--model PROVIDER:MODEL]
 ```
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--workspace PATH` | `/testbed` if present, else `.` | Working directory |
-| `--instruction PATH` | stdin (`-`) | Instruction file, or `-` for stdin |
-| `--model ID` | `bench/config.toml` / env | `provider:model` id |
-| `--max-turns N` | pinned in `bench/config.toml` | Harness turn cap |
-| `--timeout SEC` | pinned in `bench/config.toml` | `max_runtime_seconds` |
-| `--personality` | `direct` | `direct` or `precise` only (no picker) |
-| `--jev` | off | Enable the Jev finish check |
+`--detach` starts a background process and prints its pid, log path, and session id. Stop it with `kill <pid>`; it is not managed by a daemon service. Sessions are persisted like TUI sessions.
 
-Harbor adapter and image: [`bench/README.md`](../../bench/README.md).
+## Other commands
 
-## symphony-browser
+### `symphony bench`
 
-Browser-use agent. `CoreHarness.run` calls the browser tools and the model's
-last message is the answer. Prints the JSON result.
-Exit 0 when the run is `done`, 1 for `blocked` / `limited` / `error`, 2 for a
-setup error (bad URL, no chat provider, Chromium missing, page failed to load).
+Headless benchmark run. It writes `workspace.patch` and `result.json`; exit 0 means the agent finished, not that an external grader accepted the result.
 
 ```sh
-uv run --package symphony-browser symphony-browser "what to do" [--url URL] [options]
+uv run --package symphony-code symphony bench \
+  --workspace /testbed --instruction instruction.md
 ```
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `query` | required | The harness user message. Never put credentials here: it is emitted and written to the trace |
-| `--url URL` | DuckDuckGo HTML search for the query (`https://html.duckduckgo.com/html/`) | Optional page to open. Only `http` / `https` with a host. The default avoids Google's bot interstitial; DuckDuckGo can still rate-limit |
-| `--model ID` | `SYMPHONY_MODEL` or the first configured provider | `provider:model` for the harness loop |
-| `--max-steps N` | `12` | Harness turn cap; hitting it ends as `limited` |
-| `--headed` | off | Show the Chromium window |
-| `--no-sandbox` | off | Disable the Chromium sandbox (and `/dev/shm`). Only for root or containers |
-| `--trace PATH` | none | Also write the JSON result to `PATH` |
+Set options with `--model`, `--max-turns`, `--timeout`, `--personality`, and `--jev`. Defaults may come from `bench/config.toml`. The [bench README](../../bench/README.md) describes the Harbor adapter.
 
-Install Chromium once with `uv run --package symphony-browser playwright install chromium`.
+### `symphony-browser`
 
-## core-server
+Run a browser task in Chromium. Without `--url`, it searches DuckDuckGo HTML for the task; otherwise it opens the supplied HTTP(S) URL.
 
 ```sh
-uv run --package core-server core-server [options]
+uv run --package symphony-browser playwright install chromium
+uv run --package symphony-browser symphony-browser \
+  "Find the first espresso article" --url https://example.com
 ```
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--host` | `127.0.0.1` | Bind address |
-| `--port` | `8000` | Bind port |
-| `--model` | env / OpenAI default | Server default model id |
-| `--system-prompt` | package default | Override the system prompt |
+Use `--model`, `--max-steps`, `--headed`, `--no-sandbox`, or `--trace PATH` as needed. Never put secrets in the task: it may appear in events and traces. The browser agent has no general website trust boundary; treat page content as untrusted input. See the [browser guide](../packages/symphony-browser.md).
 
-## Workspace tasks
+### `core-server`
 
 ```sh
-uv sync
-uv run pytest
-uv run --package core-server pytest
-uv run python scripts/generate_models.py   # from core_ai/
+uv run --package core-server core-server [--host HOST] [--port PORT] \
+  [--model PROVIDER:MODEL] [--system-prompt TEXT]
 ```
-## symphony stdio
 
-`symphony stdio --workspace /path/to/project [--session-id ID] [--model PROVIDER:MODEL]`
-starts an interactive, one-turn-at-a-time JSONL agent process. A manager sends
-`{"type":"run","prompt":"..."}` on stdin. Symphony sends a `ready` frame
-with its persisted session ID, `event` frames with its control-plane events,
-`input_requested` frames for approvals and questions, and a terminal `done`
-frame. Reply with `{"type":"answer","request_id":"...","value":"..."}`;
-`{"type":"interrupt"}` cancels the active turn, and
-`{"type":"steer","prompt":"..."}` adds a user message to it. Use the returned session ID
-on the next process to resume the conversation. Standard output is reserved
-for protocol frames; diagnostics go to standard error.
-After `ready`, send `{"type":"model/list","request_id":"catalog-1"}` to
-receive a `models` frame with the same request ID. It lists models for
-configured providers, with Symphony's current default first. The frame
-includes the provider and context limit for each model.
-The `run` command can include `"attachments":["/absolute/image.png"]`; the
-transport embeds up to eight images in the user message.
-`--unattended` applies Symphony's unattended policy: tool prompts are
-auto-approved subject to deny rules, and user questions are auto-answered.
+It binds to `127.0.0.1:8000` by default. The server has no built-in authentication; see the [server guide](../packages/core-server.md) before exposing it.
 
-The `ready` frame declares `protocol_version: 2` and capabilities. Hosts
-must check the version before sending a prompt. This transport owns one active
-turn at a time; hosts may queue later prompts and start them after `done`.
-The transport implementation lives in `coding_agent/protocols/stdio/`.
-Subagent lifecycle and child activity are regular `event` frames. Match an
-`agent_spawned` frame's `tool_call_id` to the spawning tool, route later events
-whose `agent_id` matches its `child_id`, and settle on `agent_completed` or
-`agent_failed`.
+## Protocol hosts
 
-## symphony acp
+These commands expose agent protocols over stdio for editor or process integrations. stdout is protocol data; do not mix application logs into it.
 
-`symphony acp [--model PROVIDER:MODEL] [--unattended]` starts an
-[Agent Client Protocol](https://agentclientprotocol.com) agent (protocol
-version 1) on stdio for editors and other ACP clients. The client sends
-`initialize`, `session/new` with an absolute `cwd`, then `session/prompt`.
-Symphony streams `session/update` notifications, asks for approvals with
-`session/request_permission`, and ends the turn with a `stopReason`.
-`session/cancel` interrupts the turn. It does not load earlier sessions or
-read image prompts. The full mapping and its limits are in
-`coding_agent/src/coding_agent/protocols/acp/README.md`.
+### `symphony stdio`
+
+```sh
+symphony stdio --workspace /path/to/project [--session-id ID] \
+  [--model PROVIDER:MODEL] [--unattended]
+```
+
+A host sends JSONL `run` frames and receives `ready`, event, input-request, and `done` frames. Answer requests by id; use `interrupt` to cancel and `steer` to inject user input. The transport owns one active turn at a time. A `model/list` request returns models for configured providers. Run frames may include up to eight absolute image attachments. The [stdio protocol guide](../../coding_agent/src/coding_agent/protocols/stdio/README.md) documents the frame contract.
+
+### `symphony acp`
+
+```sh
+symphony acp [--model PROVIDER:MODEL] [--unattended]
+```
+
+Starts the [Agent Client Protocol](https://agentclientprotocol.com) host (protocol version 1). It accepts new sessions and prompts, streams session updates, requests permission, and supports cancellation. It does not restore earlier sessions or accept image prompts. See the [ACP implementation guide](../../coding_agent/src/coding_agent/protocols/acp/README.md) for mappings and limits.
+
+## Repository checks
+
+From the repository root, run `uv sync`, `uv run pytest`, and `uv run ruff check .`. See [AGENTS.md](../../AGENTS.md) for development conventions.

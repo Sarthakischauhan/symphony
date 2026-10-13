@@ -1,148 +1,30 @@
-# TUI
+# Use the terminal interface
 
-The TUI is a conversation surface over the harness event stream. It does not
-scrape stdout. Every tool row, token, usage line, and compaction notice is a
-control-plane event.
+Symphony Code presents your task, model response, tool activity, and approval requests in one terminal conversation. Launch it from the repository workspace with `uv run --package symphony-code symphony`; use `--workspace PATH` to choose the project. See [Quickstart](../getting-started/quickstart.md) for the first run.
 
-On first launch with no credentials, a provider screen asks which API to use.
-OpenAI, Anthropic, and Grok can sign in with a subscription, or you can paste
-a key. Keys are saved to `~/.symphony/.env`; subscription tokens to
-`~/.symphony/oauth/`. Add more providers later with `/provider`; `/model`
-then lists every credentialed catalog. `/personality` switches the agent
-voice (`direct` by default) without restarting.
-Colors and CSS come from `~/.symphony/theme.toml` when present; otherwise
-the packaged default dark theme is used.
+## The conversation
 
-```sh
-uv run --package symphony-code symphony
-uv run --package symphony-code symphony --workspace /path/to/project
-uv run --package symphony-code symphony --model gemini:gemini-3.7-flash
-```
+Type a request in the composer and press Enter. While a run is active, the transcript shows model output and tool activity; approval or question prompts appear when interaction is needed. Review changes in your project—the transcript is a record of activity, not a substitute for checking the result.
 
+![Symphony terminal interface](../demo.png)
 
-<div align="center">
-  <img src="../demo.png" alt="Symphony TUI" height="340">
-</div>
+## Modes and controls
 
-## Keybindings
-
-| Keys | Action |
+| Action | Control |
 | --- | --- |
-| `Esc` / `Ctrl+X` | Cancel the in-flight run |
-| `Ctrl+L` or `/clear` | Reset the visible transcript |
-| `Ctrl+D`, `/quit`, `/exit` | Leave the TUI |
-| `Tab` | Toggle build ↔ plan without opening the menu |
-| `/` | Slash-command palette |
-| `@` | Workspace file search (after whitespace) |
+| Open the slash-command menu | Type `/` |
+| Switch build/plan mode | `/mode` |
+| Get workspace-path suggestions | Type `@` at the end of a path mention |
+| Cancel an active run | `Esc` or `Ctrl+X` |
+| Open subagent sessions | `Ctrl+G` |
+| Open the agent dashboard | `Ctrl+B` |
 
-## Run metrics
+Plan mode stages a plan before implementation; it is not a security sandbox. Commands and shell side effects still require careful review. See the [security policy](../../SECURITY.md).
 
-Completed runs show a compact line such as
-`3m 12s (↑1.62M ↓7.03k) · 44 model calls · 56 tool calls`.
-The arrows indicate cumulative input and output tokens for the displayed agent's
-run; `k` and `M` abbreviate thousands and millions, and `~` marks estimated usage.
-Elapsed time covers the run, including tools and approval waits.
+## Continue a conversation
 
-Model calls count main-loop turns, excluding retry attempts, compaction, and
-learning requests. Tool calls count distinct calls reaching tool dispatch,
-including denied or failed calls, rather than streamed argument fragments.
-Child transcripts show their own metrics; the parent line does not aggregate
-child usage. Context usage remains available in the footer and `/context`.
+Use `/new` to start a fresh session. From the shell, launch with `--resume` to choose a saved session. Session storage and recovery behavior are documented in [Sessions](./sessions.md).
 
-## Tool transcript
+## Commands and configuration
 
-Completed tools stay visible as live cards while a consecutive stretch is
-active. When the stream is interrupted by assistant text, thinking, or any
-other non-tool widget, that stretch folds into one expandable **Explored**
-row. Later tools after the interruption start a new stretch — so 3 tools,
-then text, then 5 tools becomes fold(3), text, fold(5), not a fixed bucket
-of 10. Running tools, generated images, and subagent rows stay visible.
-When the run finishes, remaining completed tools fold too, and expanded
-batches close. Restored conversations use the same stretch-based
-presentation. Completed thoughts fold into their own Explored row, retaining
-only their titles. Activity-labeled Explored rows partition on
-`activity.group`; without a group, different reasons still fold together.
-
-Click a summary, or focus it and press Enter or Space, to inspect tool paths,
-and commands in event order, without tool output or reasoning bodies. The
-Explored label is colored on a transparent background; green
-checks mark successful calls, and red accents and a failure count keep errors
-visible even when collapsed.
-
-## Build vs plan
-
-**Build** can read, edit, and run. **Plan** allows inspection and `bash`, but
-only the active plan file may be written; `generate_image` and `spawn_agent` are
-blocked. Plans live at `.symphony/plans/<task>_plan.md`. Plan mode uses a yellow
-composer border. When planning finishes, a modal offers **Build now**, **Request
-changes**, or **Quit**. `/plan` enters planning (and `/plan <text>` submits a
-planning turn); `/plans` opens the searchable picker of saved plans.
-
-## Composer extras
-
-- `@` after whitespace opens the same selector as model/command pickers. Tab
-  or Enter inserts `@path` without sending.
-- Drop an image onto the composer (terminals paste the file path) to attach a
-  clickable `[Image 1]` chip.
-- `generate_image` writes the asset to disk and uses the same chip on the tool
-  row.
-
-<div align="center">
-  <img src="../image-support.png" alt="Image chips in the TUI" height="220">
-</div>
-
-## Approvals
-
-Product policy (`coding_agent.addons.approvals`) decides which tools need a prompt;
-the TUI only renders the question. Default `approvals.mode` is `ask`. Choose
-**Allow once**, **Deny**, or **Always allow**. Always-allow is a session
-override held by the agent, not the TUI. It applies to later runs in this
-session and their children, and does not rewrite `.symphony/config.json`.
-
-## Subagent sessions
-
-Click a Subagent row to open a nested session with the same transcript chrome.
-Children run without approval prompts; the parent approval mode is unchanged.
-
-Child tasks run in the background by default. The parent receives a child ID
-immediately and can continue independent work. The runtime automatically
-delivers child results between model turns. When independent work is done,
-it waits for remaining children and lets the parent incorporate their results
-before completing the run. No extra model tool calls are needed to wait or poll.
-Passing `background: false` to `spawn_agent` explicitly waits for completion.
-
-`/dashboard` opens the same kind of list for every live Symphony process
-(this TUI and headless `symphony run` jobs). Each row shows CPU, RAM, and
-the workspace's disk use. The resume picker hides those sessions until the
-process exits and removes its `~/.symphony/active` record.
-
-<div align="center">
-  <img src="../dashboard.png" alt="Live agent dashboard" height="280">
-</div>
-
-Press **Ctrl+G** to browse running and finished children, then **Enter** to
-inspect one. Child entries remain clickable after tool compaction. The child
-screen uses the parent's thought titles, tool widgets, 10-tool/final-completion
-folding, and usage footer. **Esc** or **q** returns to the parent without
-stopping the child; **Ctrl+X** inside the child screen cancels that child.
-
-Each child has a separate directory under `~/.symphony/sessions/`, linked to
-the parent session. Resuming the
-parent restores its child list and transcripts. Closing the app stops its
-background children; after an unclean exit, unfinished saved children appear
-as **interrupted**. Saved transcripts are inspectable, but opening one does
-not automatically restart execution.
-
-<div align="center">
-  <img src="../subagent-spawn.gif" alt="Nested subagent session" height="280">
-</div>
-
-The full command list is on [Slash commands](../reference/slash-commands.md).
-
-## Session archive
-
-`/session` opens the complete session artifact inspector: saved compactions,
-checkpoint and protocol state, memory snapshots and operation history, learning
-records, lifecycle events, child links, and archived image previews. `/learning`
-also displays reusable workspace lessons alongside `MEMORY.md` and `USER.md`.
-See [Sessions](sessions.md) for the directory layout and legacy migration.
+Type `/` to discover commands, or consult the [slash-command reference](../reference/slash-commands.md). Change provider credentials and approval defaults in [Configuration](./configuration.md).

@@ -1,163 +1,49 @@
 # symphony-harness
 
-`symphony-harness` runs a model with Python tools, keeps the conversation for
-each run, emits a typed control-plane stream, and applies operational limits.
-It does not know about files, terminals, or TUIs.
+A product-agnostic async agent loop for Python. The harness sends conversation turns to a model, runs registered tools, and emits typed events. It does not provide workspace-specific tools, a terminal UI, or a default approval policy.
 
-```sh
-uv add symphony-harness
-```
+**Availability:** not currently published on PyPI. Use it from the [source workspace](../getting-started/installation.md). Import name: `core_harness`.
 
-Import it as `core_harness`. It depends on `symphony-core`. The full API
-surface is listed in the [package README](../../core_harness/README.md).
-
-## Quick start
+## Run a tool-enabled agent
 
 ```python
 import asyncio
-from pathlib import Path
 from core_ai import build_default_registry, default_model_id
-from core_harness import CoreHarness, HarnessConfig, EventSink, Tool
+from core_harness import CoreHarness, HarnessConfig, Tool
 
-WORKSPACE = Path(".")
-
-def read_file(path: str) -> str:
-    """Read a UTF-8 text file from the configured workspace."""
-    target = (WORKSPACE / path).resolve()
-    if WORKSPACE.resolve() not in target.parents and target != WORKSPACE.resolve():
-        raise ValueError("path must stay inside the workspace")
-    return target.read_text(encoding="utf-8")
+def read_text(path: str) -> str:
+    """Read a UTF-8 text file."""
+    with open(path, encoding="utf-8") as file:
+        return file.read()
 
 async def main() -> None:
     registry = build_default_registry()
-    sink = EventSink()
     harness = CoreHarness(
         registry=registry,
         model_id=default_model_id(registry),
-        system_prompt="You are a concise assistant. Use tools when they help.",
-        config=HarnessConfig(max_turns=8, max_tool_calls=12, max_runtime_seconds=120),
-        tools=[Tool(read_file)],
-        sink=sink,
-        session_id="example-session",
+        system_prompt="Answer concisely. Use tools when useful.",
+        config=HarnessConfig(),
+        tools=[Tool(read_text)],
     )
-    result = await harness.run("Inspect README.md and summarize it in three bullets.")
+    result = await harness.run("Summarize README.md")
     print(result.output_text)
-    for event in sink.events:
-        print(event.event_type)
 
 asyncio.run(main())
 ```
 
-## Tools
+This example deliberately exposes a read-only tool. `CoreHarness` runs the tools you register; it does not sandbox them. Add only capabilities your application is prepared to expose.
 
-Wrap sync or async callables with `Tool`. The name, docstring, signature, and
-annotations become the model-facing schema. Override `name`, `description`, or
-JSON-schema `parameters` when you need full control.
+## Core concepts
 
-```python
-async def search_docs(query: str, limit: int = 5) -> list:
-    """Search the application documentation."""
-    return await my_search_backend(query, limit=limit)
+- **Tools:** wrap sync or async Python callables with `Tool`; their annotations and docstrings define model-facing inputs.
+- **Runs:** `await harness.run(...)` returns a `HarnessResult`; supply conversation and session state when building a continuing application.
+- **Events:** an `EventSink` publishes ordered lifecycle, model, tool, and context events.
+- **Add-ons:** attach behavior at run, turn, and tool lifecycle hooks; the harness itself stays independent of product features.
+- **Limits and cancellation:** configure bounded runs and cancel the task or submit an interrupt.
 
-harness.register_tool(
-    Tool(
-        search_docs,
-        name="search_docs",
-        description="Search internal documentation and return matching pages.",
-    )
-)
-```
+## Extend or inspect
 
-A tool may declare a `sink` parameter. The harness injects the active
-plane; it is not a model argument. Tool results are bounded to 32,000 characters
-at insert time (40/60 head/tail) unless you set `tool_result_max_chars=None`.
-
-## Runs and results
-
-`await harness.run(user_input)` accepts a string or a list of canonical
-text/image parts. It returns `HarnessResult` with `output_text`, `messages`,
-`tool_calls`, `usage`, and context fields. Pass `conversation=` and
-`session_id=` to continue a previous run. Default persistence is
-`NullPersistence`.
-
-## Subagents
-
-`CoreHarness.spawn()` starts a child run. Parent/child identity stays on the
-harness (`begin_child` / `run_child`). `SubagentAddon` builds the child
-harness and picks child add-ons via `fork_for_child` (or
-`ChildConfig.addons` / `addon_factory`). Lifecycle events stay on the parent
-plane. Every child event is stamped with the child's `agent_id` and the
-parent's id as `parent_id`. Multiple `spawn_agent` calls in one turn run
-concurrently (up to three). Nested spawns stop at `max_spawn_depth`.
-
-The `spawn_agent` tool comes from `SubagentAddon`. coding_agent attaches it
-by default. A bare `CoreHarness` has no spawn tool.
-
-```python
-from core_harness import ChildConfig, SubagentAddon
-
-parent = CoreHarness(..., addons=[SubagentAddon()])
-result = await parent.spawn(
-    "Inspect README.md",
-    label="readme",
-    child_config=ChildConfig(model_id="openai:gpt-5.6-mini", max_turns=4),
-)
-```
-
-## Limits and cancellation
-
-Pass a `HarnessConfig` or a JSON file path. The harness raises
-`HarnessCancelled` when the run task is cancelled and `HarnessLimitExceeded`
-when a cap is hit. Stop a run with an `Interrupt` op, or by cancelling its
-task:
-
-```python
-task = asyncio.create_task(harness.run("…"))
-harness.submit(Interrupt("user_cancel"))
-```
-
-## Operations
-
-Clients send operations in through `CoreHarness.submit(op)`, the inbound
-counterpart of the event sink. It returns `True` when the operation was
-accepted and must be called on the run's event loop.
-
-| Op | Effect |
-| --- | --- |
-| `Interrupt(reason="cancelled")` | Cancels the active run. `reason` is reported on `run_cancelled` and on `HarnessCancelled`. |
-| `Answer(request_id, value)` | Resolves the question waiting on that id in `sink.interaction`. |
-| `UserInput(content)` | Adds a user message to the active run before its next model call, announced as `message_injected` with `source: "user"`. Input that arrives during the last turn extends the run by one turn. |
-
-`Interrupt` and `UserInput` return `False` when no run is active. Cancelling
-the `asyncio.Task` that is awaiting `CoreHarness.run` still works and reports
-`reason: "cancelled"`.
-
-## Events
-
-`EventSink` is an event sink: `emit` calls `deliver` (override it for a UI),
-then every `subscribe` listener. Questions for a human go through
-`sink.interaction`, an `InteractionPort`, which product tools such as
-`ask_user` await. Persistence, compaction, and spawn are
-add-ons. Tools run unless a `before_tool` add-on denies them. The harness
-stamps `run_id`, `session_id`, `agent_id`, `parent_id`, seq, ts, and schema
-version on every event. `EventSink` is an alias of `EventSink`.
-
-The full catalog is on [Control-plane events](../developer-guide/events.md).
-
-Product extensions attach as add-ons. See
-[Extending the harness](../developer-guide/extending.md) (Learning is the
-canonical example; Langfuse and Jev are siblings).
-
-## Context
-
-Compaction is an add-on. Attach `CompactionAddon` / `KeepSystemRecentCompactor`
-when a bare harness run should compact with a template summary and no provider
-call. A bare `CoreHarness` does not compact at all. The harness owns the
-keep/drop rule (`plan_keep_drop`: system prompt, pinned task, atomic tool
-groups, recent window, token target) and exports it so products can build their
-own `Compactor` on it. coding_agent does not mount `KeepSystemRecentCompactor`;
-it mounts `AiCompactionAddon`, whose `InferenceCompactor` runs the same
-keep/drop plan and then writes the dropped-work summary with the active model.
-coding_agent auto-compacts when 80% of the active model's context is used, and
-`/compact` runs the same mounted compactor on demand. Disable with
-`context_compact_ratio=None`.
+- [Add-on hooks](../developer-guide/extending.md)
+- [Event overview](../developer-guide/events.md) · [full event catalog](../../core_harness/docs/events.md)
+- [Architecture](../developer-guide/architecture.md)
+- [Package API and advanced examples](../../core_harness/README.md)

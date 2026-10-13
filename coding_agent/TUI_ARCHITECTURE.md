@@ -1,8 +1,8 @@
-# TUI Coding Agent Architecture
+# Symphony Code TUI: implementation architecture
 
-This document describes the current implementation. It was validated against the code in
-`coding_agent/src/coding_agent/tui`, `coding_agent/src/coding_agent/agent.py`, and
-`core_harness/src/core_harness`.
+This is a contributor-facing implementation map, not a user guide. It covers startup, run flow, event handling, and screen/modal ownership. Start with the higher-level [package architecture](../docs/developer-guide/architecture.md); use the [TUI guide](../docs/user-guide/tui.md) for daily usage.
+
+This document describes the current implementation in `coding_agent/src/coding_agent/tui`, `coding_agent/src/coding_agent/agent.py`, and `core_harness/src/core_harness`. Update it alongside architectural changes; it is not a roadmap.
 
 ## Startup and execution flow
 

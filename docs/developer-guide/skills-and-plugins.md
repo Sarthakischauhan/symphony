@@ -1,64 +1,35 @@
 # Skills and local plugins
 
-`coding_agent` discovers Markdown skills from the package's bundled skills and
-`~/.symphony/skills/<name>/`. Each directory must contain a bounded `SKILL.md`.
-YAML front matter (at most 4 KB, no aliases) loads three fields: `name`,
-`description`, and optional `args`; other keys such as `allowed-tools` are
-ignored. The agent shows that contract in its prompt and reads the document or
-resources with `read_file` when needed. Discovery does not execute scripts.
+Skills provide reusable instructions to Symphony Code. Plugins can package skills and, optionally, trusted Python add-ons. This guide describes the coding agent's current local loading behavior; it does not imply marketplace or remote installation support.
 
-```markdown
----
-name: systematic-debug
-description: Reproduce a failure before editing.
-args:
-  - name: repro
-    type: string
-    required: true
-    description: Command, test, or symptom that fails.
----
-```
+## Skills
 
-`args` entries are `name`, `type` (`string`, `number`, `boolean`, or `enum`),
-`description`, and optional `required`, `default`, and `enum`. A required arg
-cannot have a default, and an enum default must be one of its options. Plugin
-manifests may add a `description` to `plugin.json`; it is read without
-importing addon code.
+A skill is a directory containing `SKILL.md`. Bundled skills ship with the coding agent; user skills can be placed under `~/.symphony/skills/<name>/`. A skill may include bounded metadata such as a name, description, and declared arguments. The agent can read the instructions and referenced resources when relevant. Discovery does not execute scripts.
 
-## Configuration
+## Local plugins and trust
 
-Plugins are local directories configured in `~/.symphony/config.json`. Relative
-plugin paths resolve from the project root; absolute paths can point to
-user-wide plugins such as `~/.symphony/plugins/<name>`:
+Plugin configuration lives in `~/.symphony/config.json`. A plugin directory can contain a `plugin.json` manifest, skills, and an optional add-on factory. Resource-only plugins do not import Python. Python add-on code is imported only when the plugin is explicitly enabled and its resolved directory is beneath a configured `authorized_roots` entry.
+
+**Authorized add-on code runs with the same operating-system permissions as Symphony.** Only authorize code you trust. Plugin authorization is not a sandbox; see [Security](../../SECURITY.md).
+
+The loader supports local directories only. It does not download plugins, resolve dependencies, or provide a marketplace. Changes take effect when a new agent is created; there is no hot unload for an already-running agent.
+
+## Configure a plugin
+
+A minimal shape is:
 
 ```json
 {
   "plugins": {
     "enabled": true,
     "authorized_roots": ["/absolute/path/to/trusted-plugins"],
-    "entries": [{"path": "/absolute/path/to/research-plugin", "enabled": true}]
+    "entries": [
+      {"path": "/absolute/path/to/trusted-plugins/example", "enabled": true}
+    ]
   }
 }
 ```
 
-A plugin contains `plugin.json` with `schema_version: 1`, an `id`, optional
-relative `skills` directories, and optionally an `addon` (`file` and factory
-name). Resource-only plugins never import Python. Addon code is imported only
-when the plugin is enabled and its resolved directory is below an explicitly
-configured `authorized_roots` entry. Treat authorized plugin code as trusted:
-it runs with the same user permissions as the agent.
+Relative paths resolve from the project root; authorized roots must be configured intentionally. The `/installed` TUI command shows discovered skills and plugins. To disable a plugin, turn off its entry or remove it from configuration, then start a new agent.
 
-Malformed manifests, duplicate IDs or addon names, path escapes, and failed
-factories are reported as loader diagnostics. Plugin paths and skill roots are
-bounded; workspace write and patch tools remain workspace-scoped.
-
-## Removal and lifecycle
-
-To remove an extension, delete its plugin/skill entry from `.symphony/config.json`
-or set a plugin's `enabled` value to `false`, then construct the next agent.
-There is no hot unload: an already-running agent keeps its loaded addons until
-that run ends. The `/installed` command opens a read-only inventory of discovered
-skills and configured plugins. No special removal tool is exposed to the model.
-
-The loader supports local directories only; it does not download packages,
-resolve dependencies, use marketplaces, or integrate MCP.
+See the [add-on guide](./extending.md) for the harness hook API and the [configuration guide](../user-guide/configuration.md) for user-facing setup.

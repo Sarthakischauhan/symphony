@@ -1,4 +1,8 @@
-# Environment
+# Environment variables
+
+Use first-run onboarding or `/provider` to add a model provider without editing a shell profile. This page is the detailed reference for provider credentials, model selection, local endpoints, and optional integrations. For a first setup, see [Quickstart](../getting-started/quickstart.md).
+
+## Credential precedence
 
 Keys can live in `.env`. First-run onboarding and `/provider` write
 `~/.symphony/.env`. ChatGPT, Claude, and xAI subscription logins write
@@ -15,7 +19,7 @@ The setting is stored as `SYMPHONY_<PROVIDER>_AUTH` in `~/.symphony/.env`.
 You can also select explicitly with `SYMPHONY_OPENAI_AUTH=oauth` (or `key`),
 and similarly for Anthropic or Grok.
 
-## Symphony paths
+## User data paths
 
 | Variable | Role |
 | --- | --- |
@@ -106,8 +110,7 @@ can list them. They are not added to the checked-in models.dev snapshot.
 | `LANGFUSE_HOST` | Same as `LANGFUSE_BASE_URL` (the Langfuse SDK's name); used only when `LANGFUSE_BASE_URL` is unset |
 
 Both keys must be set or `LangfuseAddon` stays silent. The Python SDK is an
-optional extra (`symphony-code[langfuse]`); `/langfuse` in the TUI installs it
-when missing. See
+optional workspace extra; `/langfuse` in the TUI installs it when missing. See
 [`docs/user-guide/langfuse.md`](../user-guide/langfuse.md).
 
 ## Jev critic (optional)
