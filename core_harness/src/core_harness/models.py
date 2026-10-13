@@ -84,6 +84,7 @@ class ControlPlaneEventType(str, Enum):
     APPROVAL_RESOLVED = "approval_resolved"
     USER_INPUT_REQUESTED = "user_input_requested"
     USER_INPUT_RECEIVED = "user_input_received"
+    QUESTION_ASKED = "question_asked"
     RUN_PROGRESS = "run_progress"
     RUN_METRICS = "run_metrics"
     CONFIG_CHANGED = "config_changed"

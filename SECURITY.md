@@ -45,7 +45,14 @@ following before deploying it:
 - Approval is a `before_tool` add-on in `symphony-code` (`ApprovalAddon`),
   not a harness method; a bare `CoreHarness` allows every tool. `approvals.deny` patterns in `~/.symphony/config.json`
   are checked first and block a call in every mode, including `always_allow`;
-  `approvals.allow` patterns skip the prompt. Child agents share the same
+  `approvals.allow` patterns skip the prompt. The live approval mode is state
+  on `ApprovalAddon`, not on a UI: answering **Always allow** from any client
+  (the TUI or a stdio host) stops prompts for the rest of that agent's
+  session, and the change is announced as a `config_changed` event. It is not
+  written to the config file. Over `symphony acp`, an approval is a
+  `session/request_permission` request; a cancelled or malformed reply
+  denies it. A question with no choices cannot be asked over ACP and takes
+  its default answer. Child agents share the same
   filesystem and skip `ApprovalAddon` (except its deny rules in unattended
   runs, below). `spawn_agent`
   starts background work by default in `symphony-code`; a returned child ID

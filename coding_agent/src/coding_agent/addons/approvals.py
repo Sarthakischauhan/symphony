@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional, Sequence, Union
 
 from core_harness import Addon, EventSink
 
-from coding_agent.config import ApprovalConfig
+from coding_agent.config import ApprovalConfig, ensure_spawn_settings
 
 ALLOW_ONCE = "Allow once"
 ALLOW_ALWAYS = "Always allow"
@@ -110,6 +110,9 @@ class ApprovalPolicy:
 class ApprovalAddon(Addon):
     """Gate tools through deny rules, then :class:`ApprovalPolicy` prompts.
 
+    The live approval state is ``approvals`` on this add-on, the same for
+    every client. ``set_mode`` changes it and reports ``config_changed``.
+
     Deny rules apply in every mode. ``fork_for_child`` returns ``None`` so
     spawned children skip this gate, except in unattended runs where children
     get a deny-only fork. That is product policy, documented in ``SECURITY.md``.
@@ -148,9 +151,10 @@ class ApprovalAddon(Addon):
         arguments: Dict[str, Any],
         sink: Optional[EventSink] = None,
         emit: Any = None,
+        tool_call: Any = None,
         **_: Any,
     ) -> Optional[str]:
-        approvals = getattr(self.plane, "approvals", None) or self.approvals
+        approvals = self.approvals
         if approvals is None:
             return None
         emit = emit or self.plane.emit
@@ -169,21 +173,34 @@ class ApprovalAddon(Addon):
             await emit(AUTO_DECISION, {"kind": "approval", "tool": tool_name, "decision": "allow", "rule": "unattended"})
             return None
         ask_on = sink or self.plane
-        answer = await ask_on.request_user_input(
+        answer = await ask_on.interaction.request_user_input(
             question=prompt,
             choices=APPROVAL_CHOICES,
             default=ALLOW_ONCE,
             kind="approval",
-            metadata={"tool_name": tool_name},
+            metadata={"tool_name": tool_name, "tool_call_id": str(getattr(tool_call, "id", "") or "")},
         )
         allowed, promote = self.policy.interpret(approvals, answer)
         if promote:
-            setter = getattr(self.plane, "set_approval_mode", None)
-            if callable(setter):
-                setter("always_allow")
+            await self.set_mode("always_allow", emit=emit)
         if not allowed:
             return "tool call denied by user"
         return None
+
+    async def set_mode(self, mode: str, *, persist: bool = False, emit: Any = None) -> None:
+        """Change the approval mode for this agent and tell every client.
+
+        ``persist`` also writes it to the workspace settings.
+        """
+        current = self.approvals or ApprovalConfig()
+        self.approvals = ApprovalConfig.model_validate({**current.model_dump(), "mode": mode})
+        if persist:
+            config = ensure_spawn_settings(self.policy.workspace)
+            ensure_spawn_settings(
+                self.policy.workspace,
+                config=config.model_copy(update={"approvals": self.approvals}),
+            )
+        await (emit or self.plane.emit)("config_changed", {"approvals": {"mode": mode}})
 
 
 __all__ = [

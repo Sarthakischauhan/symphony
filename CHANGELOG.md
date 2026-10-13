@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- `symphony acp` is an Agent Client Protocol host (protocol version 1) for
+  editors and other ACP clients: `initialize`, `session/new`,
+  `session/prompt`, `session/cancel`, `session/update`, and
+  `session/request_permission`, plus a `_symphony/steer` extension. It does
+  not load earlier sessions, read images, or expose modes and slash commands
+  yet. Approval questions now carry `tool_call_id`.
+- Questions, approval state, and the cancel reason no longer live in the TUI.
+  `question_asked` is a harness event emitted by the shared `HumanInteraction`
+  port, so every host carries it (stdio keeps `input_requested` as an alias).
+  The approval mode is state on `ApprovalAddon`; **Always allow** now also
+  holds for stdio hosts, which used to be asked again on every call, and is
+  announced as `config_changed`. `TextualEventSink` no longer takes
+  `approvals` or has `set_approval_mode`. `run_cancelled` carries the TUI's
+  reason (`user_cancel`, `quit`, `queued_send_now`).
+- `CoreHarness.submit(op)` is the one inbound path for clients: `Interrupt`
+  stops the active run and puts its reason on `run_cancelled`, `Answer`
+  resolves a pending question, and `UserInput` adds a user message before the
+  next model call. The TUI and the stdio host send these instead of cancelling
+  the run task and resolving futures themselves. The stdio protocol gains a
+  `steer` command and capability.
+- `EventSink` separates watching from answering. `emit` now calls `deliver`
+  and then every `subscribe` listener, so a second consumer can observe a run
+  without wrapping the sink. Sinks override `deliver` instead of `emit`.
+  `request_user_input` moved from the sink to `sink.interaction`
+  (`InteractionPort`); `TextualEventSink.answer_user` moved with it. Approval
+  behaviour is unchanged.
 - Memory extraction requests the model's lowest advertised reasoning effort and
   an output cap of at least 8,192 tokens, so reasoning models no longer return
   empty captures. Stored `learning.max_output_tokens` values below that floor

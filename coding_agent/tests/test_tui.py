@@ -33,7 +33,7 @@ from core_harness.context import (
     estimate_prompt_tokens,
 )
 from coding_agent.agent import CodingAgent
-from coding_agent.config import CodingAgentConfig, LearningConfig
+from coding_agent.config import CodingAgentConfig, LearningConfig, ApprovalConfig
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.composer import QueuedTurn
 from coding_agent.tui.commands import (
@@ -348,7 +348,7 @@ def test_approval_keeps_composer_follow_up_and_queued_turn(
             prompt.load_text("then run the linter")
             app.queue_turn(QueuedTurn("queued", "queued follow-up", (), ()))
             await pilot.pause()
-            app.sink._get_question_future("approval-keep")
+            app.sink.interaction.expect("approval-keep")
             app._busy = True
             app._show_question(
                 {
@@ -1806,14 +1806,10 @@ def test_textual_control_plane_posts_message() -> None:
 
 def test_textual_control_plane_fork_isolates_approvals_and_shares_cancel() -> None:
     parent = TextualEventSink()
-    parent.set_approval_mode("ask")
-    child_allow = parent.fork(approvals=parent.approvals.model_copy(update={"mode": "always_allow"}))
+    child_allow = parent.fork()
     child_ask = parent.fork()
-    assert parent.approvals.mode == "ask"
-    assert child_allow.approvals.mode == "always_allow"
-    assert child_ask.approvals.mode == "ask"
-    assert child_allow._interaction_lock is parent._interaction_lock
-    assert child_ask._question_futures is parent._question_futures
+    assert child_allow.interaction._lock is parent.interaction._lock
+    assert child_ask.interaction.pending is parent.interaction.pending
     parent.request_cancel("user_cancel")
     assert parent.cancelled
     assert child_allow.cancelled
@@ -1826,8 +1822,8 @@ def test_textual_control_plane_parent_answers_child_question() -> None:
     child = parent.fork()
 
     async def _run() -> str:
-        future = child._get_question_future("child-q")
-        await parent.answer_user("child-q", "Allow once")
+        future = child.interaction.expect("child-q")
+        parent.interaction.answer("child-q", "Allow once")
         return future.result()
 
     assert asyncio.run(_run()) == "Allow once"
@@ -2797,7 +2793,7 @@ def test_permission_question_has_distinct_secure_design(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            answer = app.sink._get_question_future("approval-1")
+            answer = app.sink.interaction.expect("approval-1")
             app._show_question(
                 {
                     "request_id": "approval-1",
@@ -2837,11 +2833,10 @@ def test_approval_enter_submits_highlighted_always_allow(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.sink.approvals.mode == "ask"
-
             from coding_agent.addons.approvals import ApprovalAddon
 
-            addon = ApprovalAddon(tmp_path, app.sink)
+            addon = ApprovalAddon(tmp_path, app.sink, approvals=ApprovalConfig())
+            assert addon.approvals.mode == "ask"
             approval = asyncio.create_task(
                 addon.before_tool(
                     tool_name="bash",
@@ -2863,7 +2858,7 @@ def test_approval_enter_submits_highlighted_always_allow(
 
             request_id = app._pending_question_id
             assert request_id is not None
-            answered = app.sink._question_futures[request_id]
+            answered = app.sink.interaction.pending[request_id]
             prompt = app.query_one("#prompt", PromptInput)
             assert prompt.submit_on_enter
             # Enter used to submit the empty prompt / "Allow once" default.
@@ -2872,7 +2867,7 @@ def test_approval_enter_submits_highlighted_always_allow(
 
             assert answered.result() == "Always allow"
             assert await approval is None
-            assert app.sink.approvals.mode == "always_allow"
+            assert addon.approvals.mode == "always_allow"
 
             second = await addon.before_tool(
                 tool_name="bash",
@@ -2894,7 +2889,7 @@ def test_subagent_approval_question_uses_parent_approval_menu(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            answer = app.sink._get_question_future("child-approval-1")
+            answer = app.sink.interaction.expect("child-approval-1")
             app.on_harness_event(
                 ControlPlaneEvent(
                     "question_asked",
@@ -2944,7 +2939,7 @@ def test_subagent_approval_closes_nested_screen_before_prompting(
             await pilot.pause()
             assert isinstance(app.screen, SubagentScreen)
 
-            answer = app.sink._get_question_future("child-approval-2")
+            answer = app.sink.interaction.expect("child-approval-2")
             app.on_harness_event(
                 ControlPlaneEvent(
                     "question_asked",

@@ -398,7 +398,6 @@ async def reload_project(app: Any) -> None:
         )
         app._agent = reloaded_agent
         app.config = reloaded_config
-        app.sink.approvals = reloaded_config.approvals
         app._model_options = model_options(reloaded_agent.registry.namespaces())
         app.session_id = reloaded_agent.session_id
 
@@ -465,7 +464,7 @@ def show_status(app: Any) -> None:
         [
             f"mode      {app.mode}",
             f"personality {getattr(getattr(app, 'config', None), 'personality', None) or 'stock'}",
-            f"approval  {app.sink.approvals.mode}",
+            f"approval  {app._agent.approval.approvals.mode}",
             f"session   {app._agent.session_id}",
             f"context   {context}",
             f"current   {metrics.tokens_used:,} tokens",

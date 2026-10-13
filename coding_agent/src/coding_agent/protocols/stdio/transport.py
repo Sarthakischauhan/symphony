@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sys
-import uuid
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, Mapping, Sequence
 
 from core_ai.content import image_part_from_bytes, sniff_image_media_type
 from core_ai.types import Content
-from core_harness import EventSink
-from core_harness.events import normalize_event_type
-from core_harness.models import ControlPlaneEventType
+from core_harness import EventSink, HumanInteraction
 
 
 def _write(frame: Mapping[str, Any]) -> None:
@@ -23,7 +19,7 @@ def _write(frame: Mapping[str, Any]) -> None:
     stdio.write_frame(frame)
 
 PROTOCOL_VERSION = 2
-CAPABILITIES = ["runs", "resume", "interrupt", "input", "models", "images", "subagents", "commands"]
+CAPABILITIES = ["runs", "resume", "interrupt", "input", "steer", "models", "images", "subagents", "commands"]
 
 
 def write_frame(frame: Mapping[str, Any]) -> None:
@@ -51,40 +47,25 @@ def user_content(prompt: str, attachments: Sequence[str]) -> Content:
 
 
 class StdioSink(EventSink):
+    """Write each event as a frame.
+
+    A question is the ``question_asked`` event like in every other host.
+    Protocol 2 hosts read ``input_requested``, so that frame follows it.
+    """
+
     def __init__(self) -> None:
         super().__init__()
-        self.pending: dict[str, asyncio.Future[str]] = {}
+        self.interaction = HumanInteraction(self)
 
-    async def emit(
-        self,
-        event_type: str | ControlPlaneEventType,
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        _write({"type": "event", "event": normalize_event_type(event_type), "payload": payload or {}})
-
-    async def request_user_input(
-        self,
-        *,
-        question: str,
-        choices: Sequence[str] = (),
-        default: str = "",
-        kind: str = "question",
-        metadata: Optional[Dict[str, Any]] = None,
-        emit: Any = None,
-    ) -> str:
-        del emit
-        request_id = str(uuid.uuid4())
-        answer = asyncio.get_running_loop().create_future()
-        self.pending[request_id] = answer
-        _write({
-            "type": "input_requested", "request_id": request_id,
-            "question": question, "choices": list(choices), "default": default,
-            "kind": kind, "metadata": metadata or {},
-        })
-        try:
-            return await answer
-        finally:
-            self.pending.pop(request_id, None)
+    async def deliver(self, event_type: str, payload: Dict[str, Any]) -> None:
+        _write({"type": "event", "event": event_type, "payload": payload})
+        if event_type == "question_asked":
+            known = {"request_id", "question", "choices", "default", "kind"}
+            _write({
+                "type": "input_requested",
+                **{key: payload.get(key) for key in ("request_id", "question", "choices", "default", "kind")},
+                "metadata": {key: value for key, value in payload.items() if key not in known},
+            })
 
 
 __all__ = ["CAPABILITIES", "PROTOCOL_VERSION", "StdioSink", "user_content", "write_frame"]

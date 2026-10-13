@@ -143,7 +143,7 @@ Structured `PLAN_MODE_PROMPT`: Context, recommended approach, files to
 change, existing functions to reuse, verification, open questions.
 
 `enter_plan_mode` and `exit_plan_mode` are product tools (one file each)
-that use `sink.request_user_input` like `ask_user` / `ApprovalAddon`.
+that use `sink.interaction.request_user_input` like `ask_user` / `ApprovalAddon`.
 `exit_plan_mode` reads the plan from disk and the TUI opens `PlanModal`.
 
 Modal actions:

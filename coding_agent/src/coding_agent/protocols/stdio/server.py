@@ -10,6 +10,8 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import Any, Mapping
 
+from core_harness import Answer, Interrupt, UserInput
+
 from coding_agent.commands.catalog import EFFORTS
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.protocols.stdio import commands as command_module
@@ -132,12 +134,17 @@ async def serve(
                     "type": "error", "request_id": request_id, "message": f"{type(exc).__name__}: {exc}",
                 })
         elif kind == "answer":
-            pending = sink.pending.get(command.get("request_id"))
-            if pending and not pending.done():
-                pending.set_result(str(command.get("value", "")))
+            agent.harness.submit(Answer(str(command.get("request_id") or ""), str(command.get("value", ""))))
         elif kind == "interrupt":
-            if run is not None and not run.done():
+            # A slash command runs outside the harness; cancel its task instead.
+            if run is not None and not run.done() and not agent.harness.submit(Interrupt()):
                 run.cancel()
+        elif kind == "steer":
+            prompt = command.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                stdio.write_frame({"type": "error", "message": "prompt is required"})
+            elif not agent.harness.submit(UserInput(prompt)):
+                stdio.write_frame({"type": "error", "message": "steer requires an active run"})
         elif kind == "run" and (run is None or run.done()):
             prompt = command.get("prompt")
             if not isinstance(prompt, str) or not prompt.strip():

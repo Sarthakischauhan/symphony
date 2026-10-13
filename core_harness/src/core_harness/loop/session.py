@@ -134,6 +134,7 @@ async def run_session(
             turn_runner.remaining_runtime = remaining
             turn_runner.deadline = deadline
             await _deliver_child_results(harness, messages, turn)
+            await _deliver_user_inputs(harness, messages, turn)
             # Per-turn context (e.g. memory) goes into the request, never into
             # the system message, so the system prefix stays byte-identical.
             turn_context: Dict[str, str] = {}
@@ -160,6 +161,14 @@ async def run_session(
             _raise_if_limit(harness, "max_tool_calls", len(all_tool_calls))
             _raise_if_limit(harness, "max_tokens", usage.total_tokens)
 
+            if not result.tool_calls and harness._pending_inputs:
+                # Input that arrived during this turn is answered in this run.
+                await harness._persist_state(
+                    session_id=active_session, turn=turn, messages=messages,
+                    usage=usage, context_limit=context_limit, context_left=context_left,
+                    status="running", metadata={"run_id": run_id},
+                )
+                continue
             if not result.tool_calls:
                 children = [record.child_id for record in harness.child_tasks.values()
                             if record.task is not None and not record.task.done()]
@@ -252,15 +261,17 @@ async def run_session(
         )
     except asyncio.CancelledError:
         _clear_cancellation()
+        # An ``Interrupt`` op names its reason; a bare task cancel does not.
+        reason = harness._interrupt_reason or "cancelled"
         await harness.shutdown_children()
-        await harness.emit("run_cancelled", with_ended({"turn": turn, "reason": "cancelled"}, started_mono))
+        await harness.emit("run_cancelled", with_ended({"turn": turn, "reason": reason}, started_mono))
         await _emit_run_summary(harness, started_mono, status="cancelled", turn=turn)
         await harness._persist_state(
             session_id=active_session, turn=turn, messages=messages, usage=usage,
             context_limit=context_limit, context_left=context_left,
-            status="cancelled", metadata={"reason": "cancelled", "run_id": run_id},
+            status="cancelled", metadata={"reason": reason, "run_id": run_id},
         )
-        raise HarnessCancelled("cancelled") from None
+        raise HarnessCancelled(reason) from None
     except HarnessCancelled as exc:
         await harness.shutdown_children()
         await harness.emit("run_cancelled", with_ended({"turn": turn, "reason": str(exc)}, started_mono))
@@ -355,6 +366,22 @@ async def _emit_run_summary(
             started_mono,
         ),
     )
+
+
+async def _deliver_user_inputs(harness: "CoreHarness", messages: List[Message], turn: int) -> None:
+    for content in harness.drain_user_inputs():
+        harness.state.add_user_message(messages, content)
+        await harness.emit(
+            "message_injected",
+            {
+                "turn": turn,
+                "role": "user",
+                "content": content,
+                "source": "user",
+                "kind": "user_input",
+                "injected_at": wall_now(),
+            },
+        )
 
 
 async def _deliver_child_results(harness: "CoreHarness", messages: List[Message], turn: int) -> None:

@@ -19,7 +19,7 @@ event live in [`core_harness/docs/events.md`](../../core_harness/docs/events.md)
 | `TURN_STARTED` | `turn_started` | Each model turn (`turn`, `message_count`, `started_at`) |
 | `TURN_COMPLETED` | `turn_completed` | Turn finished (`had_tool_calls`, `ended_at`, `duration_ms`) |
 | `RUN_COMPLETED` | `run_completed` | Final text, usage, context, session |
-| `RUN_CANCELLED` | `run_cancelled` | The run task was cancelled (conditional; `reason`) |
+| `RUN_CANCELLED` | `run_cancelled` | The run was interrupted or its task was cancelled (conditional; `reason` is the `Interrupt` op's reason, or `cancelled`) |
 | `RUN_LIMIT_EXCEEDED` | `run_limit_exceeded` | A `HarnessConfig` cap was hit (conditional; `limit`, `value`, `max`, `message`) |
 | `RUN_FAILED` | `run_failed` | Unhandled error (conditional; `error_type`, `message`) |
 | `RUN_SUMMARY` | `run_summary` | After every terminal run (`status`, `duration_ms`, …); learning may emit a richer follow-up |
@@ -87,7 +87,7 @@ compaction events.
 
 | Enum member | `event_type` | Payload notes |
 | --- | --- | --- |
-| `MESSAGE_INJECTED` | `message_injected` | Child result delivered between turns (`role`, `content`, `source`, `kind`, `injected_at`; conditional) |
+| `MESSAGE_INJECTED` | `message_injected` | A message added between turns (`role`, `content`, `source`, `kind`, `injected_at`; conditional). `source: "subagent"` is a child result; `source: "user"` with `kind: "user_input"` is a `UserInput` op. |
 
 ## Subagents
 
@@ -109,6 +109,16 @@ Background results arrive between model turns as `message_injected` with
 `source: "subagent"`. The runtime waits for outstanding children before emitting
 the parent's final `run_completed`; no model-facing polling tool is required.
 
+## Questions and config
+
+Every host carries these the same way. A client renders the question and
+replies with an `Answer` operation through `CoreHarness.submit`.
+
+| Enum member | `event_type` | Payload notes |
+| --- | --- | --- |
+| `QUESTION_ASKED` | `question_asked` | Emitted by `HumanInteraction` when a tool or add-on asks a person (`ask_user`, plan-mode entry, approval prompts). `request_id`, `question`, `choices`, `default`, `kind` (`question` or `approval`), plus caller metadata such as `tool_name`. Not journaled unless the caller passes the harness `emit`. The stdio host also writes its protocol 2 `input_requested` frame. |
+| `CONFIG_CHANGED` | `config_changed` | Emitted by the `symphony-code` `ApprovalAddon` when the approval mode changes, for example after **Always allow**. `approvals: {"mode": ...}`. |
+
 ## Reserved / future harness events
 
 Members of `ControlPlaneEventType` that exist for upcoming surfaces (optional
@@ -116,7 +126,7 @@ to emit today): `run_phase`, `assistant_message_started`,
 `assistant_message_completed`, `reasoning_completed`, `tool_execution_failed`,
 `tool_denied`, `approval_required`, `approval_resolved`,
 `user_input_requested`, `user_input_received`, `run_progress`, `run_metrics`,
-`config_changed`, `jev_decision`, `child_progress`.
+`jev_decision`, `child_progress`.
 
 The coding-agent critic may emit `jev_decision` for a finish check. The
 browser agent does not: it drives the page through harness tool calls, so its

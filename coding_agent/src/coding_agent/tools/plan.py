@@ -28,7 +28,7 @@ class EnterPlanModeTool(WorkspaceTool):
     async def run(self, sink: EventSink | None = None) -> str:
         if sink is None:
             return "error: entering plan mode requires user approval"
-        answer = await sink.request_user_input(
+        answer = await sink.interaction.request_user_input(
             question="Enter plan mode? Only the plan file may be written.",
             choices=["Allow", "Decline"],
             default="Allow",

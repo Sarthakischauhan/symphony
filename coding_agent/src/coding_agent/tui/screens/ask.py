@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from core_harness import Answer
+
 from coding_agent.tui.composer.input import PromptInput, QueuedPrompt
 from coding_agent.tui.composer.slash_menu import SlashMenu
 
@@ -58,7 +60,7 @@ class QuestionSurface:
         self._pending_question_default = ""
         self.query_one("#slash-menu", SlashMenu).set_commands(())
         self.query_one("#approval-menu", SlashMenu).set_commands(())
-        await self.sink.answer_user(request_id, answer)
+        self.submit_op(Answer(request_id, answer or ""))
         self._ui_state.phase = "thinking" if self._busy else "idle"
         self._ui_state.detail = "resuming" if self._busy else "ready"
         prompt = self.query_one("#prompt", PromptInput)

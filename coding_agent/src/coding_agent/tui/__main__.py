@@ -78,6 +78,10 @@ def main() -> None:
         from coding_agent.protocols.stdio.server import main as stdio_main
 
         raise SystemExit(stdio_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "acp":
+        from coding_agent.protocols.acp.server import main as acp_main
+
+        raise SystemExit(acp_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "bench":
         from coding_agent.bench.cli import main as bench_main
 

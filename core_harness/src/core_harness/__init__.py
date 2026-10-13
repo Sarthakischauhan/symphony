@@ -26,7 +26,8 @@ from core_harness.config import (
     load_harness_config,
     resolve_harness_config,
 )
-from core_harness.events import EventLog, EventSink
+from core_harness.events import EventLog, EventSink, HumanInteraction, InteractionPort
+from core_harness.ops import Answer, Interrupt, Op, UserInput
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.harness import CoreHarness
 from core_harness.models import (
@@ -43,6 +44,7 @@ from core_harness.models import (
 from core_harness.tools import Tool
 
 __all__ = [
+    "Answer",
     "Addon",
     "Checkpoint",
     "ChildConfig",
@@ -56,6 +58,11 @@ __all__ = [
     "EVENT_SCHEMA_VERSION",
     "EventLog",
     "EventSink",
+    "HumanInteraction",
+    "InteractionPort",
+    "Interrupt",
+    "Op",
+    "UserInput",
     "HarnessCancelled",
     "HarnessLimitExceeded",
     "HarnessResult",
