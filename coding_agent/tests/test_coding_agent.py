@@ -54,7 +54,6 @@ def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
     from coding_agent.tui.runtime import TextualEventSink
 
     plane = TextualEventSink(workspace=tmp_path)
-    plane.set_approval_mode("ask")
     agent = CodingAgent(
         registry=CapturingRegistry(),  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -71,7 +70,7 @@ def test_coding_agent_child_runs_without_approvals(tmp_path: Path) -> None:
     assert agent.harness.config.spawn_max_turns is None
     assert cfg.max_turns == 99
     assert cfg.sink is plane
-    assert plane.approvals.mode == "ask"
+    assert agent.approval.approvals.mode == "ask"
     assert any(addon.name == "approval" for addon in agent.harness.addons)
     child_addons = cfg.addon_factory(agent.harness)
     assert not any(addon.name == "approval" for addon in child_addons)
@@ -81,7 +80,6 @@ def test_coding_agent_child_stays_autonomous_if_parent_already_allows(tmp_path: 
     from coding_agent.tui.runtime import TextualEventSink
 
     plane = TextualEventSink(workspace=tmp_path)
-    plane.set_approval_mode("always_allow")
     agent = CodingAgent(
         registry=CapturingRegistry(),  # type: ignore[arg-type]
         model_id="fake:test-model",
@@ -89,9 +87,10 @@ def test_coding_agent_child_stays_autonomous_if_parent_already_allows(tmp_path: 
         sink=plane,
         config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
     )
+    asyncio.run(agent.approval.set_mode("always_allow"))
     cfg = agent._spawn_child_config()
     assert cfg.sink is plane
-    assert plane.approvals.mode == "always_allow"
+    assert agent.approval.approvals.mode == "always_allow"
     child_addons = cfg.addon_factory(agent.harness)
     assert not any(addon.name == "approval" for addon in child_addons)
 

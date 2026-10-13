@@ -59,9 +59,10 @@ flowchart TD
 ```
 
 The harness is a library loop: tools, model, compaction, and an event sink
-for UIs. It does not authorize tools or cancel runs. Product approval lives
-in `coding_agent.addons.approvals.ApprovalAddon` (`before_tool`). Cancel a run by
-cancelling the `asyncio.Task` awaiting `CoreHarness.run`. To attach product
+for UIs. It does not authorize tools. Product approval lives
+in `coding_agent.addons.approvals.ApprovalAddon` (`before_tool`). Clients send
+`Interrupt`, `Answer`, and `UserInput` operations through `CoreHarness.submit`;
+the TUI, the stdio host, and the ACP host all use it. To attach product
 behavior (Learning, Langfuse, Jev), see
 [Extending the harness](./extending.md).
 
@@ -121,7 +122,8 @@ core_harness/src/core_harness/
   harness.py          # CoreHarness façade: tools, limits, add-ons, spawn, run
   turn_runner.py      # one-turn orchestration
   tools.py            # Tool adapter
-  events.py           # EventSink event sink (default records in memory)
+  events.py           # EventSink event sink (default records in memory), InteractionPort
+  ops.py              # Interrupt, Answer, UserInput: what CoreHarness.submit accepts
   models.py           # ControlPlaneEventType, ToolCall, HarnessResult
   config.py           # HarnessConfig, load_harness_config
   errors.py           # HarnessCancelled, HarnessLimitExceeded
@@ -147,6 +149,7 @@ coding_agent/src/coding_agent/
     voice/            # voice add-on: sockets, credentials, spoken summary, playback
   commands/           # slash-command catalog shared by the TUI and stdio (no Textual)
   protocols/stdio/    # JSONL host transport: frames, catalog, command loop
+  protocols/acp/      # Agent Client Protocol host: JSON-RPC, event and question mapping
   tools/              # one file per workspace tool
   tui/                # Textual app, driven by CP events; nothing outside imports it
 
@@ -168,7 +171,8 @@ Each package is a small set of modules, one concept per file. Leaf packages of
    directory; absolute and `~` paths are allowed. `bash` runs with the user's
    permissions behind an approval prompt; there is no container or OS-level
    isolation.
-4. Events for UX. UIs subscribe to the sink and cancel the run task. They
+4. Events for UX. UIs subscribe to the sink and send operations through
+   `CoreHarness.submit`. They
    do not scrape stdout, and they do not own persistence or compaction.
 5. Tests without keys first. Unit-test tools and harness; keep live tests opt-in.
 

@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Protocol
 
-from core_harness import ControlPlaneEvent, ControlPlaneEventType, EventSink
+from core_harness import ControlPlaneEvent, EventSink
 
 from core_server.models import RunContext, RunStatus, RunStatusResponse, RunSubmission
 
@@ -100,12 +100,8 @@ class ManagedEventSink(EventSink):
         self.terminal_status: Optional[RunStatus] = None
         self.terminal_error: Optional[str] = None
 
-    async def emit(
-        self,
-        event_type: str | ControlPlaneEventType,
-        payload: Optional[dict[str, Any]] = None,
-    ) -> None:
-        event = ControlPlaneEvent.typed(event_type, payload or {})
+    async def deliver(self, event_type: str, payload: dict[str, Any]) -> None:
+        event = ControlPlaneEvent.typed(event_type, payload)
         async with self.record.condition:
             self.record.events.append(event)
             terminal_status = _TERMINAL_EVENTS.get(event.event_type)

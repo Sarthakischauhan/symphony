@@ -66,8 +66,17 @@ drives, and authorizes; it does not persist, compact, or spawn.
   stamps `run_id`, `session_id`, `seq`, `ts`, `schema_version`, `agent_id`,
   `parent_id` on every event. Catalog: `ControlPlaneEventType` (run/turn
   lifecycle, deltas, tools, usage, context, compaction, injection,
-  `agent_*`). Cancel a run by cancelling the `asyncio.Task`; that emits
+  `agent_*`, `question_asked`). `emit` calls the sink's own `deliver` and
+  then every `subscribe` listener. Questions for a person go through
+  `sink.interaction` (`InteractionPort`; `HumanInteraction` asks through the
+  event stream).
+- Inbound operations: `CoreHarness.submit` takes `Interrupt`, `Answer`, and
+  `UserInput`. The TUI, the JSONL host, and the ACP host all send these.
+  Cancelling the run's `asyncio.Task` still works; both emit
   `run_cancelled` / `HarnessCancelled`.
+- `symphony acp`: Agent Client Protocol host (version 1) over stdio. Prompt,
+  cancel, streaming updates, permission requests, and a `_symphony/steer`
+  extension. See `coding_agent/src/coding_agent/protocols/acp/README.md`.
 - Limits: `max_turns`, `max_tool_calls`, `max_runtime_seconds`, `max_tokens`
   → `run_limit_exceeded` / `HarnessLimitExceeded`.
 - Add-ons (`Addon` with `before_run` / `before_turn` / `before_tool` /
@@ -218,6 +227,12 @@ specified so a later `symphony` run on this repo can implement them; they are
 not part of 0.1.0.
 
 ### Symphony-later
+
+**One protocol for every client.** The ACP host covers a prompt turn. Not
+built: `session/load`, image prompts, free-text questions (ACP elicitation),
+session modes and config options, slash commands as ACP commands, a
+WebSocket transport in `core-server`, and one shared slash-command
+implementation (the TUI and the JSONL host each have their own).
 
 These are product features the agent can build on itself after 0.1.0 ships.
 Do not start them in the release cut. Each item is one focused PR.

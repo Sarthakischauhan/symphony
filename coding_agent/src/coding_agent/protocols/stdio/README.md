@@ -4,10 +4,18 @@
 hosts. The coding agent owns execution and persisted checkpoints. A host owns
 its composer queue and submits a single prompt per active turn.
 
-Protocol version 2 advertises `runs`, `resume`, `interrupt`, `input`, `models`,
-`images`, and `subagents` in its `ready` frame. A host sends `run`, `answer`, or `interrupt`
-commands, or `model/list` with a `request_id`, and reads `event`, `input_requested`,
-`error`, `done`, and `models` frames.
+Protocol version 2 advertises `runs`, `resume`, `interrupt`, `input`, `steer`,
+`models`, `images`, `subagents`, and `commands` in its `ready` frame. A host
+sends `run`, `answer`, `interrupt`, or `steer` commands, or `model/list` with a
+`request_id`, and reads `event`, `input_requested`, `error`, `done`, and
+`models` frames. `answer`, `interrupt`, and `steer` are passed to
+`CoreHarness.submit` as `Answer`, `Interrupt`, and `UserInput` operations.
+`{"type":"steer","prompt":"..."}` adds a user message to the active run before
+its next model call and is an error when no run is active.
+
+A question arrives as the ordinary `question_asked` event, the same as in
+every other host, followed by the protocol 2 `input_requested` frame with the
+same `request_id`. Reply to either with one `answer` command.
 Unknown control-plane events can be ignored without losing the terminal
 `done` frame. A later version must change the version number when it changes
 required frame semantics.

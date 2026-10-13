@@ -50,7 +50,7 @@ class AskUserTool(WorkspaceTool):
         if sink is None:
             return "error: interactive user questions require an interactive control plane"
 
-        answer = await sink.request_user_input(
+        answer = await sink.interaction.request_user_input(
             question=question,
             choices=list(choices),
             default=default,

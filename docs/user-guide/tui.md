@@ -95,9 +95,9 @@ planning turn); `/plans` opens the searchable picker of saved plans.
 
 Product policy (`coding_agent.addons.approvals`) decides which tools need a prompt;
 the TUI only renders the question. Default `approvals.mode` is `ask`. Choose
-**Allow once**, **Deny**, or **Always allow**. Always-allow is a **run-level**
-override — it applies to the current run and its children, and does not
-rewrite `.symphony/config.json`.
+**Allow once**, **Deny**, or **Always allow**. Always-allow is a session
+override held by the agent, not the TUI. It applies to later runs in this
+session and their children, and does not rewrite `.symphony/config.json`.
 
 ## Subagent sessions
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from core_harness import EventSink
+from core_harness import EventSink, InteractionPort
 from core_ai.content import text_from_content
 
 from coding_agent import CodingAgent
@@ -15,14 +15,20 @@ from coding_agent.config import ensure_spawn_settings, spawn_settings_path
 from scripted_registry import ScriptedRegistry, first_user_text
 
 
-class NoHumanSink(EventSink):
-    def __init__(self) -> None:
+class NoHumanInteraction(InteractionPort):
+    def __init__(self, questions: list[str]) -> None:
         super().__init__()
-        self.questions: list[str] = []
+        self.questions = questions
 
     async def request_user_input(self, *, question: str, **kwargs) -> str:
         self.questions.append(question)
         raise AssertionError(f"unattended run asked a human: {question}")
+
+
+class NoHumanSink(EventSink):
+    def __init__(self) -> None:
+        self.questions: list[str] = []
+        super().__init__(NoHumanInteraction(self.questions))
 
 
 def _config(**updates) -> CodingAgentConfig:

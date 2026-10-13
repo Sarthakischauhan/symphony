@@ -293,6 +293,9 @@ Surfaces can re-derive `tokens_used` / `context_left` from
 }
 ```
 
+A `UserInput` op sent through `CoreHarness.submit` produces the same event
+with `"source": "user"` and `"kind": "user_input"`.
+
 ## `run_completed`
 
 ```json
@@ -360,6 +363,9 @@ add-on may emit a later `run_summary` with a non-empty `summary` (shown as
   }
 }
 ```
+
+`reason` is the reason on the `Interrupt` op that stopped the run, or
+`cancelled` when the run task was cancelled directly.
 
 ## `run_limit_exceeded` (conditional)
 
@@ -463,6 +469,37 @@ Emitted on the parent's plane when a child finishes.
 }
 ```
 
+## `question_asked` (conditional)
+
+Emitted by `HumanInteraction` when a tool or add-on asks a person. Reply with
+`CoreHarness.submit(Answer(request_id, value))`.
+
+```json
+{
+  "event_type": "question_asked",
+  "payload": {
+    "request_id": "0d3f6c0e8f0b4d6c9d2b1c7a5e4f3a21",
+    "question": "Allow bash command once?\n`ls`",
+    "choices": ["Allow once", "Always allow", "Deny"],
+    "default": "Allow once",
+    "kind": "approval",
+    "tool_name": "bash"
+  }
+}
+```
+
+## `config_changed` (conditional)
+
+Emitted by a product add-on when runtime config changes. `symphony-code`
+sends it when the approval mode changes.
+
+```json
+{
+  "event_type": "config_changed",
+  "payload": {"approvals": {"mode": "always_allow"}}
+}
+```
+
 ## Reserved event types
 
 These `ControlPlaneEventType` members exist for upcoming surfaces. The harness
@@ -478,6 +515,5 @@ may not emit them yet; consumers should accept them as pass-through.
 | `approval_required` / `approval_resolved` | Human approval flow |
 | `user_input_requested` / `user_input_received` | Interactive user input |
 | `run_progress` / `run_metrics` | Progress and metrics snapshots |
-| `config_changed` | Runtime config change |
 | `jev_decision` | Jev critic decision |
 | `child_progress` | Background child progress |

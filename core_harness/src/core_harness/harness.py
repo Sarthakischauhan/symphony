@@ -16,6 +16,7 @@ from core_harness.addons.persistence import Checkpoint, NullPersistence
 from core_harness.addons.subagent import ChildConfig, ChildIdentity
 from core_harness.config import SettingsSource, resolve_harness_config
 from core_harness.events import EventSink, normalize_event_type
+from core_harness.ops import Answer, Interrupt, Op, UserInput
 from core_harness.timing import TERMINAL_RUN_EVENTS
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import (
@@ -80,6 +81,10 @@ class CoreHarness:
         self._event_seq = 0
         self.child_tasks: Dict[str, Any] = {}
         self._child_results: List[Message] = []
+        # Inbound side of a run: see ``submit``.
+        self._run_task: Optional[asyncio.Task[Any]] = None
+        self._interrupt_reason: Optional[str] = None
+        self._pending_inputs: List[Content] = []
         self._last_run_status = "idle"
         self.state = HarnessState(
             context_limits=self.config.context_limits,
@@ -332,12 +337,47 @@ class CoreHarness:
         """
         from core_harness.loop import run_session
 
-        return await run_session(
-            self,
-            user_input,
-            conversation=conversation,
-            session_id=session_id,
-        )
+        self._run_task = asyncio.current_task()
+        self._interrupt_reason = None
+        try:
+            return await run_session(
+                self,
+                user_input,
+                conversation=conversation,
+                session_id=session_id,
+            )
+        finally:
+            self._run_task = None
+            self._pending_inputs.clear()
+
+    def submit(self, op: Op) -> bool:
+        """Send one operation into this harness. True when it was accepted.
+
+        The single inbound path for every client. Call it on the run's event
+        loop. ``Interrupt`` and ``UserInput`` need an active run and return
+        False without one; ``Answer`` returns False when no question is
+        waiting on that id.
+        """
+        if isinstance(op, Answer):
+            return self.sink.interaction.answer(op.request_id, op.value)
+        task = self._run_task
+        if task is None or task.done():
+            return False
+        if isinstance(op, Interrupt):
+            # One cancel per run: a second would land inside the handler
+            # that is already reporting the first.
+            if self._interrupt_reason is None:
+                self._interrupt_reason = op.reason
+                task.cancel()
+            return True
+        if isinstance(op, UserInput):
+            self._pending_inputs.append(op.content)
+            return True
+        raise TypeError(f"unknown op: {type(op).__name__}")
+
+    def drain_user_inputs(self) -> List[Content]:
+        inputs, self._pending_inputs = self._pending_inputs, []
+        return inputs
 
     async def _initial_messages(
         self,

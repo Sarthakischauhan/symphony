@@ -50,6 +50,7 @@ from coding_agent.tui.transcript import (
     Welcome,
 )
 from core_ai import has_configured_provider
+from core_harness import Answer, Interrupt, Op
 
 
 class CodingAgentApp(
@@ -110,10 +111,7 @@ class CodingAgentApp(
             self.workspace, overrides=overrides or None
         )
         self.mode: AgentMode = "build"
-        self.sink = TextualEventSink(
-            workspace=self.workspace,
-            approvals=self.config.approvals,
-        )
+        self.sink = TextualEventSink(workspace=self.workspace)
         self._agent: Optional[CodingAgent] = None
         self._busy = False
         # Prompts submitted while a turn is running are dispatched FIFO.
@@ -259,9 +257,23 @@ class CodingAgentApp(
         self.refresh(repaint=True, layout=True)
         self._set_status("")
 
+    def submit_op(self, op: Op) -> bool:
+        """Send one operation to the agent's harness. True when it landed."""
+        submit = getattr(getattr(self._agent, "harness", None), "submit", None)
+        if callable(submit):
+            return bool(submit(op))
+        # No agent yet: a question can still be waiting on the TUI's own port.
+        if isinstance(op, Answer):
+            return self.sink.interaction.answer(op.request_id, op.value)
+        return False
+
     def _cancel_active_run(self, reason: str) -> None:
-        """Stop the exclusive agent-turn worker. Group must match ``run_agent``."""
+        """Stop the agent turn. ``reason`` is reported on ``run_cancelled``."""
         self.sink.request_cancel(reason)
+        if self.submit_op(Interrupt(reason)):
+            return
+        # The worker is outside ``harness.run`` (a slash command, or between
+        # turns). Group must match ``run_agent``.
         self.workers.cancel_group(self, "run_agent")
         for worker in list(self.workers):
             if worker.name == "run_agent" and not worker.is_finished:

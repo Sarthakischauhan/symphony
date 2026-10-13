@@ -191,8 +191,11 @@ flowchart TD
 - `TurnRunner` translates provider streams into turn, text, reasoning, retry, usage,
   context, and tool events. It also emits tool execution events.
 - `CoreHarness.emit` stamps events and forwards them to the product sink.
-- `TextualEventSink` posts `HarnessEvent` messages to Textual. It also owns TUI
-  cancellation, question futures, and tool-approval policy.
+- `TextualEventSink` posts `HarnessEvent` messages to Textual and tracks the
+  TUI's cancel flags. It holds no approval state; that lives on
+  `ApprovalAddon`. Its `interaction` is the shared `HumanInteraction`, which
+  emits `question_asked` and is answered with an `Answer` op; child sinks get
+  a fork of it.
 - `CodingAgentApp.on_harness_event()` applies the routing order shown above.
 - `EventPresenter.handle()` maps remaining root events to `_on_<event_type>` handlers.
   Unknown events become transcript notices instead of being silently ignored.

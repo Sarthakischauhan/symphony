@@ -111,7 +111,8 @@ starts an interactive, one-turn-at-a-time JSONL agent process. A manager sends
 with its persisted session ID, `event` frames with its control-plane events,
 `input_requested` frames for approvals and questions, and a terminal `done`
 frame. Reply with `{"type":"answer","request_id":"...","value":"..."}`;
-`{"type":"interrupt"}` cancels the active turn. Use the returned session ID
+`{"type":"interrupt"}` cancels the active turn, and
+`{"type":"steer","prompt":"..."}` adds a user message to it. Use the returned session ID
 on the next process to resume the conversation. Standard output is reserved
 for protocol frames; diagnostics go to standard error.
 After `ready`, send `{"type":"model/list","request_id":"catalog-1"}` to
@@ -131,3 +132,15 @@ Subagent lifecycle and child activity are regular `event` frames. Match an
 `agent_spawned` frame's `tool_call_id` to the spawning tool, route later events
 whose `agent_id` matches its `child_id`, and settle on `agent_completed` or
 `agent_failed`.
+
+## symphony acp
+
+`symphony acp [--model PROVIDER:MODEL] [--unattended]` starts an
+[Agent Client Protocol](https://agentclientprotocol.com) agent (protocol
+version 1) on stdio for editors and other ACP clients. The client sends
+`initialize`, `session/new` with an absolute `cwd`, then `session/prompt`.
+Symphony streams `session/update` notifications, asks for approvals with
+`session/request_permission`, and ends the turn with a `stopReason`.
+`session/cancel` interrupts the turn. It does not load earlier sessions or
+read image prompts. The full mapping and its limits are in
+`coding_agent/src/coding_agent/protocols/acp/README.md`.

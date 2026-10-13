@@ -16,16 +16,20 @@ def test_interactive_input_is_correlated(monkeypatch):
     sink = stdio.StdioSink()
 
     async def scenario():
-        pending = asyncio.create_task(sink.request_user_input(
+        pending = asyncio.create_task(sink.interaction.request_user_input(
             question="Allow bash?", choices=["Allow once", "Deny"], kind="approval",
         ))
         await asyncio.sleep(0)
         frame = frames.pop()
         assert frame["type"] == "input_requested"
+        # Every host carries the question as the same event; the frame is the alias.
+        event = frames.pop()
+        assert event["type"] == "event" and event["event"] == "question_asked"
+        assert event["payload"]["request_id"] == frame["request_id"]
         assert frame["kind"] == "approval"
-        sink.pending[frame["request_id"]].set_result("Deny")
+        sink.interaction.pending[frame["request_id"]].set_result("Deny")
         assert await pending == "Deny"
-        assert not sink.pending
+        assert not sink.interaction.pending
         await sink.emit("text_delta", {"delta": "hello"})
         assert frames == [{"type": "event", "event": "text_delta", "payload": {"delta": "hello"}}]
 
@@ -205,3 +209,26 @@ def test_reload_refreshes_live_agent_configuration(monkeypatch, tmp_path):
     assert agent.config is config
     assert agent.mode == "plan"
     assert called == ["env", "prompt"]
+
+
+def test_answer_and_steer_commands_become_harness_ops(monkeypatch):
+    from core_harness import Answer, UserInput
+
+    ops = []
+    frames = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+        session_id="session-test",
+        harness=SimpleNamespace(model_id="test", submit=lambda op: ops.append(op) or False),
+    ))
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
+        '{"type":"answer","request_id":"q-1","value":"Deny"}\n'
+        '{"type":"steer","prompt":"use metric units"}\n'
+        '{"type":"steer","prompt":" "}\n'
+    ))
+    assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
+    assert ops == [Answer("q-1", "Deny"), UserInput("use metric units")]
+    assert [frame["message"] for frame in frames if frame["type"] == "error"] == [
+        "steer requires an active run", "prompt is required",
+    ]

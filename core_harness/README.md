@@ -46,7 +46,7 @@ def read_file(path: str) -> str:
 async def main() -> None:
     registry = build_default_registry()
 
-    # EventSink records events in memory. Subclass emit() for a UI.
+    # EventSink records events in memory. Subclass deliver() for a UI.
     sink = EventSink()
     harness = CoreHarness(
         registry=registry,
@@ -192,8 +192,23 @@ harness = CoreHarness(
 ```
 
 The harness raises `HarnessCancelled` when the run task is cancelled and
-`HarnessLimitExceeded` when a configured limit is reached. Cancel a run by
-cancelling the `asyncio.Task` that is awaiting `CoreHarness.run`.
+`HarnessLimitExceeded` when a configured limit is reached.
+
+## Operations
+
+Clients send operations in through `CoreHarness.submit(op)`, the inbound
+counterpart of the event sink. It returns `True` when the operation was
+accepted and must be called on the run's event loop.
+
+| Op | Effect |
+| --- | --- |
+| `Interrupt(reason="cancelled")` | Cancels the active run. `reason` is reported on `run_cancelled` and on `HarnessCancelled`. |
+| `Answer(request_id, value)` | Resolves the question waiting on that id in `sink.interaction`. |
+| `UserInput(content)` | Adds a user message to the active run before its next model call, announced as `message_injected` with `source: "user"`. Input that arrives during the last turn extends the run by one turn. |
+
+`Interrupt` and `UserInput` return `False` when no run is active. Cancelling
+the `asyncio.Task` that is awaiting `CoreHarness.run` still works and reports
+`reason: "cancelled"`.
 
 ## Events
 
@@ -208,9 +223,13 @@ The catalog with payload examples is in
 [docs/developer-guide/events.md](../docs/developer-guide/events.md) and
 [docs/events.md](./docs/events.md).
 
-`EventSink` is an event sink (`emit`) plus an optional
-`request_user_input` for product tools such as `ask_user`. It does not
-authorize tools, cancel runs, persist, compact, or spawn. The harness stamps
+`EventSink` is an event sink. `emit` calls `deliver`, which a UI overrides,
+then hands the same event to every `subscribe` listener. Listeners are
+read-only and run inline, so they must return at once. Questions for a human
+go through `sink.interaction`, an `InteractionPort` with one
+`request_user_input` method that product tools such as `ask_user` await; the
+default has no human and returns the default answer. The sink does not
+authorize tools, persist, compact, or spawn. The harness stamps
 `run_id`, `session_id`, `seq`, `ts`, `schema_version`, `agent_id`, and
 `parent_id` on every event. Tools run unless a `before_tool` add-on returns
 a deny reason.
@@ -333,7 +352,7 @@ The package exports the main types needed to integrate the harness:
 `NullPersistence`, `Compactor`, `KeepSystemRecentCompactor`, `KeepDropPlan`,
 `plan_keep_drop`, `ContextReport`,
 `build_context_report`, `bound_tool_result`, `EventSink`, `ControlPlaneEvent`,
-`ControlPlaneEventType`, `EventSink`, `EventSink`,
+`ControlPlaneEventType`, `InteractionPort`, `Interrupt`, `Answer`, `UserInput`,
 `HarnessCancelled`, `HarnessLimitExceeded`, and `load_harness_config`.
 
 ## Development

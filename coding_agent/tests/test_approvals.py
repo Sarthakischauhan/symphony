@@ -69,6 +69,31 @@ def test_approval_addon_does_not_inherit_onto_children(tmp_path: Path) -> None:
     from coding_agent.tui.runtime import TextualEventSink
 
     parent = TextualEventSink(workspace=tmp_path)
-    addon = ApprovalAddon(tmp_path, parent)
+    addon = ApprovalAddon(tmp_path, parent, approvals=ApprovalConfig())
     assert addon.fork_for_child(None) is None
-    assert parent.approvals.mode == "ask"
+    assert addon.approvals.mode == "ask"
+
+
+def test_always_allow_is_agent_state_for_any_client(tmp_path: Path) -> None:
+    """Promotion lives on the add-on, so it works without the TUI's sink."""
+    import asyncio
+
+    from core_harness import HumanInteraction
+
+    async def scenario() -> tuple[ApprovalAddon, EventSink]:
+        sink = EventSink()
+        sink.interaction = HumanInteraction(sink)
+        addon = ApprovalAddon(tmp_path, sink, approvals=ApprovalConfig())
+        first = asyncio.create_task(addon.before_tool(tool_name="bash", arguments={"command": "ls"}))
+        await asyncio.sleep(0)
+        (asked,) = [e.payload for e in sink.events if e.event_type == "question_asked"]
+        sink.interaction.answer(asked["request_id"], ALLOW_ALWAYS)
+        assert await first is None
+        # No second question: the mode was promoted on the add-on.
+        assert await addon.before_tool(tool_name="bash", arguments={"command": "pwd"}) is None
+        return addon, sink
+
+    addon, sink = asyncio.run(scenario())
+    assert addon.approvals.mode == "always_allow"
+    assert [e.event_type for e in sink.events] == ["question_asked", "config_changed"]
+    assert sink.events[-1].payload == {"approvals": {"mode": "always_allow"}}

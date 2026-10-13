@@ -108,17 +108,36 @@ result = await parent.spawn(
 
 Pass a `HarnessConfig` or a JSON file path. The harness raises
 `HarnessCancelled` when the run task is cancelled and `HarnessLimitExceeded`
-when a cap is hit. Cancel a run by cancelling that task:
+when a cap is hit. Stop a run with an `Interrupt` op, or by cancelling its
+task:
 
 ```python
 task = asyncio.create_task(harness.run("…"))
-task.cancel()
+harness.submit(Interrupt("user_cancel"))
 ```
+
+## Operations
+
+Clients send operations in through `CoreHarness.submit(op)`, the inbound
+counterpart of the event sink. It returns `True` when the operation was
+accepted and must be called on the run's event loop.
+
+| Op | Effect |
+| --- | --- |
+| `Interrupt(reason="cancelled")` | Cancels the active run. `reason` is reported on `run_cancelled` and on `HarnessCancelled`. |
+| `Answer(request_id, value)` | Resolves the question waiting on that id in `sink.interaction`. |
+| `UserInput(content)` | Adds a user message to the active run before its next model call, announced as `message_injected` with `source: "user"`. Input that arrives during the last turn extends the run by one turn. |
+
+`Interrupt` and `UserInput` return `False` when no run is active. Cancelling
+the `asyncio.Task` that is awaiting `CoreHarness.run` still works and reports
+`reason: "cancelled"`.
 
 ## Events
 
-`EventSink` is an event sink (`emit`) plus optional `request_user_input`
-for product tools such as `ask_user`. Persistence, compaction, and spawn are
+`EventSink` is an event sink: `emit` calls `deliver` (override it for a UI),
+then every `subscribe` listener. Questions for a human go through
+`sink.interaction`, an `InteractionPort`, which product tools such as
+`ask_user` await. Persistence, compaction, and spawn are
 add-ons. Tools run unless a `before_tool` add-on denies them. The harness
 stamps `run_id`, `session_id`, `agent_id`, `parent_id`, seq, ts, and schema
 version on every event. `EventSink` is an alias of `EventSink`.

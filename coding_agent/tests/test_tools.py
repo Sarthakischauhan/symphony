@@ -21,7 +21,7 @@ from coding_agent.tools import (
     WriteFileTool,
     build_tools,
 )
-from coding_agent.config import ReadFileConfig
+from coding_agent.config import ApprovalConfig, ReadFileConfig
 from coding_agent.tui.runtime import TextualEventSink
 from coding_agent.tui.tools import GenerateImageWidget
 from coding_agent.tui.tools import ReadFileWidget
@@ -178,14 +178,14 @@ def test_generate_image_overwrite_asks_for_approval(tmp_path: Path) -> None:
     from coding_agent.addons.approvals import ApprovalPolicy
 
     (tmp_path / "icon.png").write_bytes(PNG_1X1)
-    plane = TextualEventSink(workspace=tmp_path)
+    approvals = ApprovalConfig()
     policy = ApprovalPolicy(tmp_path)
     prompt = policy.prompt_for(
-        plane.approvals, "generate_image", {"path": "icon.png", "prompt": "a cat"}
+        approvals, "generate_image", {"path": "icon.png", "prompt": "a cat"}
     )
     assert "Overwrite" in prompt
     fresh = policy.prompt_for(
-        plane.approvals, "generate_image", {"path": "new.png", "prompt": "a cat"}
+        approvals, "generate_image", {"path": "new.png", "prompt": "a cat"}
     )
     assert fresh == ""
 
@@ -427,27 +427,28 @@ def test_control_plane_approval_policy_and_always_allow(tmp_path: Path) -> None:
 
     (tmp_path / "existing.txt").write_text("old", encoding="utf-8")
     plane = TextualEventSink(workspace=tmp_path)
+    approvals = ApprovalConfig()
     policy = ApprovalPolicy(tmp_path)
-    prompt = policy.prompt_for(plane.approvals, "bash", {"command": "ls"})
+    prompt = policy.prompt_for(approvals, "bash", {"command": "ls"})
     assert "ls" in prompt
     overwrite_prompt = policy.prompt_for(
-        plane.approvals, "write_file", {"path": "existing.txt"}
+        approvals, "write_file", {"path": "existing.txt"}
     )
     assert "Overwrite" in overwrite_prompt
     broad = policy.prompt_for(
-        plane.approvals,
+        approvals,
         "patch",
         {"path": "existing.txt", "old_str": "x" * 500, "new_str": "y", "replace_all": False},
     )
     assert broad
     surgical = policy.prompt_for(
-        plane.approvals,
+        approvals,
         "patch",
         {"path": "existing.txt", "old_str": "old", "new_str": "new", "replace_all": False},
     )
     assert not surgical
-    plane.set_approval_mode("always_allow")
-    addon = ApprovalAddon(tmp_path, plane)
+    addon = ApprovalAddon(tmp_path, plane, approvals=approvals)
+    asyncio.run(addon.set_mode("always_allow"))
     assert asyncio.run(addon.before_tool(tool_name="bash", arguments={"command": "echo hi"})) is None
 
 
