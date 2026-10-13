@@ -39,7 +39,3 @@ print(result.output_text)
 - [Package API guide](../docs/packages/symphony-code.md)
 
 **Safety:** tools run with the current user's permissions; approval prompts do not sandbox commands or restrict paths. Read the [security policy](../SECURITY.md) before use.
-
-<video src="../docs/demo.mp4" controls muted loop playsinline poster="../docs/demo.png" width="800">
-  <a href="../docs/demo.mp4">Watch Symphony create a Python file, add a test, and run pytest.</a>
-</video>

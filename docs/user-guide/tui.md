@@ -6,8 +6,6 @@ Symphony Code presents your task, model response, tool activity, and approval re
 
 Type a request in the composer and press Enter. While a run is active, the transcript shows model output and tool activity; approval or question prompts appear when interaction is needed. Review changes in your project—the transcript is a record of activity, not a substitute for checking the result.
 
-![Symphony terminal interface](../demo.png)
-
 ## Modes and controls
 
 | Action | Control |

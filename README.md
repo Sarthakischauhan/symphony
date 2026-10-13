@@ -55,7 +55,3 @@ See [AGENTS.md](AGENTS.md) for contributor workflow and [CHANGELOG.md](CHANGELOG
 ## License
 
 MIT. For vulnerability reporting and deployment guidance, see [SECURITY.md](SECURITY.md).
-
-<video src="docs/demo.mp4" controls muted loop playsinline poster="docs/demo.png" width="800">
-  <a href="docs/demo.mp4">Watch Symphony create a Python file, add a test, and run pytest.</a>
-</video>
