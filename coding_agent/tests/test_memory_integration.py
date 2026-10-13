@@ -13,6 +13,7 @@ from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.protocols.stdio.commands import execute
 from coding_agent.tools import build_tools
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool
+from addon_fakes import no_user_addons
 
 
 def test_memory_search_get_and_disabled_registration(tmp_path):
@@ -73,6 +74,7 @@ def test_automatic_worker_processes_durable_capture_without_commands(tmp_path):
         persistence = JsonlPersistence(tmp_path / "sessions")
         await persistence.save_conversation(session_id="s", messages=[Message(role="user", content="fix migration")])
         agent = SimpleNamespace(session_id="s", goal="fix migration", persistence=persistence,
+                                user_addons=no_user_addons(),
                                 learning_store=store, learning_loop=LearningLoop(store, registry=Registry(), model_id="fake:test"))
         agent.learning_loop.capture(agent.goal, await persistence.load_conversation(session_id="s"))
         await agent.learning_loop.wait()

@@ -13,6 +13,7 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 from core_harness import (
     ChildConfig,
+    ControlPlaneEventType,
     EventSink,
     CoreHarness,
     HarnessConfig,
@@ -53,6 +54,8 @@ from coding_agent.addons.plan.store import PlanStore
 from coding_agent.addons.plugins import LoadedPlugin, PluginManager
 from coding_agent.config.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
+from coding_agent.extensions import UserAddonRuntime, load_user_addons
+from core_harness.extensions import EMPTY_SNAPSHOT
 from coding_agent.tools import BashJobs, EnterPlanModeTool, ExitPlanModeTool, build_tools
 
 AgentMode = Literal["build", "plan"]
@@ -251,7 +254,44 @@ class CodingAgent:
             addons=addons + plugin_addons,
         )
         self.bash_jobs.bind(self.harness)
+        # User addons come last so built-in names (tools, commands, addons) win
+        # and the tool list keeps one order across reloads.
+        self.user_addons = UserAddonRuntime(
+            builtin_tool_names=tuple(self.harness.tools),
+            reserved_names=tuple(addon.name for addon in self.harness.addons),
+            loader=load_user_addons if include_subagent else lambda _names: EMPTY_SNAPSHOT,
+        )
+        self._install_addon_tools()
+        self._unsubscribe_addons = self.sink.subscribe(self.user_addons.on_event)
+        self._active_runs = 0
         self.apply_system_prompt()
+
+    def _install_addon_tools(self) -> None:
+        for tool in self.user_addons.surface.tools:
+            self.harness.register_tool(tool)
+            self.tools.append(tool)
+
+    def _remove_addon_tools(self) -> None:
+        addon_tools = self.user_addons.surface.tools
+        for tool in addon_tools:
+            self.harness.tools.pop(tool.name, None)
+        self.tools[:] = [tool for tool in self.tools if all(tool is not item for item in addon_tools)]
+
+    def reload_user_addons(self) -> str:
+        """Rebuild user addons between turns; queue the reload during a run."""
+        if self._active_runs:
+            self.user_addons.reload_pending = True
+            return "Addon reload queued · it applies when the current run ends."
+        surface = self.user_addons.build()
+        self._remove_addon_tools()
+        notice = self.user_addons.swap(surface)
+        self._install_addon_tools()
+        return notice
+
+    def dispose_user_addons(self) -> None:
+        """Detach this agent's user addons (the TUI rebuilds the agent on /reload)."""
+        self._unsubscribe_addons()
+        self.user_addons.dispose()
 
     def _spawn_child_config(
         self,
@@ -302,6 +342,23 @@ class CodingAgent:
         session_id: Optional[str] = None,
     ) -> HarnessResult:
         """Run the agent. Rejected OAuth tokens are refreshed inside the provider."""
+        self._active_runs += 1
+        try:
+            return await self._run_turns(user_input, conversation=conversation, session_id=session_id)
+        finally:
+            self._active_runs -= 1
+            if not self._active_runs and self.user_addons.reload_pending:
+                self.user_addons.reload_pending = False
+                notice = self.reload_user_addons()
+                await self.sink.emit(ControlPlaneEventType.CONFIG_CHANGED, {"addons": notice})
+
+    async def _run_turns(
+        self,
+        user_input: Content,
+        *,
+        conversation: Optional[List[Message]] = None,
+        session_id: Optional[str] = None,
+    ) -> HarnessResult:
         if isinstance(self.persistence, JsonlPersistence):
             directory = self.persistence.session_dir(session_id or self.session_id)
             if self.learning_store.session_dir != directory.resolve():

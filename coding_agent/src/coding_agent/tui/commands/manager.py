@@ -11,6 +11,7 @@ from core_ai import find_provider, get_model, get_provider
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.agent import build_agent
 from coding_agent.addons.evaluation.addon import JevAddon
+from coding_agent.extensions import addons_report, tool_change_notice
 from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.presentation import session_images
@@ -396,6 +397,11 @@ async def reload_project(app: Any) -> None:
             if reloaded_info is not None and not model_supports_effort(reloaded_model)
             else previous_effort
         )
+        if previous_agent is not None:
+            previous_addons = previous_agent.user_addons.surface.tool_names
+            previous_agent.dispose_user_addons()
+        else:
+            previous_addons = frozenset()
         app._agent = reloaded_agent
         app.config = reloaded_config
         app._model_options = model_options(reloaded_agent.registry.namespaces())
@@ -414,6 +420,10 @@ async def reload_project(app: Any) -> None:
         if callable(invalidate):
             invalidate()
         app.add_update("Configuration reloaded.")
+        surface = reloaded_agent.user_addons.surface
+        app.add_notice(f"Addons: {tool_change_notice(previous_addons, surface.tool_names)}")
+        for notice in surface.notices:
+            app.add_notice(notice, "warning")
         app.query_one("#prompt").focus()
     except Exception as exc:  # noqa: BLE001
         app._agent = previous_agent
@@ -529,6 +539,8 @@ class CommandManager:
             app.action_clear_transcript()
         elif command == "help":
             commands = SLASH_COMMANDS
+            if app._agent is not None:
+                commands = (*commands, *app._agent.user_addons.surface.slash_commands)
             if app._agent is not None and not model_supports_effort(
                 app._agent.harness.model_id
             ):
@@ -591,6 +603,15 @@ class CommandManager:
             from coding_agent.tui.composer.voice_mode import toggle_voice
 
             toggle_voice(app)
+        elif command == "addons":
+            if app._agent is None:
+                app.add_notice(OFFLINE_HINT, "error")
+            else:
+                runtime = app._agent.user_addons
+                app.add_notice(addons_report(runtime.surface, runtime.hook_failures))
+        elif command == "reload" and app._busy:
+            app._reload_queued = True
+            app.add_notice("Reload queued · it applies when the current run ends.")
         elif app._busy:
             app.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
         elif command == "reload":
@@ -613,6 +634,8 @@ class CommandManager:
             await compact_context(app)
         elif command == "diff":
             app.push_screen(DiffModal(app.workspace))
+        elif app._agent.user_addons.surface.command(command) is not None:
+            app.add_notice(await app._agent.user_addons.run_command(command, argument) or "")
         else:
             app.add_notice(f"Unknown command: /{command}. Type /help to see commands.", "warning")
 

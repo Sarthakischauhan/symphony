@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from core_ai import ModelInfo
 from coding_agent.protocols import stdio
+from addon_fakes import no_user_addons
 
 
 def test_interactive_input_is_correlated(monkeypatch):
@@ -102,6 +103,7 @@ def test_command_catalog_is_the_tui_catalog(monkeypatch):
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
     monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
         session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
+        user_addons=no_user_addons(),
     ))
     monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
         '{"type":"command/list","request_id":"commands-1"}\n'
@@ -119,6 +121,7 @@ def test_slash_command_does_not_call_the_model(monkeypatch):
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
     monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
         session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
+        user_addons=no_user_addons(),
         run=lambda *_args: (_ for _ in ()).throw(AssertionError("model was called")),
     ))
     monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
@@ -186,6 +189,7 @@ def test_command_attachments_are_rejected_without_inference(monkeypatch):
     monkeypatch.setattr(stdio, "load_provider_env", lambda workspace: None)
     monkeypatch.setattr(stdio, "build_agent", lambda **kwargs: SimpleNamespace(
         session_id="session-test", harness=SimpleNamespace(model_id="test"),
+        user_addons=no_user_addons(),
         run=lambda *args: (_ for _ in ()).throw(AssertionError("model called")),
     ))
     monkeypatch.setattr(stdio.sys, "stdin", io.StringIO(
@@ -204,11 +208,13 @@ def test_reload_refreshes_live_agent_configuration(monkeypatch, tmp_path):
     config = SimpleNamespace(personality="warm")
     monkeypatch.setattr(commands, "ensure_spawn_settings", lambda workspace: config)
     agent = SimpleNamespace(workspace=tmp_path, config=None, mode="plan",
-                            apply_system_prompt=lambda: called.append("prompt"))
-    assert "Reloaded" in asyncio.run(commands.execute(agent, "/reload"))
+                            apply_system_prompt=lambda: called.append("prompt"),
+                            reload_user_addons=lambda: called.append("addons") or "no tool changes")
+    reply = asyncio.run(commands.execute(agent, "/reload"))
+    assert "Reloaded" in reply and "Addons: no tool changes" in reply
     assert agent.config is config
     assert agent.mode == "plan"
-    assert called == ["env", "prompt"]
+    assert called == ["env", "prompt", "addons"]
 
 
 def test_answer_and_steer_commands_become_harness_ops(monkeypatch):

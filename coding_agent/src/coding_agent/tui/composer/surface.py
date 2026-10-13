@@ -213,10 +213,15 @@ class ComposerSurface:
             )
         else:
             model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")
+            try:
+                addon_commands = self._agent.user_addons.surface.slash_commands
+            except AttributeError:  # no agent yet, or a host agent without user addons
+                addon_commands = ()
             menu.set_commands(
                 command_matches(
                     event.text_area.text,
                     include_effort=model_supports_effort(model_id),
+                    extra=addon_commands,
                 )
             )
 

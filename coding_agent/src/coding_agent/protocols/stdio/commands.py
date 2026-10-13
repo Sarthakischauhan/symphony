@@ -5,17 +5,22 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from coding_agent.config import ensure_spawn_settings, symphony_dir
 from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.config.personalities import load_personalities
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
-from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG
+from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG, SlashCommand
+from coding_agent.extensions import addons_report
 
 
-def catalog(workspace: Path | None = None) -> list[dict[str, Any]]:
+def catalog(
+    workspace: Path | None = None,
+    extra: Sequence[SlashCommand] = (),
+) -> list[dict[str, Any]]:
+    """Built-in commands plus ``extra`` (the live agent's user-addon commands)."""
     choices = {
         "personality": [
             {"value": item.id, "label": item.name, "description": item.description or ""}
@@ -48,7 +53,7 @@ def catalog(workspace: Path | None = None) -> list[dict[str, Any]]:
     return [
         {"name": item.name, "description": descriptions.get(item.name, item.description),
          "inputHint": item.argument, "options": choices.get(item.name, [])}
-        for item in SLASH_COMMANDS
+        for item in (*SLASH_COMMANDS, *extra)
     ]
 
 
@@ -119,7 +124,8 @@ async def execute(agent: Any, value: str) -> str:
     command = parts[0].lower() if parts else ""
     argument = parts[1].strip() if len(parts) > 1 else ""
     if command in {"help"}:
-        return "\n".join(f"{item.usage} — {item.description}" for item in SLASH_COMMANDS)
+        commands = (*SLASH_COMMANDS, *agent.user_addons.surface.slash_commands)
+        return "\n".join(f"{item.usage} — {item.description}" for item in commands)
     if command == "status":
         return (
             f"Model: {agent.harness.model_id}\nSession: {agent.session_id}\n"
@@ -209,7 +215,10 @@ async def execute(agent: Any, value: str) -> str:
         load_provider_env(agent.workspace, reload=True)
         agent.config = ensure_spawn_settings(agent.workspace)
         agent.apply_system_prompt()
-        return "Reloaded Symphony configuration and environment for this session."
+        addons = agent.reload_user_addons()
+        return f"Reloaded Symphony configuration and environment for this session.\nAddons: {addons}"
+    if command == "addons":
+        return addons_report(agent.user_addons.surface, agent.user_addons.hook_failures)
     if command == "provider":
         return "Configure a provider with its API key in Symphony's environment, then use /model."
     if command == "langfuse":
@@ -222,4 +231,7 @@ async def execute(agent: Any, value: str) -> str:
         return "Close the Zeron window to exit."
     if command == "voice":
         return "Voice mode listens in the Symphony TUI. Press ctrl+a or type /voice there."
+    reply = await agent.user_addons.run_command(command, argument)
+    if reply is not None:
+        return reply
     raise ValueError(f"Unknown command: /{command}. Type /help to see commands.")

@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from rich.console import Console
+from addon_fakes import no_user_addons
 from rich.style import Style
 from rich.text import Text
 from textual import events
@@ -2990,6 +2991,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
         learning_loop=None,
         set_mode=lambda mode: selected_modes.append(mode),
+        user_addons=no_user_addons(),
     )
 
     def _load_provider_env(_workspace: Any) -> None:
@@ -3011,6 +3013,8 @@ def test_reload_refreshes_config_without_clearing_conversation(
                 session_id="current-session",
                 learning_loop=None,
                 harness=SimpleNamespace(reasoning_effort="high"),
+                user_addons=no_user_addons(),
+                dispose_user_addons=lambda: None,
             )
             app._mount_transcript(UserMessage("Keep this conversation"))
             await pilot.pause()
@@ -3314,6 +3318,10 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
 
         async def emit(self, event_type: str, payload: dict[str, Any]) -> None:
             self.events.append((event_type, payload))
+
+        def subscribe(self, listener: Any) -> Any:
+            del listener
+            return lambda: None
 
     class SummaryRegistry:
         def __init__(self) -> None:

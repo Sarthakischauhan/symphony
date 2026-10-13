@@ -17,6 +17,7 @@ from coding_agent.tui.transcript.messages import Notice
 from core_ai.oauth import LoginCancelled
 from core_ai.oauth.types import LoginPrompt, OAuthToken
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
+from addon_fakes import no_user_addons
 
 
 PROVIDER_ENV = (
@@ -368,6 +369,7 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
         learning_loop=None,
         set_mode=lambda _mode: None,
+        user_addons=no_user_addons(),
     )
 
     def _load_provider_env(workspace: Path) -> None:
@@ -388,6 +390,8 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
                 harness=SimpleNamespace(reasoning_effort=None),
                 registry=SimpleNamespace(namespaces=lambda: ("openai",)),
                 learning_loop=None,
+                user_addons=no_user_addons(),
+                dispose_user_addons=lambda: None,
             )
             await app._command_manager.run("/provider openai")
             await pilot.pause()
