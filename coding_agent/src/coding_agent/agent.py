@@ -54,7 +54,7 @@ from coding_agent.addons.plan.store import PlanStore
 from coding_agent.addons.plugins import LoadedPlugin, PluginManager
 from coding_agent.config.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
 from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
-from coding_agent.extensions import UserAddonRuntime, load_user_addons
+from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
 from core_harness.extensions import EMPTY_SNAPSHOT
 from coding_agent.tools import BashJobs, EnterPlanModeTool, ExitPlanModeTool, build_tools
 

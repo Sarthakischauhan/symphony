@@ -13,9 +13,9 @@ from typing import Any, Callable, Collection, Mapping
 
 from core_harness.extensions import AddonFailure, dispatch_event, dispose_addons
 
-from coding_agent.extensions.bridge import AddonSurface, build_surface
-from coding_agent.extensions.discovery import load_user_addons
-from coding_agent.extensions.tool_changes import tool_change_notice
+from coding_agent.addons.manager.bridge import AddonSurface, build_surface
+from coding_agent.addons.manager.discovery import load_user_addons
+from coding_agent.addons.manager.tool_changes import tool_change_notice
 
 Loader = Callable[[Collection[str]], Any]
 

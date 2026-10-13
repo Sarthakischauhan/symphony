@@ -13,7 +13,7 @@ from coding_agent.config.personalities import load_personalities
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
 from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG, SlashCommand
-from coding_agent.extensions import addons_report
+from coding_agent.addons.manager import addons_report
 
 
 def catalog(

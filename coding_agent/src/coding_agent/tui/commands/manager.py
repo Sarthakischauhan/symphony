@@ -11,7 +11,7 @@ from core_ai import find_provider, get_model, get_provider
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.agent import build_agent
 from coding_agent.addons.evaluation.addon import JevAddon
-from coding_agent.extensions import addons_report, tool_change_notice
+from coding_agent.addons.manager import addons_report, tool_change_notice
 from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.presentation import session_images

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core_harness.extensions import AddonFailure
 
-from coding_agent.extensions.bridge import AddonSurface
+from coding_agent.addons.manager.bridge import AddonSurface
 
 
 def addons_report(surface: AddonSurface, hook_failures: tuple[AddonFailure, ...] = ()) -> str:

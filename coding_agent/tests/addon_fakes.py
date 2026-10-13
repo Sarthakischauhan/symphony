@@ -2,7 +2,7 @@
 
 from core_harness.extensions import EMPTY_SNAPSHOT
 
-from coding_agent.extensions import UserAddonRuntime
+from coding_agent.addons.manager import UserAddonRuntime
 
 
 def no_user_addons() -> UserAddonRuntime:

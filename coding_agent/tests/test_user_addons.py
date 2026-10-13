@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from coding_agent import CodingAgent
-from coding_agent.extensions import user_addons_root
+from coding_agent.addons.manager import user_addons_root
 from coding_agent.protocols.stdio import commands as stdio_commands
 
 from scripted_registry import ScriptedRegistry
