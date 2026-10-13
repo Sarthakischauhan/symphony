@@ -2650,7 +2650,7 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "dashboard" in [command.name for command in SLASH_COMMANDS]
     assert "voice" in [command.name for command in SLASH_COMMANDS]
     assert "addon" in [command.name for command in SLASH_COMMANDS]
-    assert [command.name for command in command_matches("/add")] == ["addon"]
+    assert [command.name for command in command_matches("/add")] == ["addon", "addons"]
     assert [command.name for command in command_matches("/dash")] == ["dashboard"]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
