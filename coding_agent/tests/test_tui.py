@@ -2598,8 +2598,11 @@ def test_reasoning_delta_paints_visible_thought_body(
     ],
 )
 def test_reasoning_title_uses_only_a_standalone_markdown_heading(
-    content: str, expected_title: str
+    content: str, expected_title: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Duration is part of the title, but elapsed wall-clock time is irrelevant
+    # to this heading-parsing assertion and can vary under CI load.
+    monkeypatch.setattr("coding_agent.tui.transcript.process.monotonic", lambda: 0.0)
     thought = ReasoningWidget(content)
     thought.complete()
     assert thought.title == expected_title
