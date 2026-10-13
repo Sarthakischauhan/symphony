@@ -114,6 +114,7 @@ class CodingAgentApp(
         self.sink = TextualEventSink(workspace=self.workspace)
         self._agent: Optional[CodingAgent] = None
         self._busy = False
+        self._reload_queued = False
         # Prompts submitted while a turn is running are dispatched FIFO.
         self._queued_turns: list[QueuedTurn] = []
         self._init_runtime_state()

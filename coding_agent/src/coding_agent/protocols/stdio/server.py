@@ -44,7 +44,8 @@ async def _run_turn(agent: Any, prompt: str, attachments: Sequence[str], effort:
         parts = stripped[1:].split(None, 1) if stripped.startswith("/") else []
         name = parts[0].lower() if parts else ""
         stdio = _package()
-        if name in {item["name"] for item in command_module.catalog()}:
+        names = {item["name"] for item in command_module.catalog(extra=agent.user_addons.surface.slash_commands)}
+        if name in names:
             if attachments:
                 raise ValueError("Slash commands do not accept image attachments")
             result = await command_module.execute(agent, stripped)
@@ -126,7 +127,7 @@ async def serve(
                 stdio.write_frame({
                     "type": "commands",
                     "request_id": request_id,
-                    "commands": command_module.catalog(workspace),
+                    "commands": command_module.catalog(workspace, agent.user_addons.surface.slash_commands),
                     "protocol_version": PROTOCOL_VERSION,
                 })
             except Exception as exc:

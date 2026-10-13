@@ -181,6 +181,11 @@ class TurnSurface:
                 self._ui_state.phase = "paused" if child_question_pending else "idle"
                 self._presenter.refresh_chrome()
             self._busy = False
+            if self._reload_queued:
+                from coding_agent.tui.commands.manager import reload_project
+
+                self._reload_queued = False
+                self.run_worker(reload_project(self), exclusive=False)
             if not child_question_pending:
                 self._pending_question_id = None
                 self._pending_question_default = ""

@@ -29,6 +29,8 @@ from coding_agent.tui.tools.labels import (
     tool_header_text,
     tool_label,
 )
+from coding_agent.tui.tools.modal import ToolCallModal
+from coding_agent.tui.tools.code_view import code_view
 from coding_agent.tui.tools.snapshots import LIVE_STATUSES, ToolCallSnapshot
 from coding_agent.tui.transcript.messages import (
     SelectableStatic,
@@ -108,7 +110,34 @@ class ToolCallWidget(Collapsible):
 
     def on_bash_tool_header_toggle(self, event: BashToolHeader.Toggle) -> None:
         event.stop()
-        self.collapsed = not self.collapsed
+        if self.status in LIVE_STATUSES:
+            return
+        self.open_detail()
+
+    def open_detail(self) -> None:
+        """Open a finished call in a card. Live calls stay in the transcript."""
+        if self.status in LIVE_STATUSES:
+            return
+        self.app.push_screen(ToolCallModal(self))
+
+    def detail_title(self) -> Text:
+        label, target, status = self._header_values or (self._tool_title()[0], "", self.status)
+        return tool_header_text(label, target, status)
+
+    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
+        rows: list[Any] = []
+        request = self._summary()
+        if request:
+            rows.append(Text(request, style="bold #d0d0d0"))
+        if self.result:
+            if rows:
+                rows.append(Text())
+            rows.append(code_view(self.result, lexer="text", wrap=wrap))
+        return rows
+
+    def detail_plain(self) -> str:
+        """Plain command/path and result for the card's copy binding."""
+        return "\n\n".join(part for part in (self._summary(), self.result) if part)
 
     def _watch_collapsed(self, collapsed: bool) -> None:
         # Collapsible scrolls itself into view after every state change. The
@@ -318,6 +347,27 @@ class ReadFileWidget(ToolCallWidget):
     def _result_summary(self) -> str:
         return read_file_result(self.result)
 
+    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
+        rows: list[Any] = [Text(self._summary() or "Read", style="bold #d0d0d0")]
+        if self.result:
+            rows.append(code_view(self.result, lexer=_lexer_for_path(self._summary()), wrap=wrap))
+        return rows
+
+
+def _lexer_for_path(path: str) -> str:
+    suffix = Path(path).suffix.lower()
+    return {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".json": "json",
+        ".md": "markdown",
+        ".toml": "toml",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".sh": "bash",
+    }.get(suffix, "")
+
 
 class BashToolWidget(ToolCallWidget):
     """Bash card: the command on one header line and, while it runs, the tail
@@ -363,6 +413,17 @@ class BashToolWidget(ToolCallWidget):
             self._tail.update("\n".join(lines), layout=False)
         if bool(lines) != self._tail.display:
             self._tail.display = bool(lines)
+
+    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
+        rows: list[Any] = []
+        command = self._summary()
+        if command:
+            rows.append(code_view(command, lexer="bash", wrap=wrap))
+        if self.result:
+            if rows:
+                rows.append(Text())
+            rows.append(code_view(self.result, lexer="text", wrap=wrap))
+        return rows
 
     def refresh_content(self) -> None:
         target = header_target(clip_text(self._summary(), 180))
@@ -413,15 +474,16 @@ class PatchDiffWidget(ToolCallWidget):
         self._diff_cache = make_unified_diff(old, new, path) if old or new else []
         return self._diff_cache
 
-    def refresh_content(self) -> None:
-        self._refresh_header("Update", self._summary())
-        self._refresh_status_class()
+    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
+        rows = [code_view("\n".join(self._diff()), lexer="diff", wrap=wrap)]
+        if self.result:
+            rows.append(Text(self.result, style="#626262"))
+        return rows
+
+    def _diff_rows(self, *, limit: int, clip_result: bool) -> list[Any]:
         diff = self._diff()
-        if self.collapsed or not self._body_dirty:
-            return
         rows: list[Any] = []
-        visible = diff[: self.MAX_DIFF_LINES]
-        for line in visible:
+        for line in diff[:limit]:
             if line.startswith("@@"):
                 rows.append(Text(line, style="#6688a8"))
             elif line.startswith("+"):
@@ -430,13 +492,20 @@ class PatchDiffWidget(ToolCallWidget):
                 rows.append(Text(line, style="#df8b91 on #352225"))
             else:
                 rows.append(Text(line, style="#686868"))
-        if len(diff) > self.MAX_DIFF_LINES:
-            hidden = len(diff) - self.MAX_DIFF_LINES
-            rows.append(Text(f"… {hidden} diff lines hidden", style="#555555"))
+        if len(diff) > limit:
+            rows.append(Text(f"… {len(diff) - limit} diff lines hidden", style="#555555"))
         if self.result:
             result_color = "#d66b73" if self.status == "failed" else "#626262"
-            rows.append(Text(f"└  {clip_text(self.result, 260)}", style=result_color))
-        self._body.update(Group(*rows))
+            result = clip_text(self.result, 260) if clip_result else self.result
+            rows.append(Text(f"└  {result}", style=result_color))
+        return rows
+
+    def refresh_content(self) -> None:
+        self._refresh_header("Update", self._summary())
+        self._refresh_status_class()
+        if self.collapsed or not self._body_dirty:
+            return
+        self._body.update(Group(*self._diff_rows(limit=self.MAX_DIFF_LINES, clip_result=True)))
         self._body_dirty = False
 
 

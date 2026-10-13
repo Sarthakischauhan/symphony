@@ -23,7 +23,8 @@ Type `/` in the Symphony Code composer to discover commands. Select a suggestion
 | `/dashboard` | Show active Symphony agents |
 | `/diff` | Inspect the workspace diff |
 | `/new` | Start a fresh conversation |
-| `/reload` | Reload provider environment and registry |
+| `/reload` | Reload provider environment, registry and user addons ([guide](../addons/README.md)) |
+| `/addons` | List loaded and failed user addons |
 | `/clear` | Clear the visible transcript |
 | `/help` | Show available commands |
 | `/quit` | Exit the application (`/exit` also works) |

@@ -7,6 +7,7 @@ from textual.widgets import Button, OptionList, Static, TextArea
 from textual.worker import WorkerState, get_current_worker
 
 from coding_agent.config.credentials import OFFLINE_HINT
+from coding_agent.tui.chrome.footer import DEFAULT_HINT, ComposerOverlay
 from coding_agent.tui.commands import (
     command_matches,
     effort_matches,
@@ -213,10 +214,15 @@ class ComposerSurface:
             )
         else:
             model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")
+            try:
+                addon_commands = self._agent.user_addons.surface.slash_commands
+            except AttributeError:  # no agent yet, or a host agent without user addons
+                addon_commands = ()
             menu.set_commands(
                 command_matches(
                     event.text_area.text,
                     include_effort=model_supports_effort(model_id),
+                    extra=addon_commands,
                 )
             )
 
@@ -300,7 +306,40 @@ class ComposerSurface:
         prompt.focus()
 
     async def _run_slash_command(self, value: str) -> None:
+        command, _, argument = value[1:].partition(" ")
+        if command.lower() == "addon":
+            if self._busy:
+                self.add_notice("/addon is unavailable while a turn is running.", "warning")
+                return
+            if self._agent is None:
+                self.add_notice(OFFLINE_HINT, "error")
+                return
+            skill_tool = self._agent.harness.tools.get("skill")
+            skill_instructions = (
+                await skill_tool.execute(sink=None, args={"skill_id": "bundled/addon-authoring"})
+                if skill_tool is not None
+                else "Bundled addon-authoring skill is unavailable; inspect core_harness.extensions and "
+                "the installed addon documentation before proceeding."
+            )
+            prompt = (
+                "Follow these Symphony addon-authoring instructions, then create or improve a "
+                "user addon for this request. Use the supported addon API and user addon "
+                "directory documented here. Do not modify Symphony's built-in source unless "
+                "I explicitly ask.\n\n"
+                f"{skill_instructions}"
+            )
+            if argument.strip():
+                prompt += f"\n\nAddon request: {argument.strip()}"
+            self._start_turn(QueuedTurn(prompt, prompt, (), ()))
+            return
         await self._command_manager.run(value)
+
+    def add_update(self, text: str, hint: str = "") -> None:
+        """Show a banner above the composer. Only the app has one; composer-less
+        views such as the child transcript leave this undefined, so the event
+        presenter falls back to a transcript notice."""
+        overlay = self.query_one("#composer-overlay", ComposerOverlay)
+        overlay.show(text, hint or DEFAULT_HINT)
 
     def _update_composer_hint(self) -> None:
         """Refresh the mode badge and the footer keyboard hint for the current state."""

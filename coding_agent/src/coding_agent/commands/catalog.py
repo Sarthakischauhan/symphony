@@ -122,7 +122,9 @@ SLASH_COMMANDS = (
     SlashCommand("langfuse", "Configure Langfuse telemetry and install the SDK", ""),
     SlashCommand("jev", "Set a Jev finish rule or toggle it", "[on|off|rule]"),
     SlashCommand("new", "Start a fresh conversation"),
-    SlashCommand("reload", "Reload configuration from .env"),
+    SlashCommand("addon", "Create or improve a Symphony user addon", "[idea]"),
+    SlashCommand("reload", "Reload configuration from .env and user addons"),
+    SlashCommand("addons", "List loaded and failed user addons"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
     SlashCommand("status", "Show session, model, and context details"),
     SlashCommand("dashboard", "Show live agents and their CPU, memory, and disk"),
@@ -137,13 +139,19 @@ SLASH_COMMANDS = (
 )
 
 
-def command_matches(value: str, *, include_effort: bool = True) -> tuple[SlashCommand, ...]:
+def command_matches(
+    value: str,
+    *,
+    include_effort: bool = True,
+    extra: Iterable[SlashCommand] = (),
+) -> tuple[SlashCommand, ...]:
+    """Match built-in commands, then ``extra`` (user-addon commands)."""
     if not value.startswith("/") or " " in value:
         return ()
     prefix = value[1:].lower()
     return tuple(
         command
-        for command in SLASH_COMMANDS
+        for command in (*SLASH_COMMANDS, *extra)
         if command.name.startswith(prefix)
         and (include_effort or command.name != "effort")
     )
