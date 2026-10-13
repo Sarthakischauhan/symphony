@@ -19,6 +19,7 @@ from coding_agent.tui.tools import (
     CompletedRunSummary,
     GenerateImageWidget,
     PatchDiffWidget,
+    ToolCallModal,
     ToolCallSummary,
 )
 from coding_agent.tui.tools.calls import LIVE_OUTPUT_TAIL_LINES
@@ -366,7 +367,9 @@ def test_patch_diff_card_updates_in_place(
 
             await pilot.click(card.query_one(".tool-call-header"))
             await pilot.pause()
-            assert not card.collapsed
+            # A live patch stays in the transcript. Its card opens after it finishes.
+            assert card.collapsed
+            assert not isinstance(app.screen, ToolCallModal)
 
             handle("tool_execution_started", {**call, "arguments": arguments})
             await pilot.pause()
@@ -378,7 +381,12 @@ def test_patch_diff_card_updates_in_place(
             assert app.query_one(PatchDiffWidget) is card
             assert card.query_one(".tool-call-label", Static) is label
             assert card.status == "done"
-            assert not card.collapsed
+            assert card.collapsed
+            await pilot.click(card.query_one(".tool-call-header"))
+            await pilot.pause()
+            assert isinstance(app.screen, ToolCallModal)
+            await pilot.press("escape")
+            await pilot.pause()
 
             handle("run_completed", {"output_text": "Updated the file."})
             await pilot.pause()

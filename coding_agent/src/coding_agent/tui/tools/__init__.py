@@ -11,6 +11,7 @@ from coding_agent.tui.tools.calls import (
     make_tool_widget,
     make_unified_diff,
 )
+from coding_agent.tui.tools.modal import ToolCallModal
 from coding_agent.tui.tools.images import (
     IMAGE_MARKER_RE,
     ImageAttachment,
@@ -37,6 +38,7 @@ __all__ = [
     "ImageModal",
     "PatchDiffWidget",
     "ReadFileWidget",
+    "ToolCallModal",
     "ToolCallSnapshot",
     "ToolCallSummary",
     "ToolCallWidget",

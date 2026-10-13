@@ -122,6 +122,7 @@ SLASH_COMMANDS = (
     SlashCommand("langfuse", "Configure Langfuse telemetry and install the SDK", ""),
     SlashCommand("jev", "Set a Jev finish rule or toggle it", "[on|off|rule]"),
     SlashCommand("new", "Start a fresh conversation"),
+    SlashCommand("addon", "Create or improve a Symphony user addon", "[idea]"),
     SlashCommand("reload", "Reload configuration from .env and user addons"),
     SlashCommand("addons", "List loaded and failed user addons"),
     SlashCommand("compact", "Keep recent messages and compact saved context"),
