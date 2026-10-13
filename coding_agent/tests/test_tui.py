@@ -82,6 +82,7 @@ from coding_agent.tui.tools import (
     CompletedRunSummary,
     GenerateImageWidget,
     PatchDiffWidget,
+    ToolCallModal,
     ToolCallSummary,
     ToolCallWidget,
     diff_stats,
@@ -2131,28 +2132,27 @@ def test_bash_card_uses_timeline_header_and_stays_after_the_stretch(
             prompt = app.query_one("#prompt", PromptInput)
             await pilot.click(header)
             await pilot.pause()
-            assert not bash.collapsed
-            assert bash.query_one(".bash-tool-body").display
+            # A live command stays in the transcript; it does not open a card.
+            assert bash.collapsed
+            assert not isinstance(app.screen, ToolCallModal)
             # The click focuses the header, which hides the composer caret.
             # Focus returns to the prompt so the caret stays visible.
             assert prompt.has_focus
 
-            header.focus()
-            await pilot.press("space")
-            await pilot.pause()
-            assert bash.collapsed
-            assert not bash.query_one(".bash-tool-body").display
-
             app.update_tool("bash-1", status="done", result="clean")
             app.set_assistant("Command finished.", new=True)
             await pilot.pause()
-            # The card is not folded away: it stays, mounted once.
+            # The widget is not folded away: it stays, mounted once.
             assert app.query_one(BashToolWidget) is bash
             assert bash.status == "done"
             assert not list(app.query(ToolCallSummary))
             await pilot.click(header)
             await pilot.pause()
-            assert "clean" in _static_text(bash.query_one(".bash-tool-body", Static))
+            assert isinstance(app.screen, ToolCallModal)
+            assert "clean" in _static_text(app.screen.query_one("#tool-detail", Static))
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ToolCallModal)
 
     asyncio.run(_run())
 
@@ -2605,6 +2605,34 @@ def test_reasoning_title_uses_only_a_standalone_markdown_heading(
     assert thought.title == expected_title
 
 
+def test_addon_slash_command_loads_authoring_skill_and_starts_model_turn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            class _SkillTool:
+                async def execute(self, *, sink: Any, args: dict[str, str]) -> str:
+                    assert sink is None
+                    assert args == {"skill_id": "bundled/addon-authoring"}
+                    return "# skill bundled/addon-authoring\\nAuthor addons safely."
+
+            app._agent = SimpleNamespace(harness=SimpleNamespace(tools={"skill": _SkillTool()}))
+            started: list[QueuedTurn] = []
+            app._start_turn = started.append  # type: ignore[method-assign]
+            await app._run_slash_command("/addon make a greeting command")
+            assert len(started) == 1
+            assert "# skill bundled/addon-authoring" in started[0].text
+            assert "make a greeting command" in started[0].text
+            assert "Do not modify Symphony's built-in source" in started[0].text
+
+    asyncio.run(_run())
+
+
 def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
     assert "langfuse" in [command.name for command in SLASH_COMMANDS]
@@ -2617,6 +2645,8 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert "context" in [command.name for command in SLASH_COMMANDS]
     assert "dashboard" in [command.name for command in SLASH_COMMANDS]
     assert "voice" in [command.name for command in SLASH_COMMANDS]
+    assert "addon" in [command.name for command in SLASH_COMMANDS]
+    assert [command.name for command in command_matches("/add")] == ["addon"]
     assert [command.name for command in command_matches("/dash")] == ["dashboard"]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
     assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
@@ -3464,9 +3494,9 @@ def test_patch_events_render_a_diff_card_in_place(
             await pilot.pause()
             await pilot.click(widget.query_one(".tool-call-header"))
             await pilot.pause()
-            assert not widget.collapsed
-            body = _static_text(widget.query_one(".tool-call > Contents > *", Static))
-            assert '+    return f"hello {name}"' in body
+            # A live patch stays in the transcript; its diff opens after it finishes.
+            assert widget.collapsed
+            assert not isinstance(app.screen, ToolCallModal)
 
             app._presenter.handle(
                 "tool_execution_completed",
@@ -3481,9 +3511,12 @@ def test_patch_events_render_a_diff_card_in_place(
             await pilot.pause()
             assert app.query_one(PatchDiffWidget) is widget
             assert widget.status == "done"
-            assert "patched src/greeting.py" in _static_text(
-                widget.query_one(".tool-call > Contents > *", Static)
-            )
+            await pilot.click(widget.query_one(".tool-call-header"))
+            await pilot.pause()
+            assert isinstance(app.screen, ToolCallModal)
+            detail = _static_text(app.screen.query_one("#tool-detail", Static))
+            assert '+    return f"hello {name}"' in detail
+            assert "patched src/greeting.py" in detail
 
     asyncio.run(_run())
 
