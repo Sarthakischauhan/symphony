@@ -6,7 +6,7 @@ from coding_agent.config.prompts import PLAN_MODE_PROMPT, SUBAGENT_SYSTEM_PROMPT
 from coding_agent.tools import (
     AskUserArgs, AskUserTool, BashArgs, BashTool,
     GenerateImageArgs, GenerateImageTool, PatchArgs, PatchTool, ReadFileArgs, ReadFileTool,
-    SearchArgs, SearchTool, TOOL_CLASSES, ToolArgsModel, WorkspaceTool,
+    SearchArgs, SearchTool, TOOL_CLASSES, ToolArgsModel, WebSearchArgs, WebSearchTool, WorkspaceTool,
     WriteFileArgs, WriteFileTool, build_tools,
 )
 
@@ -15,6 +15,7 @@ __all__ = [
     "GenerateImageArgs", "GenerateImageTool", "LearningAddon", "LearningLoop", "LearningReview",
     "LearningStore", "Lesson", "PatchArgs", "PatchTool", "ReadFileArgs",
     "ReadFileTool", "PLAN_MODE_PROMPT", "PlanStore", "SUBAGENT_SYSTEM_PROMPT", "SYSTEM_PROMPT", "SearchArgs", "SearchTool",
-    "JsonlPersistence", "SessionSummary", "TOOL_CLASSES", "ToolArgsModel", "WorkspaceTool",
+    "JsonlPersistence", "SessionSummary", "TOOL_CLASSES", "ToolArgsModel", "WebSearchArgs", "WebSearchTool",
+    "WorkspaceTool",
     "WriteFileArgs", "WriteFileTool", "build_agent", "build_tools",
 ]

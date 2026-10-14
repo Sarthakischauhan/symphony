@@ -100,6 +100,12 @@ can list them. They are not added to the checked-in models.dev snapshot.
 | `OLLAMA_BASE_URL` | Ollama OpenAI-compatible endpoint |
 | `LOCAL_BASE_URL` | Local OpenAI-compatible endpoint |
 
+## Web search (optional)
+
+| Variable | Role |
+| --- | --- |
+| `EXA_API_KEY` | Sent to Exa by the `web_search` tool. Unset, the tool uses Exa's free, rate-limited keyless access. Set, searches use (and are billed to) that Exa account. |
+
 ## Langfuse (optional)
 
 | Variable | Role |

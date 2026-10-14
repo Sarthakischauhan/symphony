@@ -28,8 +28,10 @@ class ApprovalConfig(BaseModel):
     require_for_bash: bool = True
     require_for_overwrite: bool = True
     require_for_broad_patch: bool = True
-    # fnmatch patterns on the bash command, or on the path for write_file /
-    # patch / generate_image. deny wins over every mode, including unattended.
+    require_for_web_search: bool = True
+    # fnmatch patterns on the bash command, on the path for write_file /
+    # patch / generate_image, or on ``web_search:<query>`` for a web search.
+    # deny wins over every mode, including unattended.
     allow: list[str] = Field(default_factory=list)
     deny: list[str] = Field(default_factory=list)
 
@@ -58,12 +60,23 @@ class SearchConfig(BaseModel):
     binary_sniff_bytes: int = Field(default=8192, ge=1)
 
 
+class WebSearchConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # False removes the tool, so no query can leave the machine through it.
+    enabled: bool = True
+    default_max_results: int = Field(default=5, ge=1, le=10)
+    timeout_seconds: int = Field(default=20, ge=1)
+    max_output_chars: int = Field(default=12000, ge=1)
+
+
 class ToolsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bash: BashConfig = Field(default_factory=BashConfig)
     read_file: ReadFileConfig = Field(default_factory=ReadFileConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
 
 
 # Reasoning models spend hidden reasoning tokens from the same output budget
@@ -341,6 +354,7 @@ __all__ = [
     "SettingsSource",
     "SkillsConfig",
     "ToolsConfig",
+    "WebSearchConfig",
     "ensure_spawn_settings",
     "load_coding_agent_config",
     "resolve_coding_agent_config",

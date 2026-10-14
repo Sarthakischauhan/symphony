@@ -13,6 +13,7 @@ from coding_agent.tui.transcript.messages import clip_text, compact_json
 TOOL_LABELS = {
     "bash": ("Bash", "$"),
     "search": ("Search", "⌕"),
+    "web_search": ("Web Search", "⌕"),
     "write_file": ("Write", "+"),
     "generate_image": ("Image", "└"),
     "patch": ("Update", "±"),
@@ -32,7 +33,7 @@ def tool_detail(
     args = dict(arguments or {})
     if tool_name == "bash":
         return str(args.get("command") or raw_arguments)
-    if tool_name == "search":
+    if tool_name in {"search", "web_search"}:
         return str(args.get("query") or args.get("pattern") or compact_json(args))
     if tool_name == "patch":
         return patch_path(args, raw_arguments)

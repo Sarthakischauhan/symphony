@@ -25,7 +25,9 @@ The schema is validated and rejects unrecognized or invalid settings. Keep other
 
 ## Tool approvals
 
-By default, approval prompts are required for `bash`, overwriting an existing file, and broad patches. The coding-agent approval add-on—not the generic harness—implements these prompts. Deny rules are checked first and block a matching tool call; otherwise allow patterns skip a prompt. `approvals.deny` applies in every mode; `approvals.allow` skips prompts in ask mode. `Always allow` changes the active agent session and is not necessarily a persistent config edit.
+By default, approval prompts are required for `bash`, overwriting an existing file, broad patches, and web searches. The coding-agent approval add-on—not the generic harness—implements these prompts. Deny rules are checked first and block a matching tool call; otherwise allow patterns skip a prompt. `approvals.deny` applies in every mode; `approvals.allow` skips prompts in ask mode. `Always allow` changes the active agent session and is not necessarily a persistent config edit.
+
+Patterns match the bash command or the file path. A web search is matched as `web_search:<query>`, so a bash rule such as `git *` never applies to a search. For example, `"allow": ["web_search:*"]` stops the search prompt and `"deny": ["web_search:*"]` blocks every search. Setting `approvals.require_for_web_search` to `false` also stops the prompt.
 
 **Approvals are not a sandbox.** Bash and workspace tools execute with the current user's permissions; absolute paths are available. A bare `CoreHarness` has no approval policy. Review [Security](../../SECURITY.md) before changing defaults or running unattended.
 

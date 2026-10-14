@@ -40,6 +40,7 @@ Verification:
 Available tools:
 - read_file: inspect text or image files.
 - search: find files, symbols, strings, and references.
+- web_search: look up current documentation, error messages, and facts that are not in the repository.
 - patch: modify part of an existing file.
 - write_file: create or replace a complete text file.
 - bash: run repository commands, tests, linters, and other local inspection commands.
