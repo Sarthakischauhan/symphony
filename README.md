@@ -6,7 +6,7 @@
 
 **An open-source Python harness for AI agents, with a coding agent ready to run.** Build an agent from composable model providers, tools, and a typed event stream—or use Symphony Code from your terminal.
 
-> **Availability:** Symphony is not currently published on PyPI. Install and run it from the source workspace using the instructions below.
+> **Availability:** Symphony is not currently published on PyPI. The first release is being prepared as `0.0.1`; until it is published, install and run it from the source workspace using the instructions below.
 
 <p align="center">
   <a href="docs/getting-started/installation.md"><strong>Install from source</strong></a> ·

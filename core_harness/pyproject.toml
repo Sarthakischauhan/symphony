@@ -1,6 +1,6 @@
 [project]
 name = "symphony-harness"
-version = "0.1.0"
+version = "0.0.1"
 description = "Symphony agent harness: provider-agnostic tool loop, control-plane events, run limits, and compaction (import as core_harness)"
 readme = "README.md"
 license = "MIT"
