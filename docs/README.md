@@ -28,7 +28,7 @@ Find the guide for the task you came to do. Symphony is a Python workspace for b
 | A browser-use agent | [symphony-browser](./packages/symphony-browser.md) |
 | An HTTP/SSE interface | [core-server](./packages/core-server.md) |
 
-These are workspace packages, not currently installable PyPI releases. Package-specific READMEs provide short entry points; this `docs/` tree contains the guides.
+These are workspace packages; PyPI installation is available only after the first successful release. See the [PyPI publishing guide](./developer-guide/publishing.md) for first-release setup. Package-specific READMEs provide short entry points; this `docs/` tree contains the guides.
 
 ## Develop Symphony
 

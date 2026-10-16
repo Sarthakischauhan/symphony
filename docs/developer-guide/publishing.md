@@ -1,0 +1,44 @@
+# Publishing packages to PyPI
+
+Symphony's GitHub Actions workflow publishes three distributions: `symphony-core`, `symphony-harness`, and `symphony-code`. The workspace-only `core-server` and `symphony-browser` packages are not included.
+
+## One-time trusted-publisher setup
+
+On PyPI, sign in and open **Account settings → Publishing**. Add a GitHub pending publisher for each package. The publisher configuration must match the workflow exactly:
+
+| Field | Value |
+| --- | --- |
+| PyPI project name | `symphony-core`, `symphony-harness`, or `symphony-code` (one publisher per package) |
+| Owner | `Sarthakischauhan` |
+| Repository | `symphony` |
+| Workflow name | `publish.yml` |
+| Environment name | `pypi` |
+
+A pending publisher does not reserve the project name. PyPI creates the project on its first successful matching upload. Check that the names are available before the first release. In GitHub repository settings, create the `pypi` environment; configure any desired approvals. Do not create or share an API token: the workflow uses OIDC Trusted Publishing.
+
+## First release: 0.0.1
+
+1. Confirm all three pending publishers have the exact values above, especially workflow `publish.yml` and environment `pypi`. The workflow at `.github/workflows/publish.yml` triggers only when a GitHub Release is **published**.
+2. Merge the reviewed release-preparation changes to `main`. They set all three published package versions to `0.0.1` and keep the source-install instructions clear that PyPI availability begins only after a successful upload.
+3. Confirm CI passes on `main`. CI builds the same distributions that the publish job will upload. You can also build locally from a clean checkout:
+
+   ```sh
+   uv sync --locked --all-packages --dev
+   uv run ruff check .
+   uv run pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests browser_agent/tests
+   uv build --package symphony-core -o dist
+   uv build --package symphony-harness -o dist
+   uv build --package symphony-code -o dist
+   ```
+
+4. Create a GitHub Release for the merged commit with tag `v0.0.1` and publish the release. Do not publish the release until CI has passed and the PyPI publishers and GitHub `pypi` environment are configured. Publishing the release triggers the upload; merely pushing the tag does not.
+5. Monitor the `Upload Python Packages to PyPI` workflow in Actions. It builds all three distributions and uses the `pypi` GitHub environment and OIDC to publish them. `skip-existing: true` skips already-uploaded files; it cannot replace a published version, so use new versions for subsequent releases.
+6. Verify all three `0.0.1` project pages on PyPI. Only then change the installation documentation to advertise PyPI installation.
+
+## Subsequent releases
+
+Bump package versions in `core_ai/pyproject.toml`, `core_harness/pyproject.toml`, and/or `coding_agent/pyproject.toml` as appropriate, keep dependency constraints consistent, update the changelog, pass CI, and publish a GitHub Release. PyPI versions are immutable.
+
+The source of truth for publishing is [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml); CI mirrors its package build commands in `.github/workflows/ci.yml`. A prepared version number is not evidence that a distribution has been published.
+
+}
