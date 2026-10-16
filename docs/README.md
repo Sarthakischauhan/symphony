@@ -40,6 +40,7 @@ These are workspace packages, not currently installable PyPI releases. Package-s
 | Work on learning or local extensions | [Learning pipeline](./developer-guide/learning-flow.md) · [Skills and plugins](./developer-guide/skills-and-plugins.md) |
 | Work on terminal interface internals | [TUI architecture](../coding_agent/TUI_ARCHITECTURE.md) · [performance investigation](./developer-guide/tui-performance.md) |
 | Contribute, run checks, or report a security issue | [AGENTS.md](../AGENTS.md) · [Security policy](../SECURITY.md) |
+| Release packages to PyPI | [Publishing guide](./developer-guide/publishing.md) |
 
 ## Reference and project history
 
