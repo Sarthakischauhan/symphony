@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  # Keep in sync with publish.yml. uv itself is pinned here; the build backend
+  # Keep in sync with the publish workflows. uv itself is pinned here; the build backend
   # (uv_build) is pinned separately in each package's [build-system].
   UV_VERSION: "0.12.10"
 
@@ -76,8 +76,8 @@ jobs:
           enable-cache: true
 
       - name: Build the published packages
-        # Same commands as publish.yml, so a release cannot be the first time a
-        # build is attempted.
+        # Same package build commands as the release workflows, so a release cannot
+        # be the first time a build is attempted.
         run: |
           uv build --package symphony-core -o dist
           uv build --package symphony-harness -o dist
