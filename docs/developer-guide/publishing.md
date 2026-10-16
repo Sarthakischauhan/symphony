@@ -11,14 +11,14 @@ On PyPI, sign in and open **Account settings → Publishing**. Add a GitHub pend
 | PyPI project name | `symphony-core`, `symphony-harness`, or `symphony-code` (one publisher per package) |
 | Owner | `Sarthakischauhan` |
 | Repository | `symphony` |
-| Workflow name | `publish.yml` |
+| Workflow name | `publish-core.yml` for `symphony-core`; `publish-harness.yml` for `symphony-harness`; `publish-code.yml` for `symphony-code` |
 | Environment name | `pypi` |
 
 A pending publisher does not reserve the project name. PyPI creates the project on its first successful matching upload. Check that the names are available before the first release. In GitHub repository settings, create the `pypi` environment; configure any desired approvals. Do not create or share an API token: the workflow uses OIDC Trusted Publishing.
 
 ## First release: 0.0.1
 
-1. Confirm all three pending publishers have the exact values above, especially workflow `publish.yml` and environment `pypi`. The workflow at `.github/workflows/publish.yml` triggers only when a GitHub Release is **published**.
+1. Confirm the three pending publishers use their respective workflow filenames from the table and the shared `pypi` environment. The workflow filename differs per package so each pending publisher has a distinct GitHub OIDC identity. Each workflow at `.github/workflows/publish-{core,harness,code}.yml` triggers only when a GitHub Release is **published**.
 2. Merge the reviewed release-preparation changes to `main`. They set all three published package versions to `0.0.1` and keep the source-install instructions clear that PyPI availability begins only after a successful upload.
 3. Confirm CI passes on `main`. CI builds the same distributions that the publish job will upload. You can also build locally from a clean checkout:
 
@@ -39,6 +39,6 @@ A pending publisher does not reserve the project name. PyPI creates the project 
 
 Bump package versions in `core_ai/pyproject.toml`, `core_harness/pyproject.toml`, and/or `coding_agent/pyproject.toml` as appropriate, keep dependency constraints consistent, update the changelog, pass CI, and publish a GitHub Release. PyPI versions are immutable.
 
-The source of truth for publishing is [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml); CI mirrors its package build commands in `.github/workflows/ci.yml`. A prepared version number is not evidence that a distribution has been published.
+The package-specific publisher workflows are [`.github/workflows/publish-core.yml`](../../.github/workflows/publish-core.yml), [`.github/workflows/publish-harness.yml`](../../.github/workflows/publish-harness.yml), and [`.github/workflows/publish-code.yml`](../../.github/workflows/publish-code.yml). The unprivileged `.github/workflows/publish.yml` builds all release distributions for inspection but does not upload them. CI mirrors the package build commands. A prepared version number is not evidence that a distribution has been published.
 
 }
