@@ -18,6 +18,7 @@ TOOL_KINDS = {
     "patch": "edit",
     "bash": "execute",
     "search": "search",
+    "web_search": "fetch",
     "spawn_agent": "think",
 }
 # How an answer choice reads to a client that only knows ACP option kinds.

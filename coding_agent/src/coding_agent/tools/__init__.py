@@ -16,6 +16,7 @@ from coding_agent.tools.patch import PatchArgs, PatchTool
 from coding_agent.tools.plan import EnterPlanModeTool, ExitPlanModeTool
 from coding_agent.tools.read_file import ReadFileArgs, ReadFileTool
 from coding_agent.tools.search import SearchArgs, SearchTool
+from coding_agent.tools.web_search import WebSearchArgs, WebSearchTool
 from coding_agent.tools.write_file import WriteFileArgs, WriteFileTool
 
 TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
@@ -28,6 +29,7 @@ TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
     PatchTool,
     BashTool,
     SearchTool,
+    WebSearchTool,
     AskUserTool,
 )
 
@@ -35,7 +37,8 @@ __all__ = [
     "AskUserArgs", "AskUserTool", "BashArgs", "BashJobs", "BashTool",
     "GenerateImageArgs", "GenerateImageTool", "MemoryArgs", "MemoryTool", "PatchArgs", "PatchTool",
     "ReadFileArgs", "ReadFileTool", "SearchArgs", "SearchTool", "EnterPlanModeTool", "ExitPlanModeTool", "TOOL_CLASSES",
-    "ToolArgsModel", "WorkspaceTool", "WriteFileArgs", "WriteFileTool", "build_tools",
+    "ToolArgsModel", "WebSearchArgs", "WebSearchTool", "WorkspaceTool", "WriteFileArgs", "WriteFileTool",
+    "build_tools",
 ]
 
 
@@ -54,13 +57,17 @@ def build_tools(
         BashTool: {"config": tools_config.bash, "jobs": bash_jobs},
         ReadFileTool: {"config": tools_config.read_file},
         SearchTool: {"config": tools_config.search},
+        WebSearchTool: {"config": tools_config.web_search},
         MemoryTool: {"store": learning_store},
         MemorySearchTool: {"store": learning_store},
         MemoryGetTool: {"store": learning_store},
     }
-    classes = TOOL_CLASSES if learning_enabled else tuple(
-        tool for tool in TOOL_CLASSES if tool not in {MemoryTool, MemorySearchTool, MemoryGetTool}
-    )
+    skipped: set[Type[WorkspaceTool]] = set()
+    if not learning_enabled:
+        skipped |= {MemoryTool, MemorySearchTool, MemoryGetTool}
+    if not tools_config.web_search.enabled:
+        skipped.add(WebSearchTool)
+    classes = tuple(tool for tool in TOOL_CLASSES if tool not in skipped)
     return [
         tool_class(workspace, **configured.get(tool_class, {})).as_harness_tool()
         for tool_class in classes

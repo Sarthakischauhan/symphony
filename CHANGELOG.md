@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `web_search` tool: searches the web through Exa's hosted endpoint with no
+  account or key, and uses `EXA_API_KEY` when it is set. Each search asks for
+  approval and shows the query (`approvals.require_for_web_search`); allow and
+  deny rules match it as `web_search:<query>`. `tools.web_search.enabled:
+  false` removes the tool. Plan mode allows it. The bundled `addon-authoring`
+  skill now looks up third-party API documentation with it.
 - `symphony acp` is an Agent Client Protocol host (protocol version 1) for
   editors and other ACP clients: `initialize`, `session/new`,
   `session/prompt`, `session/cancel`, `session/update`, and

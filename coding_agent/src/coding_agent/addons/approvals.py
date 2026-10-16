@@ -24,15 +24,21 @@ ALLOW_ALWAYS = "Always allow"
 DENY = "Deny"
 APPROVAL_CHOICES = (ALLOW_ONCE, ALLOW_ALWAYS, DENY)
 AUTO_DECISION = "auto_decision"
-RULE_SUBJECTS = {"bash": "command", "write_file": "path", "patch": "path", "generate_image": "path"}
+RULE_SUBJECTS = {
+    "bash": "command", "write_file": "path", "patch": "path", "generate_image": "path",
+    "web_search": "query",
+}
 
 
 def rule_subjects(tool_name: str, arguments: Dict[str, Any], workspace: Path) -> set[str]:
-    """The bash command, or a path normalized so ``../`` and symlinks cannot dodge a rule."""
+    """The bash command, ``web_search:<query>``, or a path normalized so ``../`` and symlinks cannot dodge a rule."""
     field = RULE_SUBJECTS.get(tool_name)
     raw = str(arguments.get(field) or "").strip() if field else ""
     if not raw or field == "command":
         return {raw} if raw else set()
+    if field == "query":
+        # Prefixed so a bash rule such as ``git *`` cannot allow a search.
+        return {f"{tool_name}:{raw}"}
     joined = os.path.join(workspace, os.path.expanduser(raw))
     absolute, resolved = os.path.normpath(joined), str(Path(joined).resolve())
     return {absolute, resolved, os.path.relpath(absolute, workspace)}
@@ -41,7 +47,7 @@ def rule_subjects(tool_name: str, arguments: Dict[str, Any], workspace: Path) ->
 def matching_rule(
     patterns: Sequence[str], tool_name: str, arguments: Dict[str, Any], workspace: Path
 ) -> Optional[str]:
-    """First pattern matching the bash command or any normalized form of the path, if any."""
+    """First pattern matching the bash command, the prefixed query, or any normalized form of the path."""
     subjects = rule_subjects(tool_name, arguments, workspace)
     return next((p for p in patterns if any(fnmatchcase(s, p) for s in subjects)), None)
 
@@ -67,6 +73,9 @@ class ApprovalPolicy:
         if tool_name == "bash" and config.require_for_bash:
             command = str(arguments.get("command") or "").strip()
             return f"Allow bash command once?\n`{command}`"
+        if tool_name == "web_search" and config.require_for_web_search:
+            query = str(arguments.get("query") or "").strip()
+            return f"Allow web search once?\n`{query}`"
         if tool_name in {"write_file", "generate_image"}:
             path = str(arguments.get("path") or "").strip()
             if config.require_for_overwrite and path and self._exists(path):
