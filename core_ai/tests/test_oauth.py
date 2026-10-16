@@ -322,7 +322,41 @@ def test_build_default_registry_uses_anthropic_oauth_bearer() -> None:
     headers = provider._headers
     assert headers["Authorization"] == "Bearer oat"
     assert "x-api-key" not in headers
+    assert provider.base_url == "https://api.anthropic.com"
     assert headers["anthropic-beta"] == "oauth-2025-04-20"
+    assert "User-Agent" not in headers
+    assert "x-app" not in headers
+
+
+def test_build_default_registry_keeps_anthropic_api_key_on_platform_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    save_token("anthropic", OAuthToken(access_token="oat"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    registry = build_default_registry()
+    provider = registry._providers["anthropic"]
+    assert isinstance(provider, AnthropicProvider)
+    assert provider.api_key == "sk-ant-api-test"
+    assert provider.base_url == "https://api.anthropic.com"
+    assert not provider.use_bearer
+    headers = provider._headers
+    assert headers["x-api-key"] == "sk-ant-api-test"
+    assert "Authorization" not in headers
+    assert "anthropic-beta" not in headers
+
+
+def test_build_default_registry_honors_anthropic_oauth_preference_over_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    save_token("anthropic", OAuthToken(access_token="oat"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    monkeypatch.setenv("SYMPHONY_ANTHROPIC_AUTH", "oauth")
+    registry = build_default_registry()
+    provider = registry._providers["anthropic"]
+    assert provider.api_key == "oat"
+    assert provider.use_bearer
+    assert provider.base_url == "https://api.anthropic.com"
+    assert provider._headers["Authorization"] == "Bearer oat"
 
 
 def test_start_login_openai_paste_exchanges_code() -> None:

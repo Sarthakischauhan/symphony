@@ -12,6 +12,30 @@ def _sse(*events: str) -> str:
     return "\n\n".join(f"data: {event}" for event in events) + "\n\n"
 
 
+def test_anthropic_setup_token_uses_bearer_without_oauth_flag() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer sk-ant-oat01-test"
+        assert "x-api-key" not in request.headers
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}'
+            ),
+        )
+
+    async def collect() -> None:
+        provider = AnthropicProvider(
+            api_key="sk-ant-oat01-test",
+            transport=httpx.MockTransport(handler),
+        )
+        async for _event in provider.stream(
+            "claude-sonnet-5", [Message(role="user", content="hi")]
+        ):
+            pass
+
+    asyncio.run(collect())
+
+
 def test_anthropic_streams_text_tools_and_usage() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/messages"
@@ -97,6 +121,75 @@ def test_anthropic_rate_limit_retries_using_retry_after_header() -> None:
     assert [event.type for event in events] == ["retry", "text_delta", "done"]
     assert events[0].retry_after == 0
     assert events[1].delta == "Done"
+
+
+def test_anthropic_rate_limit_error_event_retries_as_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = 0
+
+    async def no_sleep(_delay: float) -> None:
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(
+                200,
+                text=_sse(
+                    '{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit hit"}}'
+                ),
+            )
+        return httpx.Response(
+            200,
+            text=_sse(
+                '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Done"}}'
+            ),
+        )
+
+    monkeypatch.setattr("core_ai.providers.http.asyncio.sleep", no_sleep)
+
+    async def collect() -> list[StreamEvent]:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        return [
+            event
+            async for event in provider.stream(
+                "claude-sonnet-5", [Message(role="user", content="Do it")]
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert requests == 2
+    assert [event.type for event in events] == ["retry", "text_delta", "done"]
+    assert events[0].retry_reason == "rate_limit"
+    assert events[1].delta == "Done"
+
+
+def test_anthropic_http_rate_limit_keeps_error_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_sleep(_delay: float) -> None:
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={"type": "error", "error": {"type": "rate_limit_error", "message": "Rate limit hit"}},
+            headers={"Retry-After": "0"},
+        )
+
+    monkeypatch.setattr("core_ai.providers.http.asyncio.sleep", no_sleep)
+
+    async def collect() -> None:
+        provider = AnthropicProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "claude-sonnet-5", [Message(role="user", content="Do it")]
+        ):
+            pass
+
+    with pytest.raises(httpx.HTTPStatusError, match="Rate limit hit"):
+        asyncio.run(collect())
 
 
 def test_anthropic_retries_retryable_in_stream_error(
