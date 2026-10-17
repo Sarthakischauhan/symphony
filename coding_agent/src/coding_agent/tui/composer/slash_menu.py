@@ -12,10 +12,8 @@ from textual.widgets.option_list import Option
 
 from coding_agent.commands.catalog import (
     EffortOption,
-    ModeOption,
     ModelOption,
     PersonalityOption,
-    PlanOption,
     SlashCommand,
 )
 from coding_agent.tui.screens.file_selector import FileOption
@@ -23,16 +21,14 @@ from coding_agent.tui.theme import SYMPHONY_COLORS
 
 
 class SlashMenu(OptionList):
-    """Cached completion menu for files, commands, and plans."""
+    """Cached completion menu for files and commands."""
 
     _files_cache: tuple[FileOption, ...] | None = None
-    _plans_cache: tuple[PlanOption, ...] | None = None
     _matches_cache: dict[tuple[str, str], tuple[Option, ...]] = {}
 
     @classmethod
     def clear_session_cache(cls) -> None:
         cls._files_cache = None
-        cls._plans_cache = None
         cls._matches_cache.clear()
 
     """Discoverable command suggestions displayed above the composer."""
@@ -45,8 +41,6 @@ class SlashMenu(OptionList):
         self._models: tuple[ModelOption, ...] = ()
         self._personalities: tuple[PersonalityOption, ...] = ()
         self._efforts: tuple[EffortOption, ...] = ()
-        self._modes: tuple[ModeOption, ...] = ()
-        self._plans: tuple[PlanOption, ...] = ()
         self._files: tuple[FileOption, ...] = ()
         self._questions: tuple[str, ...] = ()
         self._question_text = ""
@@ -54,8 +48,6 @@ class SlashMenu(OptionList):
         self._current_model = ""
         self._current_personality = ""
         self._current_effort = ""
-        self._current_mode = ""
-        self._current_plan = ""
 
     @property
     def selected_value(self) -> str:
@@ -67,10 +59,6 @@ class SlashMenu(OptionList):
             return f"/personality {self._personalities[self.selected_index].id}"
         if self._efforts:
             return f"/effort {self._efforts[self.selected_index].id}"
-        if self._modes:
-            return f"/mode {self._modes[self.selected_index].id}"
-        if self._plans:
-            return f"{getattr(self, '_plan_command', '/plan')} {self._plans[self.selected_index].id}"
         if self._questions:
             return self._questions[self.selected_index]
         if self._commands:
@@ -88,8 +76,6 @@ class SlashMenu(OptionList):
             or len(self._models)
             or len(self._personalities)
             or len(self._efforts)
-            or len(self._modes)
-            or len(self._plans)
             or len(self._questions)
             or len(self._commands)
         )
@@ -146,8 +132,6 @@ class SlashMenu(OptionList):
         models: tuple[ModelOption, ...] = (),
         personalities: tuple[PersonalityOption, ...] = (),
         efforts: tuple[EffortOption, ...] = (),
-        modes: tuple[ModeOption, ...] = (),
-        plans: tuple[PlanOption, ...] = (),
         files: tuple[FileOption, ...] = (),
         questions: tuple[str, ...] = (),
         question_text: str = "",
@@ -158,8 +142,6 @@ class SlashMenu(OptionList):
         self._models = models
         self._personalities = personalities
         self._efforts = efforts
-        self._modes = modes
-        self._plans = plans
         self._files = files
         self._questions = questions
         self._question_text = question_text
@@ -201,18 +183,6 @@ class SlashMenu(OptionList):
         )
         self._replace_choices(efforts=efforts, selected_index=selected_index)
 
-    def set_modes(self, modes: tuple[ModeOption, ...], current: str = "") -> None:
-        self._current_mode = current
-        self._replace_choices(modes=modes)
-
-    def set_plans(self, plans: tuple[PlanOption, ...], current: str = "", command: str = "/plan") -> None:
-        self._current_plan = current
-        self._plan_command = command
-        if self._plans_cache == plans:
-            plans = self._plans_cache
-        else:
-            self._plans_cache = plans
-        self._replace_choices(plans=plans)
 
     def set_files(self, files: tuple[FileOption, ...]) -> None:
         if self._files_cache == files:
@@ -299,22 +269,6 @@ class SlashMenu(OptionList):
                     effort.description,
                 )
                 for effort in self._efforts
-            ]
-        if self._modes:
-            return [
-                self._described_row(
-                    f"{'●' if mode.id == self._current_mode else '○'} {mode.label:<27}",
-                    mode.description,
-                )
-                for mode in self._modes
-            ]
-        if self._plans:
-            return [
-                self._described_row(
-                    f"{'●' if plan.id == self._current_plan else '○'} {plan.label:<27}",
-                    plan.description,
-                )
-                for plan in self._plans
             ]
         return [
             self._described_row(f"{command.usage:<22}", command.description)

@@ -12,7 +12,7 @@ from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.config.personalities import load_personalities
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
-from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, MODE_CATALOG, SlashCommand
+from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, SlashCommand
 from coding_agent.addons.manager import addons_report
 
 
@@ -26,7 +26,6 @@ def catalog(
             {"value": item.id, "label": item.name, "description": item.description or ""}
             for item in load_personalities()
         ],
-        "mode": [{"value": item.id, "label": item.label, "description": item.description} for item in MODE_CATALOG],
         "effort": [{"value": item.id, "label": item.label, "description": item.description} for item in EFFORT_CATALOG],
         "jev": [{"value": value, "label": value.title(), "description": description} for value, description in
                 [("on", "Enable the finish rule"), ("off", "Disable the finish rule"), ("toggle", "Toggle the finish rule")]],
@@ -39,17 +38,6 @@ def catalog(
         "dashboard": "List active Symphony agents",
         "reload": "Reload configuration and environment for the live agent",
     }
-    if workspace is not None:
-        from coding_agent.addons.plan.store import PlanStore
-        root = Path(workspace).resolve()
-        plans = []
-        for path in PlanStore(root).list_paths():
-            try:
-                value = str(path.resolve().relative_to(root))
-            except ValueError:
-                continue
-            plans.append({"value": value, "label": path.stem, "description": "Saved workspace plan"})
-        choices["plans"] = plans
     return [
         {"name": item.name, "description": descriptions.get(item.name, item.description),
          "inputHint": item.argument, "options": choices.get(item.name, [])}
@@ -86,6 +74,14 @@ def _agent_state_path(agent: Any) -> Path:
     return path
 
 
+def _reject_legacy_plan_state(data: dict[str, Any]) -> None:
+    if data.get("mode", "build") != "build":
+        raise ValueError(
+            "This session was saved with a removed or unsupported mode. "
+            "It cannot be resumed safely; explicitly start a fresh session."
+        )
+
+
 def load_state(agent: Any) -> None:
     try:
         path = _agent_state_path(agent)
@@ -94,9 +90,7 @@ def load_state(agent: Any) -> None:
     if not path.exists():
         return
     data = json.loads(path.read_text(encoding="utf-8"))
-    mode = data.get("mode", "build")
-    if mode in {"build", "plan"}:
-        agent.set_mode(mode)
+    _reject_legacy_plan_state(data)
     effort = data.get("effort")
     if effort in EFFORTS:
         agent.harness.reasoning_effort = None if effort == "default" else effort
@@ -106,6 +100,8 @@ def _save_state(agent: Any, **changes: str) -> None:
     path = _agent_state_path(agent)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    _reject_legacy_plan_state(data)
+    data.pop("mode", None)
     data.update(changes)
     publish(path, (json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
@@ -129,7 +125,7 @@ async def execute(agent: Any, value: str) -> str:
     if command == "status":
         return (
             f"Model: {agent.harness.model_id}\nSession: {agent.session_id}\n"
-            f"Mode: {agent.mode}\nPersonality: {agent.config.personality}\n"
+            f"Personality: {agent.config.personality}\n"
             f"Effort: {agent.harness.reasoning_effort or 'default'}"
         )
     if command == "session":
@@ -142,15 +138,6 @@ async def execute(agent: Any, value: str) -> str:
     if command == "compact":
         before, after = await agent.compact_conversation()
         return f"Compacted conversation: {before} → {after} messages."
-    if command in {"mode", "plan"}:
-        mode = "plan" if command == "plan" else argument.lower()
-        if not mode:
-            return f"Current mode: {agent.mode}. Options: build, plan."
-        if mode not in {"build", "plan"}:
-            return "Choose /mode build or /mode plan."
-        agent.set_mode(mode)
-        _save_state(agent, mode=mode)
-        return f"Switched to {agent.mode} mode."
     if command == "effort":
         if not argument:
             return f"Current effort: {agent.harness.reasoning_effort or 'default'}. Options: {', '.join(EFFORTS)}."
@@ -182,12 +169,6 @@ async def execute(agent: Any, value: str) -> str:
         if argument:
             return "Select the model in Zeron's model picker; it controls the model for this chat."
         return f"Current model: {agent.harness.model_id}\nAvailable: {', '.join(models)}"
-    if command == "plans":
-        if argument:
-            path = agent.plan_store.select(argument)
-            return path.read_text(encoding="utf-8") if path else f"Unknown plan: {argument}."
-        paths = agent.plan_store.list_paths()
-        return "\n".join(str(path.relative_to(agent.workspace)) for path in paths) or "No saved plans."
     if command == "learning":
         try:
             store = agent.learning_store

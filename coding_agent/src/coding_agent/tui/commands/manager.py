@@ -30,16 +30,12 @@ from coding_agent.tui.screens import (
     ExtensionsModal,
     LangfuseSetupScreen,
     LearningModal,
-    PlanModal,
     ProviderOnboardScreen,
 )
 from coding_agent.commands.catalog import (
     EFFORT_CATALOG,
-    MODE_CATALOG,
     SLASH_COMMANDS,
     EffortOption,
-    PlanOption,
-    find_mode,
     find_model,
     find_personality,
     model_options,
@@ -185,7 +181,7 @@ def show_personality_picker(app: Any) -> None:
     current = getattr(getattr(app, "config", None), "personality", None) or ""
     app.query_one("#slash-menu").set_personalities(personality_options(), current)
 
-# --- mode_switcher.py ---
+# --- effort_switcher.py ---
 def effort_matches(
     value: str,
     efforts: Iterable[EffortOption] = EFFORT_CATALOG,
@@ -254,113 +250,6 @@ def show_effort_picker(app: Any) -> None:
     app.query_one("#slash-menu").set_efforts(efforts, current)
 
 
-def sync_app_mode(app: Any, mode: str, *, plan_path: str | None = None) -> None:
-    """Keep TUI mode, agent mode, and the plan-mode gate in lockstep."""
-    app.mode = mode
-    agent = getattr(app, "_agent", None)
-    if agent is not None:
-        agent.set_mode(mode)
-        plan_state = getattr(agent, "plan_mode", None)
-        if plan_state is not None:
-            if mode == "plan":
-                plan_state.begin(plan_path)
-            else:
-                plan_state.reset()
-    app._update_composer_hint()
-
-
-def current_plan_path(app: Any) -> str | None:
-    store = getattr(app, "_plan_store", None)
-    path = getattr(store, "path", None) if store is not None else None
-    return str(path) if path is not None else None
-
-
-def select_mode(app: Any, argument: str) -> None:
-    selected = find_mode(argument)
-    if selected is None:
-        app.add_notice(f"Unknown mode: {argument}. Run /mode to see available modes.", "warning")
-        return
-    sync_app_mode(app, selected.id)
-    app.add_update(f"Switched to {selected.label} mode")
-
-
-def show_mode_picker(app: Any) -> None:
-    prompt = app.query_one("#prompt")
-    prompt.value = "/mode "
-    prompt.cursor_position = len(prompt.value)
-    app.query_one("#slash-menu").set_modes(MODE_CATALOG, app.mode)
-
-
-def toggle_mode(app: Any) -> None:
-    sync_app_mode(app, "plan" if app.mode == "build" else "build")
-
-
-# --- plan_list.py ---
-def list_plan_options(app: Any, query: str = "") -> tuple[PlanOption, ...]:
-    cached = getattr(app, "_plan_list_cache", None)
-    if cached is None:
-        cached = tuple(
-            PlanOption(
-                path.name,
-                app._plan_store.task_for(path),
-                str(path.relative_to(app.workspace)),
-            )
-            for path in app._plan_store.list_paths()
-        )
-        app._plan_list_cache = cached
-    needle = query.strip().lower()
-    if not needle:
-        return cached
-    return tuple(
-        option
-        for option in cached
-        if needle in option.id.lower() or needle in option.label.lower()
-    )
-
-
-def show_plan_picker(app: Any) -> None:
-    plans = list_plan_options(app)
-    if not plans:
-        app.add_notice("No saved plans yet. Switch to Plan mode to create one.")
-        return
-    prompt = app.query_one("#prompt")
-    prompt.value = "/plans "
-    prompt.cursor_position = len(prompt.value)
-    app.query_one("#slash-menu").set_plans(plans, app._plan_store.path.name, command="/plans")
-
-
-def open_plan_modal(app: Any, plan_name: str | None = None) -> None:
-    if plan_name is not None and app._plan_store.select(plan_name) is None:
-        app.add_notice(f"Unknown plan: {plan_name}. Run /plans to choose one.", "warning")
-        return
-    if not app._plan_store.path.exists():
-        app.add_notice("No saved plans yet. Switch to Plan mode to create one.")
-        return
-    app.push_screen(PlanModal(app.workspace), app._command_manager.on_plan_action)
-
-
-def on_plan_action(app: Any, action: str | None) -> None:
-    if app._busy:
-        return
-    if action == "quit":
-        sync_app_mode(app, "build")
-        return
-    if action == "changes":
-        sync_app_mode(app, "plan", plan_path=current_plan_path(app))
-        app.query_one("#prompt").focus()
-        return
-    if action != "build":
-        return
-    agent = getattr(app, "_agent", None)
-    plan_state = getattr(agent, "plan_mode", None) if agent is not None else None
-    if plan_state is not None:
-        plan_state.approve()
-    sync_app_mode(app, "build")
-    prompt = app.query_one("#prompt")
-    plan_path = app._plan_store.path.relative_to(app.workspace)
-    prompt.value = f"Build the approved plan in {plan_path}."
-    prompt.action_submit()
-
 # --- reload.py ---
 async def reload_project(app: Any) -> None:
     """Reload environment-backed agent configuration in the current session."""
@@ -385,11 +274,13 @@ async def reload_project(app: Any) -> None:
             config=reloaded_config,
             client="tui",
         )
+        from coding_agent.protocols.stdio.commands import load_state
+
+        load_state(reloaded_agent)
         session_rule = getattr(app, "jev_rule", "")
         jev_addon = reloaded_agent.harness.find_addon(JevAddon)
         if jev_addon is not None:
             jev_addon.config.rule = session_rule
-        reloaded_agent.set_mode(app.mode)
         reloaded_model = reloaded_agent.harness.model_id
         reloaded_info = _model_info(reloaded_model)
         reloaded_agent.harness.reasoning_effort = (
@@ -472,7 +363,6 @@ def show_status(app: Any) -> None:
         lines.append(f"effort    {app._agent.harness.reasoning_effort or 'default'}")
     lines.extend(
         [
-            f"mode      {app.mode}",
             f"personality {getattr(getattr(app, 'config', None), 'personality', None) or 'stock'}",
             f"approval  {app._agent.approval.approvals.mode}",
             f"session   {app._agent.session_id}",
@@ -524,8 +414,6 @@ class CommandManager:
     def __init__(self, app: Any) -> None:
         self.app = app
 
-    def plan_options(self, query: str = ""):
-        return list_plan_options(self.app, query)
 
     async def run(self, value: str) -> None:
         command, _, argument = value[1:].partition(" ")
@@ -577,12 +465,6 @@ class CommandManager:
             agent = app._agent
             skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())
             app.push_screen(ExtensionsModal(skills, plugins))
-        elif command == "plan":
-            select_mode(app, "plan")
-            if argument:
-                app.query_one("#prompt").value = argument
-        elif command == "plans":
-            open_plan_modal(app, argument) if argument else show_plan_picker(app)
         elif command == "effort":
             if app._busy:
                 app.add_notice("/effort is unavailable while a turn is running.", "warning")
@@ -594,11 +476,6 @@ class CommandManager:
                 select_effort(app, argument)
             else:
                 show_effort_picker(app)
-        elif command == "mode":
-            if app._busy:
-                app.add_notice("/mode is unavailable while a turn is running.", "warning")
-            else:
-                select_mode(app, argument) if argument else show_mode_picker(app)
         elif command == "voice":
             from coding_agent.tui.composer.voice_mode import toggle_voice
 
@@ -638,12 +515,6 @@ class CommandManager:
             app.add_notice(await app._agent.user_addons.run_command(command, argument) or "")
         else:
             app.add_notice(f"Unknown command: /{command}. Type /help to see commands.", "warning")
-
-    def open_plan_modal(self, plan_name: str | None = None) -> None:
-        open_plan_modal(self.app, plan_name)
-
-    def on_plan_action(self, action: str | None) -> None:
-        on_plan_action(self.app, action)
 
 
 def open_provider_onboard(app: Any, argument: str = "") -> None:

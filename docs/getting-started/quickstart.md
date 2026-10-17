@@ -32,7 +32,6 @@ Read the proposed actions. Symphony may ask before running shell commands or ove
 ## 3. Use the controls
 
 - Type `/` to discover slash commands; `/model` selects a model.
-- Type `/mode` to switch between build and plan modes.
 - Type `@` at the end of a workspace-path mention to get file suggestions.
 - Press `Esc` or `Ctrl+X` to cancel an active run.
 - Press `Ctrl+B` to open the agent dashboard; `Ctrl+G` opens subagent sessions.

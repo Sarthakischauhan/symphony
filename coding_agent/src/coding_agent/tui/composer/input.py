@@ -189,11 +189,6 @@ class PromptInput(TextArea):
 PROMPT_PLACEHOLDER = "Ask Symphony..."
 
 
-def mode_label(mode: str) -> str:
-    """All-caps composer mode badge (`BUILD` / `PLAN`)."""
-    return mode.upper()
-
-
 class QueuedPrompt(Container):
     """Follow-up prompt controls shown on one line inside the composer."""
 
@@ -211,7 +206,7 @@ class QueuedPrompt(Container):
 
 
 class Composer(Container):
-    """Borderless prompt under a thin separator, with the mode badge at the right."""
+    """Borderless prompt under a thin separator, for composing messages."""
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield QueuedPrompt(id="queued-prompt-row")
@@ -222,4 +217,3 @@ class Composer(Container):
                 soft_wrap=True,
                 show_line_numbers=False,
             )
-            yield Static(mode_label("build"), id="composer-mode")

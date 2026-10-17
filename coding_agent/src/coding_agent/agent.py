@@ -6,7 +6,7 @@ import asyncio
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Callable, List, Literal, Optional, Union
+from typing import Any, Callable, List, Optional, Union
 
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
@@ -29,8 +29,6 @@ from coding_agent.addons import (
     ApprovalAddon,
     JevAddon,
     LearningAddon,
-    PlanModeAddon,
-    PlanModeState,
     SessionMemoryAddon,
     SkillsAddon,
     ai_compaction_from_config,
@@ -50,15 +48,12 @@ from coding_agent.addons.learning import LearningLoop, LearningStore
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
 from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.config.personalities import compose_system_prompt
-from coding_agent.addons.plan.store import PlanStore
 from coding_agent.addons.plugins import LoadedPlugin, PluginManager
-from coding_agent.config.prompts import PLAN_MODE_PROMPT, SYSTEM_PROMPT
+from coding_agent.config.prompts import SYSTEM_PROMPT
 from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
 from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
 from core_harness.extensions import EMPTY_SNAPSHOT
-from coding_agent.tools import BashJobs, EnterPlanModeTool, ExitPlanModeTool, build_tools
-
-AgentMode = Literal["build", "plan"]
+from coding_agent.tools import BashJobs, build_tools
 
 
 def default_addons(
@@ -70,8 +65,6 @@ def default_addons(
     include_subagent: bool = True,
     langfuse: Optional[LangfuseConfig] = None,
     evaluation: Optional[EvaluationConfig] = None,
-    plan_store: Optional[PlanStore] = None,
-    plan_mode: Optional[PlanModeState] = None,
     learning: Optional[LearningLoop] = None,
     should_review: Optional[Callable[[], bool]] = None,
 ) -> list:
@@ -96,8 +89,6 @@ def default_addons(
         addons.append(langfuse_addon)
     jev_addon = jev_from_config(
         evaluation or EvaluationConfig(),
-        plan_store=plan_store,
-        plan_mode=plan_mode,
     )
     if jev_addon is not None:
         addons.append(jev_addon)
@@ -120,7 +111,6 @@ class CodingAgent:
         persistence: Optional[Persistence] = None,
         session_id: Optional[str] = None,
         system_prompt: str = SYSTEM_PROMPT,
-        mode: AgentMode = "build",
         tools: Optional[List[Tool]] = None,
     ) -> None:
         self.workspace = Path(workspace).resolve()
@@ -135,12 +125,7 @@ class CodingAgent:
         if isinstance(self.persistence, JsonlPersistence):
             self.persistence.checkpoint_metadata = self._checkpoint_metadata
         self.base_system_prompt = system_prompt.rstrip()
-        # Unattended runs cannot enter plan mode: approving a plan needs a human.
         self.unattended = self.config.unattended
-        mode = "build" if self.unattended else mode
-        self.mode = mode
-        self.plan_mode = PlanModeState(workspace=self.workspace, active=mode == "plan")
-        self.plan_store = PlanStore(self.workspace)
         self.learning_store = LearningStore(
             self.workspace,
             session_id=self.session_id,
@@ -225,23 +210,14 @@ class CodingAgent:
             include_subagent=include_subagent,
             langfuse=self.config.langfuse,
             evaluation=self.config.evaluation,
-            plan_store=self.plan_store,
-            plan_mode=self.plan_mode,
             learning=self.learning_loop,
-            should_review=lambda: self.mode != "plan",
         )
-        addons.append(PlanModeAddon(self.plan_mode))
         self.approval = ApprovalAddon(
             self.workspace, self.sink, approvals=self.config.approvals, unattended=self.unattended
         )
         addons.append(self.approval)
         if self.config.skills.enabled:
             addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
-        if not self.unattended:
-            self.tools.extend([
-                EnterPlanModeTool(self.workspace, self.plan_mode, self),
-                ExitPlanModeTool(self.workspace, self.plan_mode),
-            ])
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -342,6 +318,13 @@ class CodingAgent:
         session_id: Optional[str] = None,
     ) -> HarnessResult:
         """Run the agent. Rejected OAuth tokens are refreshed inside the provider."""
+        # UI/protocol state must not be bypassed by direct API or headless resume.
+        from coding_agent.addons.persistence.compatibility import validate_session_workflow
+
+        effective_session = session_id or self.session_id
+        directory = (self.persistence.session_dir(effective_session)
+                     if isinstance(self.persistence, JsonlPersistence) else None)
+        await asyncio.to_thread(validate_session_workflow, directory, effective_session)
         self._active_runs += 1
         try:
             return await self._run_turns(user_input, conversation=conversation, session_id=session_id)
@@ -375,7 +358,6 @@ class CodingAgent:
                 for tool in self.tools:
                     if isinstance(tool, (MemoryTool, MemorySearchTool, MemoryGetTool)):
                         tool.learning_store = self.learning_store
-        mode = self.mode
         task_text = text_from_content(user_input)
         self.apply_system_prompt()
         jev_addon = self.harness.find_addon(JevAddon)
@@ -387,9 +369,6 @@ class CodingAgent:
             if callable(goal):
                 self.goal = await asyncio.to_thread(goal, session_id or self.session_id)
             self.goal = self.goal or task_text
-        if mode == "plan" and not self.plan_mode.plan_path:
-            plan_path = self.plan_store.begin(task_text)
-            self.plan_mode.begin(str(plan_path))
         try:
             result = await self.harness.run(
                 user_input,
@@ -399,7 +378,7 @@ class CodingAgent:
         except BaseException:
             # Persisted partial context is available even when the turn stopped.
             # Capture is fail-open and may be retried from its durable job later.
-            if self.learning_loop is not None and mode != "plan":
+            if self.learning_loop is not None:
                 try:
                     partial = await self.persistence.load_conversation(session_id=session_id or self.session_id)
                     self.learning_loop.capture(task_text, partial)
@@ -416,8 +395,8 @@ class CodingAgent:
         return result
 
     def _checkpoint_metadata(self) -> dict[str, Any]:
-        """Goal (first prompt), current todo (the active plan file), live background jobs."""
-        return {"goal": self.goal, "todo": self.plan_mode.plan_path, "background_jobs": self.bash_jobs.running()}
+        """Goal (first prompt) and live background jobs."""
+        return {"goal": self.goal, "background_jobs": self.bash_jobs.running()}
 
     def _jev_follow_up(self) -> Optional[str]:
         addon = self.harness.find_addon(JevAddon)
@@ -427,7 +406,7 @@ class CodingAgent:
         return prompt if isinstance(prompt, str) and prompt.strip() else None
 
     def apply_system_prompt(self) -> None:
-        """Recompose ``harness.system_prompt`` from base, mode, Jev, and personality."""
+        """Recompose ``harness.system_prompt`` from base, Jev, and personality."""
         skills = ""
         if self.config.skills.enabled and self.skill_registry.skills:
             lines = [
@@ -438,19 +417,9 @@ class CodingAgent:
         self.harness.system_prompt = compose_system_prompt(
             self.base_system_prompt,
             self.config.personality,
-            plan=PLAN_MODE_PROMPT if self.mode == "plan" else "",
             skills=skills,
             jev=JEV_SYSTEM_SEGMENT if self.config.evaluation.enabled else "",
         )
-
-    def set_mode(self, mode: AgentMode) -> None:
-        mode = "build" if self.unattended else mode
-        self.mode = mode
-        if mode == "plan":
-            self.plan_mode.begin()
-        else:
-            self.plan_mode.reset()
-        self.apply_system_prompt()
 
     async def wait_for_learning(self) -> None:
         """Drain the current memory capture worker; failed jobs remain durable."""

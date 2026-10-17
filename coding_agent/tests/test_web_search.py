@@ -10,7 +10,6 @@ from typing import Any, Callable
 import httpx
 
 from coding_agent.addons.approvals import DENY, ApprovalAddon, ApprovalPolicy
-from coding_agent.addons.plan.addon import PlanModeState
 from coding_agent.config import ApprovalConfig, ToolsConfig, WebSearchConfig
 from coding_agent.protocols.acp.mapping import TOOL_KINDS
 from coding_agent.tools import WebSearchTool, build_tools
@@ -137,13 +136,10 @@ def test_rpc_message_reads_json_and_the_last_sse_reply() -> None:
     assert rpc_message("") is None
 
 
-def test_web_search_can_be_disabled_and_is_allowed_while_planning(tmp_path: Path) -> None:
+def test_web_search_can_be_disabled(tmp_path: Path) -> None:
     disabled = ToolsConfig(web_search=WebSearchConfig(enabled=False))
     assert "web_search" in [tool.name for tool in build_tools(tmp_path)]
     assert "web_search" not in [tool.name for tool in build_tools(tmp_path, config=disabled)]
-    plan = PlanModeState()
-    plan.begin()
-    assert plan.permits("web_search")
 
 
 def test_web_search_prompts_and_matches_only_prefixed_rules(tmp_path: Path) -> None:

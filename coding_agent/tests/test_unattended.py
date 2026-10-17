@@ -89,8 +89,7 @@ def test_unattended_run_never_prompts_and_denies_in_parent_and_child(tmp_path: P
     assert "denied by rule" in parent_results[2]
     assert "denied by rule" in _tool_results(registry, "CHILD")[0]
     assert "enter_plan_mode" not in agent.harness.tools
-    agent.set_mode("plan")
-    assert agent.mode == "build" and not agent.plan_mode.active
+    assert "exit_plan_mode" not in agent.harness.tools
 
 
 def test_deny_rules_apply_even_in_always_allow_and_survive_restart(tmp_path: Path) -> None:

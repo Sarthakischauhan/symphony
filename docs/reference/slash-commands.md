@@ -6,9 +6,6 @@ Type `/` in the Symphony Code composer to discover commands. Select a suggestion
 | --- | --- |
 | `/model [id]` | List configured models or switch the active model |
 | `/provider [name]` | Add or switch provider credentials |
-| `/mode [mode]` | Show or switch the current mode |
-| `/plan` | Enter plan mode |
-| `/plans [plan]` | Choose and open a workspace plan |
 | `/effort [level]` | Set model reasoning effort when supported |
 | `/personality [id]` | Choose a prompt personality |
 | `/jev [on\|off\|rule]` | Configure the optional completion check |

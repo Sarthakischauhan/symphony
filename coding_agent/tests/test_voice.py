@@ -197,6 +197,8 @@ def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) ->
     async def _run() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
+            app._agent = object()
+            app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
             start_voice(app, capture=capture, transcriber=transcriber)
             await pilot.pause()
             assert capture.started.wait(timeout=2)
@@ -244,6 +246,8 @@ def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.Mo
     async def _run() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
+            app._agent = object()
+            app._start_turn = lambda turn: submitted.append(turn.text)  # type: ignore[method-assign]
             await app._run_slash_command("/voice")
             await pilot.pause()
             assert capture.started.wait(timeout=2)
@@ -307,6 +311,8 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
     async def _run() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
+            app._agent = SimpleNamespace(harness=harness)
+            app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
             start_voice(app, stream=stream)
             await pilot.pause()
             assert app._voice_active

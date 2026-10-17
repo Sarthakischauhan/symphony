@@ -5,6 +5,9 @@ import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 from core_ai import ModelInfo
 from coding_agent.protocols import stdio
@@ -131,26 +134,6 @@ def test_slash_command_does_not_call_the_model(monkeypatch):
     assert any(frame.get("event") == "text_delta" and "/model" in frame["payload"]["delta"] for frame in frames)
 
 
-def test_mode_command_survives_a_new_stdio_process(monkeypatch, tmp_path):
-    from coding_agent.protocols.stdio import commands
-
-    monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path)
-
-    class Agent:
-        session_id = "0876c78a-9f47-4bd5-a495-a8e912c3757c"
-        mode = "build"
-        harness = SimpleNamespace(reasoning_effort=None)
-
-        def set_mode(self, mode):
-            self.mode = mode
-
-    first = Agent()
-    assert asyncio.run(commands.execute(first, "/mode plan")) == "Switched to plan mode."
-    second = Agent()
-    commands.load_state(second)
-    assert second.mode == "plan"
-
-
 def test_protocol_catalog_includes_dynamic_argument_choices(monkeypatch, tmp_path):
     from coding_agent.protocols.stdio import commands
     monkeypatch.setattr(commands, "load_personalities", lambda: [
@@ -163,8 +146,7 @@ def test_protocol_catalog_includes_dynamic_argument_choices(monkeypatch, tmp_pat
     assert catalog["personality"]["options"] == [
         {"value": "custom", "label": "Custom personality", "description": "Workspace choice"}
     ]
-    assert {item["value"] for item in catalog["mode"]["options"]} == {"build", "plan"}
-    assert catalog["plans"]["options"][0]["value"] == ".symphony/plans/test_plan.md"
+    assert not {"mode", "plan", "plans"} & catalog.keys()
 
 
 def test_personality_command_accepts_whitespace_and_applies_prompt(monkeypatch, tmp_path):
@@ -238,3 +220,11 @@ def test_answer_and_steer_commands_become_harness_ops(monkeypatch):
     assert [frame["message"] for frame in frames if frame["type"] == "error"] == [
         "steer requires an active run", "prompt is required",
     ]
+
+
+@pytest.mark.parametrize("command", ["/plan", "/plans", "/mode", "/mode plan"])
+def test_removed_plan_commands_are_unknown(command):
+    from coding_agent.protocols.stdio import commands
+    agent = SimpleNamespace(user_addons=SimpleNamespace(run_command=AsyncMock(return_value=None)))
+    with pytest.raises(ValueError, match="Unknown command"):
+        asyncio.run(commands.execute(agent, command))

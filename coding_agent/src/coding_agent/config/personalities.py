@@ -124,7 +124,7 @@ def compose_system_prompt(
     """Compose ``base`` plus named segments.
 
     Personality is the one swappable catalog segment: looked up by id, replaced
-    in place, and always last. Other ``**segments`` (plan, skills, jev, …) are
+    in place, and always last. Other ``**segments`` (skills, jev, …) are
     appended when non-empty, then the personality heading follows.
     """
     found = get(personality_id)

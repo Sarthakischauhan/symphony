@@ -41,9 +41,7 @@ from coding_agent.addons.evaluation import (
     dispatch,
     jev_from_config,
 )
-from coding_agent.addons.evaluation.handlers import READ_ONLY_TOOLS
 from coding_agent.addons.evaluation.protocol import EvaluationFinding, EvaluationResult
-from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.__main__ import build_parser
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS
 from coding_agent.commands.jev_argument import JevChange, parse_jev_argument
@@ -217,21 +215,6 @@ def _deny(addon: JevAddon, tool_name: str) -> Optional[str]:
     return asyncio.run(addon.before_tool(tool_name=tool_name, arguments={}))
 
 
-def _assert_gate(addon: JevAddon, *, on: bool) -> None:
-    for name in ("write_file", "patch", "bash"):
-        denied = _deny(addon, name)
-        if on:
-            assert denied
-        else:
-            assert denied is None
-    assert _deny(addon, "read_file") is None
-    if on:
-        assert addon._allowed_tools == READ_ONLY_TOOLS
-        assert _deny(addon, "enter_plan_mode")
-    else:
-        assert addon._allowed_tools is None
-
-
 def test_evaluator_not_invoked_from_before_turn_or_on_tool(tmp_path: Path) -> None:
     mock = MockEvaluator()
     addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock)
@@ -382,14 +365,11 @@ def test_vercel_eval_payload_redacts_secrets_end_to_end() -> None:
     assert "[REDACTED]" in captured["payload"]["state"]["plan"]
 
 
-def test_fail_open_on_evaluator_error(tmp_path: Path) -> None:
+def test_fail_open_on_evaluator_error() -> None:
     mock = MockEvaluator(error=RuntimeError("gateway down"))
-    store = PlanStore(tmp_path)
-    original = store.begin("task").read_text(encoding="utf-8")
     addon = JevAddon(
         EvaluationConfig(enabled=True),
         evaluator=mock,
-        plan_store=store,
     )
 
     async def scenario() -> None:
@@ -409,35 +389,42 @@ def test_fail_open_on_evaluator_error(tmp_path: Path) -> None:
     assert addon.last_start is None
     assert addon.last_finish is not None
     assert addon.last_finish.status == "error"
-    assert addon.gated_action == CONTINUE_NORMALLY
-    assert store.path.read_text(encoding="utf-8") == original
+    assert addon.last_decision.action == CONTINUE_NORMALLY
 
 
-def test_findings_do_not_rewrite_plan(tmp_path: Path) -> None:
-    store = PlanStore(tmp_path)
-    path = store.begin("ship it")
-    original = path.read_text(encoding="utf-8")
+def test_evaluation_uses_conversation_and_final_without_reading_workspace(tmp_path: Path, monkeypatch) -> None:
+    # A leftover plan must neither be read nor become evaluator input.
+    path = tmp_path / "plan.md"
+    original = "PRIVATE stale workspace instructions"
+    path.write_text(original, encoding="utf-8")
     mock = MockEvaluator(
-        finish=EvaluationResult(
-            phase="finish",
-            findings=[
-                EvaluationFinding(question="remaining_work", kind="boolean", value=True, label="true"),
-                EvaluationFinding(question="next_action", kind="choice", value="retry", label="retry"),
-            ],
-        )
+        finish=EvaluationResult(phase="finish", findings=_finish_findings("retry"))
     )
-    addon = JevAddon(EvaluationConfig(enabled=True), evaluator=mock, plan_store=store)
-    asyncio.run(
-        addon.after_run(
+    addon = jev_from_config(EvaluationConfig(enabled=True), evaluator=mock)
+    assert addon is not None
+    messages = [Message(role="user", content="ship it")]
+
+    def unexpected_read(*args, **kwargs):
+        raise AssertionError("Evaluation must not read workspace files")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_text", unexpected_read)
+        asyncio.run(addon.before_run(task="ship it", messages=messages))
+        asyncio.run(addon.after_run(
             task="ship it",
-            result=HarnessResult(output_text="done", messages=[], tool_calls=[], usage=UsageTotals()),
-            messages=[],
-        )
-    )
+            result=HarnessResult(output_text="done", messages=messages, tool_calls=[], usage=UsageTotals()),
+            messages=messages,
+        ))
+    assert mock.starts == []
+    assert len(mock.finishes) == 1
+    state = mock.finishes[0]
+    assert state.request == "ship it"
+    assert state.final == "done"
+    assert state.plan == ""
+    assert state.plan_items == []
+    assert original not in json.dumps(state.as_eval_state())
     assert path.read_text(encoding="utf-8") == original
     assert apply_findings_gate(addon.last_finish) == "retry"
-    assert addon.gated_action == "retry"
-    assert addon.plan_mode is None or not addon.plan_mode.active
     assert addon.consume_follow_up() is None
 
 
@@ -572,16 +559,16 @@ def test_bare_label_does_not_clear_actuation_threshold() -> None:
     assert decide_next_step(confident).action == "replan"
 
 
-def test_handlers_inject_marker_and_set_tool_gate() -> None:
+def test_handlers_inject_expected_critic_note() -> None:
     cases = [
-        ("retry", True, "finish", "Finish remaining", False),
-        ("continue", True, "finish", "Finish remaining", False),
-        ("review", True, "finish", "Do not claim the task is done", False),
-        ("finish", False, "finish", None, False),
-        ("unsupported_claims", True, "finish", "Verify before claiming", False),
-        ("conflict", True, "finish", "Do not claim the task is done", False),
+        ("retry", True, "finish", "Finish remaining"),
+        ("continue", True, "finish", "Finish remaining"),
+        ("review", True, "finish", "Do not claim the task is done"),
+        ("finish", False, "finish", None),
+        ("unsupported_claims", True, "finish", "Verify before claiming"),
+        ("conflict", True, "finish", "Do not claim the task is done"),
     ]
-    for action, expect_note, phase, marker, gate in cases:
+    for action, expect_note, phase, marker in cases:
         addon = JevAddon(EvaluationConfig(enabled=True), evaluator=MockEvaluator())
         findings = _start_findings(action) if phase == "start" else _finish_findings(action)
         messages = _run_start(addon, findings) if phase == "start" else _run_finish(addon, findings)
@@ -591,10 +578,6 @@ def test_handlers_inject_marker_and_set_tool_gate() -> None:
             assert marker in str(notes[0].content), action
         else:
             assert notes == [], action
-        _assert_gate(addon, on=gate)
-        if action == "replan":
-            assert addon.plan_mode is None or not addon.plan_mode.active
-            assert addon.consume_follow_up() is None
 
 
 def test_conflict_uses_review_handler_no_second_run(tmp_path: Path) -> None:
@@ -621,13 +604,10 @@ def test_conflict_uses_review_handler_no_second_run(tmp_path: Path) -> None:
     ]
     assert len(notes) == 1
     assert "Do not claim the task is done" in str(notes[0].content)
-    assert agent.plan_mode.active is False
-    assert agent.mode != "plan"
     assert registry.calls == 1
     assert addon.follow_ups == 0
-    assert addon.gated_action == "review"
+    assert addon.last_decision.action == "review"
     assert addon.consume_follow_up() is None
-    _assert_gate(addon, on=False)
     assert CodingAgentConfig().evaluation.honour_follow_up is False
 
 
@@ -679,11 +659,10 @@ def test_honour_follow_up_stays_off_by_default() -> None:
     addon = JevAddon(EvaluationConfig(enabled=True), evaluator=MockEvaluator())
     messages = _run_finish(addon, _finish_findings("retry"))
     assert "Finish remaining" in str(messages[-1].content)
-    assert addon.gated_action == "retry"
+    assert addon.last_decision.action == "retry"
     assert addon.config.honour_follow_up is False
     assert addon.consume_follow_up() is None
     assert addon.follow_ups == 0
-    _assert_gate(addon, on=False)
 
 
 def test_honour_follow_up_retry_only_when_enabled() -> None:
@@ -726,7 +705,6 @@ def test_finish_clears_prior_jev_notes() -> None:
         )
     )
     assert all(NUDGE_MARKER not in str(item.content) for item in messages)
-    _assert_gate(addon, on=False)
 
 
 def test_nudge_replaces_prior_marker_instead_of_stacking() -> None:

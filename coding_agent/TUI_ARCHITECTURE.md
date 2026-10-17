@@ -50,20 +50,13 @@ flowchart TD
     WORKER --> TURN["_run_agent_turn()"]
     TURN --> ARUN["CodingAgent.run()"]
     ARUN --> PROMPT["Retrieve lessons and compose system prompt"]
-    PROMPT --> PLAN{"Plan mode?"}
-    PLAN -- Yes --> READONLY["Initialize plan<br/>restrict tools to read_file/search"]
-    PLAN -- No --> NORMAL["Use normal tool set"]
-    READONLY --> LOOP["CoreHarness.run()"]
-    NORMAL --> LOOP
+    PROMPT --> LOOP["CoreHarness.run() with configured tools"]
     LOOP --> EVENTS["Stream events through control plane"]
     LOOP --> PERSIST["Persist initial, turn, and terminal state"]
     LOOP --> AFTER["after_run add-on hook"]
     AFTER --> LEARN["Schedule learning + emit summary so far"]
     AFTER --> RESULT["Return HarnessResult"]
-    RESULT --> POST{"Mode used for run"}
-    POST -- Plan --> OPENPLAN["Save final plan and open PlanModal"]
-    POST -- Build --> ENABLE["Re-enable and focus prompt"]
-    OPENPLAN --> ENABLE
+    RESULT --> ENABLE["Re-enable and focus prompt"]
     LEARN --> ENABLE
     ENABLE --> WAIT
 ```
@@ -73,9 +66,12 @@ flowchart TD
 For a resumed session, transcript history is loaded by a non-exclusive Textual worker
 after the agent has been built.
 
-Workspace tools are not wrapped with approval decorators. `TurnRunner` asks the active
-control plane to approve a tool call immediately before execution. The TUI control plane
-implements the product's approval policy and may ask the user through the composer.
+Workspace tools are not wrapped with approval decorators. The product's
+`ApprovalAddon` applies normal approval policy before tool execution and uses the
+shared interaction port to ask the user through the composer when needed.
+There is no planning mode, plan-specific tool restriction, or plan approval/build
+transition. Asking for a plan is ordinary conversation, not an authorization boundary.
+Legacy sessions recorded in plan mode must not silently resume with write-capable tools.
 
 ## Prompt execution and event sequence
 
@@ -94,7 +90,7 @@ sequenceDiagram
     TUI->>TUI: Mount widgets, mark busy, disable prompt
     TUI->>Worker: run_agent(content)
     Worker->>Agent: run(content)
-    Agent->>Agent: Add lessons and optional plan prompt
+    Agent->>Agent: Retrieve memory and compose system prompt
     Agent->>Harness: run(content)
     Harness->>Plane: emit(run_started)
     Plane-->>TUI: HarnessEvent with identity metadata
@@ -104,7 +100,7 @@ sequenceDiagram
         Model-->>Harness: StreamEvent(s)
         Harness->>Plane: emit text/reasoning/tool/usage/retry events
         Plane-->>TUI: Post HarnessEvent(s)
-        TUI->>TUI: Route event and update live UI or plan file
+        TUI->>TUI: Route event and update live UI
         opt Tool call
             Harness->>Plane: request tool approval
             Plane-->>TUI: Optional question_asked
@@ -118,13 +114,12 @@ sequenceDiagram
     Plane-->>TUI: Final HarnessEvent
     Harness-->>Agent: HarnessResult
     Agent-->>Worker: HarnessResult
-    Worker->>TUI: Post-run plan/learning action
+    Worker->>TUI: Post-run learning action
     TUI->>TUI: Re-enable prompt
 ```
 
 Normal assistant output is rendered from streaming `text_delta` events, not from the
-returned `HarnessResult`. The result is used for post-run behavior such as saving a plan
-or scheduling learning. Persistence occurs after the new user message, after relevant
+returned `HarnessResult`. Post-run hooks handle behavior such as scheduling learning. Persistence occurs after the new user message, after relevant
 turns, and on terminal paths rather than only once at the end.
 
 High-frequency text, reasoning, and tool-argument deltas share one throttled paint
@@ -151,12 +146,6 @@ tree and accumulated into one `Archived` row. Opening the archive creates
 its detail modal on demand; restored session history goes through the same
 compaction path.
 
-In plan mode, plan storage has two layers: the TUI initializes the selected plan before
-the worker starts and appends root `text_delta` events as they arrive; `CodingAgent.run()`
-also initializes the plan and saves the final result after a successful run. Plan deltas
-are intentionally intercepted before the normal root presenter, so they are written to
-the plan rather than rendered as a normal assistant response.
-
 ## Event architecture
 
 Provider events reach the UI through the harness control-plane boundary:
@@ -173,7 +162,6 @@ flowchart TD
     SPAWN -->|"agent_spawned"| REGISTER["Create and bind SubagentRecord"]
     SPAWN -->|"agent_completed / agent_failed"| FINISH["Finish SubagentRecord"]
     SPAWN -->|"parent_id present"| CHILD["SubagentRecord.ingest()"]
-    SPAWN -->|"plan-run text_delta"| PLAN["PlanStore.append()"]
     SPAWN -->|"root question_asked"| QUESTION["Interactive composer"]
     SPAWN -->|"other root event"| PRESENTER["EventPresenter.handle()"]
 
@@ -248,7 +236,6 @@ cannot consume the key.
 flowchart TD
     SOURCE{"Open screen"}
     SOURCE -->|"/diff or /learning"| PUSH["app.push_screen(...)"]
-    SOURCE -->|"/plan selection/name<br/>or completed plan run"| PUSH
     SOURCE -->|"transcript link / composer chip<br/>image tool control"| PUSH
     SOURCE -->|"subagent control"| SUBPUSH["push_screen(SubagentScreen)"]
 
@@ -256,11 +243,7 @@ flowchart TD
     MODAL --> COMPOSE["Compose widgets and derive/load content"]
     COMPOSE --> INFO{"Dismissal"}
     INFO -->|"Escape / Ctrl+X / close button"| NONE["dismiss(None)"]
-    INFO -->|"Plan Build now"| BUILD["dismiss('build')"]
     NONE --> REVEAL["Reveal underlying current app/run state"]
-    BUILD --> CALLBACK{"App busy?"}
-    CALLBACK -- Yes --> REVEAL
-    CALLBACK -- No --> SUBMIT["Switch to build mode<br/>prepare plan prompt and submit"]
 
     SUBPUSH --> SUBSCREEN["Live view of existing SubagentRecord"]
     SUBSCREEN -->|"Escape / Ctrl+X"| NONE
@@ -269,31 +252,24 @@ flowchart TD
 ### Modal implementations
 
 - `tui/modal.py` contains `ModalBase`, `ModalScroll`, `ModalCloseButton`, `ContentModal`,
-  `DiffModal`, `LearningModal`, and `PlanModal`.
+  `DiffModal`, and `LearningModal`.
 - `tui/images.py` contains `ImageModal`, which is exposed lazily from `tui.modal` to avoid
   an eager import cycle.
 - `tui/subagent.py` contains `SubagentScreen`, a full-screen live view of an existing
   child-agent record. It does not create or own an independent session.
 - `tui/styles.py` contains common and specialized modal CSS.
 
-`/diff` and `/learning` directly push their modals. `/plan` without an argument opens a
-plan picker in the slash menu; selecting a plan, providing a plan name, or completing a
-plan-mode run opens `PlanModal`. Content and image screens can be opened from transcript
-links, composer paste/image chips, and image-related tool controls. Subagent controls can
-open `SubagentScreen`.
-
-`PlanModal` is the main result-bearing screen. `Build now` dismisses with `"build"`. If
-the app is not busy, its callback switches both app and agent to build mode, inserts a
-`Build the approved plan...` prompt, and submits it immediately. If the app is busy, the
-callback ignores the build result. Informational modals dismiss with `None` and simply
-reveal the underlying app, which may still have an active run.
+`/diff` and `/learning` directly push their modals. Content and image screens can
+be opened from transcript links, composer paste/image chips, and image-related tool
+controls. Subagent controls can open `SubagentScreen`. Informational modals dismiss
+with `None` and reveal the underlying app, which may still have an active run.
 
 Both Escape and Ctrl+X are bound to the app's cancel action, which dismisses an active
 `ModalScreen` before attempting to cancel a run. Escape also has modal-local priority
-bindings in `ModalBase` and `ModalScroll`. Close and build controls are focusable and
+bindings in `ModalBase` and `ModalScroll`. Close controls are focusable and
 keyboard-operable, but there is no shared initial-focus or focus-restoration policy.
 
-Diff, learning, and plan data are loaded synchronously during `compose()`. `ContentModal`
+Diff and learning data are loaded synchronously during `compose()`. `ContentModal`
 uses text supplied to its constructor; `ImageModal` derives a preview from a supplied
 attachment; `SubagentScreen` projects an existing record. There is currently no shared
 loading state, compose-time error boundary, backdrop-click dismissal, or generic modal

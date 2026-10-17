@@ -28,21 +28,7 @@ class ModelOption:
 
 
 @dataclass(frozen=True)
-class ModeOption:
-    id: str
-    label: str
-    description: str
-
-
-@dataclass(frozen=True)
 class EffortOption:
-    id: str
-    label: str
-    description: str
-
-
-@dataclass(frozen=True)
-class PlanOption:
     id: str
     label: str
     description: str
@@ -105,19 +91,12 @@ EFFORT_CATALOG = (
 )
 EFFORTS = tuple(option.id for option in EFFORT_CATALOG)
 
-MODE_CATALOG = (
-    ModeOption("build", "Build", "Read, edit, and run code"),
-    ModeOption("plan", "Plan", "Inspect and write a plan only"),
-)
 
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
     SlashCommand("personality", "View or switch the agent personality", "[id]"),
-    SlashCommand("mode", "View or switch between build and plan", "[mode]"),
     SlashCommand("voice", "Talk until you say done or press Ctrl+A again", ""),
     SlashCommand("effort", "Set model reasoning effort", "[level]"),
-    SlashCommand("plan", "Enter plan mode", ""),
-    SlashCommand("plans", "Choose and open a workspace plan", "[plan]"),
     SlashCommand("provider", "Sign in or add a model provider", "[name]"),
     SlashCommand("langfuse", "Configure Langfuse telemetry and install the SDK", ""),
     SlashCommand("jev", "Set a Jev finish rule or toggle it", "[on|off|rule]"),
@@ -155,18 +134,6 @@ def command_matches(
         if command.name.startswith(prefix)
         and (include_effort or command.name != "effort")
     )
-
-
-
-def find_mode(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> Optional[ModeOption]:
-    needle = value.strip().lower()
-    matches = [mode for mode in modes if needle in {mode.id.lower(), mode.label.lower()}]
-    return matches[0] if len(matches) == 1 else None
-
-
-def mode_matches(value: str, modes: Iterable[ModeOption] = MODE_CATALOG) -> tuple[ModeOption, ...]:
-    needle = value.strip().lower()
-    return tuple(mode for mode in modes if not needle or needle in mode.id.lower() or needle in mode.label.lower())
 
 
 def personality_options() -> tuple[PersonalityOption, ...]:

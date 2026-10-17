@@ -6,18 +6,17 @@ Symphony Code presents your task, model response, tool activity, and approval re
 
 Type a request in the composer and press Enter. While a run is active, the transcript shows model output and tool activity; approval or question prompts appear when interaction is needed. Review changes in your project—the transcript is a record of activity, not a substitute for checking the result.
 
-## Modes and controls
+## Controls
 
 | Action | Control |
 | --- | --- |
 | Open the slash-command menu | Type `/` |
-| Switch build/plan mode | `/mode` |
 | Get workspace-path suggestions | Type `@` at the end of a path mention |
 | Cancel an active run | `Esc` or `Ctrl+X` |
 | Open subagent sessions | `Ctrl+G` |
 | Open the agent dashboard | `Ctrl+B` |
 
-Plan mode stages a plan before implementation; it is not a security sandbox. Commands and shell side effects still require careful review. See the [security policy](../../SECURITY.md).
+You can ask for a plan as an ordinary conversation request, but there is no separate planning mode or plan-approval gate. Such a request does not restrict tools or replace normal tool approvals. Commands and shell side effects still require careful review. See the [security policy](../../SECURITY.md).
 
 ## Continue a conversation
 

@@ -47,7 +47,6 @@ MODAL_SECTIONS = (
     "diff",
     "extensions",
     "learning",
-    "plan",
     "context",
     "provider",
 )
@@ -75,7 +74,6 @@ class ThemeDocument:
     diff_modal_css: str
     extensions_modal_css: str
     learning_modal_css: str
-    plan_modal_css: str
     context_modal_css: str
     provider_modal_css: str
 
@@ -140,7 +138,6 @@ def load_theme(path: Path | None = None) -> ThemeDocument:
         diff_modal_css=glue_css(base, modal_css["diff"]),
         extensions_modal_css=glue_css(base, modal_css["extensions"]),
         learning_modal_css=glue_css(base, modal_css["learning"]),
-        plan_modal_css=glue_css(base, modal_css["plan"]),
         context_modal_css=glue_css(base, modal_css["context"]),
         provider_modal_css=glue_css(base, modal_css["provider"]),
     )
@@ -276,7 +273,6 @@ IMAGE_MODAL_CSS = _DEFAULT.image_modal_css
 DIFF_MODAL_CSS = _DEFAULT.diff_modal_css
 EXTENSIONS_MODAL_CSS = _DEFAULT.extensions_modal_css
 LEARNING_MODAL_CSS = _DEFAULT.learning_modal_css
-PLAN_MODAL_CSS = _DEFAULT.plan_modal_css
 CONTEXT_MODAL_CSS = _DEFAULT.context_modal_css
 PROVIDER_MODAL_CSS = _DEFAULT.provider_modal_css
 APP_CSS = _DEFAULT.app_css
@@ -293,7 +289,7 @@ def apply_theme(document: ThemeDocument) -> None:
     SYMPHONY_COLORS.update(document.colors)
     global CHROME_CSS, TOOLS_CSS, COMPOSER_CSS, RESUME_CSS, ONBOARD_CSS
     global MODAL_BASE_CSS, CONTENT_MODAL_CSS, IMAGE_MODAL_CSS, DIFF_MODAL_CSS
-    global EXTENSIONS_MODAL_CSS, LEARNING_MODAL_CSS, PLAN_MODAL_CSS
+    global EXTENSIONS_MODAL_CSS, LEARNING_MODAL_CSS
     global CONTEXT_MODAL_CSS, PROVIDER_MODAL_CSS, APP_CSS
     CHROME_CSS = document.chrome_css
     TOOLS_CSS = document.tools_css
@@ -306,7 +302,6 @@ def apply_theme(document: ThemeDocument) -> None:
     DIFF_MODAL_CSS = document.diff_modal_css
     EXTENSIONS_MODAL_CSS = document.extensions_modal_css
     LEARNING_MODAL_CSS = document.learning_modal_css
-    PLAN_MODAL_CSS = document.plan_modal_css
     CONTEXT_MODAL_CSS = document.context_modal_css
     PROVIDER_MODAL_CSS = document.provider_modal_css
     APP_CSS = document.app_css

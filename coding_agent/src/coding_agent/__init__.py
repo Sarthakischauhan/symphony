@@ -1,8 +1,7 @@
-from coding_agent.agent import AgentMode, CodingAgent, build_agent
+from coding_agent.agent import CodingAgent, build_agent
 from coding_agent.addons.learning import LearningAddon, LearningLoop, LearningReview, LearningStore, Lesson
 from coding_agent.addons.persistence import JsonlPersistence, SessionSummary
-from coding_agent.addons.plan.store import PlanStore
-from coding_agent.config.prompts import PLAN_MODE_PROMPT, SUBAGENT_SYSTEM_PROMPT, SYSTEM_PROMPT
+from coding_agent.config.prompts import SUBAGENT_SYSTEM_PROMPT, SYSTEM_PROMPT
 from coding_agent.tools import (
     AskUserArgs, AskUserTool, BashArgs, BashTool,
     GenerateImageArgs, GenerateImageTool, PatchArgs, PatchTool, ReadFileArgs, ReadFileTool,
@@ -11,10 +10,10 @@ from coding_agent.tools import (
 )
 
 __all__ = [
-    "AgentMode", "AskUserArgs", "AskUserTool", "BashArgs", "BashTool", "CodingAgent",
+    "AskUserArgs", "AskUserTool", "BashArgs", "BashTool", "CodingAgent",
     "GenerateImageArgs", "GenerateImageTool", "LearningAddon", "LearningLoop", "LearningReview",
     "LearningStore", "Lesson", "PatchArgs", "PatchTool", "ReadFileArgs",
-    "ReadFileTool", "PLAN_MODE_PROMPT", "PlanStore", "SUBAGENT_SYSTEM_PROMPT", "SYSTEM_PROMPT", "SearchArgs", "SearchTool",
+    "ReadFileTool", "SUBAGENT_SYSTEM_PROMPT", "SYSTEM_PROMPT", "SearchArgs", "SearchTool",
     "JsonlPersistence", "SessionSummary", "TOOL_CLASSES", "ToolArgsModel", "WebSearchArgs", "WebSearchTool",
     "WorkspaceTool",
     "WriteFileArgs", "WriteFileTool", "build_agent", "build_tools",

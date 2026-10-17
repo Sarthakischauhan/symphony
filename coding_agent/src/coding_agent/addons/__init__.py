@@ -15,7 +15,6 @@ from coding_agent.addons.learning.addon import (
     inject_memory,
     strip_memory_context,
 )
-from coding_agent.addons.plan.addon import PlanModeAddon, PlanModeState
 from coding_agent.addons.skills.addon import SkillsAddon
 
 __all__ = [
@@ -26,8 +25,6 @@ __all__ = [
     "LEARNING_IDLE_DELAY_SECONDS",
     "LangfuseAddon",
     "LearningAddon",
-    "PlanModeAddon",
-    "PlanModeState",
     "SessionMemoryAddon",
     "SkillsAddon",
     "ai_compaction_from_config",

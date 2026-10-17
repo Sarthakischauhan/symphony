@@ -44,10 +44,7 @@ from coding_agent.tui.commands import (
     command_matches,
     effort_matches,
     effort_options_for_model,
-    find_mode,
-    find_model,
     find_personality,
-    mode_matches,
     model_matches,
     model_supports_effort,
     personality_matches,
@@ -71,8 +68,6 @@ from coding_agent.tui.screens import (
     DiffFileCard,
     DiffModal,
     ImageModal,
-    PlanModal,
-    _plan_document,
 )
 from coding_agent.tui.runtime import SubagentRecord, SubagentScreen, SubagentWidget
 from coding_agent.tui.screens.history import load_session_history
@@ -147,7 +142,6 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "LOCAL_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
-
 
 
 def _static_text(widget: Static) -> str:
@@ -646,16 +640,11 @@ def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
             await pilot.pause()
             prompt = app.query_one("#prompt", PromptInput)
             assert prompt.placeholder == "Ask Symphony..."
-            assert str(app.query_one("#composer-mode", Static).render()) == "BUILD"
+            assert not app.query("#composer-mode")
             assert not app.query("#composer-hint")
             composer = app.query_one("#composer")
             assert composer.styles.border_top[0] == "round"
             assert "esc cancel" in _footer_text(app)
-
-            app.mode = "plan"
-            app._update_composer_hint()
-            assert str(app.query_one("#composer-mode", Static).render()) == "PLAN"
-            assert app.query_one("#composer").has_class("plan-mode")
 
             app._pending_question_id = "q-1"
             app._update_composer_hint()
@@ -743,70 +732,6 @@ def test_themed_markdown_avoids_rich_monokai_default() -> None:
     themed = themed_markdown("```py\nprint(1)\n```")
     assert themed.code_theme is SYMPHONY_CODE_THEME
     assert themed.inline_code_theme is SYMPHONY_CODE_THEME
-
-
-def test_plan_stream_renders_in_chat(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    app = CodingAgentApp(workspace=tmp_path)
-
-    async def _run() -> None:
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            app._plan_store.begin("To build a server")
-            app._plan_run_active = True
-            app.on_harness_event(ControlPlaneEvent("text_delta", {"delta": "## Steps\n"}))
-            app.on_harness_event(
-                ControlPlaneEvent("text_delta", {"delta": "1. Add API.\n"})
-            )
-            assert app._presenter is not None
-            app._presenter.flush_stream_paints()
-            await pilot.pause()
-
-            assert app._assistant is not None
-            assert "Add API" in app._assistant.message_text
-            plan_path = tmp_path / ".symphony" / "plans" / "to_build_a_server_plan.md"
-            assert plan_path.read_text().endswith(
-                "**Task:** To build a server\n\n"
-            )
-
-            app.on_harness_event(ControlPlaneEvent("run_completed", {}))
-            assert not app._plan_run_active
-
-    asyncio.run(_run())
-
-
-def test_plan_modal_offers_build_now(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    app = CodingAgentApp(workspace=tmp_path)
-    app._plan_store.save("Add API", "1. Build it.")
-    actions: list[str | None] = []
-
-    async def _run() -> None:
-        async with app.run_test() as pilot:
-            app.push_screen(PlanModal(tmp_path), actions.append)
-            await pilot.pause()
-            assert app.screen.query_one("#plan-markdown") is not None
-            assert app.screen.query_one("#plan-changes") is not None
-            assert app.screen.query_one("#plan-quit") is not None
-            await pilot.click("#plan-build")
-            await pilot.pause()
-            assert actions == ["build"]
-
-    asyncio.run(_run())
-
-
-def test_plan_document_strips_store_chrome() -> None:
-    title, body = _plan_document(
-        "# Plan\n\n**Task:** Keep tool output small\n\n"
-        "# Plan: Limit Large Tool Results\n\n1. Clip output.\n"
-    )
-
-    assert title == "Keep tool output small"
-    assert body == "# Plan: Limit Large Tool Results\n\n1. Clip output."
 
 
 def test_pasted_prompt_is_compacted_without_changing_agent_input(
@@ -953,6 +878,44 @@ def test_dropped_image_becomes_clickable_chip(
             message.action_open_image("1")
             await pilot.pause()
             assert isinstance(app.screen, ImageModal)
+
+    asyncio.run(_run())
+
+
+def test_image_drop_attaches_when_transcript_is_focused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A file drop on the transcript attaches to the composer, not only when it is focused."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    image_path = tmp_path / "shot.png"
+    image_path.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+    )
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt", PromptInput)
+            transcript = app.query_one("#transcript")
+            transcript.focus()
+            await pilot.pause()
+            assert not prompt.has_focus
+
+            await app.on_event(events.Paste(f"{image_path}\n"))
+            await pilot.pause()
+
+            assert "[Image 1]" in prompt.value
+            assert prompt.images[0].filename == "shot.png"
+            assert prompt.has_focus is False
+
+            # Ordinary text still belongs to the focused widget, not the composer.
+            await app.on_event(events.Paste("just a sentence"))
+            await pilot.pause()
+            assert "just a sentence" not in prompt.value
+            assert len(prompt.images) == 1
 
     asyncio.run(_run())
 
@@ -1827,7 +1790,7 @@ def test_resume_rows_keep_metadata_on_second_line() -> None:
             next_title = options.render_line(2).text
             assert "A" * 40 in title
             assert "A" * 300 not in title
-            assert "65d ago" in meta
+            assert "66d ago" in meta
             assert "session-0000" in meta
             assert "65d ago" not in title
             assert next_title.strip().startswith("›")
@@ -2658,7 +2621,6 @@ def test_reasoning_delta_paints_visible_thought_body(
         ("**Bold opening sentence.** More prose follows.", "Thought 0.0s"),
     ],
 )
-
 def test_reasoning_title_uses_only_a_standalone_markdown_heading(
     content: str, expected_title: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2699,13 +2661,13 @@ def test_addon_slash_command_loads_authoring_skill_and_starts_model_turn(
 
 
 def test_slash_command_discovery_and_model_resolution() -> None:
-    assert [command.name for command in command_matches("/mo")] == ["model", "mode"]
+    assert [command.name for command in command_matches("/mo")] == ["model"]
     assert "langfuse" in [command.name for command in SLASH_COMMANDS]
     assert "personality" in [command.name for command in SLASH_COMMANDS]
     assert "jev" in [command.name for command in SLASH_COMMANDS]
     assert "diff" in [command.name for command in SLASH_COMMANDS]
     assert "learning" in [command.name for command in SLASH_COMMANDS]
-    assert "plan" in [command.name for command in SLASH_COMMANDS]
+    assert not {"plan", "plans", "mode"} & {command.name for command in SLASH_COMMANDS}
     assert "effort" in [command.name for command in SLASH_COMMANDS]
     assert "context" in [command.name for command in SLASH_COMMANDS]
     assert "dashboard" in [command.name for command in SLASH_COMMANDS]
@@ -2714,18 +2676,11 @@ def test_slash_command_discovery_and_model_resolution() -> None:
     assert [command.name for command in command_matches("/add")] == ["addon", "addons"]
     assert [command.name for command in command_matches("/dash")] == ["dashboard"]
     assert [command.name for command in command_matches("/lea")] == ["learning"]
-    assert find_model("gpt-5.6-luna").id == "openai:gpt-5.6-luna"  # type: ignore[union-attr]
-    assert find_model("gpt-5.6-sol").id == "openai:gpt-5.6-sol"  # type: ignore[union-attr]
-    assert find_model("claude-sonnet-5").id == "anthropic:claude-sonnet-5"  # type: ignore[union-attr]
-    assert find_model("gemini-3.7-flash").id == "gemini:gemini-3.7-flash"  # type: ignore[union-attr]
-    assert find_model("missing") is None
     assert [model.id for model in model_matches("5.6-luna")] == [
         "openai:gpt-5.6-luna"
     ]
-    assert find_mode("Plan").id == "plan"  # type: ignore[union-attr]
     assert find_personality("warm").id == "warm"  # type: ignore[union-attr]
     assert [item.id for item in personality_matches("prec")] == ["precise"]
-    assert [mode.id for mode in mode_matches("")] == ["build", "plan"]
     assert [effort.id for effort in effort_matches("xh")] == ["xhigh"]
     assert [effort.id for effort in EFFORT_CATALOG] == [
         "default",
@@ -2845,36 +2800,6 @@ def test_file_selector_scrolls_to_keep_selection_visible(
             )
             await pilot.pause()
             assert menu.selected_index == 12
-
-    asyncio.run(_run())
-
-
-def test_plan_menu_options_are_hoverable_and_clickable(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    app = CodingAgentApp(workspace=tmp_path)
-
-    async def _run() -> None:
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            app._plan_store.save("Ship feature", "1. Build it.")
-            opened: list[object] = []
-            app.push_screen = lambda screen, *args: opened.append(screen)  # type: ignore[method-assign]
-
-            prompt = app.query_one("#prompt")
-            prompt.value = "/plans "
-            await pilot.pause()
-            menu = app.query_one("#slash-menu", SlashMenu)
-
-            assert menu.display
-            assert menu.selected_value == "/plans ship_feature_plan.md"
-            assert await pilot.hover(menu, offset=(4, 2))
-            assert menu._mouse_hovering_over == 0
-            assert await pilot.click(menu, offset=(4, 2))
-            await pilot.pause()
-
-            assert opened and opened[0].__class__.__name__ == "PlanModal"
 
     asyncio.run(_run())
 
@@ -3069,7 +2994,6 @@ def test_reload_refreshes_config_without_clearing_conversation(
     app = CodingAgentApp(workspace=tmp_path)
     loaded: list[bool] = []
     built_with: dict[str, Any] = {}
-    selected_modes: list[str] = []
 
     reloaded_agent = SimpleNamespace(
         session_id="current-session",
@@ -3081,7 +3005,6 @@ def test_reload_refreshes_config_without_clearing_conversation(
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
         learning_loop=None,
-        set_mode=lambda mode: selected_modes.append(mode),
         user_addons=no_user_addons(),
     )
 
@@ -3098,7 +3021,6 @@ def test_reload_refreshes_config_without_clearing_conversation(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            selected_modes.clear()
             built_with.clear()
             app._agent = SimpleNamespace(
                 session_id="current-session",
@@ -3115,7 +3037,6 @@ def test_reload_refreshes_config_without_clearing_conversation(
 
             assert loaded == [True]
             assert built_with["session_id"] == "current-session"
-            assert selected_modes == ["build"]
             assert app._agent is reloaded_agent
             assert app._agent.harness.reasoning_effort == "high"
             assert len(app.query(".user-message")) == 1
@@ -3171,12 +3092,8 @@ def test_slash_menu_and_commands(
                 state=FakeState(),
             )
             self.learning_loop = None
-            self.mode = "build"
             self.compacted = False
             self.config = SimpleNamespace(personality="direct")
-
-        def set_mode(self, mode: str) -> None:
-            self.mode = mode
 
         def apply_system_prompt(self) -> None:
             return None
@@ -3217,14 +3134,6 @@ def test_slash_menu_and_commands(
             )
 
             prompt = app.query_one("#prompt")
-            await pilot.press("tab")
-            assert app.mode == "plan"
-            assert fake.mode == "plan"
-            assert app.query_one("#composer").has_class("plan-mode")
-            await pilot.press("tab")
-            assert app.mode == "build"
-            assert not app.query_one("#composer").has_class("plan-mode")
-
             prompt.value = "/mo"  # type: ignore[attr-defined]
             await pilot.pause()
             assert app.query_one("#slash-menu", SlashMenu).display
@@ -3263,16 +3172,6 @@ def test_slash_menu_and_commands(
             await pilot.pause()
             assert fake.config.personality == "caveman"
             assert "Personality set to Caveman" in overlay.title
-
-            prompt.value = "/mode "  # type: ignore[attr-defined]
-            await pilot.pause()
-            assert menu.display
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-            assert app.mode == "plan"
-            assert fake.mode == "plan"
-            assert "PLAN" in str(app.query_one("#composer-mode").render())
 
             prompt.value = "/effort "  # type: ignore[attr-defined]
             await pilot.pause()
@@ -3324,20 +3223,6 @@ def test_slash_menu_and_commands(
             assert opened and opened[0].__class__.__name__ == "LearningModal"
 
             opened.clear()
-            app._plan_store.save("Add API", "1. Build it.")
-            app._plan_store.save("Fix login", "1. Inspect auth.")
-            prompt.value = "/plans add"  # type: ignore[attr-defined]
-            await pilot.pause()
-            assert menu.selected_value == "/plans add_api_plan.md"
-            await app._run_slash_command("/plans")
-            assert not opened
-            assert prompt.value == "/plans "  # type: ignore[attr-defined]
-            assert menu.display
-            assert menu.selected_value == "/plans fix_login_plan.md"
-            await pilot.press("enter")
-            await pilot.pause()
-            assert opened and opened[0].__class__.__name__ == "PlanModal"
-
             await app._run_slash_command("/new")
             assert fake.session_id != "old-session"
             assert fake.harness.session_id == fake.session_id
@@ -4319,3 +4204,27 @@ def test_churning_is_text_only_and_thinking_does_not_remount_when_last(
             assert id(thinking) == before
 
     asyncio.run(_run())
+
+
+def test_tui_rejects_saved_plan_session_before_enabling_agent(tmp_path, monkeypatch):
+    from coding_agent.protocols.stdio import commands
+
+    monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path / "home")
+    session_id = "0876c78a-9f47-4bd5-a495-a8e912c3757c"
+    path = commands._state_path(session_id)
+    path.parent.mkdir(parents=True)
+    path.write_text('{"mode": "plan"}')
+    agent = SimpleNamespace(session_id=session_id, persistence=None)
+    monkeypatch.setattr("coding_agent.tui.app.build_agent", lambda **kwargs: agent)
+    app = CodingAgentApp(workspace=tmp_path, session_id=session_id)
+    notices = []
+    app.add_notice = lambda message, *args: notices.append(message)
+
+    async def run():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._agent is None
+            assert any("explicitly start a fresh session" in notice for notice in notices)
+            assert path.read_text() == '{"mode": "plan"}'
+
+    asyncio.run(run())
