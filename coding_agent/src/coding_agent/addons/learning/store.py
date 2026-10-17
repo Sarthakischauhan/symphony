@@ -72,9 +72,9 @@ class LearningStore:
                  session_dir: str | Path | None = None,
                  global_root: str | Path | None = None):
         self.workspace = Path(workspace).resolve()
-        self.memory_dir = safe_path(self.workspace, ".symphony/memory-v2")
+        self.memory_dir = safe_path(self.workspace, ".symphony/memories")
         # Do not resolve away symlinks before validating paths.
-        self.global_root = Path(global_root).absolute() if global_root is not None else safe_path(Path.home(), ".symphony/memory-v2/global")
+        self.global_root = Path(global_root).absolute() if global_root is not None else safe_path(Path.home(), ".symphony/memories/global")
         self.roots = {"workspace": self.memory_dir, "global": self.global_root}
         self.path = safe_path(self.memory_dir, "lessons.jsonl")
         # Compatibility presentation paths; never retrieval sources.
@@ -435,7 +435,7 @@ class LearningStore:
             inbox = sum(len(list(safe_path(root, "observations/_inbox").glob("*.json"))) for root in self.roots.values())
         if not facts and not lessons and not jobs and not inbox:
             return "# Agent learnings\n\n_No lessons stored yet for this workspace._\n"
-        lines = ["# Agent learnings", "", "_Durable topics in `.symphony/memory-v2`_", "",
+        lines = ["# Agent learnings", "", "_Durable topics in `.symphony/memories`_", "",
                  f"Pending capture jobs: {len(jobs)}; observations awaiting consolidation: {inbox}", ""]
         lines.extend(f"- Capture `{job['id']}` · session `{job.get('session_id', '')}`" for job in jobs)
         lines.extend(f"- [{f['scope']}/{f['id']}] {f['text']}" for f in facts)

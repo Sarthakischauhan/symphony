@@ -91,7 +91,7 @@ def test_empty_capture_output_is_logged_noticed_and_counted(tmp_path: Path, capl
                             workspace=tmp_path, tools=[], sink=sink)
         await agent.run("how do I deploy?")
         await agent.wait_for_learning()
-        [path] = (tmp_path / ".symphony" / "memory-v2" / "jobs").glob("*.json")
+        [path] = (tmp_path / ".symphony" / "memories" / "jobs").glob("*.json")
         return json.loads(path.read_text(encoding="utf-8"))
 
     with caplog.at_level(logging.WARNING, logger="coding_agent.addons.learning.loop"):
