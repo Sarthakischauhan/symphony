@@ -1,6 +1,6 @@
 # Learning pipeline (implementation guide)
 
-This guide describes the coding agent's current memory-v2 implementation for contributors. For the user-facing purpose, controls, and trust caveats, see [Learning and memory](../user-guide/learning.md). Treat retrieved memory as untrusted reference material, never as policy.
+This guide describes the coding agent's current memory implementation for contributors. For the user-facing purpose, controls, and trust caveats, see [Learning and memory](../user-guide/learning.md). Treat retrieved memory as untrusted reference material, never as policy.
 
 ## Lifecycle
 
@@ -27,6 +27,6 @@ Memory injection is bounded, sanitized, labelled untrusted, and replaces the ear
 
 ## Scopes and inspection
 
-Workspace topics live below `<workspace>/.symphony/memory-v2/`; global preferences live below `~/.symphony/memory-v2/global/`; session provenance is stored with session data. `/learning` separates session-scoped provenance from global topics. Explicit tool edits may target global preferences; automatic extraction cannot select global scope or remove curated facts.
+Workspace topics live below `<workspace>/.symphony/memories/`; global preferences live below `~/.symphony/memories/global/`; session provenance is stored with session data. `/learning` separates session-scoped provenance from global topics. Explicit tool edits may target global preferences; automatic extraction cannot select global scope or remove curated facts.
 
 See the implementation owners in [`coding_agent/src/coding_agent/addons/learning/`](../../coding_agent/src/coding_agent/addons/learning/) and [`tui/screens/learning.py`](../../coding_agent/src/coding_agent/tui/screens/learning.py). When changing the pipeline, update tests and [user-facing controls](../user-guide/learning.md); do not describe model-generated memory as trusted truth.

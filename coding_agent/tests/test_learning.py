@@ -470,7 +470,7 @@ def test_session_archive_does_not_fork_live_memory(tmp_path: Path) -> None:
     second = LearningStore(tmp_path, session_id="session-b", session_dir=second_dir)
     first.memory_operation("add", text="Python tests use pytest -q")
     first.memory_operation("add", target="user", text="Prefer concise responses")
-    assert first.memory_path == tmp_path / ".symphony" / "memory-v2" / "MEMORY.md"
+    assert first.memory_path == tmp_path / ".symphony" / "memories" / "MEMORY.md"
     assert "pytest" in first.query("Python tests")
     assert "pytest" in second.query("Python tests")
     assert "concise" in second.query("concise")
