@@ -186,12 +186,18 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         # Set when the reader toggles the group; ``close`` never folds it then.
         self.user_expanded = False
         super().__init__(classes="tool-call-summary", markup=False)
+        # Restored/completed runs can contain thousands of entries. Build once
+        # rather than rescanning the growing group for every snapshot.
+        seen: set[str] = set()
         for call in calls or ():
             if isinstance(call, ThoughtSnapshot):
-                self.add_thought(call.title, call.content, layout=False)
-            else:
-                self.add_call(call, layout=False)
+                self.entries.append(call)
+            elif call.call_id not in seen:
+                seen.add(call.call_id)
+                self.calls.append(call)
+                self.entries.append(call)
         self.title = self._summary_title()
+        self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
 
     def _thought_count(self) -> int:
         return sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)

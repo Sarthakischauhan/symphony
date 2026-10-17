@@ -433,9 +433,17 @@ class SubagentSurface:
         self._show_question(payload)
 
     def _refresh_subagent_widgets(self, record: SubagentRecord) -> None:
+        """Repaint parent cards only when their visible status changes.
+
+        Child text and tool events can arrive continuously from many agents.
+        Their parent cards show status, not the child transcript, so refreshing
+        them on every event creates avoidable layout work.
+        """
         for widget in record._widgets:
             if isinstance(widget, SubagentWidget) and widget.record is record:
-                widget.refresh_content()
+                status = {"completed": "done", "running": "running"}.get(record.status, "failed")
+                if widget.status != status:
+                    widget.refresh_content()
 
     def _refresh_subagent_screen(self, record: SubagentRecord) -> None:
         screen = self.screen

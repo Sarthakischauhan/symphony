@@ -254,32 +254,30 @@ class RunProcess(Container):
         )
         from coding_agent.tui.transcript.messages import AssistantMessage
 
-        summary = CompletedRunSummary(verb=verb, duration=duration)
-        self.completed_summary = summary
+        snapshots = []
         assistants = [item for item in self._items if isinstance(item, AssistantMessage)]
         final_assistant = assistants[-1] if assistants else None
         removed: list[Widget] = []
         for item in self._items:
             if isinstance(item, ReasoningWidget):
-                summary.add_thought(item.title, item.reasoning_text, layout=False)
+                snapshots.append(ThoughtSnapshot(item.title, item.reasoning_text))
             elif isinstance(item, ToolCallSummary):
-                for entry in item.entries:
-                    if isinstance(entry, ThoughtSnapshot):
-                        summary.add_thought(entry.title, entry.content, layout=False)
-                    else:
-                        summary.add_call(entry, layout=False)
+                snapshots.extend(item.entries)
             elif isinstance(item, ToolCallWidget) and (
                 not item.keep_in_transcript
                 or isinstance(item, PatchDiffWidget)
                 or isinstance(item, BashToolWidget) and not item.arguments.get("background")
             ):
-                summary.add_call(item.snapshot(), layout=False)
+                snapshots.append(item.snapshot())
             elif not (isinstance(item, AssistantMessage) and item is not final_assistant):
                 continue
             removed.append(item)
+        summary = CompletedRunSummary(snapshots, verb=verb, duration=duration)
+        self.completed_summary = summary
+        removed_set = set(removed)
+        self._items = [item for item in self._items if item not in removed_set]
+        self.entries = [entry for entry in self.entries if entry.widget not in removed_set]
         for item in removed:
-            self._items.remove(item)
-            self.entries = [entry for entry in self.entries if entry.widget is not item]
             if item.is_attached:
                 item.remove()
         if not summary.entries:

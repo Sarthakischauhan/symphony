@@ -138,6 +138,10 @@ def test_resumed_child_card_opens_child_transcript(monkeypatch, tmp_path: Path):
     messages, events, metadata = _fixture()
 
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def load_conversation(self, **kwargs):
             return messages
 

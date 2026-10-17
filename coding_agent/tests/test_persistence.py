@@ -140,6 +140,70 @@ def test_list_sessions_counts_typed_message_entries(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_session_listing_survives_restart_and_detects_growth(tmp_path: Path, monkeypatch) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    first = [Message(role="user", content="original title"), Message(role="assistant", content="ack")]
+    longer = [*first, Message(role="user", content="follow up")]
+
+    async def _run() -> None:
+        await store.save_conversation(session_id="indexed", messages=first)
+        await store.append_event(
+            event_type="agent_spawned",
+            payload={"session_id": "indexed", "child_session_id": "child-session", "seq": 1, "run_id": "run"},
+        )
+        restarted = JsonlPersistence(store.root)
+        scans = {"count": 0}
+        original = restarted._load_transcript
+
+        def counting(path: Path):
+            scans["count"] += 1
+            return original(path)
+
+        monkeypatch.setattr(restarted, "_load_transcript", counting)
+        cached = await restarted.list_sessions()
+        assert scans["count"] == 0
+        assert cached[0].message_count == 2
+        assert cached[0].first_message == "original title"
+        assert [session.session_id for session in cached] == ["indexed"]
+
+        await restarted.save_conversation(session_id="indexed", messages=longer)
+        grown = await restarted.list_sessions()
+        assert grown[0].message_count == 3
+        # Growth invalidates the size-keyed snapshot once; later listings reuse it.
+        assert scans["count"] == 1
+        await JsonlPersistence(store.root).list_sessions()
+        assert scans["count"] == 1
+
+    asyncio.run(_run())
+
+
+def test_resume_loads_history_and_context_together(tmp_path: Path, monkeypatch) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+    messages = [Message(role="user", content="hello"), Message(role="assistant", content="world")]
+
+    async def _run() -> None:
+        await store.save_conversation(session_id="resume", messages=messages)
+        await store.save_conversation(
+            session_id="resume",
+            messages=[Message(role="user", content=f"{COMPACTED_CONTEXT_MARK}\ncompacted")],
+        )
+        reads = {"count": 0}
+        original = store._read_entries
+
+        def counting(session_id: str):
+            reads["count"] += 1
+            return original(session_id)
+
+        monkeypatch.setattr(store, "_read_entries", counting)
+        history, context = await store.load_resume(session_id="resume")
+        assert reads["count"] == 0
+        assert [message.content for message in history] == ["hello", "world"]
+        assert context[0].content == f"{COMPACTED_CONTEXT_MARK}\ncompacted"
+        assert await store.load_conversation(session_id="resume") == context
+
+    asyncio.run(_run())
+
+
 def test_jsonl_persistence_roundtrip(tmp_path: Path) -> None:
     store = JsonlPersistence(tmp_path / "sessions")
     messages = [

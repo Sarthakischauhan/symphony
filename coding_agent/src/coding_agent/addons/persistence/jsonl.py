@@ -134,6 +134,7 @@ class JsonlPersistence:
         self._lock = threading.Lock()
         self._event_keys: Dict[str, set[tuple[str, int]]] = {}
         self._entries: Dict[str, List[Dict[str, Any]]] = {}
+        self._listing_sizes: Dict[str, int] = {}
         self._marks: Dict[str, int] = {}
         # Highest journal ``seq`` per cached session, kept current by appends
         # so a new entry's seq is not a scan over the whole journal.
@@ -497,6 +498,7 @@ class JsonlPersistence:
             self._high_seq[session_id] = max(self._high_seq[session_id], self._max_seq(entries))
             self._marks[session_id] = path.stat().st_size
             self._artifacts(session_id, entries)
+            self._refresh_listing(session_id)
 
     @staticmethod
     def _ends_with_newline(path: Path, size: int) -> bool:
@@ -600,6 +602,76 @@ class JsonlPersistence:
             if payload is not None:
                 dumped.append(payload)
         return dumped
+
+    def _listing_path(self, session_id: str) -> Path:
+        return safe_path(self.session_dir(session_id), "listing.json")
+
+    def _listing_from_entries(self, entries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        """Extract the few fields the session picker displays."""
+        message_count = 0
+        first_message = ""
+        child_ids: set[str] = set()
+        for entry in entries:
+            if entry.get("type") == "spawn":
+                child_session = str(entry.get("session_id") or "")
+                if child_session:
+                    child_ids.add(child_session)
+            payload = self._message_payload_from_entry(entry)
+            if payload is None:
+                continue
+            message_count += 1
+            if first_message:
+                continue
+            text = text_from_content(payload.get("content")).strip()
+            if payload.get("role") == "user" and text and not text.startswith(COMPACTED_CONTEXT_MARK):
+                first_message = text
+        return {
+            "version": 1,
+            "transcript_size": 0,
+            "message_count": message_count,
+            "first_message": first_message,
+            "child_ids": sorted(child_ids),
+        }
+
+    def _read_listing(self, session_id: str, transcript_size: int) -> Optional[Dict[str, Any]]:
+        path = self._listing_path(session_id)
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if (
+            isinstance(saved, dict)
+            and saved.get("version") == 1
+            and saved.get("transcript_size") == transcript_size
+            and isinstance(saved.get("message_count"), int)
+            and isinstance(saved.get("first_message"), str)
+            and isinstance(saved.get("child_ids"), list)
+        ):
+            return saved
+        return None
+
+    def _refresh_listing(self, session_id: str) -> Dict[str, Any]:
+        size = self._marks.get(session_id, self._mark(self._path(session_id)))
+        if self._listing_sizes.get(session_id) == size:
+            saved = self._read_listing(session_id, size)
+            if saved is not None:
+                return saved
+        entries = self._entries.get(session_id, [])
+        listing = self._listing_from_entries(entries)
+        listing["transcript_size"] = size
+        refresh_snapshot(self._listing_path(session_id), listing)
+        self._listing_sizes[session_id] = size
+        return listing
+
+    def _session_listing(self, session_id: str) -> Dict[str, Any]:
+        size = self._mark(self._path(session_id))
+        if session_id in self._entries and self._marks.get(session_id) == size:
+            return self._refresh_listing(session_id)
+        saved = self._read_listing(session_id, size)
+        if saved is not None:
+            return saved
+        self._read_entries(session_id)
+        return self._refresh_listing(session_id)
 
     def _transcript_messages(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Return every persisted message, including messages before compaction."""
@@ -877,17 +949,37 @@ class JsonlPersistence:
             ]
             self._append_entries(session_id, [boundary, *additions])
 
-    async def load_conversation(self, *, session_id: str) -> List[Message]:
-        """Load the reconstructed model context (runtime view)."""
+    def _load_messages(self, session_id: str, *, transcript: bool) -> tuple[List[Message], List[Message]]:
+        """Parse one journal into both the visible history and model context."""
         with self._lock:
             entries = self._cached_entries(session_id)
-        return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._messages_from(entries)]
+            directory = self.session_dir(session_id)
+            selected = self._transcript_messages(entries) if transcript else self._messages_from(entries)
+            messages = [
+                Message.model_validate(hydrate(payload, directory))
+                for payload in selected
+            ]
+            if not transcript:
+                return [], messages
+            context = [
+                Message.model_validate(hydrate(payload, directory))
+                for payload in self._messages_from(entries)
+            ]
+        return messages, context
+
+    async def load_conversation(self, *, session_id: str) -> List[Message]:
+        """Load the reconstructed model context (runtime view)."""
+        _, context = self._load_messages(session_id, transcript=False)
+        return context
 
     async def load_transcript(self, *, session_id: str) -> List[Message]:
         """Load the complete persisted transcript for the TUI/history view."""
-        with self._lock:
-            entries = self._cached_entries(session_id)
-        return [Message.model_validate(hydrate(payload, self.session_dir(session_id))) for payload in self._transcript_messages(entries)]
+        history, _ = self._load_messages(session_id, transcript=True)
+        return history
+
+    async def load_resume(self, *, session_id: str) -> tuple[List[Message], List[Message]]:
+        """Load visible history and model context from one journal read."""
+        return self._load_messages(session_id, transcript=True)
 
     async def list_sessions(self) -> List[SessionSummary]:
         """List parent sessions, newest first. Child session files are omitted."""
@@ -914,40 +1006,15 @@ class JsonlPersistence:
                     safe_path(self.root, str(path.relative_to(self.root)))
                 except ValueError:
                     continue
-                # The picker only needs file metadata and the first user
-                # message. Do not decode every JSON object in large transcripts.
-                first_message = ""
-                message_count = 0
-                client = ""
                 try:
                     meta = self._read_metadata(session_id)
                 except ValueError:
                     meta = None
-                if isinstance(meta, dict):
-                    client = str(meta.get("client") or "")
-                with path.open(encoding="utf-8") as handle:
-                    for raw in handle:
-                        if not raw.strip():
-                            continue
-                        try:
-                            entry = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-                        if not isinstance(entry, dict):
-                            continue
-                        if entry.get("type") == "spawn":
-                            child_session = str(entry.get("session_id") or "")
-                            if child_session:
-                                child_ids.add(child_session)
-                        payload = self._message_payload_from_entry(entry)
-                        if payload is None:
-                            continue
-                        message_count += 1
-                        if first_message:
-                            continue
-                        text = text_from_content(payload.get("content")).strip()
-                        if payload.get("role") == "user" and text and not text.startswith(COMPACTED_CONTEXT_MARK):
-                            first_message = text
+                client = str(meta.get("client") or "") if isinstance(meta, dict) else ""
+                listing = self._session_listing(session_id)
+                message_count = int(listing["message_count"])
+                first_message = str(listing["first_message"])
+                child_ids.update(str(child_id) for child_id in listing["child_ids"])
                 updated = datetime.fromtimestamp(
                     path.stat().st_mtime, tz=timezone.utc
                 ).isoformat()

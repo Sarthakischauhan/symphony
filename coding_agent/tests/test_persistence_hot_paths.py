@@ -195,10 +195,12 @@ def test_per_turn_work_does_not_grow_with_history(tmp_path: Path, monkeypatch, h
     monkeypatch.setattr(JsonlPersistence, "_load_transcript", counting_load)
     asyncio.run(_turns(store, "long", 3, messages))
 
-    # Per turn: one append from save_conversation and one from save_checkpoint,
-    # each refreshing metadata.json; the checkpoint also publishes checkpoint.json.
+    # Per turn: conversation and checkpoint appends each refresh metadata and
+    # the picker listing; the checkpoint also publishes checkpoint.json.
     # Same count at 5 turns of history as at 60.
-    assert sorted(published) == sorted(["metadata.json"] * 6 + ["checkpoint.json"] * 3)
+    assert sorted(published) == sorted(
+        ["metadata.json"] * 6 + ["listing.json"] * 6 + ["checkpoint.json"] * 3
+    )
     assert parsed == []
 
 
