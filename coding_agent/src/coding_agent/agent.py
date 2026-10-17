@@ -366,7 +366,8 @@ class CodingAgent:
                     self.learning_loop.cancel()
                     await self.learning_loop.wait()
                 self.learning_store = LearningStore(
-                    self.workspace, max_lessons=self.config.learning.max_lessons,
+                    self.workspace, session_id=session_id or self.session_id,
+                    max_lessons=self.config.learning.max_lessons,
                     session_dir=directory,
                 )
                 if self.learning_loop is not None:

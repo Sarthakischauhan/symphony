@@ -91,7 +91,7 @@ def test_empty_capture_output_is_logged_noticed_and_counted(tmp_path: Path, capl
                             workspace=tmp_path, tools=[], sink=sink)
         await agent.run("how do I deploy?")
         await agent.wait_for_learning()
-        [path] = (tmp_path / ".symphony" / "memories" / "jobs").glob("*.json")
+        [path] = (agent.learning_store.memory_dir / "jobs").glob("*.json")
         return json.loads(path.read_text(encoding="utf-8"))
 
     with caplog.at_level(logging.WARNING, logger="coding_agent.addons.learning.loop"):
@@ -169,6 +169,24 @@ def test_reasoning_model_learns_in_turn_one_and_turn_two_request_has_it(tmp_path
              if message.role == "user" and FACT in text_from_content(message.content)]
     assert notes, "turn 2's model request must carry the fact learned in turn 1"
     assert text_from_content(request[-1].content) == "now deploy it again"
+
+
+def test_stored_legacy_learning_off_is_turned_on(tmp_path: Path) -> None:
+    from coding_agent.config import ensure_spawn_settings, spawn_settings_path
+
+    path = spawn_settings_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # ensure_spawn_settings used to persist enabled=false as the product default.
+    path.write_text(json.dumps({"learning": {"enabled": False}}), encoding="utf-8")
+    resolved = ensure_spawn_settings(tmp_path)
+    assert resolved.learning.enabled is True
+    assert json.loads(path.read_text(encoding="utf-8"))["learning"]["enabled"] is True
+    # A learning block the user actually edited is left alone.
+    path.write_text(
+        json.dumps({"learning": {"enabled": False, "max_lessons": 12}}),
+        encoding="utf-8",
+    )
+    assert ensure_spawn_settings(tmp_path).learning.enabled is False
 
 
 def test_stored_old_capture_cap_is_raised_and_rewritten(tmp_path: Path) -> None:

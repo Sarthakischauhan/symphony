@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Session facts are markdown in the session bundle (`<session_id>/memories/MEMORY.md`),
+  not under the project's `.symphony/`. Global preferences stay in
+  `~/.symphony/memories/global/`.
+- Learning is on by default. A `~/.symphony/config.json` that only stores the
+  old `"learning": {"enabled": false}` default is turned on and rewritten at
+  launch. `--no-learning` still disables capture for that process. A learning
+  block with any other key keeps the stored `enabled` value.
 - `web_search` tool: searches the web through Exa's hosted endpoint with no
   account or key, and uses `EXA_API_KEY` when it is set. Each search asks for
   approval and shows the query (`approvals.require_for_web_search`); allow and

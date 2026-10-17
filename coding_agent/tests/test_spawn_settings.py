@@ -87,7 +87,14 @@ def test_load_coding_agent_config_requires_existing_file(tmp_path: Path) -> None
 def test_coding_agent_accepts_settings_path(tmp_path: Path) -> None:
     settings = tmp_path / "custom.json"
     settings.write_text(
-        json.dumps({"harness": {"max_turns": 7}, "learning": {"enabled": False}}),
+        json.dumps(
+            {
+                "harness": {"max_turns": 7},
+                # Another learning key marks this as an explicit opt-out. A bare
+                # ``{"enabled": false}`` is the old default and is turned on.
+                "learning": {"enabled": False, "max_lessons": 12},
+            }
+        ),
         encoding="utf-8",
     )
     agent = CodingAgent(

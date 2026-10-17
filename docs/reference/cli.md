@@ -17,7 +17,7 @@ uv run --package symphony-code symphony [options]
 | `--resume` | Choose a saved session |
 | `--resume --continue` | Continue the latest interrupted session unattended |
 | `--unattended` | Run without human prompts; see [Security](../../SECURITY.md) |
-| `--no-learning` | Disable automatic learning |
+| `--no-learning` | Disable automatic learning for this process (learning is on by default) |
 | `--jev` | Enable Jev findings (does not change the chat model) |
 
 Daily controls are in the [TUI guide](../user-guide/tui.md); interactive commands are in the [slash-command reference](./slash-commands.md).

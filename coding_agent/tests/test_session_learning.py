@@ -23,8 +23,9 @@ def test_memory_operations_and_lessons_are_session_owned_and_sanitized(tmp_path)
     b = LearningStore(tmp_path, session_dir=second)
     MemoryTool(tmp_path, store=a).run("add", text="Use focused pytest tests; token=private-value")
     MemoryTool(tmp_path, store=b).run("add", target="user", text="Prefers concise responses")
-    assert "focused pytest" in b.query("pytest tests")
-    assert "private-value" not in (first / "memory/MEMORY.md").read_text()
+    assert "focused pytest" in a.query("pytest tests")
+    assert "focused pytest" not in b.query("pytest tests")
+    assert "private-value" not in (first / "memories/MEMORY.md").read_text()
     assert records(first / "memory/operations.jsonl")[0]["target"] == "memory"
     assert records(second / "memory/operations.jsonl")[0]["target"] == "user"
     a.append(Lesson(summary="Verify pytest tests", source_task="token=private-value"))
@@ -32,7 +33,7 @@ def test_memory_operations_and_lessons_are_session_owned_and_sanitized(tmp_path)
     assert not (second / "learning/lessons.jsonl").exists()
     assert "private-value" not in (first / "learning/lessons.jsonl").read_text()
     # Historical session data is not a retrieval source.
-    (first / "memory/MEMORY.md").write_text("- historical-only zebra instructions")
+    (first / "memories/MEMORY.md").write_text("- historical-only zebra instructions")
     assert a.query("historical-only zebra") == ""
     assert MemoryTool(tmp_path, store=a).run("remove", match="missing").startswith("error:")
     assert records(first / "memory/operations.jsonl")[-1]["status"] == "error"

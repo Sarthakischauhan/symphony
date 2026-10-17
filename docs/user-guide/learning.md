@@ -1,12 +1,12 @@
 # Learning and memory
 
-Symphony Code can retain selected lessons between tasks, then use relevant memory as context in later runs. Learning is optional agent behavior; it is not part of the generic harness or a source of trusted instructions.
+Symphony Code retains selected lessons between tasks, then uses relevant memory as context in later runs. Learning is on by default. It is agent behavior, not part of the generic harness, and it is not a source of trusted instructions. Turn it off with `--no-learning` or `"learning": {"enabled": false, "max_lessons": 200}` in `~/.symphony/config.json`. A file that only stores `"enabled": false` is the old default and is turned back on at launch.
 
 ## What to expect
 
 The learning add-on can capture run evidence, prepare and consolidate candidate lessons, and retrieve relevant memory for a later task. Stored material is model-generated reference data: check it when it matters and do not treat it as policy. Memory scopes and settings are controlled by the coding agent configuration.
 
-The `/learning` command opens the learning interface. Use it to inspect available lessons rather than assuming every past conversation is automatically searched or replayed.
+The `/learning` command opens the learning interface. Session facts are markdown files in that session's `memories/` directory (`MEMORY.md`). Preferences that apply across sessions stay in `~/.symphony/memories/global/`. Use `/learning` to inspect those files rather than assuming every past conversation is automatically searched or replayed.
 
 ## Privacy and controls
 
