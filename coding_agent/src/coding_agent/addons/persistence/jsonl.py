@@ -136,7 +136,10 @@ class SessionSummary:
 class _SessionIndex:
     """Incremental view of one journal. Reads are O(1) or O(result)."""
 
-    def __init__(self) -> None:
+    def __init__(self, directory: Path) -> None:
+        # Archived images resolve against the session directory when a
+        # message is validated, as the full loaders did before the index.
+        self.directory = directory
         self.entries: List[Dict[str, Any]] = []
         self.size = -1
         self.high_seq = 0
@@ -160,7 +163,7 @@ class _SessionIndex:
         self.child_ids: set[str] = set()
 
     def reset(self, entries: List[Dict[str, Any]], size: int) -> None:
-        fresh = _SessionIndex()
+        fresh = _SessionIndex(self.directory)
         self.__dict__.update(fresh.__dict__)
         self.entries = entries
         self.size = size
@@ -216,7 +219,7 @@ class _SessionIndex:
         if payload is None:
             return
         self.messages.append(payload)
-        self.hydrated.append(Message.model_validate(payload))
+        self.hydrated.append(Message.model_validate(hydrate(payload, self.directory)))
         if self.latest_compaction is None or seq > self.context_through:
             self.context.append(payload)
             self.hydrated_context.append(self.hydrated[-1])
@@ -238,12 +241,12 @@ class _SessionIndex:
         if isinstance(system, dict):
             item = dict(system)
             self.context.append(item)
-            self.hydrated_context.append(Message.model_validate(item))
+            self.hydrated_context.append(Message.model_validate(hydrate(item, self.directory)))
         summary = entry.get("summary")
         if isinstance(summary, dict):
             item = dict(summary)
             self.context.append(item)
-            self.hydrated_context.append(Message.model_validate(item))
+            self.hydrated_context.append(Message.model_validate(hydrate(item, self.directory)))
         elif isinstance(summary, str) and summary:
             item = {"role": str(entry.get("summary_role") or "user"), "content": summary}
             self.context.append(item)
@@ -628,7 +631,7 @@ class JsonlPersistence:
             entries = self._load_transcript(path) if mark >= 0 else []
             if mark >= 0:
                 self._artifacts(session_id, entries, updated=False)
-            index = self._indexes.setdefault(session_id, _SessionIndex())
+            index = self._indexes.setdefault(session_id, _SessionIndex(self.session_dir(session_id)))
             index.reset(entries, mark)
             return entries
 
@@ -661,7 +664,7 @@ class JsonlPersistence:
             mark = self._mark(path)
             index = self._indexes.get(session_id)
             if index is None or index.size != mark:
-                index = self._indexes.setdefault(session_id, _SessionIndex())
+                index = self._indexes.setdefault(session_id, _SessionIndex(self.session_dir(session_id)))
                 index.reset(self._load_transcript(path) if mark >= 0 else [], mark)
             # A crash mid-append leaves a torn last line. Start on a fresh line
             # so the fragment stays one skipped line and does not swallow this
