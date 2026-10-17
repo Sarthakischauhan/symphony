@@ -957,6 +957,44 @@ def test_dropped_image_becomes_clickable_chip(
     asyncio.run(_run())
 
 
+def test_image_drop_attaches_when_transcript_is_focused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A file drop on the transcript attaches to the composer, not only when it is focused."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    image_path = tmp_path / "shot.png"
+    image_path.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+    )
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt", PromptInput)
+            transcript = app.query_one("#transcript")
+            transcript.focus()
+            await pilot.pause()
+            assert not prompt.has_focus
+
+            await app.on_event(events.Paste(f"{image_path}\n"))
+            await pilot.pause()
+
+            assert "[Image 1]" in prompt.value
+            assert prompt.images[0].filename == "shot.png"
+            assert prompt.has_focus is False
+
+            # Ordinary text still belongs to the focused widget, not the composer.
+            await app.on_event(events.Paste("just a sentence"))
+            await pilot.pause()
+            assert "just a sentence" not in prompt.value
+            assert len(prompt.images) == 1
+
+    asyncio.run(_run())
+
+
 def test_generate_image_tool_chip_opens_modal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
