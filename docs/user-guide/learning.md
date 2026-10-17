@@ -1,6 +1,6 @@
 # Learning and memory
 
-Symphony Code can retain selected lessons between tasks, then use relevant memory as context in later runs. Learning is optional agent behavior; it is not part of the generic harness or a source of trusted instructions.
+Symphony Code retains selected lessons between tasks, then uses relevant memory as context in later runs. Learning is on by default. It is agent behavior, not part of the generic harness, and it is not a source of trusted instructions. Turn it off with `--no-learning` or `"learning": {"enabled": false, "max_lessons": 200}` in `~/.symphony/config.json`. A file that only stores `"enabled": false` is the old default and is turned back on at launch.
 
 ## What to expect
 
