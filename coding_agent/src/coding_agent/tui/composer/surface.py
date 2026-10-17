@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual import events
-from textual.widgets import Button, OptionList, Static, TextArea
+from textual.widgets import Button, OptionList, TextArea
 from textual.worker import WorkerState, get_current_worker
 
 from coding_agent.config.credentials import OFFLINE_HINT
@@ -12,13 +12,11 @@ from coding_agent.tui.commands import (
     command_matches,
     effort_matches,
     effort_options_for_model,
-    mode_matches,
     model_matches,
     model_supports_effort,
     personality_matches,
-    toggle_mode,
 )
-from coding_agent.tui.composer.input import Composer, PromptInput, mode_label
+from coding_agent.tui.composer.input import PromptInput
 from coding_agent.tui.composer.input import QueuedTurn
 from coding_agent.tui.composer.slash_menu import SlashMenu
 from coding_agent.tui.screens.file_selector import (
@@ -86,8 +84,6 @@ class ComposerSurface:
             UserMessage(turn.text, pasted_chunks=turn.pasted_chunks, images=turn.images)
         )
         self.set_thinking("Thinking…")
-        if self.mode == "plan":
-            self._plan_run_active = True
         self._busy = True
         self._set_status("")
         # The harness reads this once, on the run that is about to start.
@@ -204,14 +200,6 @@ class ComposerSurface:
                 ),
                 current,
             )
-        elif event.text_area.text.startswith("/mode "):
-            menu.set_modes(mode_matches(event.text_area.text.removeprefix("/mode ")), self.mode)
-        elif event.text_area.text.startswith("/plans "):
-            menu.set_plans(
-                self._command_manager.plan_options(event.text_area.text.removeprefix("/plans ")),
-                self._plan_store.path.name,
-                command="/plans",
-            )
         else:
             model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")
             try:
@@ -243,10 +231,6 @@ class ComposerSurface:
             else self.query_one("#slash-menu", SlashMenu)
         )
         if not menu.display:
-            if event.key == "tab" and not self._busy:
-                toggle_mode(self)
-                event.prevent_default()
-                event.stop()
             return
 
         if event.key in {"up", "down"}:
@@ -342,9 +326,5 @@ class ComposerSurface:
         overlay.show(text, hint or DEFAULT_HINT)
 
     def _update_composer_hint(self) -> None:
-        """Refresh the mode badge and the footer keyboard hint for the current state."""
-        self.query_one("#composer", Composer).set_class(
-            self.mode == "plan", "plan-mode"
-        )
-        self.query_one("#composer-mode", Static).update(mode_label(self.mode))
+        """Refresh the footer keyboard hint for the current state."""
         self._set_status("")

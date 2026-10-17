@@ -21,7 +21,6 @@ from coding_agent.tui.screens.modal import (
     ModalScroll,
 )
 from coding_agent.tui.screens.onboard import OnboardApp, ProviderOnboardScreen, ProviderWizard
-from coding_agent.tui.screens.plan import PlanBuildAction, PlanModal, _plan_document
 from coding_agent.tui.screens.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.tools.images import ImageModal
 
@@ -43,13 +42,10 @@ __all__ = [
     "ModalCloseButton",
     "ModalScroll",
     "OnboardApp",
-    "PlanBuildAction",
-    "PlanModal",
     "ProviderOnboardScreen",
     "ProviderWizard",
     "ResumeApp",
     "SessionOption",
-    "_plan_document",
     "active_file_mention",
     "complete_file_mention",
     "file_matches",

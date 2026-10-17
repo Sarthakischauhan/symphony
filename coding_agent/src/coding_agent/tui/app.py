@@ -11,11 +11,10 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from coding_agent.agent import AgentMode, CodingAgent, build_agent
+from coding_agent.agent import CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.config.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.addons.persistence.active import register_active, release_active
-from coding_agent.addons.plan.store import PlanStore
 from coding_agent.tui.chrome import ComposerOverlay, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import (
@@ -110,7 +109,6 @@ class CodingAgentApp(
         self.config = ensure_spawn_settings(
             self.workspace, overrides=overrides or None
         )
-        self.mode: AgentMode = "build"
         self.sink = TextualEventSink(workspace=self.workspace)
         self._agent: Optional[CodingAgent] = None
         self._busy = False
@@ -141,10 +139,7 @@ class CodingAgentApp(
         self._tool_groups: dict[str, ToolCallSummary] = {}
         self._open_tool_group: Optional[ToolCallSummary] = None
         self._subagents: dict[str, SubagentRecord] = {}
-        self._plan_store = PlanStore(self.workspace)
         self._file_index = WorkspaceFileIndex(self.workspace)
-        self._plan_list_cache: tuple | None = None
-        self._plan_run_active = False
         self._pending_question_id: str | None = None
         self._pending_question_agent_id = ""
         self._pending_question_default = ""
@@ -196,10 +191,15 @@ class CodingAgentApp(
                 config=self.config,
                 client="tui",
             )
-            self._agent.set_mode(self.mode)
+            from coding_agent.protocols.stdio.commands import load_state
+
+            load_state(self._agent)
         except Exception as exc:
+            self._agent = None
             self._set_status("")
-            if has_configured_provider():
+            if "explicitly start a fresh session" in str(exc):
+                self.add_notice(str(exc), "error")
+            elif has_configured_provider():
                 self.add_notice(f"Offline · {exc}. {OFFLINE_HINT}", "error")
             else:
                 self.add_notice(OFFLINE_HINT, "error")

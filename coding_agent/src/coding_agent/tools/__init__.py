@@ -13,7 +13,6 @@ from coding_agent.tools.bash_jobs import BashJobs
 from coding_agent.tools.generate_image import GenerateImageArgs, GenerateImageTool
 from coding_agent.tools.memory import MemoryArgs, MemoryGetTool, MemorySearchTool, MemoryTool
 from coding_agent.tools.patch import PatchArgs, PatchTool
-from coding_agent.tools.plan import EnterPlanModeTool, ExitPlanModeTool
 from coding_agent.tools.read_file import ReadFileArgs, ReadFileTool
 from coding_agent.tools.search import SearchArgs, SearchTool
 from coding_agent.tools.web_search import WebSearchArgs, WebSearchTool
@@ -36,7 +35,7 @@ TOOL_CLASSES: tuple[Type[WorkspaceTool], ...] = (
 __all__ = [
     "AskUserArgs", "AskUserTool", "BashArgs", "BashJobs", "BashTool",
     "GenerateImageArgs", "GenerateImageTool", "MemoryArgs", "MemoryTool", "PatchArgs", "PatchTool",
-    "ReadFileArgs", "ReadFileTool", "SearchArgs", "SearchTool", "EnterPlanModeTool", "ExitPlanModeTool", "TOOL_CLASSES",
+    "ReadFileArgs", "ReadFileTool", "SearchArgs", "SearchTool", "TOOL_CLASSES",
     "ToolArgsModel", "WebSearchArgs", "WebSearchTool", "WorkspaceTool", "WriteFileArgs", "WriteFileTool",
     "build_tools",
 ]

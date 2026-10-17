@@ -6,7 +6,7 @@ docs, and agent examples such as Foreman all keep this split:
     typed answers + probabilities  ->  code-owned policy  ->  one allowed action
 
 This module is that policy. It never calls the evaluator, never rewrites the
-plan file, and never grants extra tools. ``JevAddon`` dispatches named
+workspace, and never grants extra tools. ``JevAddon`` dispatches named
 handlers from ``last_decision.action``. Honour/follow-up (a second
 ``harness.run``) is opt-in and off by default.
 
@@ -128,7 +128,7 @@ def critic_message(decision: PolicyDecision) -> str:
     if decision.action == "replan":
         body = (
             f"Revise the plan before further implementation. Reason: {rationale} "
-            "Do not use write/edit/bash until the plan is revised. Plan mode was not opened."
+            "Reconsider the approach before making further changes."
         )
     elif decision.action == "gather":
         body = (

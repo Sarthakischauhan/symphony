@@ -33,4 +33,4 @@ the same `CoreHarness.submit` operations drive the TUI and the JSONL host.
 - A question without choices (a free-text `ask_user`) cannot be expressed as
   a permission request, so it takes its default answer.
 - A cancelled or malformed permission outcome denies an approval.
-- Session modes, config options, plans, and slash commands are not exposed.
+- Config options and slash commands are not exposed.

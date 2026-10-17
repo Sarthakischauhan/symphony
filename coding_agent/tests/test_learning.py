@@ -376,37 +376,6 @@ def test_learning_config_overrides_reach_injection(tmp_path: Path) -> None:
     assert len(memory_bullets) == 1
 
 
-def test_plan_mode_skips_learning_hook(tmp_path: Path) -> None:
-    class CountingReview:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):
-            self.calls += 1
-            yield StreamEvent(type="text_delta", delta='{"should_save": false}')
-            yield StreamEvent(type="done")
-
-    async def scenario():
-        review = CountingReview()
-        registry = SplitRegistry(review)
-        agent = CodingAgent(
-            registry=registry,  # type: ignore[arg-type]
-            model_id="test:model",
-            workspace=tmp_path,
-            tools=[],
-            mode="plan",
-        )
-        agent.learning_store.memory_operation("add", text="Python tests use pytest -q")
-        await agent.run("plan a Python test change")
-        await agent.wait_for_learning()
-        return review.calls, _memory_text(registry.turns[0])
-
-    calls, memory = asyncio.run(scenario())
-    assert calls == 0
-    assert memory.count(MEMORY_CONTEXT_PREFIX) == 1
-    assert "pytest" in memory
-
-
 def test_learning_cancel_finishes_pending_reflection(tmp_path: Path) -> None:
     class NeverRegistry:
         async def stream(self, model_id, messages, tools=None, max_output_tokens=None, **kwargs):

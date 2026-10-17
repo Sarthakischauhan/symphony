@@ -15,7 +15,7 @@ flowchart LR
     Retrieve --> Turn
 ```
 
-The foreground run persists bounded evidence before scheduling extraction; it does not wait for an extraction call. Shutdown leaves pending jobs available for a later worker. Failed extraction is retried up to the configured attempt limit. Capture excludes system messages, sanitizes text, converts multimodal content rather than copying image payloads, and is skipped for parent plan-mode runs.
+The foreground run persists bounded evidence before scheduling extraction; it does not wait for an extraction call. Shutdown leaves pending jobs available for a later worker. Failed extraction is retried up to the configured attempt limit. Capture excludes system messages, sanitizes text, converts multimodal content rather than copying image payloads.
 
 ## Trust and data model
 

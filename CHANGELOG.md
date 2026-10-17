@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Removed plan mode, its entry/exit tools, mode controls, saved-plan commands,
+  and plan approval/build UI. There is no replacement planning gate; normal
+  tool approval policies remain in effect. Legacy plan-mode sessions must not
+  silently resume with write-capable tools. Planning can still be requested
+  in ordinary conversation without a tool-restriction guarantee.
+
 - Session facts are markdown in the session bundle (`<session_id>/memories/MEMORY.md`),
   not under the project's `.symphony/`. Global preferences stay in
   `~/.symphony/memories/global/`.
@@ -13,7 +19,7 @@
   account or key, and uses `EXA_API_KEY` when it is set. Each search asks for
   approval and shows the query (`approvals.require_for_web_search`); allow and
   deny rules match it as `web_search:<query>`. `tools.web_search.enabled:
-  false` removes the tool. Plan mode allows it. The bundled `addon-authoring`
+  false` removes the tool. The bundled `addon-authoring`
   skill now looks up third-party API documentation with it.
 - `symphony acp` is an Agent Client Protocol host (protocol version 1) for
   editors and other ACP clients: `initialize`, `session/new`,
@@ -136,7 +142,7 @@
   swallowed and produced zero traces).
 - Optional Jev critic mode on `symphony-code` (`--jev` / `/jev`). Findings
   plus a per-action in-thread critic note: the chat model is unchanged, scores
-  do not rewrite the plan or enter plan mode, honour / auto-follow-up stays
+  do not rewrite the task, honour / auto-follow-up stays
   off, and provider errors fail open. Off by default.
 - `/provider` and first-run onboarding can sign in with a ChatGPT (Codex),
   Claude (`claude setup-token` or browser code), or xAI (device code)
@@ -146,6 +152,8 @@
   `https://cli-chat-proxy.grok.com/v1`; `XAI_API_KEY` still uses `api.x.ai`.
 
 ## 0.1.0 — first public release
+
+This section records historical release behavior, including features since removed.
 
 The 0.1.0 project release included distributions named `symphony-core`,
 `symphony-harness`, and `symphony-code`. This history does not guarantee that

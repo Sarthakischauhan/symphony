@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Optional
 
 from core_ai.types import Message
@@ -27,8 +26,6 @@ from coding_agent.addons.evaluation.protocol import (
     error_result,
 )
 from coding_agent.addons.evaluation.state import bound_text, build_run_state
-from coding_agent.addons.plan.store import PlanStore
-from coding_agent.addons.plan.addon import PlanModeState
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +35,8 @@ class JevAddon(Addon):
 
     Dispatches named handlers from ``last_decision.action``. Does not override
     ``before_turn`` or ``on_tool`` and never gates tools. A violated user rule
-    can trigger one automatic follow-up. It never rewrites the plan file or
-    enters plan mode.
+    can trigger one automatic follow-up. Evaluation uses only the conversation,
+    tool results, and final response; it does not read workspace files.
     """
 
     name = "jev"
@@ -49,19 +46,13 @@ class JevAddon(Addon):
         config: EvaluationConfig,
         *,
         evaluator: Optional[Evaluator] = None,
-        plan_store: Optional[PlanStore] = None,
-        plan_mode: Optional[PlanModeState] = None,
     ) -> None:
         self.config = config
         self.evaluator = evaluator or VercelJevEvaluator(config)
-        self.plan_store = plan_store
-        self.plan_mode = plan_mode
         self.last_start: Optional[EvaluationResult] = None
         self.last_finish: Optional[EvaluationResult] = None
         self.last_decision: Optional[PolicyDecision] = None
-        self.gated_action = CONTINUE_NORMALLY
         self.follow_ups = 0
-        self._allowed_tools: Optional[frozenset[str]] = None
         self._harness: Any = None
 
     def attach(self, harness: Any) -> None:
@@ -71,16 +62,6 @@ class JevAddon(Addon):
         """Skip inherit: child runs are not evaluated by Jev."""
         del parent_harness
         return None
-
-    def _plan_markdown(self) -> str:
-        if self.plan_store is not None:
-            return self.plan_store.load()
-        if self.plan_mode is None or not self.plan_mode.plan_path:
-            return ""
-        try:
-            return Path(self.plan_mode.plan_path).read_text(encoding="utf-8")
-        except OSError:
-            return ""
 
     async def _call(
         self, method_name: str, phase: EvaluationPhase, **state_kwargs: Any
@@ -105,13 +86,12 @@ class JevAddon(Addon):
                 finding=decision.finding,
             )
         self.last_decision = decision
-        self.gated_action = decision.action
         logger.info(
-            "jev %s status=%s findings=%s gate=%s reason=%s",
+            "jev %s status=%s findings=%s action=%s reason=%s",
             phase,
             result.status,
             [finding.question for finding in result.findings],
-            self.gated_action,
+            decision.action,
             decision.reason,
         )
         if self._harness is not None:
@@ -123,7 +103,6 @@ class JevAddon(Addon):
 
     async def before_run(self, **payload: Any) -> None:
         self._clear_nudge(payload)
-        self._allowed_tools = None
 
     async def after_run(self, **payload: Any) -> None:
         result = payload.get("result")
@@ -137,7 +116,6 @@ class JevAddon(Addon):
             "finish",
             request=payload.get("task") or "",
             messages=messages,
-            plan_text=self._plan_markdown(),
             final=final,
             tool_calls=tool_calls,
         )
@@ -173,7 +151,6 @@ class JevAddon(Addon):
         queued: Optional[str] = None,
     ) -> Optional[str]:
         effect = dispatch(decision or PolicyDecision())
-        self._allowed_tools = effect.allow
         if effect.note:
             self._apply_nudge(payload, effect.note)
             return effect.note
@@ -208,8 +185,6 @@ class JevAddon(Addon):
 def jev_from_config(
     config: EvaluationConfig,
     *,
-    plan_store: Optional[PlanStore] = None,
-    plan_mode: Optional[PlanModeState] = None,
     evaluator: Optional[Evaluator] = None,
 ) -> Optional[JevAddon]:
     """Mount the add-on only when critic mode is enabled."""
@@ -218,8 +193,6 @@ def jev_from_config(
     return JevAddon(
         config,
         evaluator=evaluator,
-        plan_store=plan_store,
-        plan_mode=plan_mode,
     )
 
 

@@ -34,14 +34,12 @@ constant = "#d08a61"
 surface = "#171717"
 overlay = "#262626"
 subtext = "#A3A3A3"
-accent_plan = "#D8BD62"
 panel_edge_focus = "#484F58"
 
 [css.variables]
 background = "background"
 foreground = "foreground"
 accent = "accent"
-accent-plan = "accent_plan"
 muted = "muted"
 muted-dim = "muted_dim"
 foreground-muted = "subtext"
@@ -519,8 +517,7 @@ composer = '''
     color: $muted;
 }
 
-/* Composer: a visibly rounded input container, with the all-caps mode
-   label sitting on the prompt's first row at the right edge. */
+/* Composer: a visibly rounded input container. */
 #composer {
     width: 1fr;
     height: auto;
@@ -582,17 +579,7 @@ composer = '''
     text-style: none;
 }
 
-#composer-mode {
-    width: auto;
-    height: 1;
-    padding: 0 0 0 $space-gutter;
-    color: $accent;
-    background: $background;
-}
 
-#composer.plan-mode #composer-mode {
-    color: $accent-plan;
-}
 
 #queued-prompt-row {
     display: none;
@@ -1481,140 +1468,6 @@ LearningModal {
     padding: 1 2 2 2;
     color: #bdbdbd;
     background: #0A0A0A;
-}
-
-'''
-plan = '''
-PlanModal {
-    align: center middle;
-    background: rgba(0, 0, 0, 0.52);
-}
-
-#plan-pane {
-    width: 98%;
-    max-width: 180;
-    height: 94%;
-    padding: 0 1;
-    background: #0A0A0A;
-    border: round #262626;
-}
-
-#plan-pane > #modal-close {
-    display: none;
-}
-
-#plan-header {
-    width: 100%;
-    height: 3;
-    min-height: 3;
-    padding: 1 1 0 1;
-    border-bottom: solid #262626;
-    background: #0A0A0A;
-}
-
-#plan-kicker {
-    width: auto;
-    color: #c7b66e;
-    text-style: bold;
-    background: #0A0A0A;
-}
-
-#plan-title {
-    width: 1fr;
-    padding-left: 2;
-    color: #d9dde0;
-    text-style: bold;
-    background: #0A0A0A;
-}
-
-#plan-header #modal-close {
-    dock: none;
-    width: auto;
-    min-width: 11;
-    margin-left: 2;
-    color: #858d91;
-    background: #0A0A0A;
-}
-
-#plan-header #modal-close:hover,
-#plan-header #modal-close:focus {
-    color: #f2d675;
-    background: #171b1c;
-}
-
-#plan-body {
-    height: 1fr;
-    padding: 0;
-    background: #0A0A0A;
-}
-
-#plan-markdown {
-    width: 100%;
-    height: auto;
-    padding: 1 2 2 2;
-    color: #d0d0d0;
-    background: #0A0A0A;
-}
-
-#plan-actions {
-    width: 100%;
-    height: 3;
-    min-height: 3;
-    padding: 0 1;
-    border-top: solid #262626;
-    background: #0A0A0A;
-}
-
-#plan-hint {
-    width: 1fr;
-    height: 3;
-    content-align: left middle;
-    color: #737b7f;
-    background: #0A0A0A;
-}
-
-#plan-build,
-#plan-changes,
-#plan-quit {
-    height: 3;
-    padding: 0 1;
-    content-align: center middle;
-    margin-left: 1;
-}
-
-#plan-build {
-    width: 14;
-    color: #c7b66e;
-    background: #181712;
-    border: round #4a4532;
-}
-
-#plan-changes {
-    width: 20;
-    color: #aeb8bc;
-    background: #121212;
-    border: round #333333;
-}
-
-#plan-quit {
-    width: 10;
-    color: #aeb8bc;
-    background: #121212;
-    border: round #333333;
-}
-
-#plan-build:hover,
-#plan-build:focus {
-    color: #f2d675;
-    background: #302c20;
-}
-
-#plan-changes:hover,
-#plan-changes:focus,
-#plan-quit:hover,
-#plan-quit:focus {
-    color: #f2d675;
-    background: #171b1c;
 }
 
 '''

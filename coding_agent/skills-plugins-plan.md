@@ -221,9 +221,8 @@ Preserve these existing composition details:
 
 - `CodingAgent` rewrites its system prompt on each run; integrate the catalog
   there or through an explicit product helper that survives that rewrite.
-- Plan mode keeps its existing `read_file` and `search` tool list. Skill files
-  use the configured read tool; no extra tools are needed. Never expose arbitrary
-  plugin tools in plan mode by default.
+- Skill files use the configured read tool; no extra tools are needed.
+  Skill discovery must not implicitly broaden a host-supplied tool list.
 - An explicit `tools=` list remains authoritative. Do not add plugin tools,
   replace custom read implementations, or broaden their access implicitly.
   Require explicit opt-in to configure skill roots for host-supplied tools; omit
@@ -298,7 +297,7 @@ Acceptance: a mocked model sees the catalog, calls `read_file` on the listed
 workspace and external skill roots. Adjacent external files and escaping symlinks
 are rejected; external writes and patches remain rejected. Repeated runs do not
 duplicate the catalog. Compaction does not prevent rereading. Restricted `tools=`
-callers and plan mode retain their tool lists. There are no dedicated skill tools
+callers retain their tool lists. There are no dedicated skill tools
 or activation state. No approval-policy or control-plane refactor is introduced.
 
 ### Phase 3: Local plugin packaging

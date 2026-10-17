@@ -134,12 +134,6 @@ class TurnSurface:
             "run_limit_exceeded",
         }:
             self._collect_run_events(payload)
-        if self._plan_run_active and message.event_type in {
-            "run_completed",
-            "run_failed",
-            "run_cancelled",
-        }:
-            self._plan_run_active = False
 
     on_control_plane_event = on_harness_event
 
@@ -208,8 +202,5 @@ class TurnSurface:
 
     async def _run_agent_turn(self, user_input: Content) -> HarnessResult:
         assert self._agent is not None
-        mode = self.mode
         result = await self._agent.run(user_input)
-        if mode == "plan":
-            self._command_manager.open_plan_modal()
         return result

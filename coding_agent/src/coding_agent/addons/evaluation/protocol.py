@@ -1,17 +1,13 @@
 """Evaluator protocol, result types, and v1 question sets.
 
-Evaluator methods are named ``on_start`` / ``on_finish`` so they are not
-mistaken for missing harness hooks. The add-on maps them onto the existing
-``Addon`` surface:
+Evaluator methods are named ``on_start`` / ``on_finish`` independently of the
+harness hooks. The add-on evaluates completed runs with ``on_finish`` from
+``Addon.after_run``; ``on_start`` remains available to protocol consumers.
 
-| Evaluator | Addon |
-| --- | --- |
-| ``on_start`` | ``before_run`` |
-| ``on_finish`` | ``after_run`` |
-
-Findings are advisory. v1 may inject one user-role critic note into messages
-and optionally gate implement tools. It does not map scores onto plan edits,
-plan mode, or a second harness run.
+Findings are advisory. The add-on may inject one user-role critic note into
+messages and request a bounded revision when configured. It does not read
+workspace plans or change tool availability. Generic callers may still supply
+``plan_text`` when constructing evaluator state.
 """
 
 from __future__ import annotations

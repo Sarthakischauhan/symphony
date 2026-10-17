@@ -18,10 +18,8 @@ def make_agent(workspace, persistence=None, session_id=SESSION_ID):
         workspace=workspace,
         session_id=session_id,
         persistence=persistence,
-        mode="build",
         harness=SimpleNamespace(reasoning_effort=None),
     )
-    agent.set_mode = lambda mode: setattr(agent, "mode", mode)
     return agent
 
 
@@ -32,15 +30,13 @@ def test_state_is_saved_and_loaded_within_session_bundle(tmp_path, monkeypatch, 
     persistence = JsonlPersistence(tmp_path / "sessions")
     agent = make_agent(tmp_path, persistence, session_id)
 
-    assert asyncio.run(commands.execute(agent, "/mode plan")) == "Switched to plan mode."
     assert asyncio.run(commands.execute(agent, "/effort high")) == "Reasoning effort: high."
     state = persistence.session_dir(session_id) / "state.json"
-    assert json.loads(state.read_text()) == {"mode": "plan", "effort": "high"}
+    assert json.loads(state.read_text()) == {"effort": "high"}
     assert not (home / "protocols").exists()
 
     resumed = make_agent(tmp_path, persistence, session_id)
     commands.load_state(resumed)
-    assert resumed.mode == "plan"
     assert resumed.harness.reasoning_effort == "high"
 
 
@@ -48,14 +44,13 @@ def test_legacy_state_is_migrated_to_bundle_on_load(tmp_path, monkeypatch):
     monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path / "home")
     legacy = commands._state_path(SESSION_ID)
     legacy.parent.mkdir(parents=True)
-    original = '{"mode": "plan", "effort": "low", "extra": "preserved"}\n'
+    original = '{"mode": "build", "effort": "low", "extra": "preserved"}\n'
     legacy.write_text(original)
     persistence = JsonlPersistence(tmp_path / "sessions")
     agent = make_agent(tmp_path, persistence)
 
     commands.load_state(agent)
 
-    assert agent.mode == "plan"
     assert agent.harness.reasoning_effort == "low"
     assert (persistence.session_dir(SESSION_ID) / "state.json").read_text() == original
     assert not legacy.exists()
@@ -65,7 +60,7 @@ def test_legacy_state_is_preserved_when_command_updates_it(tmp_path, monkeypatch
     monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path / "home")
     legacy = commands._state_path(SESSION_ID)
     legacy.parent.mkdir(parents=True)
-    legacy.write_text(json.dumps({"mode": "plan", "extra": "preserved"}))
+    legacy.write_text(json.dumps({"mode": "build", "extra": "preserved"}))
     persistence = JsonlPersistence(tmp_path / "sessions")
     agent = make_agent(tmp_path, persistence)
 
@@ -73,7 +68,7 @@ def test_legacy_state_is_preserved_when_command_updates_it(tmp_path, monkeypatch
 
     state = persistence.session_dir(SESSION_ID) / "state.json"
     assert json.loads(state.read_text()) == {
-        "mode": "plan", "extra": "preserved", "effort": "default",
+        "extra": "preserved", "effort": "default",
     }
     assert not legacy.exists()
 
@@ -82,7 +77,7 @@ def test_existing_bundle_state_takes_precedence_over_legacy(tmp_path, monkeypatc
     monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path / "home")
     legacy = commands._state_path(SESSION_ID)
     legacy.parent.mkdir(parents=True)
-    legacy.write_text('{"mode": "plan", "effort": "high"}')
+    legacy.write_text('{"effort": "high"}')
     persistence = JsonlPersistence(tmp_path / "sessions")
     state = persistence.session_dir(SESSION_ID) / "state.json"
     state.parent.mkdir(parents=True)
@@ -92,7 +87,6 @@ def test_existing_bundle_state_takes_precedence_over_legacy(tmp_path, monkeypatc
 
     commands.load_state(agent)
 
-    assert agent.mode == "build"
     assert agent.harness.reasoning_effort is None
     assert legacy.exists()
 
@@ -102,12 +96,12 @@ def test_non_jsonl_backend_retains_legacy_state_location(tmp_path, monkeypatch, 
     monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path / "home")
     agent = make_agent(tmp_path, backend)
 
-    asyncio.run(commands.execute(agent, "/plan"))
+    asyncio.run(commands.execute(agent, "/effort low"))
 
-    assert json.loads(commands._state_path(SESSION_ID).read_text()) == {"mode": "plan"}
+    assert json.loads(commands._state_path(SESSION_ID).read_text()) == {"effort": "low"}
     resumed = make_agent(tmp_path, backend)
     commands.load_state(resumed)
-    assert resumed.mode == "plan"
+    assert resumed.harness.reasoning_effort == "low"
     if backend is not None:
         backend.session_dir.assert_not_called()
 
@@ -117,7 +111,7 @@ def test_mock_without_persistence_keeps_legacy_state(tmp_path, monkeypatch):
     agent = make_agent(tmp_path)
     del agent.persistence
 
-    asyncio.run(commands.execute(agent, "/plan"))
+    asyncio.run(commands.execute(agent, "/effort low"))
 
     assert commands._state_path(SESSION_ID).is_file()
 
@@ -125,7 +119,6 @@ def test_mock_without_persistence_keeps_legacy_state(tmp_path, monkeypatch):
 def test_non_uuid_mock_without_state_can_load(tmp_path):
     agent = make_agent(tmp_path, session_id="session-test")
     commands.load_state(agent)
-    assert agent.mode == "build"
 
 
 def test_session_command_delegates_to_report(tmp_path, monkeypatch):
@@ -168,3 +161,29 @@ def test_learning_command_falls_back_for_lightweight_agents(tmp_path, monkeypatc
     assert asyncio.run(commands.execute(agent, "/learning")) == "Workspace lessons"
     fallback.assert_called_once_with(tmp_path)
     fallback_store.to_markdown.assert_called_once_with()
+
+
+@pytest.mark.parametrize("bundled", [False, True])
+@pytest.mark.parametrize("mode", ["plan", "unknown", None])
+def test_unsafe_legacy_state_requires_explicit_fresh_session(tmp_path, monkeypatch, bundled, mode):
+    monkeypatch.setattr(commands, "symphony_dir", lambda: tmp_path / "home")
+    persistence = JsonlPersistence(tmp_path / "sessions") if bundled else None
+    agent = make_agent(tmp_path, persistence)
+    path = commands._agent_state_path(agent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = json.dumps({"mode": mode, "effort": "high"})
+    path.write_text(original)
+    with pytest.raises(ValueError, match="explicitly start a fresh session"):
+        commands.load_state(agent)
+    assert agent.harness.reasoning_effort is None
+    with pytest.raises(ValueError, match="fresh session"):
+        asyncio.run(commands.execute(agent, "/effort low"))
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize("command", ["/plan", "/plans", "/mode plan"])
+def test_removed_commands_are_unknown(tmp_path, command):
+    agent = make_agent(tmp_path)
+    agent.user_addons = SimpleNamespace(run_command=AsyncMock(return_value=None))
+    with pytest.raises(ValueError, match="Unknown command"):
+        asyncio.run(commands.execute(agent, command))

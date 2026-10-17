@@ -72,14 +72,14 @@ def test_compose_inserts_personality_heading_last() -> None:
 
 
 def test_compose_replaces_personality_segment_only() -> None:
-    first = compose_system_prompt("BASE", "direct", plan="PLAN MODE")
+    first = compose_system_prompt("BASE", "direct", skills="SKILL INSTRUCTIONS")
     second = compose_system_prompt(first, "warm")
     assert get("direct").system_addon not in second  # type: ignore[union-attr]
     assert get("warm").system_addon in second  # type: ignore[union-attr]
     assert second.count(PERSONALITY_HEADING) == 1
-    assert "PLAN MODE" in second
+    assert "SKILL INSTRUCTIONS" in second
     assert "BASE" in second
-    assert second.index("PLAN MODE") < second.index(PERSONALITY_HEADING)
+    assert second.index("SKILL INSTRUCTIONS") < second.index(PERSONALITY_HEADING)
     assert second.rstrip().endswith(get("warm").system_addon)  # type: ignore[union-attr]
 
 
@@ -115,12 +115,9 @@ def test_apply_system_prompt_updates_harness_immediately(tmp_path: Path) -> None
     assert get("direct").system_addon not in prompt  # type: ignore[union-attr]
     assert PERSONALITY_HEADING in prompt
     assert prompt.rstrip().endswith(get("caveman").system_addon)  # type: ignore[union-attr]
-    agent.set_mode("plan")
-    assert "You are in plan mode." in agent.harness.system_prompt
-    assert get("caveman").system_addon in agent.harness.system_prompt  # type: ignore[union-attr]
-    assert agent.harness.system_prompt.index("You are in plan mode.") < agent.harness.system_prompt.index(
-        PERSONALITY_HEADING
-    )
+    agent.apply_system_prompt()
+    assert agent.harness.system_prompt == prompt
+    assert agent.harness.system_prompt.count(PERSONALITY_HEADING) == 1
 
 
 def test_personality_picker_matching() -> None:

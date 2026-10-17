@@ -134,8 +134,6 @@ class TranscriptSurface:
         index = getattr(self, "_file_index", None)
         if index is not None:
             index.invalidate()
-        if hasattr(self, "_plan_list_cache"):
-            self._plan_list_cache = None
 
     def set_thinking(self, text: str) -> None:
         if self._thinking is None:
