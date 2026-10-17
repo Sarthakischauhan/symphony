@@ -87,6 +87,10 @@ LEARNING_MIN_OUTPUT_TOKENS: Final[int] = 8192
 class LearningConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # On for new installs. A stored ``false`` with no other learning keys is the
+    # value ``ensure_spawn_settings`` used to write, not a user choice; that case
+    # is turned back on in ``_normalize_legacy_config``. ``--no-learning`` still
+    # disables it for the process and rewrites the file.
     enabled: bool = True
     max_output_tokens: int = Field(default=LEARNING_MIN_OUTPUT_TOKENS, ge=1)
     max_lessons: int = Field(default=200, ge=1)
@@ -240,6 +244,16 @@ def _normalize_legacy_config(payload: dict[str, Any]) -> dict[str, Any]:
             tools = dict(normalized["tools"])
             tools["bash"] = bash
             normalized["tools"] = tools
+
+    # Older builds persisted learning.enabled=false as the product default, so a
+    # file that only says that cannot be told apart from a deliberate opt-out.
+    # Drop the flag and let the field default (true) apply. Any other learning
+    # key means the user edited this block; leave their enabled value alone.
+    learning = normalized.get("learning")
+    if isinstance(learning, dict) and learning.get("enabled") is False and set(learning) <= {"enabled"}:
+        learning = dict(learning)
+        learning.pop("enabled")
+        normalized["learning"] = learning
 
     return normalized
 
