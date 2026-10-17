@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
@@ -39,6 +40,7 @@ from coding_agent.tui.screens.onboard import OnboardApp
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.theme.load import ThemeConfigError, apply_theme, load_theme, theme_signature
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
+from coding_agent.tui.tools.images import dropped_image_paths
 from coding_agent.tui.transcript import (
     AssistantMessage,
     ReasoningWidget,
@@ -50,6 +52,30 @@ from coding_agent.tui.transcript import (
 )
 from core_ai import has_configured_provider
 from core_harness import Answer, Interrupt, Op
+
+
+def _paste_might_be_images(text: str) -> bool:
+    """True when a paste is short enough to be a file drop naming an image.
+
+    No filesystem access. Ordinary text, including large pastes, fails here
+    on length or on a missing image suffix.
+    """
+    if not text or len(text) > 4096:
+        return False
+    lowered = text.lower()
+    return any(suffix in lowered for suffix in _IMAGE_DROP_SUFFIXES)
+
+
+_IMAGE_DROP_SUFFIXES = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+)
 
 
 class CodingAgentApp(
@@ -154,6 +180,40 @@ class CodingAgentApp(
         self._voice_timer = None
         self._voice_addon = None
         self._voice_session = None
+
+    async def on_event(self, event: events.Event) -> None:
+        # Textual delivers paste only to the focused widget, so a drop on the
+        # transcript never reaches the composer. Claim image drops here, before
+        # that forward, and leave every other event on the normal path.
+        if (
+            isinstance(event, events.Paste)
+            and not event.is_forwarded
+            and self._attach_dropped_images(event.text)
+        ):
+            return
+        await super().on_event(event)
+
+    def _attach_dropped_images(self, text: str) -> bool:
+        """Attach a dropped image path when focus is not the composer.
+
+        Returns True only when this paste was consumed. Non-image pastes,
+        modal screens, and a focused composer return False with no filesystem
+        work beyond the existing path check for a short image-like paste.
+        """
+        if len(self.screen_stack) != 1 or not _paste_might_be_images(text):
+            return False
+        paths = dropped_image_paths(text)
+        if not paths:
+            return False
+        try:
+            prompt = self.query_one("#prompt", PromptInput)
+        except Exception:
+            return False
+        if prompt.has_focus:
+            return False
+        for path in paths:
+            prompt._attach_image(path)
+        return True
 
     def compose(self) -> ComposeResult:
         yield TopBar(id="topbar")
