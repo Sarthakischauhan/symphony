@@ -34,7 +34,7 @@ def toggle_voice(app: Any) -> None:
     if getattr(app, "_voice_active", False):
         commit_voice(app)
         return
-    if getattr(app, "_agent", None) is None:
+    if getattr(app, "_agent", None) is None and not _uses_clip_path():
         app.add_notice(OFFLINE_HINT, "error")
         return
     start_voice(app)
@@ -351,7 +351,23 @@ def ensure_voice_addon(
     agent = app._agent
     harness = getattr(agent, "harness", None)
     if harness is None:
-        return ""
+        if stream is None:
+            return ""
+        # Allow an explicitly injected stream for host integrations and tests
+        # that provide their own voice transport without a harness.
+        existing = VoiceAddon(
+            stream=stream,
+            on_transcript=on_transcript,
+            on_commit=on_commit,
+        )
+        app._voice_addon = existing
+        error = existing.open()
+        if not error:
+            existing.arm()
+            return ""
+        app._voice_addon = None
+        existing.close()
+        return error
     existing = None
     try:
         existing = next((addon for addon in harness.addons if isinstance(addon, VoiceAddon)), None)

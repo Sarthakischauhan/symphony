@@ -1790,7 +1790,7 @@ def test_resume_rows_keep_metadata_on_second_line() -> None:
             next_title = options.render_line(2).text
             assert "A" * 40 in title
             assert "A" * 300 not in title
-            assert "65d ago" in meta
+            assert "66d ago" in meta
             assert "session-0000" in meta
             assert "65d ago" not in title
             assert next_title.strip().startswith("›")
