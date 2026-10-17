@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from rich.cells import cell_len
+from rich.console import Group
 from rich.text import Text
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
@@ -15,7 +18,6 @@ from textual.widgets.option_list import Option
 
 from coding_agent.addons.persistence.active import active_session_ids
 from coding_agent.tui.theme import RESUME_CSS, SYMPHONY_RICH_THEME
-from coding_agent.tui.transcript import clip_text
 from core_ai.content import text_from_content
 from core_harness.context import COMPACTED_CONTEXT_MARK
 
@@ -84,14 +86,37 @@ async def load_session_options(
     return options
 
 
-def _row(session: SessionOption) -> Option:
-    content = Text("› ")
-    content.append(clip_text(session.first_message.replace("\n", " "), 116))
-    content.append("\n  ")
-    content.append(_relative_time(session.updated_at), style="#737373")
-    content.append(f"   {session.message_count} messages", style="#737373")
-    content.append(f"   {session.session_id}", style="#555555")
-    return Option(content, id=session.session_id)
+def _fit(text: str, width: int) -> str:
+    """Clip by terminal cells, reserving one cell for an ellipsis."""
+    if width <= 0:
+        return ""
+    if cell_len(text) <= width:
+        return text
+    if width == 1:
+        return "…"
+    kept = text
+    while kept and cell_len(kept) > width - 1:
+        kept = kept[:-1]
+    return f"{kept}…"
+
+
+def _row(session: SessionOption, width: int) -> Option:
+    """Title on line one and aligned metadata on line two.
+
+    Both lines are pre-clipped. Textual otherwise wraps long titles while
+    measuring every session, which makes a long resume list slow to open.
+    """
+    title_width = max(1, width - 3)
+    meta_width = max(1, width - 3)
+    title = _fit(session.first_message.replace("\n", " "), title_width)
+    meta = _fit(
+        f"{_relative_time(session.updated_at):<8}  {session.message_count:>6}  {session.session_id}",
+        meta_width,
+    )
+    heading = Text(f"›  {title}", no_wrap=True, overflow="ellipsis")
+    heading.highlight_words(["›"], style="bold #e1c16e")
+    details = Text(f"   {meta}", no_wrap=True, overflow="ellipsis", style="#737373")
+    return Option(Group(heading, details), id=session.session_id)
 
 
 class ResumeApp(App[str | None]):
@@ -106,13 +131,26 @@ class ResumeApp(App[str | None]):
     def __init__(self, sessions: list[SessionOption]) -> None:
         super().__init__()
         self.sessions = sessions
+        self._row_width = 0
 
     def compose(self) -> ComposeResult:
         with Container(id="resume-page"):
             yield Static("Resume a previous session", id="resume-title")
             yield Static("Select a conversation to continue", id="resume-subtitle")
-            yield OptionList(*(_row(session) for session in self.sessions), id="resume-list")
+            yield OptionList(id="resume-list")
             yield Static("↑↓ select   Enter resume   Esc quit", id="resume-hint")
+
+    def on_resize(self, event: events.Resize) -> None:
+        # Page padding is 2, row padding is 4, and the scrollbar takes 1.
+        width = max(1, event.size.width - 7)
+        if width == self._row_width:
+            return
+        self._row_width = width
+        options = self.query_one("#resume-list", OptionList)
+        highlighted = options.highlighted
+        options.set_options(_row(session, width) for session in self.sessions)
+        if self.sessions:
+            options.highlighted = min(highlighted or 0, len(self.sessions) - 1)
 
     def on_mount(self) -> None:
         self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)

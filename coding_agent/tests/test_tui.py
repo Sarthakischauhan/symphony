@@ -23,7 +23,7 @@ from textual.containers import VerticalScroll
 from textual.geometry import Offset
 from textual.selection import Selection
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import OptionList, Static
 
 from core_ai.types import Message, StreamEvent
 from coding_agent.tui.screens import ContextModal
@@ -1073,6 +1073,10 @@ def test_resume_app_selects_with_arrow_keys() -> None:
 
 def test_history_hides_compaction_summary() -> None:
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def load_conversation(self, *, session_id: str) -> list[Message]:
             return [
                 Message(role="user", content="Original task"),
@@ -1128,6 +1132,12 @@ def test_history_uses_compacted_projection_for_context_metrics() -> None:
     ]
 
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            return (
+                await self.load_transcript(session_id=session_id),
+                await self.load_conversation(session_id=session_id),
+            )
+
         async def load_transcript(self, *, session_id: str) -> list[Message]:
             return [*archived, active[-1]]
 
@@ -1177,6 +1187,10 @@ def test_history_resume_folds_tools_into_explored() -> None:
     ]
 
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def load_conversation(self, *, session_id: str) -> list[Message]:
             messages = [
                 Message(role="user", content="Inspect the files"),
@@ -1239,6 +1253,10 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
         ]
 
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def load_conversation(self, *, session_id: str) -> list[Message]:
             messages = [
                 Message(role="user", content="fix spacing"),
@@ -1320,6 +1338,10 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
 
 def test_history_resume_honours_collected_mid_run_events() -> None:
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def load_conversation(self, *, session_id: str) -> list[Message]:
             return [
                 Message(role="user", content="Inspect the files"),
@@ -1417,6 +1439,10 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
 
 def test_history_resume_uses_persisted_protocol_arguments() -> None:
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def load_conversation(self, *, session_id: str) -> list[Message]:
             return [
                 Message(role="user", content="Inspect the files"),
@@ -1519,6 +1545,10 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
 
 def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def load_conversation(self, *, session_id: str) -> list[Message]:
             return [
                 Message(role="user", content="Inspect the files"),
@@ -1752,6 +1782,10 @@ def test_workspace_file_index_scans_once(
 
 def test_resume_options_use_existing_persistence_api() -> None:
     class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = await self.load_conversation(session_id=session_id)
+            return messages, messages
+
         async def list_sessions(self) -> list[SimpleNamespace]:
             return [
                 SimpleNamespace(
@@ -1773,6 +1807,32 @@ def test_resume_options_use_existing_persistence_api() -> None:
 
     assert options[0].first_message == "Fix the login flow"
     assert options[0].message_count == 4
+
+
+def test_resume_rows_keep_metadata_on_second_line() -> None:
+    sessions = [
+        SessionOption(f"session-{index:04d}", "2026-08-12T16:00:00+00:00", "A" * 300, index)
+        for index in range(1000)
+    ]
+    app = ResumeApp(sessions)
+
+    async def _run() -> None:
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            options = app.query_one("#resume-list", OptionList)
+            assert options.option_count == 1000
+            assert set(options._heights.values()) == {2}
+            title = options.render_line(0).text
+            meta = options.render_line(1).text
+            next_title = options.render_line(2).text
+            assert "A" * 40 in title
+            assert "A" * 300 not in title
+            assert "65d ago" in meta
+            assert "session-0000" in meta
+            assert "65d ago" not in title
+            assert next_title.strip().startswith("›")
+
+    asyncio.run(_run())
 
 
 def test_resume_app_escape_exits_without_selection() -> None:
@@ -2598,6 +2658,7 @@ def test_reasoning_delta_paints_visible_thought_body(
         ("**Bold opening sentence.** More prose follows.", "Thought 0.0s"),
     ],
 )
+
 def test_reasoning_title_uses_only_a_standalone_markdown_heading(
     content: str, expected_title: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

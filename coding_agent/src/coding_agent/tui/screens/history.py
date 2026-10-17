@@ -35,12 +35,9 @@ class HistoryView(Protocol):
 
 async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     """Restore compact history with interactive child and background-job cards."""
-    loader = getattr(agent.persistence, "load_transcript", agent.persistence.load_conversation)
-    messages = await loader(session_id=agent.session_id)
-    # The visual transcript may retain turns that were compacted out of the
-    # model context. Footer usage must describe the active context projection,
-    # which is what /context reports and what the next request will send.
-    context_messages = await agent.persistence.load_conversation(session_id=agent.session_id)
+    messages, context_messages = await agent.persistence.load_resume(session_id=agent.session_id)
+    # Footer usage describes the active context projection, matching /context
+    # and the messages the next request will send.
     context_limit = agent.harness.state.context_limit(agent.harness.model_id)
     view.set_context_metrics(estimate_prompt_tokens(context_messages), context_limit)
     view.add_notice(f"Resumed session · {agent.session_id}")

@@ -16,7 +16,6 @@ from textual.containers import VerticalScroll
 from textual.geometry import Offset
 from textual.widget import Widget
 
-from coding_agent.tui.chrome.footer import ComposerOverlay
 from coding_agent.tui.transcript.messages import (
     AssistantMessage,
     Notice,
@@ -64,13 +63,13 @@ class TranscriptScroll(VerticalScroll):
             self.release_anchor()
         return True
 
+    # Textual dispatches a handler from every class in the MRO, so Widget's own
+    # wheel handler applies the tick after these. Calling super() scrolled twice.
     def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
         self._wheel_leaves_tail(event)
-        super()._on_mouse_scroll_down(event)
 
     def _on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         self._wheel_leaves_tail(event)
-        super()._on_mouse_scroll_up(event)
 
     def anchor(self, anchor: bool = True) -> None:
         """Follow new content with a short scroll instead of an instant jump.
@@ -287,10 +286,6 @@ class TranscriptSurface:
             self._mount_process_item(notice)
         else:
             self._mount_transcript(notice)
-
-    def add_update(self, text: str, hint: str = "") -> None:
-        overlay = self.query_one("#composer-overlay", ComposerOverlay)
-        overlay.show(text, hint or "Press ctrl+q to quit the app")
 
     def add_run_summary(
         self,

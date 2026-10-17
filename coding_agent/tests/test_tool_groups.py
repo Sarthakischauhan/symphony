@@ -33,6 +33,31 @@ def _call(call_id: str, label: str = "Read", status: str = "done", **fields: str
     return ToolCallSnapshot(call_id, label=label, detail=f"{call_id}.py", status=status, **fields)
 
 
+def test_bulk_summary_builds_metadata_once_and_preserves_entry_order(monkeypatch) -> None:
+    calls = 0
+    original = ToolCallSummary._summary_title
+
+    def counted(self):
+        nonlocal calls
+        calls += 1
+        return original(self)
+
+    monkeypatch.setattr(ToolCallSummary, "_summary_title", counted)
+    first = _call("first")
+    thought = ThoughtSnapshot("Thinking", "Inspect the tools")
+    failed = _call("last", status="failed")
+    entries = [first, thought, first, *(_call(str(i)) for i in range(1000)), failed]
+    summary = ToolCallSummary(entries)
+
+    assert calls == 1
+    assert summary.count == 1002
+    assert summary.entries == [first, thought, *entries[3:]]
+    assert summary.has_class("has-failures")
+    assert "1 failed" in summary.title
+    summary.update_call(_call("last"))
+    assert not summary.has_class("has-failures")
+
+
 def test_group_line_uses_subtle_explored_and_muted_count() -> None:
     summary = ToolCallSummary((_call("read-0"), _call("read-1")))
     assert summary.title == "Explored · 2 tools"

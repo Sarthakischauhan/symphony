@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import pytest
+from textual import events
 from textual.pilot import Pilot
 from textual.widget import Widget
 from textual.widgets import Static
@@ -126,6 +127,40 @@ def test_scrolled_up_reader_stays_put_while_rows_append_and_groups_fold(
                 _read(app, f"tail-{index}")
                 await pilot.pause()
                 assert transcript.scroll_y == transcript.max_scroll_y
+
+    asyncio.run(_run())
+
+
+def test_wheel_over_a_live_thought_scrolls_the_transcript(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            transcript = await _overflowing_run(app, pilot)
+            thought_text = "Weighing the next file. " * 200
+            app.set_reasoning(thought_text, new=True)
+            await pilot.pause()
+            assert app._reasoning is not None
+            inner = app._reasoning._scroll
+            assert inner.max_scroll_y > 0
+            assert transcript.scroll_y == transcript.max_scroll_y
+            start = transcript.scroll_y
+
+            ticks = 3
+            for _ in range(ticks):
+                # Pilot has no wheel helper; this is how its clicks are posted.
+                await pilot._post_mouse_events([events.MouseScrollUp], inner)
+                thought_text += "Still weighing. " * 20
+                app.set_reasoning(thought_text)
+                await pilot.pause()
+
+            # Every tick reached the transcript, once each, and the live
+            # thought kept following its own newest text.
+            assert transcript.scroll_y == start - ticks * app.scroll_sensitivity_y
+            assert inner.scroll_y == inner.max_scroll_y
 
     asyncio.run(_run())
 

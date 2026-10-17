@@ -36,6 +36,10 @@ class Persistence(EventLog, Protocol):
     async def load_conversation(self, *, session_id: str) -> List[Message]:
         ...
 
+    async def load_resume(self, *, session_id: str) -> tuple[List[Message], List[Message]]:
+        """Return visible history and the active model context."""
+        ...
+
     async def save_checkpoint(self, *, checkpoint: Checkpoint) -> None:
         ...
 
@@ -54,6 +58,10 @@ class NullPersistence:
 
     async def load_conversation(self, *, session_id: str) -> List[Message]:
         return []
+
+    async def load_resume(self, *, session_id: str) -> tuple[List[Message], List[Message]]:
+        del session_id
+        return [], []
 
     async def save_checkpoint(self, *, checkpoint: Checkpoint) -> None:
         return None
