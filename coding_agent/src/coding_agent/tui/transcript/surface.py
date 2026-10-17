@@ -64,13 +64,13 @@ class TranscriptScroll(VerticalScroll):
             self.release_anchor()
         return True
 
+    # Textual dispatches a handler from every class in the MRO, so Widget's own
+    # wheel handler applies the tick after these. Calling super() scrolled twice.
     def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
         self._wheel_leaves_tail(event)
-        super()._on_mouse_scroll_down(event)
 
     def _on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         self._wheel_leaves_tail(event)
-        super()._on_mouse_scroll_up(event)
 
     def anchor(self, anchor: bool = True) -> None:
         """Follow new content with a short scroll instead of an instant jump.

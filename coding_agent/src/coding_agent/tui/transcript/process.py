@@ -389,6 +389,22 @@ class ReasoningBody(SelectableStatic):
         return self._rendered[3]
 
 
+class ReasoningScroll(VerticalScroll):
+    """A thought's capped body. The wheel scrolls the transcript, not this box.
+
+    A nested scroll area under the pointer takes every wheel tick until it
+    reaches its own end. A live thought follows its newest text, so it never
+    gets there, and the transcript looks frozen while the run streams.
+    Declining the pointer scroll lets the event bubble to ``#transcript``.
+    """
+
+    def _scroll_down_for_pointer(self, **_: Any) -> bool:
+        return False
+
+    def _scroll_up_for_pointer(self, **_: Any) -> bool:
+        return False
+
+
 class ReasoningWidget(Collapsible):
     """A live thought whose inner scroll area is anchored to its newest text."""
 
@@ -398,7 +414,7 @@ class ReasoningWidget(Collapsible):
         self._body_source = ""
         self._body_streaming = True
         self._body = ReasoningBody()
-        self._scroll = VerticalScroll(self._body, classes="reasoning-scroll")
+        self._scroll = ReasoningScroll(self._body, classes="reasoning-scroll")
         self._label = Static("Thinking…", classes="reasoning-label", markup=False)
         self._status = Static("", classes="reasoning-status", markup=False)
         self._started_at = monotonic()
