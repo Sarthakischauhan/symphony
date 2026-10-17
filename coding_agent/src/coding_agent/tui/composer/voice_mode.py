@@ -172,6 +172,17 @@ def commit_voice(app: Any) -> None:
     addon = getattr(app, "_voice_addon", None)
     commit = getattr(getattr(addon, "stream", None), "commit", None)
     if callable(commit):
+        # Explicit Enter submits locally immediately; the transport callback
+        # may arrive later, after its listen socket has already closed.
+        from coding_agent.tui.composer.input import PromptInput
+
+        transcript = str(getattr(app, "_voice_text", "") or "").strip()
+        try:
+            transcript = app.query_one("#prompt", PromptInput).text.strip() or transcript
+        except Exception:
+            pass
+        app._voice_finish = True
+        _finish_voice(app, transcript, "")
         commit()
         return
     app._voice_finish = True
@@ -324,11 +335,20 @@ def submit_voice_turn(app: Any, text: str) -> None:
         _restore_composer(app)
         app.add_notice(OFFLINE_HINT, "error")
         return
-    error = ensure_voice_addon(app)
+    existing_addon = getattr(app, "_voice_addon", None)
+    if existing_addon is not None and getattr(app._agent, "harness", None) is None:
+        error = ""
+    else:
+        error = ensure_voice_addon(app)
     if error:
         _restore_composer(app)
         app.add_notice(error, "error")
         return
+    # A live voice turn reuses the existing addon/stream; only arm it for the
+    # run. Do not reopen the stream (which closes test/host transports).
+    addon = getattr(app, "_voice_addon", None)
+    if addon is not None:
+        addon.arm()
     # The transcript was shown while listening. Clear it before the turn
     # mounts its own copy in the conversation.
     _show_voice_transcript(app, "")
@@ -353,6 +373,10 @@ def ensure_voice_addon(
     if harness is None:
         if stream is None:
             return ""
+        if on_transcript is not None:
+            stream._on_transcript = on_transcript
+        if on_commit is not None:
+            stream._on_commit = on_commit
         # Allow an explicitly injected stream for host integrations and tests
         # that provide their own voice transport without a harness.
         existing = VoiceAddon(
