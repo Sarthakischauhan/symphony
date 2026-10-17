@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Session facts are markdown in the session bundle (`<session_id>/memories/MEMORY.md`),
+  not under the project's `.symphony/`. Global preferences stay in
+  `~/.symphony/memories/global/`.
 - Learning is on by default. A `~/.symphony/config.json` that only stores the
   old `"learning": {"enabled": false}` default is turned on and rewritten at
   launch. `--no-learning` still disables capture for that process. A learning

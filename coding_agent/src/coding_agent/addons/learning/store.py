@@ -72,16 +72,22 @@ class LearningStore:
                  session_dir: str | Path | None = None,
                  global_root: str | Path | None = None):
         self.workspace = Path(workspace).resolve()
-        self.memory_dir = safe_path(self.workspace, ".symphony/memories")
+        self.session_id = session_id
+        self.session_dir = Path(session_dir).resolve() if session_dir is not None else None
+        # Session facts are markdown under the session bundle, never the project.
+        # With no session yet, keep the same machinery in a workspace-local dir
+        # so tools and tests can still record before a session id exists.
+        if self.session_dir is not None:
+            self.memory_dir = safe_path(self.session_dir, "memories")
+        else:
+            self.memory_dir = safe_path(self.workspace, ".symphony/memories")
         # Do not resolve away symlinks before validating paths.
         self.global_root = Path(global_root).absolute() if global_root is not None else safe_path(Path.home(), ".symphony/memories/global")
         self.roots = {"workspace": self.memory_dir, "global": self.global_root}
         self.path = safe_path(self.memory_dir, "lessons.jsonl")
-        # Compatibility presentation paths; never retrieval sources.
+        # Markdown fact files. These are the session (and global) record.
         self.memory_path = safe_path(self.memory_dir, "MEMORY.md")
-        self.user_path = safe_path(self.memory_dir, "USER.md")
-        self.session_id = session_id
-        self.session_dir = Path(session_dir).resolve() if session_dir is not None else None
+        self.user_path = safe_path(self.global_root, "USER.md")
         self.max_lessons = max_lessons
         self._lock = threading.RLock()
         self._lock_depth = 0
@@ -435,7 +441,7 @@ class LearningStore:
             inbox = sum(len(list(safe_path(root, "observations/_inbox").glob("*.json"))) for root in self.roots.values())
         if not facts and not lessons and not jobs and not inbox:
             return "# Agent learnings\n\n_No lessons stored yet for this workspace._\n"
-        lines = ["# Agent learnings", "", "_Durable topics in `.symphony/memories`_", "",
+        lines = ["# Agent learnings", "", "_Durable topics in this session's `memories/`. Global preferences live in `~/.symphony/memories/global/`._", "",
                  f"Pending capture jobs: {len(jobs)}; observations awaiting consolidation: {inbox}", ""]
         lines.extend(f"- Capture `{job['id']}` · session `{job.get('session_id', '')}`" for job in jobs)
         lines.extend(f"- [{f['scope']}/{f['id']}] {f['text']}" for f in facts)
@@ -497,9 +503,12 @@ class LearningStore:
         try:
             with self._locked():
                 facts = list(self._facts())
-            for target, scope, limit in (("MEMORY.md", "workspace", 3000), ("USER.md", "global", 1500)):
+            for target, scope, root, limit in (
+                ("MEMORY.md", "workspace", self.memory_dir, 3000),
+                ("USER.md", "global", self.global_root, 1500),
+            ):
                 raw = "\n".join("- " + f["text"] for f in facts if f["scope"] == scope)
-                publish(safe_path(self.session_dir, "memory", target), sanitize_memory(raw, max_chars=limit).encode())
+                publish(safe_path(root, target), sanitize_memory(raw, max_chars=limit).encode())
         except (OSError, ValueError, UnicodeError):
             logger.warning("Could not archive session memory snapshot", exc_info=True)
 

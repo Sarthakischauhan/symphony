@@ -27,6 +27,6 @@ Memory injection is bounded, sanitized, labelled untrusted, and replaces the ear
 
 ## Scopes and inspection
 
-Workspace topics live below `<workspace>/.symphony/memories/`; global preferences live below `~/.symphony/memories/global/`; session provenance is stored with session data. `/learning` separates session-scoped provenance from global topics. Explicit tool edits may target global preferences; automatic extraction cannot select global scope or remove curated facts.
+Session facts are markdown under `<session_id>/memories/` inside the session bundle (`~/.symphony/tui/sessions/<session_id>/memories/` for the TUI, `~/.symphony/sessions/<session_id>/memories/` otherwise). `MEMORY.md` is that session's record. Global preferences stay in `~/.symphony/memories/global/`, including `USER.md`. Nothing is written under the project's `.symphony/`. `/learning` separates this session's facts from global topics. Explicit tool edits may target global preferences; automatic extraction cannot select global scope or remove curated facts.
 
 See the implementation owners in [`coding_agent/src/coding_agent/addons/learning/`](../../coding_agent/src/coding_agent/addons/learning/) and [`tui/screens/learning.py`](../../coding_agent/src/coding_agent/tui/screens/learning.py). When changing the pipeline, update tests and [user-facing controls](../user-guide/learning.md); do not describe model-generated memory as trusted truth.

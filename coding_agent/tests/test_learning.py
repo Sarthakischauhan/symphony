@@ -230,8 +230,6 @@ def test_after_run_hook_emits_summary_on_the_control_plane(
 
 
 def test_run_embeds_durable_memory_once(tmp_path: Path) -> None:
-    store = LearningStore(tmp_path)
-    store.memory_operation("add", text="Python tests use pytest -q")
     registry = SplitRegistry()
 
     async def scenario() -> None:
@@ -241,6 +239,7 @@ def test_run_embeds_durable_memory_once(tmp_path: Path) -> None:
             workspace=tmp_path,
             tools=[],
         )
+        agent.learning_store.memory_operation("add", text="Python tests use pytest -q")
         await agent.run("fix the Python tests")
         assert MEMORY_CONTEXT_PREFIX not in agent.harness.system_prompt
 
@@ -251,8 +250,6 @@ def test_run_embeds_durable_memory_once(tmp_path: Path) -> None:
 
 
 def test_second_run_reinjects_durable_memory(tmp_path: Path) -> None:
-    store = LearningStore(tmp_path)
-    store.memory_operation("add", text="Python tests use pytest -q")
     registry = SplitRegistry()
 
     async def scenario() -> None:
@@ -262,6 +259,7 @@ def test_second_run_reinjects_durable_memory(tmp_path: Path) -> None:
             workspace=tmp_path,
             tools=[],
         )
+        agent.learning_store.memory_operation("add", text="Python tests use pytest -q")
         await agent.run("fix the Python tests")
         await agent.run("fix the Python tests")
 
@@ -305,8 +303,6 @@ def test_before_turn_replaces_memory_block_without_touching_system(tmp_path: Pat
 
 def test_system_bytes_stable_across_turns_when_memory_and_task_change(tmp_path: Path) -> None:
     """Memory rides in a user message after the system prefix; system bytes never move."""
-    store = LearningStore(tmp_path)
-    store.memory_operation("add", text="Prefer pytest -q for Python unit suites")
     registry = SplitRegistry()
 
     async def scenario() -> list[Message]:
@@ -316,8 +312,9 @@ def test_system_bytes_stable_across_turns_when_memory_and_task_change(tmp_path: 
             workspace=tmp_path,
             tools=[],
         )
+        agent.learning_store.memory_operation("add", text="Prefer pytest -q for Python unit suites")
         await agent.run("fix the Python pytest suite")
-        store.memory_operation("add", text="Lock the bundler version for Ruby gems")
+        agent.learning_store.memory_operation("add", text="Lock the bundler version for Ruby gems")
         await agent.run("fix the Ruby bundler lock")
         return await agent.persistence.load_conversation(session_id=agent.session_id)
 
@@ -351,9 +348,6 @@ def test_strip_memory_context_removes_stacked_blocks() -> None:
 
 
 def test_learning_config_overrides_reach_injection(tmp_path: Path) -> None:
-    store = LearningStore(tmp_path)
-    store.memory_operation("add", text="Python tests use pytest -q")
-    store.memory_operation("add", text="Python coverage uses pytest-cov")
     registry = SplitRegistry()
 
     async def scenario():
@@ -369,6 +363,8 @@ def test_learning_config_overrides_reach_injection(tmp_path: Path) -> None:
         assert agent.learning_loop is not None
         assert agent.learning_loop.context_limit == 1
         assert agent.learning_loop.context_max_chars == 400
+        agent.learning_store.memory_operation("add", text="Python tests use pytest -q")
+        agent.learning_store.memory_operation("add", text="Python coverage uses pytest-cov")
         await agent.run("fix the Python tests")
         return agent.learning_loop.context_limit
 
@@ -393,8 +389,6 @@ def test_plan_mode_skips_learning_hook(tmp_path: Path) -> None:
     async def scenario():
         review = CountingReview()
         registry = SplitRegistry(review)
-        store = LearningStore(tmp_path)
-        store.memory_operation("add", text="Python tests use pytest -q")
         agent = CodingAgent(
             registry=registry,  # type: ignore[arg-type]
             model_id="test:model",
@@ -402,6 +396,7 @@ def test_plan_mode_skips_learning_hook(tmp_path: Path) -> None:
             tools=[],
             mode="plan",
         )
+        agent.learning_store.memory_operation("add", text="Python tests use pytest -q")
         await agent.run("plan a Python test change")
         await agent.wait_for_learning()
         return review.calls, _memory_text(registry.turns[0])
@@ -470,12 +465,14 @@ def test_session_archive_does_not_fork_live_memory(tmp_path: Path) -> None:
     second = LearningStore(tmp_path, session_id="session-b", session_dir=second_dir)
     first.memory_operation("add", text="Python tests use pytest -q")
     first.memory_operation("add", target="user", text="Prefer concise responses")
-    assert first.memory_path == tmp_path / ".symphony" / "memories" / "MEMORY.md"
+    assert first.memory_path == first_dir / "memories" / "MEMORY.md"
     assert "pytest" in first.query("Python tests")
-    assert "pytest" in second.query("Python tests")
+    # Session facts stay in that session. They are not copied into another one.
+    assert "pytest" not in second.query("Python tests")
     assert "concise" in second.query("concise")
-    assert "pytest" in (first_dir / "memory" / "MEMORY.md").read_text(encoding="utf-8")
-    assert "pytest" in second.query("fix the Python tests")
+    assert "pytest" in (first_dir / "memories" / "MEMORY.md").read_text(encoding="utf-8")
+    assert "pytest" not in (second_dir / "memories" / "MEMORY.md").read_text(encoding="utf-8")
+    assert not (tmp_path / ".symphony" / "memories").exists()
 
 
 def test_query_selects_relevant_markdown_memory_only(tmp_path: Path) -> None:
