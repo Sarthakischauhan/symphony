@@ -1,0 +1,1 @@
+import{javascriptGrammar as e}from"./javascript-HPKADIWX-BUT4ZgWP.js";var r={...e,names:["typescript","ts","tsx"],typeKeywords:["class","extends","implements","interface","type","enum"]};export{r as typescriptGrammar};

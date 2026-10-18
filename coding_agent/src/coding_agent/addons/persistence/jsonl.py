@@ -90,7 +90,9 @@ def sessions_dir(
     first use. Migration is file-by-file and only removes the legacy directory
     after every move has succeeded, so an interrupted migration remains resumable.
     """
-    root = (Path.home() / ".symphony").expanduser().resolve()
+    from coding_agent.config import symphony_dir
+
+    root = symphony_dir()
     if client == "tui":
         target = root / "tui" / "sessions"
         shared = root / "sessions"

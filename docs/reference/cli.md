@@ -91,3 +91,10 @@ Starts the [Agent Client Protocol](https://agentclientprotocol.com) host (protoc
 ## Repository checks
 
 From the repository root, run `uv sync`, `uv run pytest`, and `uv run ruff check .`. See [AGENTS.md](../../AGENTS.md) for development conventions.
+
+## Symphony Web
+
+`symphony web [--workspace PATH] [--model PROVIDER:MODEL] [--port PORT] [--no-browser]`
+starts the local browser interface using the existing coding agent and TUI session
+storage. See the [Web guide](../developer-guide/web.md) for operation, security,
+and frontend/wheel build instructions.

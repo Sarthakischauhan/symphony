@@ -64,6 +64,26 @@ jobs:
       - name: Run tests
         run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests browser_agent/tests
 
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: coding_agent/web-ui/package-lock.json
+      - name: Build and test the frontend
+        working-directory: coding_agent/web-ui
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: Check committed assets
+        run: |
+          git diff --exit-code -- coding_agent/src/coding_agent/web/static
+          test -z "$(git ls-files --others --exclude-standard -- coding_agent/src/coding_agent/web/static)"
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -82,6 +102,12 @@ jobs:
           uv build --package symphony-core -o dist
           uv build --package symphony-harness -o dist
           uv build --package symphony-code -o dist
+
+      - name: Smoke test the installed wheel
+        run: |
+          uv venv /tmp/symphony-wheel-smoke
+          uv pip install --python /tmp/symphony-wheel-smoke/bin/python dist/*.whl
+          /tmp/symphony-wheel-smoke/bin/python coding_agent/tests/web_wheel_smoke.py
 
       - name: Catalog snapshot is untouched by build
         run: git diff --exit-code -- core_ai/src/core_ai/models/generated.py

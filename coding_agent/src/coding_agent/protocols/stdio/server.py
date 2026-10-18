@@ -67,6 +67,7 @@ async def serve(
     session_id: str | None,
     *,
     unattended: bool = False,
+    client: str = "zeron",
 ) -> int:
     stdio = _package()
     stdio.load_provider_env(workspace)
@@ -78,7 +79,7 @@ async def serve(
             session_id=session_id,
             sink=sink,
             config=ensure_spawn_settings(workspace, overrides={"unattended": True}) if unattended else None,
-            client="zeron",
+            client=client,
         )
         load_state(agent)
     except Exception as exc:
