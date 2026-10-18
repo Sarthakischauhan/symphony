@@ -10,6 +10,7 @@ import {
 import "@sarchauhan/chat/styles.css";
 import "./style.css";
 import { historical, initial, reduce, type State } from "./events";
+import { Sidebar } from "./Sidebar";
 const token =
   location.hash.slice(1) || sessionStorage.getItem("symphony-token") || "";
 if (location.hash) {
@@ -38,6 +39,14 @@ export function App() {
     [prompt, setPrompt] = useState(""),
     [owned, setOwned] = useState(false),
     [connected, setConnected] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 760);
+  const toggleSidebar = () => setSidebarOpen((value) => !value);
+  const [mobile, setMobile] = useState(() => window.innerWidth <= 760);
+  useEffect(() => {
+    const resize = () => setMobile(window.innerWidth <= 760);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const stream = useRef<EventSource | null>(null),
     generation = useRef(0);
   const error = (e: any) =>
@@ -115,31 +124,43 @@ export function App() {
   return (
     <ThemeProvider defaultTheme="dark">
       <div className="shell chat-root" data-theme="dark">
-        <aside>
-          <h1>Symphony Web</h1>
-          <button onClick={create}>New session</button>
-          <button onClick={refresh}>Refresh sessions</button>
-          {sessions.map((s) => (
-            <button
-              className={s.session_id === selected ? "selected" : ""}
-              key={s.session_id}
-              onClick={() => open(s.session_id)}
-            >
-              {s.first_message || s.session_id}
-              <small>
-                {s.active
-                  ? s.owned
-                    ? "Web"
-                    : "Owned by another process"
-                  : "Saved session"}
-              </small>
-            </button>
-          ))}
-        </aside>
-        <main>
+        <Sidebar
+          mobile={mobile}
+          sessions={sessions}
+          selected={selected}
+          open={sidebarOpen}
+          onToggle={toggleSidebar}
+          onCreate={create}
+          onRefresh={refresh}
+          onSelect={(id) => {
+            void open(id);
+            if (window.innerWidth <= 760) setSidebarOpen(false);
+          }}
+        />
+        <main inert={mobile && sidebarOpen}>
           <header>
-            {selected || "Start a coding session"}{" "}
-            <span>
+            <button
+              className="icon-button mobile-menu"
+              onClick={toggleSidebar}
+              aria-label="Open session navigation"
+              aria-expanded={sidebarOpen}
+              aria-controls="session-navigation"
+            >
+              ☰
+            </button>
+            <div className="conversation-heading">
+              <span className="eyebrow">SYMPHONY WEB</span>
+              <strong>
+                {sessions.find((s) => s.session_id === selected)
+                  ?.first_message ||
+                  (selected
+                    ? "New coding session"
+                    : "Your workspace, in conversation")}
+              </strong>
+            </div>
+            <span
+              className={`connection-badge ${connected ? "is-connected" : ""}`}
+            >
               {owned ? (connected ? "Connected" : "Reconnecting…") : "History"}
             </span>
             {selected && !owned && (
@@ -157,6 +178,28 @@ export function App() {
           </header>
           {state.error && <p role="alert">{state.error}</p>}
           <section aria-live="polite" className="transcript">
+            {!selected && (
+              <div className="welcome">
+                <span className="welcome-icon" aria-hidden="true">
+                  S
+                </span>
+                <span className="eyebrow">MEET YOUR CODING PARTNER</span>
+                <h1>What are we building?</h1>
+                <p>
+                  Explore your code, work through a problem, or bring your next
+                  idea to life.
+                </p>
+                <button onClick={create}>
+                  Start a session <span aria-hidden="true">↗</span>
+                </button>
+                <div className="welcome-capabilities">
+                  <span>◇ Your existing sessions</span>
+                  <span>◎ Live tool activity</span>
+                  <span>▣ You stay in control</span>
+                </div>
+              </div>
+            )}
+
             {state.rows.map((row) => (
               <article key={row.id}>
                 <small>{row.role}</small>
@@ -197,6 +240,7 @@ export function App() {
             ))}
           </section>
           <form
+            className="composer"
             onSubmit={async (e) => {
               e.preventDefault();
               try {
@@ -215,9 +259,10 @@ export function App() {
               placeholder="Describe a coding task…"
             />
             <button
+              aria-label="Send"
               disabled={!owned || !connected || state.busy || !prompt.trim()}
             >
-              Send
+              Send ↗
             </button>
           </form>
         </main>

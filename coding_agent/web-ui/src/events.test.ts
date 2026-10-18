@@ -125,3 +125,41 @@ describe("Symphony event adapter", () => {
     ).toContain("<script>");
   });
 });
+
+it("preserves computed patch widgets after a Symphony status-string result", async () => {
+  const { computeToolWidget } = await import("@sarchauhan/chat");
+  let state = reduce(
+    initial(),
+    {
+      type: "event",
+      event: "tool_execution_started",
+      payload: {
+        tool_call_id: "patch",
+        tool_name: "patch",
+        arguments: {
+          path: "src/session.ts",
+          old_str: "const cursor = 0;",
+          new_str: "const cursor = lastEventId;",
+        },
+      },
+    },
+    1,
+  );
+  state = reduce(
+    state,
+    {
+      type: "event",
+      event: "tool_execution_completed",
+      payload: {
+        tool_call_id: "patch",
+        tool_name: "patch",
+        status: "success",
+        result: "patched src/session.ts",
+      },
+    },
+    2,
+  );
+  const widget = computeToolWidget(state.rows[0].parts[0]);
+  expect(widget?.name).toBe("patch");
+  expect(widget?.props.diff).toContain("+const cursor = lastEventId;");
+});

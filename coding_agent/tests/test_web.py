@@ -36,7 +36,7 @@ def model(monkeypatch):
             prompt = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
             if "slow" in str(prompt):
                 time.sleep(1)
-            if "write" in str(prompt) and messages[-1]["role"] != "tool":
+            if "write" in str(prompt).lower() and messages[-1]["role"] != "tool":
                 delta = {
                     "tool_calls": [
                         {
@@ -143,12 +143,13 @@ def test_real_worker_stream_history_refresh_and_recovery(web):
 
 
 def test_approval_artifact_and_cancellation(web):
+    (web.sessions.workspace / "web-result.txt").write_text("Original content\n")
     status, data = request(web, data={})
     assert status == 200, data
     sid = data["session_id"]
     worker = web.sessions.workers[sid]
     assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "write a file"})[0] == 200
-    wait(worker, lambda w: bool(w.pending) or not w.busy)
+    wait(worker, lambda w: bool(w.pending))
     if worker.pending:
         rid = next(iter(worker.pending))
         choices = worker.pending[rid]["choices"]
@@ -216,15 +217,22 @@ def test_browser_refresh_streaming_and_approval(web):
         failures = []
         page.on("pageerror", lambda error: failures.append(str(error)))
         page.goto(f"{web.origin}/#{web.token}")
+        # SDK layout tokens must not stack the main panel below the sidebar.
+        sidebar_box = page.locator("aside").bounding_box()
+        main_box = page.locator("main").bounding_box()
+        assert sidebar_box and main_box
+        assert main_box["y"] == sidebar_box["y"] == 0
+        assert main_box["x"] >= sidebar_box["x"] + sidebar_box["width"] - 1
         page.get_by_role("button", name="New session").click()
         expect(page.get_by_text("Connected", exact=True)).to_be_visible()
+        (web.sessions.workspace / "web-result.txt").write_text("Original content\n")
         page.get_by_label("Coding task").fill("write a file")
         page.get_by_role("button", name="Send", exact=True).click()
-        # The default approval policy requires confirmation for workspace writes.
+        # Overwriting the pre-existing file must require human confirmation.
         # The HTTP test checks structured approval correlation; interact with
         # the real question here using its published accessible controls.
         worker = next(iter(web.sessions.workers.values()))
-        wait(worker, lambda w: bool(w.pending) or not w.busy)
+        wait(worker, lambda w: bool(w.pending))
         if worker.pending:
             q = next(iter(worker.pending.values()))
             option = page.get_by_text(q["choices"][0], exact=True)
@@ -238,6 +246,20 @@ def test_browser_refresh_streaming_and_approval(web):
         page.get_by_label("Coding task").fill("second turn")
         page.get_by_role("button", name="Send", exact=True).click()
         expect(page.get_by_text("Web task completed", exact=True)).to_have_count(2, timeout=15000)
+        page.get_by_role("button", name="Refresh sessions", exact=True).click()
+        search = page.get_by_label("Search sessions")
+        search.fill("no matching session")
+        expect(page.get_by_text("No matching sessions", exact=True)).to_be_visible()
+        page.get_by_role("button", name="Clear search", exact=True).click()
+        page.get_by_role("button", name="Pin write a file", exact=True).click()
+        expect(page.get_by_role("region", name="Pinned")).to_be_visible()
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.keyboard.press("Escape")
+        menu = page.get_by_role("button", name="Open session navigation", exact=True)
+        menu.click()
+        expect(search).to_be_focused()
+        page.keyboard.press("Escape")
+        expect(menu).to_be_focused()
         assert not failures
         browser.close()
 
@@ -248,6 +270,9 @@ def test_persistence_honors_configured_symphony_home(tmp_path, monkeypatch):
     monkeypatch.setenv("SYMPHONY_HOME", str(tmp_path / "custom"))
     assert sessions_dir(client="tui") == tmp_path / "custom" / "tui" / "sessions"
     assert active_dir() == tmp_path / "custom" / "active"
+    from coding_agent.addons.learning.store import LearningStore
+    store = LearningStore(tmp_path / "workspace")
+    assert store.global_root == tmp_path / "custom" / "memories" / "global"
 
 
 def test_cli_opens_browser(monkeypatch, tmp_path):

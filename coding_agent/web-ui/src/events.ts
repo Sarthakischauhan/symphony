@@ -78,7 +78,10 @@ export function reduce(state: State, frame: any, id: number): State {
             after: p.arguments.new_str,
           }
         : tool.input,
-      output: p.output ?? p.result ?? p.content,
+      output:
+        p.status === "success"
+          ? widgetOutput(tool, p.output ?? p.result ?? p.content)
+          : (p.output ?? p.result ?? p.content),
       state: frame.event.endsWith("started")
         ? "input-available"
         : p.status === "error"
@@ -147,7 +150,11 @@ export function historical(data: any): State {
     if (m.role === "system") continue;
     if (m.role === "tool") {
       const t = tools.get(m.tool_call_id);
-      if (t) Object.assign(t, { output: m.content, state: "output-available" });
+      if (t)
+        Object.assign(t, {
+          output: widgetOutput(t, m.content),
+          state: "output-available",
+        });
       continue;
     }
     const row: Row = {
@@ -184,4 +191,19 @@ export function historical(data: any): State {
       Object.assign(s, reduce(s, { type: "event", event, payload }, -i - 1));
   }
   return s;
+}
+
+// The SDK treats a plain patch result string as a candidate unified diff.
+// Symphony returns a status sentence; retain it as metadata so before/after
+// inputs can supply the actual diff instead of falling back to a generic tool.
+function widgetOutput(tool: any, value: any) {
+  if (
+    tool.toolName === "patch" &&
+    typeof value === "string" &&
+    typeof tool.input?.before === "string" &&
+    typeof tool.input?.after === "string" &&
+    !/^(@@|diff --git|--- |\*\*\* Begin Patch)/m.test(value)
+  )
+    return { message: value };
+  return value;
 }
