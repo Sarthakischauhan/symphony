@@ -553,3 +553,13 @@ def test_agent_run_does_not_schedule_learning_outside_addon_hooks() -> None:
     assert "learning_loop.schedule" not in source
     assert "LearningAddon(" in source
     assert "learning=self.learning_loop" in source
+
+
+def test_global_memory_uses_configured_home(tmp_path, monkeypatch):
+    configured = tmp_path / "configured"
+    monkeypatch.setenv("SYMPHONY_HOME", str(configured))
+    first = LearningStore(tmp_path / "first-workspace")
+    first.memory_operation("add", target="user", text="Prefer concise reports")
+    second = LearningStore(tmp_path / "second-workspace")
+    assert "Prefer concise reports" in second.get_topic("preferences", scope="global")
+    assert first.global_root == configured / "memories" / "global"

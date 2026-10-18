@@ -82,7 +82,11 @@ class LearningStore:
         else:
             self.memory_dir = safe_path(self.workspace, ".symphony/memories")
         # Do not resolve away symlinks before validating paths.
-        self.global_root = Path(global_root).absolute() if global_root is not None else safe_path(Path.home(), ".symphony/memories/global")
+        override = os.environ.get("SYMPHONY_HOME", "").strip()
+        # Keep the unresolved path so the ancestor symlink checks below still
+        # protect memory roots, including a configured Symphony home.
+        global_home = Path(override).expanduser().absolute() if override else Path.home() / ".symphony"
+        self.global_root = Path(global_root).absolute() if global_root is not None else safe_path(global_home, "memories/global")
         self.roots = {"workspace": self.memory_dir, "global": self.global_root}
         self.path = safe_path(self.memory_dir, "lessons.jsonl")
         # Markdown fact files. These are the session (and global) record.
