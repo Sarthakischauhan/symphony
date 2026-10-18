@@ -1,45 +1,44 @@
-# Install from source
+# Install Symphony
 
-Symphony is **not currently published on PyPI**. The supported way to try it today is to clone the repository and run its uv workspace. Do not use `pip install` or `uv add` for Symphony packages until this page announces a published release.
+Python 3.11 or newer is required. Version **0.0.1** of these three packages is published on PyPI:
 
-## Requirements
+| PyPI package | Import | What it is |
+| --- | --- | --- |
+| `symphony-core` | `core_ai` | Model providers and streaming types |
+| `symphony-harness` | `core_harness` | Agent loop, tools, limits, and events |
+| `symphony-code` | `coding_agent` | Coding agent and `symphony` terminal command |
 
-- Python 3.11 or newer
-- [uv](https://docs.astral.sh/uv/)
-- An API key or supported provider login to run a model; you can set up a provider on first launch
+`core-server` and `symphony-browser` are not published. Use them from a source checkout.
 
-## Clone and launch
+## Install a published package
+
+```sh
+python -m pip install symphony-code
+symphony --workspace /path/to/project
+```
+
+`symphony-code` depends on `symphony-core` and `symphony-harness`, so that one install includes them. Install a library on its own when you do not want the coding agent:
+
+```sh
+python -m pip install symphony-core
+python -m pip install symphony-harness
+```
+
+With uv, use `uv add symphony-code` in a project, or `uv tool install symphony-code` to put the `symphony` command on your PATH. `symphony`, `symphony-code`, and `coding-agent-tui` launch the same terminal application.
+
+You also need credentials for a supported model provider. The first launch can guide that setup. See the [quickstart](./quickstart.md) and the [environment reference](../reference/environment.md).
+
+**Safety:** workspace tools and shell commands run with your user permissions. Approval prompts are not a sandbox. Read [SECURITY.md](../../SECURITY.md) before using Symphony with an untrusted workspace or unattended.
+
+## Work from source
+
+Contributors, and anyone using `core-server` or `symphony-browser`, clone the workspace:
 
 ```sh
 git clone https://github.com/Sarthakischauhan/symphony.git
 cd symphony
 uv sync
-uv run --package symphony-code symphony
-```
-
-The current directory is the default workspace. To open another project:
-
-```sh
 uv run --package symphony-code symphony --workspace /path/to/project
 ```
 
-The commands `symphony`, `symphony-code`, and `coding-agent-tui` launch the same terminal application. Supported provider setup is covered in [Quickstart](./quickstart.md); full environment variables are in the [reference](../reference/environment.md).
-
-## Use a workspace package as a library
-
-The repository includes separate packages for providers (`core_ai`), the agent loop (`core_harness`), and the coding agent (`coding_agent`). They can be imported while working in this source checkout. For now, use the workspace rather than a package-index install:
-
-```sh
-uv sync
-uv run python -c 'from core_harness import CoreHarness; print(CoreHarness)'
-```
-
-For a runnable example, see [Build with the harness](../packages/symphony-harness.md). Package and import names are listed in the [documentation index](../README.md#build-with-the-harness).
-
-## Check the checkout
-
-```sh
-uv run pytest
-```
-
-Continue to the [quickstart](./quickstart.md) to configure a provider and complete a first task. PyPI instructions will be added here only when distributions are actually published.
+The current directory is the default workspace. Check the checkout with `uv run pytest`. The published 0.0.1 packages match the `v0.0.1` release; `main` can contain newer changes that are not on PyPI yet.

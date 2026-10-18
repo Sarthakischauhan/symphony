@@ -33,7 +33,7 @@ A pending publisher does not reserve the project name. PyPI creates the project 
 
 4. Create a GitHub Release for the merged commit with tag `v0.0.1` and publish the release. Do not publish the release until CI has passed and the PyPI publishers and GitHub `pypi` environment are configured. Publishing the release triggers the upload; merely pushing the tag does not.
 5. Monitor the `Upload Python Packages to PyPI` workflow in Actions. It builds all three distributions and uses the `pypi` GitHub environment and OIDC to publish them. `skip-existing: true` skips already-uploaded files; it cannot replace a published version, so use new versions for subsequent releases.
-6. Verify all three `0.0.1` project pages on PyPI. Only then change the installation documentation to advertise PyPI installation.
+6. Verify all three `0.0.1` project pages on PyPI. Version 0.0.1 was published from tag `v0.0.1`; the installation guide may advertise only versions that are actually on PyPI.
 
 ## Subsequent releases
 

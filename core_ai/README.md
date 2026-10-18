@@ -2,7 +2,7 @@
 
 Provider integrations and model-neutral streaming types for Symphony agents. Python import: `core_ai`.
 
-**Availability:** this package is not currently published on PyPI. Use it from the repository's uv workspace and follow the [source installation guide](../docs/getting-started/installation.md).
+**Availability:** version 0.0.1 is on PyPI: `pip install symphony-core`. Import name: `core_ai`. Development still uses the repository workspace; see the [installation guide](../docs/getting-started/installation.md).
 
 ## Minimal example
 

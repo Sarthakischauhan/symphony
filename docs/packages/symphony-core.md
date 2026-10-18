@@ -2,7 +2,7 @@
 
 Provider integrations and shared model-stream types for Symphony agents. The package imports as `core_ai`. It does not run an agent by itself.
 
-**Availability:** not currently published on PyPI. Use it from a repository checkout; see [Install from source](../getting-started/installation.md).
+**Availability:** published on PyPI as version 0.0.1. Install with `pip install symphony-core`, or use a checkout as described in [Install Symphony](../getting-started/installation.md). Import name: `core_ai`.
 
 ## Use a configured provider
 

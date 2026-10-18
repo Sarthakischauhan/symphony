@@ -2,14 +2,14 @@
 
 Run an AI coding agent in your terminal, or import the coding-agent API from the Symphony workspace. Package import name: `coding_agent`.
 
-**Availability:** this package is not currently published on PyPI. To run it today, use a checkout of the repository:
+**Availability:** version 0.0.1 is on PyPI.
 
 ```sh
-git clone https://github.com/Sarthakischauhan/symphony.git
-cd symphony
-uv sync
-uv run --package symphony-code symphony --workspace /path/to/project
+python -m pip install symphony-code
+symphony --workspace /path/to/project
 ```
+
+To run the current `main` branch instead of the published release, clone the repository, run `uv sync`, then `uv run --package symphony-code symphony --workspace /path/to/project`.
 
 `symphony`, `symphony-code`, and `coding-agent-tui` are aliases for the same terminal application. Configure a provider on first launch, or set credentials beforehand. See the [installation guide](../docs/getting-started/installation.md) and [quickstart](../docs/getting-started/quickstart.md).
 

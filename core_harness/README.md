@@ -2,7 +2,7 @@
 
 A product-agnostic async agent loop for Python: model turns, callable tools, operational limits, and a typed event stream. Import it as `core_harness`.
 
-**Availability:** this package is not currently published on PyPI. Use it through the repository's uv workspace; start with the [source installation guide](../docs/getting-started/installation.md).
+**Availability:** version 0.0.1 is on PyPI: `pip install symphony-harness`. Import name: `core_harness`. Development still uses the repository workspace; see the [installation guide](../docs/getting-started/installation.md).
 
 ## Minimal example
 
