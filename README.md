@@ -19,6 +19,29 @@
 
 **Requirements:** Python 3.11+ and credentials for a supported model provider. The first launch can guide you through provider setup.
 
+### Install (one-liner)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sarthakischauhan/symphony/main/install.sh | sh
+```
+
+This installs [uv](https://docs.astral.sh/uv/) if missing, then installs `symphony-code` from PyPI as a uv tool, pinned to the latest GitHub release. Re-running upgrades. macOS and Linux (x86_64/arm64) only; no sudo.
+
+Prefer to inspect the script first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sarthakischauhan/symphony/main/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+- Pin a version: `curl -fsSL .../install.sh | SYMPHONY_VERSION=0.0.1 sh`
+- Uninstall: `curl -fsSL .../install.sh | sh -s -- --uninstall`
+
+Then run `symphony --workspace /path/to/your/project`.
+
+### From source (alternative)
+
 ```sh
 python -m pip install symphony-code
 symphony --workspace /path/to/your/project

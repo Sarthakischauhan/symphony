@@ -1,0 +1,47 @@
+name: install
+
+on:
+  pull_request:
+    paths: ["install.sh", ".github/workflows/install.yml"]
+  push:
+    branches: [main]
+    paths: ["install.sh", ".github/workflows/install.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck --shell=sh install.sh
+
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          test -n "$tag"
+          echo "SYMPHONY_VERSION=${tag#v}" >> "$GITHUB_ENV"
+          echo "Latest release: $tag"
+      - name: Install
+        run: |
+          sh install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Check version
+        run: test "$(symphony --version)" = "symphony $SYMPHONY_VERSION"
+      - name: Re-run (upgrade path)
+        run: sh install.sh && symphony --version
+      - name: Uninstall
+        run: |
+          sh install.sh --uninstall
+          if command -v symphony; then echo "symphony still present"; exit 1; fi
