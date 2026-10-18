@@ -43,7 +43,11 @@ def test_project_root_marker_order_prefers_closer_pyproject(tmp_path: Path) -> N
     assert project_root(inner) == inner.resolve()
 
 
-def test_project_root_none_without_markers(tmp_path: Path) -> None:
+def test_project_root_none_without_markers(tmp_path: Path, monkeypatch) -> None:
+    # A host may itself check out /tmp or /workspace. Model an unmarked
+    # filesystem outside this fixture without changing the discovery code.
+    exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda path: exists(path) if path.is_relative_to(tmp_path) else False)
     leaf = tmp_path / "empty" / "nested"
     leaf.mkdir(parents=True)
     assert project_root(leaf) is None

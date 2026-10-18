@@ -62,7 +62,11 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Run tests
-        run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests browser_agent/tests
+        run: uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests browser_agent/tests --junitxml=/tmp/symphony-tests.xml
+
+      - name: Annotate test failures
+        if: failure()
+        run: python .github/scripts/annotate-tests.py /tmp/symphony-tests.xml
 
   web:
     runs-on: ubuntu-latest

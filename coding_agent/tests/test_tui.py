@@ -1772,7 +1772,15 @@ def test_resume_options_use_existing_persistence_api() -> None:
     assert options[0].message_count == 4
 
 
-def test_resume_rows_keep_metadata_on_second_line() -> None:
+def test_resume_rows_keep_metadata_on_second_line(monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 17, 16, tzinfo=timezone.utc)
+
+    monkeypatch.setattr("coding_agent.tui.screens.resume.datetime", FixedDateTime)
     sessions = [
         SessionOption(f"session-{index:04d}", "2026-08-12T16:00:00+00:00", "A" * 300, index)
         for index in range(1000)
