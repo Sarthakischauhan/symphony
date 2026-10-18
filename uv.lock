@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -1253,15 +1253,15 @@ requires-dist = [
 
 [[package]]
 name = "symphony-code"
-version = "0.1.0"
+version = "0.0.1"
 source = { editable = "coding_agent" }
 dependencies = [
     { name = "pillow" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "sounddevice" },
     { name = "symphony-core" },
     { name = "symphony-harness" },
-    { name = "sounddevice" },
     { name = "termaid" },
     { name = "textual" },
     { name = "textual-image", version = "0.12.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -1271,9 +1271,6 @@ dependencies = [
 [package.optional-dependencies]
 langfuse = [
     { name = "langfuse" },
-]
-voice = [
-    { name = "sounddevice" },
 ]
 
 [package.dev-dependencies]
@@ -1301,7 +1298,7 @@ dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "symphony-core"
-version = "0.1.0"
+version = "0.0.1"
 source = { editable = "core_ai" }
 dependencies = [
     { name = "dotenv" },
@@ -1330,7 +1327,7 @@ dev = [
 
 [[package]]
 name = "symphony-harness"
-version = "0.1.0"
+version = "0.0.1"
 source = { editable = "core_harness" }
 dependencies = [
     { name = "pydantic" },
@@ -1385,8 +1382,8 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "pillow", marker = "python_full_version < '3.12'" },
-    { name = "rich", marker = "python_full_version < '3.12'" },
+    { name = "pillow" },
+    { name = "rich" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c2/e7/c82ea0604874b6d51d5717a0911061ae5810e36dad2e4d2b11fa7d54cdaa/textual_image-0.12.0.tar.gz", hash = "sha256:fdd0b5ff9c8a99740bc360a99ce014d563fa97d07a5b49b472470809f57c0a74", size = 116403, upload-time = "2026-04-12T17:37:44.696Z" }
 wheels = [
@@ -1401,8 +1398,8 @@ resolution-markers = [
     "python_full_version >= '3.12'",
 ]
 dependencies = [
-    { name = "pillow", marker = "python_full_version >= '3.12'" },
-    { name = "rich", marker = "python_full_version >= '3.12'" },
+    { name = "pillow" },
+    { name = "rich" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/09/19/fb4bca0ed5ff657f15b4d31cd3f415c62bc7c69cbd1ccb87457e025348bc/textual_image-0.14.1.tar.gz", hash = "sha256:502542955452ca6d67e4e0701021eed6bebbe2e1ccee8dfcb42e5083c9573eda", size = 175108, upload-time = "2026-09-25T20:41:48.657Z" }
 wheels = [
