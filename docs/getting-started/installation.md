@@ -24,7 +24,28 @@ python -m pip install symphony-core
 python -m pip install symphony-harness
 ```
 
-With uv, use `uv add symphony-code` in a project, or `uv tool install symphony-code` to put the `symphony` command on your PATH. `symphony`, `symphony-code`, and `coding-agent-tui` launch the same terminal application.
+`symphony`, `symphony-code`, and `coding-agent-tui` launch the same terminal application.
+
+## Install with uv
+
+Install [uv](https://docs.astral.sh/uv/) first. To put the coding agent on your PATH:
+
+```sh
+uv tool install symphony-code
+symphony --workspace /path/to/project
+```
+
+Upgrade later with `uv tool upgrade symphony-code`. Run it once without installing the tool with `uvx symphony-code --workspace /path/to/project`.
+
+To depend on a package from a project:
+
+```sh
+uv add symphony-code
+uv add symphony-core
+uv add symphony-harness
+```
+
+`uv add symphony-code` pulls in `symphony-core` and `symphony-harness`. Use the two library commands only when the project does not need the coding agent.
 
 You also need credentials for a supported model provider. The first launch can guide that setup. See the [quickstart](./quickstart.md) and the [environment reference](../reference/environment.md).
 
