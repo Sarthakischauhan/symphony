@@ -182,6 +182,17 @@ def default_coding_agent_harness() -> HarnessConfig:
     )
 
 
+class UpdatesConfig(BaseModel):
+    """Pre-start comparison of the installed coding agent with its PyPI release."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # False asks before replacing the installed package. True installs the
+    # newer published release without a prompt.
+    auto: bool = False
+
+
 class CodingAgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -194,6 +205,7 @@ class CodingAgentConfig(BaseModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
     last_model: str | None = None
     # Default "direct" inserts that catalog segment. null = stock prompt only.
     personality: str | None = "direct"
@@ -368,6 +380,7 @@ __all__ = [
     "SettingsSource",
     "SkillsConfig",
     "ToolsConfig",
+    "UpdatesConfig",
     "WebSearchConfig",
     "ensure_spawn_settings",
     "load_coding_agent_config",

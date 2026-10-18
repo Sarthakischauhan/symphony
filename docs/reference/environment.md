@@ -24,6 +24,7 @@ and similarly for Anthropic or Grok.
 | Variable | Role |
 | --- | --- |
 | `SYMPHONY_HOME` | User-wide data and config directory used instead of `~/.symphony` (config, `.env`, OAuth tokens, sessions). The process home is not changed. |
+| `SYMPHONY_NO_UPDATE_CHECK` | Set to `1` to skip the startup PyPI version check for that process. |
 | `SYMPHONY_BENCH_CONFIG` | Path to the `symphony-bench` config TOML. Checked before `/opt/symphony/bench/config.toml` and the repo's `bench/config.toml`. |
 
 
