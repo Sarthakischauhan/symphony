@@ -92,6 +92,10 @@ def main() -> None:
         raise SystemExit(run_main(sys.argv[2:]))
     parser = build_parser()
     args = parser.parse_args()
+    from coding_agent.updates import run_startup_update_check
+
+    if run_startup_update_check(unattended=args.unattended) == "updated":
+        return
     workspace = Path(args.workspace or ".").resolve()
     if args.continue_run:
         if not args.resume:

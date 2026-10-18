@@ -23,6 +23,21 @@ Configuration is loaded and maintained as a complete settings file. The TUI crea
 
 The schema is validated and rejects unrecognized or invalid settings. Keep other existing settings when editing the file.
 
+## Updates
+
+Before the TUI starts, an installed `symphony-code` release is compared with the latest release on PyPI. A source checkout is not replaced. When the versions differ, Symphony opens a screen with **Update now** and **Not now**. Set `updates.auto` to install the newer release without that screen:
+
+```json
+{
+  "updates": {
+    "enabled": true,
+    "auto": false
+  }
+}
+```
+
+`updates.enabled: false` skips the check. `SYMPHONY_NO_UPDATE_CHECK=1` skips it for one process. An unattended command updates only when `auto` is already true; otherwise it keeps the installed version instead of prompting. After a successful update, restart `symphony`. A failed download or install leaves the current version running.
+
 ## Tool approvals
 
 By default, approval prompts are required for `bash`, overwriting an existing file, broad patches, and web searches. The coding-agent approval add-on—not the generic harness—implements these prompts. Deny rules are checked first and block a matching tool call; otherwise allow patterns skip a prompt. `approvals.deny` applies in every mode; `approvals.allow` skips prompts in ask mode. `Always allow` changes the active agent session and is not necessarily a persistent config edit.
