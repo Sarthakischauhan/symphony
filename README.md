@@ -6,7 +6,7 @@
 
 **An open-source Python harness for AI agents, with a coding agent ready to run.** Build an agent from composable model providers, tools, and a typed event stream—or use Symphony Code from your terminal.
 
-> **Availability:** Symphony is not currently published on PyPI. The first release is being prepared as `0.0.1`; until it is published, install and run it from the source workspace using the instructions below.
+> **Availability:** Symphony `0.0.1` is released; the `symphony` command ships in the PyPI package `symphony-code`.
 
 <p align="center">
   <a href="docs/getting-started/installation.md"><strong>Install from source</strong></a> ·
@@ -18,6 +18,29 @@
 ## Run Symphony Code
 
 **Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/), and credentials for a supported model provider. The first launch can guide you through provider setup.
+
+### Install (one-liner)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sarthakischauhan/symphony/main/install.sh | sh
+```
+
+This installs [uv](https://docs.astral.sh/uv/) if missing, then installs `symphony-code` from PyPI as a uv tool, pinned to the latest GitHub release. Re-running upgrades. macOS and Linux (x86_64/arm64) only; no sudo.
+
+Prefer to inspect the script first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sarthakischauhan/symphony/main/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+- Pin a version: `curl -fsSL .../install.sh | SYMPHONY_VERSION=0.0.1 sh`
+- Uninstall: `curl -fsSL .../install.sh | sh -s -- --uninstall`
+
+Then run `symphony --workspace /path/to/your/project`.
+
+### From source (alternative)
 
 ```sh
 git clone https://github.com/Sarthakischauhan/symphony.git
