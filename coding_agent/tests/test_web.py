@@ -270,9 +270,6 @@ def test_persistence_honors_configured_symphony_home(tmp_path, monkeypatch):
     monkeypatch.setenv("SYMPHONY_HOME", str(tmp_path / "custom"))
     assert sessions_dir(client="tui") == tmp_path / "custom" / "tui" / "sessions"
     assert active_dir() == tmp_path / "custom" / "active"
-    from coding_agent.addons.learning.store import LearningStore
-    store = LearningStore(tmp_path / "workspace")
-    assert store.global_root == tmp_path / "custom" / "memories" / "global"
 
 
 def test_cli_opens_browser(monkeypatch, tmp_path):

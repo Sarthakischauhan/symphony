@@ -39,9 +39,20 @@ export function App() {
     [prompt, setPrompt] = useState(""),
     [owned, setOwned] = useState(false),
     [connected, setConnected] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 760);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () =>
+      window.innerWidth > 760 &&
+      localStorage.getItem("symphony-sidebar-open") !== "false",
+  );
   const toggleSidebar = () => setSidebarOpen((value) => !value);
   const [mobile, setMobile] = useState(() => window.innerWidth <= 760);
+  useEffect(() => {
+    if (!mobile)
+      localStorage.setItem(
+        "symphony-sidebar-open",
+        JSON.stringify(sidebarOpen),
+      );
+  }, [sidebarOpen, mobile]);
   useEffect(() => {
     const resize = () => setMobile(window.innerWidth <= 760);
     window.addEventListener("resize", resize);
@@ -84,6 +95,7 @@ export function App() {
           cursor = seq;
           const frame = JSON.parse(e.data);
           setState((s) => reduce(s, frame, seq));
+          if (frame.type === "done" || frame.event === "run_started") refresh();
           if (frame.status === "worker_exited") {
             source.close();
             setOwned(false);
