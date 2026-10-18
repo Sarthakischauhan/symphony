@@ -15,8 +15,10 @@ differ by layer on purpose; use the right one for the context you are in:
 | `core_server/` | `core_server` | `core-server` |
 | `browser_agent/` | `browser_agent` | `symphony-browser` |
 
-These are workspace packages; do not imply they are installable from PyPI until
-published releases are available. See the [source installation guide](docs/getting-started/installation.md).
+`symphony-core`, `symphony-harness`, and `symphony-code` 0.0.1 are on PyPI.
+`core-server` and `symphony-browser` are not. See the
+[installation guide](docs/getting-started/installation.md). Do not document a
+newer PyPI release until it has actually been uploaded.
 
 Dependency direction is strictly `core_ai` → `core_harness` → `coding_agent` /
 `core_server` / `browser_agent`. The harness must stay product-agnostic: anything that knows

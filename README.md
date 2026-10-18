@@ -6,10 +6,10 @@
 
 **An open-source Python harness for AI agents, with a coding agent ready to run.** Build an agent from composable model providers, tools, and a typed event stream—or use Symphony Code from your terminal.
 
-> **Availability:** Symphony is not currently published on PyPI. The first release is being prepared as `0.0.1`; until it is published, install and run it from the source workspace using the instructions below.
+> **Availability:** `symphony-core`, `symphony-harness`, and `symphony-code` **0.0.1** are on PyPI. `core-server` and `symphony-browser` remain source-only.
 
 <p align="center">
-  <a href="docs/getting-started/installation.md"><strong>Install from source</strong></a> ·
+  <a href="docs/getting-started/installation.md"><strong>Install</strong></a> ·
   <a href="docs/getting-started/quickstart.md"><strong>Try a coding task</strong></a> ·
   <a href="docs/README.md"><strong>Documentation</strong></a> ·
   <a href="https://github.com/Sarthakischauhan/symphony">GitHub</a>
@@ -17,14 +17,14 @@
 
 ## Run Symphony Code
 
-**Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/), and credentials for a supported model provider. The first launch can guide you through provider setup.
+**Requirements:** Python 3.11+ and credentials for a supported model provider. The first launch can guide you through provider setup.
 
 ```sh
-git clone https://github.com/Sarthakischauhan/symphony.git
-cd symphony
-uv sync
-uv run --package symphony-code symphony --workspace /path/to/your/project
+python -m pip install symphony-code
+symphony --workspace /path/to/your/project
 ```
+
+`symphony-code` installs `symphony-core` and `symphony-harness` with it. The full options, including a source checkout, are in the [installation guide](docs/getting-started/installation.md).
 
 Ask it for a small change you can verify, such as adding a function and a test. Review tool actions and approval prompts. The [quickstart](docs/getting-started/quickstart.md) walks through a first run and follow-up tasks.
 
@@ -40,7 +40,7 @@ Symphony separates reusable agent infrastructure from products that use it:
 - **`symphony-browser`** (`browser_agent`): browser-use agent.
 - **`core-server`** (`core_server`): FastAPI interface for harness runs and events.
 
-The names above identify components in the repository's uv workspace; **they are not PyPI install instructions**. Start at the [documentation index](docs/README.md) to find the right package guide, user guide, or API reference.
+Install the first three from PyPI: `pip install symphony-core`, `pip install symphony-harness`, or `pip install symphony-code`. `symphony-browser` and `core-server` are workspace-only. Start at the [documentation index](docs/README.md) for the package, user, and API guides.
 
 ## Develop
 

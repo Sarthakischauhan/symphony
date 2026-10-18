@@ -6,7 +6,7 @@ Do not open a public issue for a security problem. Email **sarthakchauhann@gmail
 
 ## Supported versions
 
-Symphony is pre-1.0 and its packages are not currently published on PyPI. Security fixes are made against the `main` branch. When releases are published, this policy will identify the supported release versions here.
+Symphony is pre-1.0. The supported PyPI release is **0.0.1** of `symphony-core`, `symphony-harness`, and `symphony-code`. Security fixes land on `main` and in a later release when one is published. `core-server` and `symphony-browser` have no PyPI release; fixes for them are on `main` only.
 
 ## Important deployment boundaries
 

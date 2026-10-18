@@ -2,7 +2,7 @@
 
 A product-agnostic async agent loop for Python. The harness sends conversation turns to a model, runs registered tools, and emits typed events. It does not provide workspace-specific tools, a terminal UI, or a default approval policy.
 
-**Availability:** not currently published on PyPI. Use it from the [source workspace](../getting-started/installation.md). Import name: `core_harness`.
+**Availability:** published on PyPI as version 0.0.1. Install with `pip install symphony-harness`, which also installs `symphony-core`. Import name: `core_harness`. A source checkout is described in [Install Symphony](../getting-started/installation.md).
 
 ## Run a tool-enabled agent
 

@@ -14,7 +14,7 @@ Symphony is a Python workspace with replaceable model providers, a reusable agen
 | `browser_agent/` | `browser_agent` | `symphony-browser` | Browser-use agent |
 | `core_server/` | `core_server` | `core-server` | HTTP/SSE interface |
 
-The project is not currently published on PyPI. This checkout is authoritative for current behavior; package names above describe workspace components, not installable releases.
+`symphony-core`, `symphony-harness`, and `symphony-code` 0.0.1 are published on PyPI. This checkout can be ahead of that release. `core-server` and `symphony-browser` are not published.
 
 ## Design constraints
 

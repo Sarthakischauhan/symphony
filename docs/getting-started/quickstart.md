@@ -1,6 +1,6 @@
 # Your first coding task
 
-This walkthrough takes you from a source checkout to a change you can inspect on disk. If Symphony is not installed yet, follow [Install from source](./installation.md) first.
+This walkthrough takes you to a change you can inspect on disk. If Symphony is not installed yet, follow [Install Symphony](./installation.md) first. A source checkout is optional.
 
 ## 1. Start in the project you want to edit
 
