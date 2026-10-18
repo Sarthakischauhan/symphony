@@ -98,3 +98,39 @@ file-writing tasks, approvals, streaming replay, cancellation, ownership conflic
 worker recovery and request security. The browser test covers the compiled UI,
 questions, multiple turns and refresh. Live provider behavior depends on the
 user's configured provider and is not exercised by these tests.
+
+## Session navigation
+
+The sidebar supports title/ID search, pinned sessions, active/today/recent/older
+sections, message counts, and explicit TUI ownership indicators. Pinning, desktop
+width, and collapse state are saved in this browser; they do not rewrite session
+journals. Preferences are scoped to the browser origin; use a stable `--port`
+to retain them across separate server launches. Use the resize handle or its arrow keys to adjust desktop width.
+`Cmd/Ctrl K` focuses search, `Cmd/Ctrl B` toggles navigation, and arrow/Home/End
+keys move between session buttons. On mobile, navigation becomes a modal drawer
+with a backdrop, contained keyboard focus, Escape dismissal, and focus restoration.
+
+## Screenshots
+
+These are browser captures of the compiled frontend with seeded local history
+and a local model stub, rather than live external provider responses.
+
+Welcome and session navigation:
+
+![Symphony Web welcome with searchable and pinned sessions](../assets/web/welcome-desktop.png)
+
+Historical conversation and a computed patch diff:
+
+![Historical session with a patch widget](../assets/web/session-desktop.png)
+
+Interactive overwrite approval:
+
+![Approval before overwriting an existing file](../assets/web/approval-desktop.png)
+
+Created artifact after completion and browser refresh:
+
+![Created file with preview and download controls](../assets/web/artifact-desktop.png)
+
+Mobile navigation:
+
+<img src="../assets/web/sidebar-mobile.png" alt="Mobile session navigation drawer" width="390" />
