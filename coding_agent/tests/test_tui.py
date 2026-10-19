@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import base64
 import io
 import json
@@ -1773,8 +1774,10 @@ def test_resume_options_use_existing_persistence_api() -> None:
 
 
 def test_resume_rows_keep_metadata_on_second_line() -> None:
+    # Relative to now, so the "66d ago" label does not drift with the calendar.
+    updated = (datetime.now(timezone.utc) - timedelta(days=66, hours=1)).isoformat()
     sessions = [
-        SessionOption(f"session-{index:04d}", "2026-08-12T16:00:00+00:00", "A" * 300, index)
+        SessionOption(f"session-{index:04d}", updated, "A" * 300, index)
         for index in range(1000)
     ]
     app = ResumeApp(sessions)
