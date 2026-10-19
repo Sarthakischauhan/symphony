@@ -80,7 +80,7 @@ def test_model_list_request_includes_provider_and_context(monkeypatch):
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
     monkeypatch.setattr(core_ai, "default_model_id", lambda _registry: "openai:gpt-test")
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         registry=Registry(), session_id="session-test",
         harness=SimpleNamespace(model_id="openai:gpt-test"),
     ))
@@ -104,7 +104,7 @@ def test_command_catalog_is_the_tui_catalog(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
         user_addons=no_user_addons(),
     ))
@@ -122,7 +122,7 @@ def test_slash_command_does_not_call_the_model(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
         user_addons=no_user_addons(),
         run=lambda *_args: (_ for _ in ()).throw(AssertionError("model was called")),
@@ -169,7 +169,7 @@ def test_command_attachments_are_rejected_without_inference(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **kwargs: SimpleNamespace(tools=[], 
         session_id="session-test", harness=SimpleNamespace(model_id="test"),
         user_addons=no_user_addons(),
         run=lambda *args: (_ for _ in ()).throw(AssertionError("model called")),
@@ -206,7 +206,7 @@ def test_answer_and_steer_commands_become_harness_ops(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         session_id="session-test",
         harness=SimpleNamespace(model_id="test", submit=lambda op: ops.append(op) or False),
     ))

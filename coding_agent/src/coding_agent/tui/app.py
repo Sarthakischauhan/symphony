@@ -254,6 +254,7 @@ class CodingAgentApp(
             from coding_agent.protocols.stdio.commands import load_state
 
             load_state(self._agent)
+            self.sink.fields.bind(self._agent)
         except Exception as exc:
             self._agent = None
             self._set_status("")

@@ -2871,9 +2871,10 @@ def test_approval_enter_submits_highlighted_always_allow(
                 raise AssertionError("approval menu did not appear")
 
             menu = app.query_one("#approval-menu", SlashMenu)
-            assert menu._questions == ("Allow once", "Always allow", "Deny")
+            # Protocol 3 options order: deny, allow_always, allow_once.
+            assert menu._questions == ("Deny", "Always allow", "Allow once")
             assert menu.selected_value == "Allow once"
-            menu.move_selection(1)
+            menu.move_selection(-1)
             assert menu.selected_value == "Always allow"
 
             request_id = app._pending_question_id

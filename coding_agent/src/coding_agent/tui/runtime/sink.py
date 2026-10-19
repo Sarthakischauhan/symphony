@@ -15,6 +15,8 @@ from textual.message import Message
 
 from core_harness import EventSink, ControlPlaneEventType, HumanInteraction
 
+from coding_agent.protocols.fields import EventFields
+
 
 class HarnessEvent(Message):
     """Posted onto the Textual app when the harness emits an event."""
@@ -60,6 +62,8 @@ class TextualEventSink(EventSink):
         self._cancelled = False
         self._cancel_reason = "cancelled"
         self._cancel_parent: Optional[TextualEventSink] = None
+        # Widget fields shared with stdio; forks share one instance.
+        self.fields = EventFields()
 
     def bind(self, app: Any) -> None:
         self._app = app
@@ -73,6 +77,7 @@ class TextualEventSink(EventSink):
         child = TextualEventSink(workspace=self.workspace)
         child.bind(self._app)
         child._cancel_parent = self
+        child.fields = self.fields
         child.interaction = self.interaction.fork(child)
         return child
 
@@ -86,7 +91,8 @@ class TextualEventSink(EventSink):
             request_id = str(payload.get("request_id") or "")
             if request_id:
                 self.interaction.expect(request_id)
-        self._app.post_message(HarnessEvent(event_type, payload))
+        for name, body in self.fields.apply(event_type, payload):
+            self._app.post_message(HarnessEvent(name, body))
 
     def request_cancel(self, reason: str = "user_cancel") -> None:
         """Dismiss pending questions. The TUI cancels the run worker."""

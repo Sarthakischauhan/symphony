@@ -19,6 +19,14 @@ class QuestionSurface:
         choices = [str(choice) for choice in payload.get("choices") or []]
         default = str(payload.get("default") or "")
         kind = str(payload.get("kind") or "")
+        options = payload.get("options")
+        if kind == "approval" and isinstance(options, list):
+            # Protocol 3: the approval's own options; old sessions keep choices.
+            labels = [str(option.get("label")) for option in options if isinstance(option, Mapping) and option.get("label")]
+            choices = labels or choices
+        size = payload.get("bytes")
+        if kind == "approval" and isinstance(size, int):
+            question = f"{question} ({size:,} bytes)"
         if not request_id or not question:
             self.add_notice("The agent sent an invalid question request.", "error")
             return

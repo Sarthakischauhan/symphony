@@ -34,3 +34,38 @@ Subagents use the ordinary `event` envelope: the parent emits
 `child_id` as `agent_id`; the parent emits `agent_completed` or `agent_failed`
 with `child_id` when it settles. Hosts can route child traffic into a nested
 view using the spawning tool call ID.
+
+## Protocol 3: widget fields
+
+`hello` reports `"protocol": 3` and the `widget_fields` capability. Every
+protocol 2 key is unchanged; hosts that ignore unknown keys keep working.
+The stdio server and the TUI add these fields through one shared
+`coding_agent.protocols.fields.EventFields`. `parent_call_id` is the
+`tool_call_id` of the `spawn_agent` call that started the emitting subagent,
+and `null` for top-level events.
+
+| Event | Added fields |
+| --- | --- |
+| `tool_execution_started` | `call_id`, `parent_call_id` (`started_at` was already present) |
+| `tool_execution_output` | `call_id`, `stream` (`"stdout"` or `"stderr"`), `parent_call_id` |
+| `tool_execution_completed` | `call_id`, `exit_code`, `summary`, `parent_call_id` (`status` and `duration_ms` were already present) |
+| `question_asked` | `parent_call_id`; approvals also carry `call_id`, `target`, `detail`, `bytes`, `options` |
+| `input_requested` (approval) | top-level `call_id`, `target`, `detail`, `bytes`, `options`, `parent_call_id` (also kept in `metadata`) |
+| `agent_spawned` | `parent_call_id` (same value as `tool_call_id`) |
+| `subagent_step` (new, derived) | `agent_id`, `parent_id`, `parent_call_id`, `turn`, `started_at`; follows each subagent `turn_started` |
+
+- `exit_code` is the bash process's exit status; it is `null` for other tools,
+  background jobs, and timeouts. A non-zero exit is `status: "error"` and the
+  result starts with `exit=N`, but consumers should read `exit_code`.
+- `summary` is `{lines, matches, added, removed}`, each an integer or
+  `null`: `lines` for bash and read_file, `matches` for search, `lines` and
+  `added` for write_file, `added` and `removed` for patch. Failed non-bash
+  calls report all `null`.
+- `options` is `[{"id": "deny", "label": "Deny"}, {"id": "allow_always",
+  "label": "Always allow"}, {"id": "allow_once", "label": "Allow once"}]`.
+  Answer with the existing `input` frame using either the `id` or the
+  `label`.
+- `bytes` is the UTF-8 size of a write_file `content` or patch `new_str`, else `null`.
+- Derived fields are added on delivery and are not persisted; resumed
+  sessions replay protocol 2 payloads, and clients should fall back to deriving
+  them.

@@ -81,6 +81,7 @@ async def serve(
             client="zeron",
         )
         load_state(agent)
+        sink.fields.bind(agent)
     except Exception as exc:
         _package().write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         return 1

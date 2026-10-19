@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import pytest
+from coding_agent.tools.bash import CommandFailed
 
 
 from coding_agent.tools import (
@@ -379,11 +380,13 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
         assert not timed_out.startswith("error:")
         assert time.monotonic() - started < 5
 
-        failed = await tool.execute(
-            sink=None,
-            args={"command": "python3 -c \"import sys; sys.exit(7)\""},
-        )
-        assert failed.startswith("exit=7")
+        with pytest.raises(CommandFailed) as failed:
+            await tool.execute(
+                sink=None,
+                args={"command": "python3 -c \"import sys; sys.exit(7)\""},
+            )
+        assert failed.value.exit_code == 7
+        assert str(failed.value).startswith("exit=7")
 
         tail = await tool.execute(
             sink=None,

@@ -8,7 +8,7 @@ import contextlib
 import os
 import signal
 from types import TracebackType
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from core_harness import EventSink
 from core_harness.tools import current_tool_call_id
@@ -28,6 +28,19 @@ OUTPUT_FLUSH_SECONDS = 0.1
 # Most characters sent per event. A UI shows a tail, so when a burst exceeds
 # this only its newest lines are sent; the tool result is not affected.
 OUTPUT_EVENT_CHARS = 4096
+Stream: TypeAlias = Literal["stdout", "stderr"]
+
+
+class CommandFailed(RuntimeError):
+    """A command exited non-zero. The harness reports any raised error as ``status="error"``.
+
+    The message keeps the ``exit=N`` line and the output the model reads; hosts take
+    the exit code from :attr:`BashTool.exit_codes`, never from this text.
+    """
+
+    def __init__(self, exit_code: int, output: str) -> None:
+        self.exit_code = exit_code
+        super().__init__(f"exit={exit_code}\n{output}".rstrip() if output else f"exit={exit_code}")
 
 
 class BashArgs(ToolArgsModel):
@@ -69,7 +82,7 @@ class BashTool(WorkspaceTool):
         "count, compare, transform, and verify in a single call. Prefer it for builds, tests, git, "
         "package managers, codebase surveys, and quick checks; keep read_file for reading a file you "
         "will edit and patch/write_file for edits. "
-        "Non-zero exits are returned as text (prefixed with exit=N), not as a tool failure. "
+        "A non-zero exit is a tool error whose text starts with exit=N and includes the output. "
         "Timeouts include captured output. Output is capped to the last bytes, so filter or limit "
         "noisy output in the command itself. "
         "Child processes are killed as a group according to the configured limits."
@@ -81,6 +94,9 @@ class BashTool(WorkspaceTool):
     ) -> None:
         self.config = config
         self.jobs = jobs
+        # Exit status per finished foreground run, keyed by tool_call_id. Hosts
+        # read (and pop) it when the call's tool_execution_completed arrives.
+        self.exit_codes: dict[str, int] = {}
         super().__init__(workspace)
         timeout_schema = self.parameters["properties"]["timeout"]
         timeout_schema["default"] = config.default_timeout_seconds
@@ -110,7 +126,7 @@ class BashTool(WorkspaceTool):
             proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=self.workspace,
                 start_new_session=True,
             )
@@ -137,8 +153,10 @@ class BashTool(WorkspaceTool):
         if timed_out:
             prefix = f"timed out after {timeout}s"
             return f"{prefix}\n{text}".rstrip() if text else prefix
+        if proc.returncode is not None and tool_call_id:
+            self.exit_codes[tool_call_id] = proc.returncode
         if proc.returncode not in (0, None):
-            return f"exit={proc.returncode}\n{text}".rstrip() if text else f"exit={proc.returncode}"
+            raise CommandFailed(proc.returncode, text)
         return text or "(no output)"
 
     async def run_job(self, command: str, action: str, job_id: str) -> str:
@@ -174,23 +192,36 @@ class OutputStream:
     ``feed`` only buffers; while the context is open a pump task emits the
     buffer every ``OUTPUT_FLUSH_SECONDS``, and leaving the context normally
     (exit or timeout) sends what is left. A cancelled command sends nothing
-    more. Payload: ``tool_call_id``, ``tool_name`` and the text ``delta``.
+    more. Payload: ``tool_call_id``, ``tool_name``, the text ``delta`` and its
+    ``stream`` (``stdout`` or ``stderr``); one event per run of same-stream text.
     """
 
     def __init__(self, sink: EventSink, tool_call_id: str) -> None:
         self.sink = sink
         self.tool_call_id = tool_call_id
-        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        self.pending = ""
+        self.decoders: dict[Stream, codecs.IncrementalDecoder] = {
+            "stdout": codecs.getincrementaldecoder("utf-8")(errors="replace"),
+            "stderr": codecs.getincrementaldecoder("utf-8")(errors="replace"),
+        }
+        self.pending: list[tuple[Stream, str]] = []
         self.at_line_start = True
         self.pump: asyncio.Task[None] | None = None
 
-    def feed(self, data: bytes) -> None:
-        self.pending += self.decoder.decode(data)
+    def feed(self, data: bytes, stream: Stream = "stdout") -> None:
+        text = self.decoders[stream].decode(data)
+        if not text:
+            return
+        if self.pending and self.pending[-1][0] == stream:
+            self.pending[-1] = (stream, self.pending[-1][1] + text)
+        else:
+            self.pending.append((stream, text))
 
     async def flush(self) -> None:
-        delta = self.pending
-        self.pending = ""
+        pending, self.pending = self.pending, []
+        for stream, delta in pending:
+            await self.send(stream, delta)
+
+    async def send(self, stream: Stream, delta: str) -> None:
         if len(delta) > OUTPUT_EVENT_CHARS:
             # Keep the newest whole lines; restart the line the UI had open.
             start = len(delta) - OUTPUT_EVENT_CHARS
@@ -203,7 +234,7 @@ class OutputStream:
         self.at_line_start = delta.endswith("\n")
         await self.sink.emit(
             OUTPUT_EVENT,
-            {"tool_call_id": self.tool_call_id, "tool_name": BashTool.name, "delta": delta},
+            {"tool_call_id": self.tool_call_id, "tool_name": BashTool.name, "delta": delta, "stream": stream},
         )
 
     async def run_pump(self) -> None:
@@ -226,7 +257,10 @@ class OutputStream:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.pump
         if exc_type is None:
-            self.pending += self.decoder.decode(b"", final=True)
+            for stream, decoder in self.decoders.items():
+                tail = decoder.decode(b"", final=True)
+                if tail:
+                    self.pending.append((stream, tail))
             await self.flush()
 
 
@@ -237,32 +271,49 @@ async def stream_output(
     max_output_bytes: int,
     live: OutputStream | None = None,
 ) -> tuple[bytes, bool, bool]:
-    if proc.stdout is None:
+    """Read stdout and stderr as they arrive into one buffer, in arrival order."""
+    pipes: tuple[tuple[Stream, asyncio.StreamReader | None], ...] = (("stdout", proc.stdout), ("stderr", proc.stderr))
+    readers = [(name, reader) for name, reader in pipes if reader is not None]
+    if not readers:
         return b"", False, False
 
     buf = bytearray()
     truncated = False
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
+    reads: dict[asyncio.Task[bytes], Stream] = {}
+    sources = dict(readers)
 
-    while True:
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            await stop_process_group(proc)
-            return bytes(buf), truncated, True
-        try:
-            chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=remaining)
-        except TimeoutError:
-            await stop_process_group(proc)
-            return bytes(buf), truncated, True
-        if not chunk:
-            break
-        if live is not None:
-            live.feed(chunk)
-        buf.extend(chunk)
-        if len(buf) > max_output_bytes:
-            truncated = True
-            del buf[:-max_output_bytes]
+    def read(stream: Stream) -> None:
+        reads[asyncio.ensure_future(sources[stream].read(4096))] = stream
+
+    for name, _reader in readers:
+        read(name)
+    try:
+        while reads:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                await stop_process_group(proc)
+                return bytes(buf), truncated, True
+            done, _pending = await asyncio.wait(reads, timeout=remaining, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                await stop_process_group(proc)
+                return bytes(buf), truncated, True
+            for task in done:
+                stream = reads.pop(task)
+                chunk = task.result()
+                if not chunk:
+                    continue
+                if live is not None:
+                    live.feed(chunk, stream)
+                buf.extend(chunk)
+                if len(buf) > max_output_bytes:
+                    truncated = True
+                    del buf[:-max_output_bytes]
+                read(stream)
+    finally:
+        for task in reads:
+            task.cancel()
 
     remaining = deadline - loop.time()
     try:
