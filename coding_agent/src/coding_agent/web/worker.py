@@ -1,38 +1,35 @@
-"""One process owns one session; reuse the existing stdio interaction protocol."""
+"""One process owns one session: the stdio protocol, run as the ``web`` client.
 
-import asyncio
-import json
+The host passes ``--session-id`` for every worker (a fresh id for a new
+session), the same flag Zeron uses to resume, so this process can claim the
+session's lifetime lock before the agent opens it.
+"""
+
+from __future__ import annotations
+
+import argparse
 import sys
-from pathlib import Path
+from collections.abc import Sequence
 
 from coding_agent.addons.persistence import register_active, release_active
-from coding_agent.protocols import stdio
+from coding_agent.protocols.stdio import write_frame
+from coding_agent.protocols.stdio.server import main as stdio_main
 
 
-def models(workspace, model):
-    """Print the stdio model catalog; provider credentials stay in this process."""
-    from core_ai import build_default_registry, default_model_id
-
-    from coding_agent.config import ensure_spawn_settings
-
-    stdio.load_provider_env(workspace)
-    registry = build_default_registry()
-    catalog = stdio.model_catalog(registry, "web")
-    # Match what a new session would pick: --model, then the last used model.
-    last = ensure_spawn_settings(workspace).last_model
-    catalog["default"] = default_model_id(registry, model or last)
-    sys.__stdout__.write(json.dumps(catalog, default=str) + "\n")
-    return 0
-
-
-def main():
-    if sys.argv[1] == "--models":
-        return models(Path(sys.argv[2]), sys.argv[3] or None)
-    workspace, session_id, model = sys.argv[1:]
+def main(argv: Sequence[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(prog="symphony web worker", add_help=False)
+    parser.add_argument("--workspace", required=True)
+    parser.add_argument("--session-id", required=True)
+    known, _ = parser.parse_known_args(args)
     try:
-        register_active(session_id, workspace=workspace, kind="web")
-        sys.stdout = sys.stderr
-        return asyncio.run(stdio.serve(Path(workspace), model or None, session_id, client="tui"))
+        try:
+            register_active(known.session_id, workspace=known.workspace, kind="web")
+        except RuntimeError as exc:
+            # The host reads this like any other startup error frame.
+            write_frame({"type": "error", "message": str(exc)})
+            return 1
+        return stdio_main([*args, "--client", "web"])
     finally:
         release_active()
 

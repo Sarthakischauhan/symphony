@@ -148,6 +148,9 @@ def test_real_worker_stream_history_refresh_and_recovery(web):
     conn.close()
     history = web.sessions.history(sid)
     assert any("Web task completed" in str(m["content"]) for m in history["messages"])
+    # The prompt arrives as the protocol's run_started event, not a host frame.
+    assert any(e["data"].get("event") == "run_started" for e in worker.events)
+    assert not any(e["data"].get("type") == "user" for e in worker.events)
     worker.close()
     assert request(web, f"/api/sessions/{sid}/resume", {})[0] == 200
     assert web.sessions.workers[sid] is not worker
@@ -155,60 +158,80 @@ def test_real_worker_stream_history_refresh_and_recovery(web):
     wait(web.sessions.workers[sid], lambda w: any(e["data"].get("type") == "done" for e in w.events))
 
 
-def test_workspace_info_and_model_catalog(web):
+def test_workspace_info_models_and_commands_come_from_the_worker(web):
+    import subprocess as sp
+
+    sp.run(["git", "init", "-q", "-b", "web-branch", str(web.sessions.workspace)], check=True)
+    web.sessions.close()
+    web.sessions._control = None
     status, info = request(web, "/api/info")
-    assert status == 200
+    assert status == 200, info
+    # Workspace and branch arrive in the worker's ready frame.
     assert info["path"] == str(web.sessions.workspace) and info["name"] == web.sessions.workspace.name
+    assert info["branch"] == "web-branch"
     status, catalog = request(web, "/api/models")
     assert status == 200, catalog
-    # The chat SDK registry shape, built by a worker from the local provider.
-    assert catalog["default"] == "local:web-test"
+    # The chat SDK registry shape, built from the worker's model/list reply.
     assert catalog["defaultProviderId"] == "local"
     local = next(p for p in catalog["providers"] if p["id"] == "local")
-    assert local["defaultModel"] == "local:web-test"
     assert any(m["id"] == "local:web-test" for m in local["models"])
+    status, commands = request(web, "/api/commands")
+    assert status == 200 and any(item["name"] == "help" for item in commands)
 
 
-def test_model_switch_restarts_idle_worker_and_effort_is_validated(web):
+def test_model_switch_uses_the_protocol_on_the_live_worker(web):
     status, data = request(web, data={"model": "local:web-test"})
     assert status == 200, data
     sid = data["session_id"]
     worker = web.sessions.workers[sid]
     assert request(web, f"/api/sessions/{sid}")[1]["model"] == "local:web-test"
-    # The same model keeps the worker; another model restarts it.
-    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:web-test"})[0] == 200
-    assert web.sessions.workers[sid] is worker
     assert request(web, f"/api/sessions/{sid}/resume", {"model": 7})[0] == 400
-    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "hi", "reasoning_effort": "huge"})[0] == 400
-    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "slow hi", "reasoning_effort": "low"})[0] == 200
-    with worker.condition:
-        assert worker.busy
-    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:other"})[0] == 409
-    wait(worker, lambda w: any(e["data"].get("type") == "done" for e in w.events))
-    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:other"})[0] == 200
-    assert web.sessions.workers[sid] is not worker and worker.process.poll() is not None
+    # An unknown model is rejected by the worker; the process keeps running.
+    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:missing"})[0] == 409
+    assert web.sessions.workers[sid] is worker and worker.alive
+    # The worker validates effort and rejects overlapping runs itself.
+    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "hi", "reasoning_effort": "huge"})[0] == 200
+    wait(worker, lambda w: any("Unsupported reasoning effort" in str(e["data"].get("message")) for e in w.events))
+    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "slow hi"})[0] == 200
+    wait(worker, lambda w: any(e["data"].get("event") == "run_started" for e in w.events))
+    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "overlap"})[0] == 200
+    wait(worker, lambda w: any("run rejected" in str(e["data"].get("message")) for e in w.events))
+    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:web-test"})[0] == 200
+    wait(worker, lambda w: sum(e["data"].get("type") == "done" for e in w.events) >= 2)
+    assert web.sessions.workers[sid] is worker
 
 
-def test_approval_artifact_and_cancellation(web):
+def test_approval_and_cancellation_through_the_protocol(web):
     (web.sessions.workspace / "web-result.txt").write_text("Original content\n")
     status, data = request(web, data={})
     assert status == 200, data
     sid = data["session_id"]
     worker = web.sessions.workers[sid]
+
+    def questions(w):
+        return [e["data"] for e in w.events if e["data"].get("type") == "input_requested"]
+
+    def finished(w):
+        return any(e["data"].get("type") == "done" for e in w.events)
+
     assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "write a file"})[0] == 200
-    wait(worker, lambda w: bool(w.pending))
-    if worker.pending:
-        rid = next(iter(worker.pending))
-        choices = worker.pending[rid]["choices"]
-        assert request(web, f"/api/sessions/{sid}/answer", {"request_id": "unknown", "value": "yes"})[0] == 400
-        assert request(web, f"/api/sessions/{sid}/answer", {"request_id": rid, "value": choices[0]})[0] == 200
-    wait(worker, lambda w: not w.busy)
+    wait(worker, lambda w: bool(questions(w)) or finished(w))
+    if questions(worker):
+        q = questions(worker)[0]
+        # An unknown id goes to the worker, which answers with an error frame.
+        assert request(web, f"/api/sessions/{sid}/answer", {"request_id": "unknown", "value": "yes"})[0] == 200
+        wait(worker, lambda w: any("answer rejected" in str(e["data"].get("message")) for e in w.events))
+        answer = {"request_id": q["request_id"], "value": q["choices"][0]}
+        assert request(web, f"/api/sessions/{sid}/answer", answer)[0] == 200
+    wait(worker, finished)
     assert (web.sessions.workspace / "web-result.txt").read_text() == "Web works\n"
-    assert request(web, f"/api/sessions/{sid}/artifacts/write-1")[1] == b"Web works\n"
+    # No artifact endpoint: the write renders from its tool events.
+    assert request(web, f"/api/sessions/{sid}/artifacts/write-1")[0] == 404
+    assert any(e["data"].get("event") == "tool_execution_completed" for e in worker.events)
+    done = sum(e["data"].get("type") == "done" for e in worker.events)
     assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "slow task"})[0] == 200
-    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "overlap"})[0] == 409
     assert request(web, f"/api/sessions/{sid}/cancel", {})[0] == 200
-    wait(worker, lambda w: not w.busy)
+    wait(worker, lambda w: sum(e["data"].get("type") == "done" for e in w.events) > done)
 
 
 def test_tui_owner_cannot_be_resumed(web):
@@ -217,6 +240,7 @@ def test_tui_owner_cannot_be_resumed(web):
     try:
         with pytest.raises(RuntimeError, match="owned"):
             web.sessions.resume(sid)
+        assert sid not in web.sessions.workers or not web.sessions.workers[sid].alive
         # The lifetime lock also closes the check/register race across processes.
         command = (
             "from coding_agent.addons.persistence import register_active; register_active(%r, workspace='.', kind='web')"
@@ -229,17 +253,17 @@ def test_tui_owner_cannot_be_resumed(web):
     assert web.sessions.resume(sid) == sid
 
 
-def test_historical_tui_sessions(web):
+def test_historical_web_sessions_come_from_session_frames(web):
+    from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
     from core_ai.types import Message
 
     sid = str(uuid.uuid4())
-    asyncio.run(
-        web.sessions.persistence.save_conversation(
-            session_id=sid, messages=[Message(role="user", content="Historical TUI task")]
-        )
-    )
-    assert any(s["session_id"] == sid for s in request(web)[1])
-    assert request(web, f"/api/sessions/{sid}")[1]["messages"][0]["content"] == "Historical TUI task"
+    store = JsonlPersistence(sessions_dir(web.sessions.workspace, client="web"))
+    store.client = "web"
+    asyncio.run(store.save_conversation(session_id=sid, messages=[Message(role="user", content="Historical web task")]))
+    listing = request(web)[1]
+    assert any(s["session_id"] == sid and s["client"] == "web" for s in listing)
+    assert request(web, f"/api/sessions/{sid}")[1]["messages"][0]["content"] == "Historical web task"
 
 
 def test_cli_web_dispatch(monkeypatch):
@@ -279,9 +303,12 @@ def test_browser_refresh_streaming_and_approval(web):
         # The HTTP test checks structured approval correlation; interact with
         # the real question here using its published accessible controls.
         worker = next(iter(web.sessions.workers.values()))
-        wait(worker, lambda w: bool(w.pending))
-        if worker.pending:
-            q = next(iter(worker.pending.values()))
+        def questions(w):
+            return [e["data"] for e in w.events if e["data"].get("type") == "input_requested"]
+
+        wait(worker, lambda w: bool(questions(w)) or any(e["data"].get("type") == "done" for e in w.events))
+        if questions(worker):
+            q = questions(worker)[0]
             option = page.get_by_text(q["choices"][0], exact=True)
             expect(option).to_be_visible()
             option.click()

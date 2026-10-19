@@ -9,6 +9,7 @@ import {
   Workflow,
 } from "lucide-react";
 import logo from "./assets/symphony-logo.svg";
+import type { SlashCommand } from "./frames";
 
 export type Workspace = {
   path: string;
@@ -39,8 +40,8 @@ const FEATURES = [
   },
   {
     icon: History,
-    title: "Continues TUI sessions",
-    copy: "Every terminal session is here to read or resume.",
+    title: "Continues web sessions",
+    copy: "Every Symphony Web session is here to read or resume.",
   },
   {
     icon: Cpu,
@@ -52,10 +53,12 @@ export function Welcome({
   workspace,
   model,
   resuming,
+  commands = [],
 }: {
   workspace: Workspace | null;
   model?: string;
   resuming: boolean;
+  commands?: SlashCommand[];
 }) {
   return (
     <section className="welcome" aria-label="Welcome">
@@ -100,6 +103,15 @@ export function Welcome({
           </li>
         ))}
       </ul>
+      {commands.length > 0 && (
+        <p className="welcome-commands" aria-label="Slash commands">
+          {commands.map((command) => (
+            <code key={command.name} title={command.description}>
+              /{command.name}
+            </code>
+          ))}
+        </p>
+      )}
     </section>
   );
 }

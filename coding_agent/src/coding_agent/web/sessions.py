@@ -1,190 +1,272 @@
-"""Session persistence reads and serialized worker ownership for the web host."""
+"""Web workers speak the stdio protocol; every read goes through its frames.
 
-import asyncio
+``Worker`` owns one ``symphony stdio --client web`` process. Frames that answer a
+pending request (matched by ``request_id``) resolve that request; every other
+frame joins the ordered, replayable event log the browser streams over SSE.
+
+``Sessions`` keeps one idle *control* worker for reads that are not tied to an
+open session (session list, history, model and command catalogs, workspace
+info) plus one worker per session the browser is driving.
+"""
+
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
 import threading
 import uuid
-from dataclasses import asdict
+from dataclasses import dataclass
 from pathlib import Path
+from typing import IO, TypedDict
 
-from coding_agent.addons.persistence import JsonlPersistence, active_session_ids, sessions_dir
-from coding_agent.commands.catalog import EFFORTS
+JsonObject = dict[str, object]
+
+REQUEST_TIMEOUT = 60.0
+STARTUP_TIMEOUT = 60.0
+
+
+class WorkerError(RuntimeError):
+    """The worker rejected a request or is not running."""
+
+
+class Event(TypedDict):
+    id: int
+    data: JsonObject
+
+
+@dataclass(frozen=True)
+class Ready:
+    session_id: str
+    model: str
+    workspace: str
+    branch: str
+
+
+def text(frame: JsonObject, key: str) -> str:
+    value = frame.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def objects(frame: JsonObject, key: str) -> list[JsonObject]:
+    value = frame.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def strings(frame: JsonObject, key: str) -> list[str]:
+    value = frame.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _parse(line: str) -> JsonObject | None:
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 class Worker:
-    def __init__(self, workspace, session_id, model):
+    def __init__(self, workspace: Path, session_id: str, model: str | None = None) -> None:
         self.condition = threading.Condition()
-        self.events = []
-        self.pending = {}
-        self.busy = False
-        self.artifacts = {}
-        self.tool_inputs = {}
+        self.events: list[Event] = []
+        self.waiting: set[str] = set()
+        self.replies: dict[str, JsonObject] = {}
         self.workspace = workspace
-        self.model = model or ""
+        command = [
+            sys.executable, "-m", "coding_agent.web.worker",
+            "--workspace", str(workspace), "--session-id", session_id,
+        ]
+        if model:
+            command += ["--model", model]
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "coding_agent.web.worker", str(workspace), session_id, model or ""],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            text=True,
-            bufsize=1,
+            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
         )
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         with self.condition:
-            if not self.condition.wait_for(lambda: self.events or self.process.poll() is not None, timeout=30):
+            if not self.condition.wait_for(lambda: bool(self.events) or self.process.poll() is not None,
+                                           timeout=STARTUP_TIMEOUT):
                 self.close()
-                raise RuntimeError("Agent startup timed out")
-            if not self.events or self.events[0]["data"].get("type") != "ready":
-                self.close()
-                raise RuntimeError("Agent failed to start; check provider configuration and server stderr")
+                raise WorkerError("Agent startup timed out")
+            first = self.events[0]["data"] if self.events else {}
+        if text(first, "type") != "ready":
+            self.close()
+            raise WorkerError(text(first, "message") or "Agent failed to start; check provider configuration")
+        self.ready = Ready(
+            session_id=text(first, "session_id"),
+            model=text(first, "model"),
+            workspace=text(first, "workspace"),
+            branch=text(first, "branch"),
+        )
 
-    def _read(self):
-        for line in self.process.stdout:
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            self.append(data)
+    @property
+    def alive(self) -> bool:
+        return self.process.poll() is None
+
+    def _stdout(self) -> IO[str]:
+        stream = self.process.stdout
+        if stream is None:
+            raise WorkerError("Worker has no output stream")
+        return stream
+
+    def _read(self) -> None:
+        for line in self._stdout():
+            frame = _parse(line)
+            if frame is not None:
+                self.append(frame)
         self.append({"type": "done", "status": "worker_exited"})
 
-    def append(self, data):
+    def append(self, frame: JsonObject) -> None:
         with self.condition:
-            self.events.append({"id": len(self.events) + 1, "data": data})
-            payload = data.get("payload", {})
-            if data.get("type") == "ready" and data.get("model"):
-                self.model = data["model"]
-            if data.get("event") == "tool_execution_started":
-                self.tool_inputs[payload.get("tool_call_id")] = payload
-            if data.get("event") == "tool_execution_completed" and payload.get("status") == "success":
-                call = self.tool_inputs.get(payload.get("tool_call_id"), {})
-                if call.get("tool_name") == "write_file":
-                    raw = call.get("arguments", {}).get("path", "")
-                    path = (self.workspace / raw).resolve()
-                    if path.is_relative_to(self.workspace) and path.is_file():
-                        self.artifacts[payload["tool_call_id"]] = path
-            if data.get("type") == "input_requested":
-                self.pending[data["request_id"]] = data
-            if data.get("type") == "done":
-                self.pending.clear()
-                self.busy = False
+            request_id = text(frame, "request_id")
+            if request_id in self.waiting:
+                self.replies[request_id] = frame
+            else:
+                self.events.append({"id": len(self.events) + 1, "data": frame})
             self.condition.notify_all()
 
-    def command(self, data):
+    def command(self, frame: JsonObject) -> None:
         with self.condition:
-            if self.process.poll() is not None:
-                raise RuntimeError("Worker exited; resume this session to recover")
-            self.process.stdin.write(json.dumps(data) + "\n")
-            self.process.stdin.flush()
-            if data.get("type") == "answer":
-                self.pending.pop(data["request_id"], None)
+            stream = self.process.stdin
+            if not self.alive or stream is None:
+                raise WorkerError("Worker exited; resume this session to recover")
+            stream.write(json.dumps(frame) + "\n")
+            stream.flush()
 
-    def close(self):
-        if self.process.poll() is None:
+    def request(self, kind: str, **fields: str) -> JsonObject:
+        """Send one request frame and wait for the reply with its ``request_id``."""
+        request_id = f"web-{uuid.uuid4()}"
+        with self.condition:
+            self.waiting.add(request_id)
             try:
-                self.command({"type": "interrupt"})
+                self.command({"type": kind, "request_id": request_id, **fields})
+                if not self.condition.wait_for(
+                    lambda: request_id in self.replies or not self.alive, timeout=REQUEST_TIMEOUT,
+                ):
+                    raise WorkerError(f"{kind} timed out")
+                reply = self.replies.pop(request_id, None)
+            finally:
+                self.waiting.discard(request_id)
+        if reply is None:
+            raise WorkerError("Worker exited; resume this session to recover")
+        if text(reply, "type") == "error":
+            raise WorkerError(text(reply, "message") or f"{kind} failed")
+        return reply
+
+    def close(self) -> None:
+        if not self.alive:
+            return
+        try:
+            self.command({"type": "interrupt"})
+            if self.process.stdin is not None:
                 self.process.stdin.close()
-                self.process.wait(timeout=5)
-            except (BrokenPipeError, OSError, RuntimeError, subprocess.TimeoutExpired):
-                self.process.terminate()
-                try:
-                    self.process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait()
+            self.process.wait(timeout=5)
+        except (OSError, WorkerError, subprocess.TimeoutExpired):
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
 
 
 class Sessions:
-    def __init__(self, workspace, model=None):
+    def __init__(self, workspace: Path, model: str | None = None) -> None:
         self.workspace, self.model = workspace, model
-        self.persistence = JsonlPersistence(sessions_dir(workspace, client="tui"))
-        self.workers = {}
+        self.workers: dict[str, Worker] = {}
+        self.baselines: dict[str, JsonObject] = {}
         self.lock = threading.RLock()
-        self.catalog = None
+        self._control: Worker | None = None
 
-    def info(self):
-        try:
-            branch = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=self.workspace,
-                capture_output=True, text=True, timeout=2, check=False,
-            ).stdout.strip()
-        except (OSError, subprocess.TimeoutExpired):
-            branch = ""
-        home = Path.home()
-        display = f"~/{self.workspace.relative_to(home)}" if self.workspace.is_relative_to(home) else str(self.workspace)
-        return {"path": str(self.workspace), "display": display, "name": self.workspace.name, "branch": branch}
-
-    def models(self):
-        """The provider catalog in the chat SDK registry shape, built once by a worker."""
+    def control(self) -> Worker:
+        """An idle worker on a fresh, never-persisted session, for catalog reads."""
         with self.lock:
-            if self.catalog is None:
-                result = subprocess.run(
-                    [sys.executable, "-m", "coding_agent.web.worker", "--models", str(self.workspace), self.model or ""],
-                    capture_output=True, text=True, timeout=60, check=False,
-                )
-                lines = result.stdout.strip().splitlines()
-                if result.returncode or not lines:
-                    raise RuntimeError("Could not load models; check provider configuration")
-                self.catalog = registry(json.loads(lines[-1]))
-            return self.catalog
+            if self._control is None or not self._control.alive:
+                self._control = Worker(self.workspace, str(uuid.uuid4()), self.model)
+            return self._control
 
-    def listing(self):
-        active = active_session_ids()
+    def info(self) -> JsonObject:
+        ready = self.control().ready
+        path = Path(ready.workspace or str(self.workspace))
+        home = Path.home()
+        display = f"~/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
+        return {"path": str(path), "display": display, "name": path.name, "branch": ready.branch}
+
+    def models(self) -> JsonObject:
+        return registry(self.control().request("model/list"))
+
+    def commands(self) -> list[JsonObject]:
+        return objects(self.control().request("command/list"), "commands")
+
+    def owned(self, session_id: str) -> Worker | None:
+        worker = self.workers.get(session_id)
+        return worker if worker is not None and worker.alive else None
+
+    def model_of(self, session_id: str) -> str:
+        worker = self.owned(session_id)
+        return worker.ready.model if worker is not None else ""
+
+    def listing(self) -> list[JsonObject]:
         return [
-            {**asdict(item), "active": item.session_id in active, "owned": item.session_id in self.workers}
-            for item in asyncio.run(self.persistence.list_sessions())
+            {**item, "owned": self.owned(text(item, "session_id")) is not None}
+            for item in objects(self.control().request("session/list"), "sessions")
         ]
 
-    def history(self, session_id):
-        return {
-            "messages": [
-                m.model_dump(mode="json") for m in asyncio.run(self.persistence.load_transcript(session_id=session_id))
-            ],
-            "events": asyncio.run(self.persistence.load_events(session_id=session_id)),
-            "children": asyncio.run(self.persistence.load_children(parent_session_id=session_id)),
-        }
+    def history(self, session_id: str) -> JsonObject:
+        reply = self.control().request("session/history", session_id=session_id)
+        return {"messages": reply.get("messages", []), "events": reply.get("events", []),
+                "children": reply.get("children", [])}
 
-    def resume(self, session_id=None, model=None):
+    def resume(self, session_id: str | None = None, model: str | None = None) -> str:
+        """Open a worker on ``session_id`` (a new session when omitted).
+
+        A different model on a live worker goes through the protocol's
+        ``model`` request, which the worker rejects during an active run.
+        """
         with self.lock:
-            session_id = session_id or str(uuid.uuid4())
-            worker = self.workers.get(session_id)
-            if worker and worker.process.poll() is None:
-                if not model or model == worker.model:
-                    return session_id
-                # A model switch restarts the worker on the persisted session.
-                with worker.condition:
-                    if worker.busy:
-                        raise RuntimeError("Stop the running task before switching models")
-                worker.close()
-            if session_id in active_session_ids():
-                raise RuntimeError("Session is owned by another live Symphony process")
-            baseline = self.history(session_id)
-            worker = Worker(self.workspace, session_id, model or self.model)
-            worker.baseline = baseline
-            self.workers[session_id] = worker
-            return session_id
+            live = self.owned(session_id) if session_id else None
+            if live is not None and session_id is not None:
+                if model and model != live.ready.model:
+                    reply = live.request("model", model=model)
+                    live.ready = Ready(live.ready.session_id, text(reply, "model"), live.ready.workspace,
+                                       live.ready.branch)
+                return session_id
+            sid = session_id or str(uuid.uuid4())
+            baseline = self.history(sid) if session_id else {"messages": [], "events": [], "children": []}
+            worker = Worker(self.workspace, sid, model or self.model)
+            self.workers[sid] = worker
+            self.baselines[sid] = baseline
+            return sid
 
-    def close(self):
-        for worker in self.workers.values():
+    def close(self) -> None:
+        for worker in [*self.workers.values(), *([self._control] if self._control else [])]:
             worker.close()
 
 
-def registry(catalog):
-    """Group the stdio model catalog by provider for the chat SDK model picker."""
-    providers = {}
-    for item in catalog.get("models", []):
-        entry = providers.setdefault(
-            item["provider"], {"id": item["provider"], "label": item["provider"], "defaultModel": item["id"], "models": []}
-        )
-        levels = [level for level in item.get("reasoning_levels") or [] if level in EFFORTS]
-        model = {"id": item["id"], "label": item["label"]}
-        if item.get("context_limit"):
-            model["description"] = f"{item['context_limit'] // 1000}k context"
+def registry(catalog: JsonObject) -> JsonObject:
+    """Group the stdio ``models`` reply by provider for the chat SDK model picker."""
+    providers: dict[str, JsonObject] = {}
+    entries: dict[str, list[JsonObject]] = {}
+    for item in objects(catalog, "models"):
+        provider, model_id = text(item, "provider"), text(item, "id")
+        if provider not in providers:
+            entries[provider] = []
+            providers[provider] = {"id": provider, "label": provider, "defaultModel": model_id,
+                                   "models": entries[provider]}
+        entry: JsonObject = {"id": model_id, "label": text(item, "label")}
+        limit = item.get("context_limit")
+        if isinstance(limit, int) and limit:
+            entry["description"] = f"{limit // 1000}k context"
+        levels = strings(item, "reasoning_levels")
         if levels:
-            model["thinkingLevels"] = levels
-        entry["models"].append(model)
-    default = catalog.get("default", "")
+            entry["thinkingLevels"] = levels
+        entries[provider].append(entry)
+    default = text(catalog, "default")
     provider = default.partition(":")[0]
     if provider in providers:
         providers[provider]["defaultModel"] = default

@@ -85,7 +85,9 @@ export function sessionGroups(
 }
 function meta(session: Session) {
   if (session.active)
-    return session.owned ? "Active in Web" : "Active in TUI · read only";
+    return session.owned
+      ? "Active in Web"
+      : "Active in another process · read only";
   const date = new Date(session.updated_at);
   const day = Number.isNaN(date.getTime())
     ? "Saved"

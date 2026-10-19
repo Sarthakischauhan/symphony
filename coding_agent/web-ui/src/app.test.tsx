@@ -25,7 +25,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   sessionStorage.clear();
 });
-it("loads history, streams a task, renders SDK tool/approval/artifact/subagent widgets", async () => {
+it("loads history, streams a task, renders SDK tool/approval/subagent widgets", async () => {
   vi.stubGlobal("EventSource", Stream);
   const calls: any[] = [];
   vi.stubGlobal(
@@ -37,10 +37,27 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
         ok: true,
         json: async () =>
           options.method === "POST"
-            ? { session_id: "session-1" }
+            ? { session_id: "session-1", model: "local:test" }
             : path === "/api/sessions"
               ? []
-              : { owned: true, messages: [], events: [] },
+              : path === "/api/models"
+                ? { defaultProviderId: "", default: "", providers: [] }
+                : path === "/api/commands"
+                  ? [
+                      {
+                        name: "help",
+                        description: "Show commands",
+                        inputHint: null,
+                        options: [],
+                      },
+                    ]
+                  : {
+                      owned: true,
+                      messages: [],
+                      events: [],
+                      children: [],
+                      model: "",
+                    },
       };
     }),
   );
@@ -57,7 +74,11 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
     calls.findIndex(([url]) => url.endsWith("/prompt")),
   );
   const frames = [
-    { type: "user", text: "Build a report" },
+    {
+      type: "event",
+      event: "run_started",
+      payload: { prompt: "Build a report" },
+    },
     { type: "event", event: "text_delta", payload: { delta: "Working on it" } },
     {
       type: "event",
@@ -67,12 +88,6 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
         tool_name: "patch",
         arguments: { path: "a.py", old_str: "old", new_str: "new" },
       },
-    },
-    {
-      type: "input_requested",
-      request_id: "q",
-      question: "Allow writing?",
-      choices: ["Allow once", "Deny"],
     },
     {
       type: "event",
@@ -91,7 +106,11 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
     {
       type: "event",
       event: "tool_execution_completed",
-      payload: { tool_call_id: "w", status: "success" },
+      payload: {
+        tool_call_id: "w",
+        status: "success",
+        result: "wrote report.md",
+      },
     },
     {
       type: "event",
@@ -102,6 +121,12 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
         cumulative_tokens: 1280,
       },
     },
+    {
+      type: "input_requested",
+      request_id: "q",
+      question: "Allow writing?",
+      choices: ["Allow once", "Deny"],
+    },
   ];
   await act(async () => {
     frames.forEach((frame, i) =>
@@ -111,10 +136,13 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
       }),
     );
   });
+  // The user turn comes from the protocol's run_started prompt.
+  expect(screen.getAllByText("Build a report").length).toBeGreaterThan(0);
   expect(screen.getByText("Working on it")).toBeTruthy();
   expect(screen.getByText("Allow writing?")).toBeTruthy();
   expect(screen.getByText("Research")).toBeTruthy();
-  expect(screen.getAllByText("report.md").length).toBeGreaterThan(0);
+  // A written file renders as its own tool event, with no artifact card.
+  expect(screen.getByText("write_file")).toBeTruthy();
   expect(
     screen.getByLabelText("Context and token usage").textContent,
   ).toContain("total 1,280");
@@ -133,6 +161,8 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
       ),
     ).toBe(true),
   );
+  // The question closes locally; the protocol has no answered frame.
+  await waitFor(() => expect(screen.queryByText("Allow writing?")).toBeNull());
   // Replaying the same SSE id must not append duplicate text.
   await act(async () =>
     source.onmessage({ lastEventId: "2", data: JSON.stringify(frames[1]) }),

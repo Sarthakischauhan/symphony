@@ -1,9 +1,36 @@
 // Translate Symphony stdio frames and journals into @sarchauhan/chat messages.
 // Backend-specific mappings stay outside the published, backend-neutral SDK.
-export type Row = { id: string; role: string; parts: any[] };
+import {
+  normalizeAgentParts,
+  type AgentDataPart,
+  type AgentPart,
+  type AgentToolPart,
+} from "@sarchauhan/protocol";
+import type {
+  EventFrame,
+  Frame,
+  InputRequestedFrame,
+  SessionHistory,
+  ToolArguments,
+} from "./frames";
+
+export type Row = {
+  id: string;
+  role: "user" | "assistant";
+  parts: AgentPart[];
+};
+export type SubagentData = {
+  id: string;
+  title: string;
+  task?: string;
+  state: "running" | "completed" | "failed";
+  messages: Row[];
+};
+export type UsageData = { total_tokens: number };
+export type ContextData = { current_tokens: number; context_window: number };
 export type State = {
   rows: Row[];
-  pending: Record<string, any>;
+  pending: Record<string, InputRequestedFrame>;
   busy: boolean;
   error: string;
   model: string;
@@ -19,217 +46,241 @@ const settle = (row: Row | undefined) =>
   row?.parts.forEach((part) => {
     if (part.type === "reasoning" || part.type === "text") part.state = "done";
   });
-const dataPart = (row: Row, name: string, id?: string) =>
-  row.parts.find((x) => x.type === "data" && x.name === name && x.id === id);
-// Upsert a usage/context data part; the SDK renders it below the message.
-function meter(row: Row, name: string, update: (data: any) => void) {
-  let part = dataPart(row, name);
-  if (!part) {
-    part = { type: "data", name, data: {} };
-    row.parts.push(part);
-  }
-  update(part.data);
-}
+const isSubagent = (
+  part: AgentPart,
+): part is AgentDataPart & { data: SubagentData } =>
+  part.type === "data" && part.name === "subagent";
 const subagents = (rows: Row[]) =>
-  rows
-    .flatMap((r) => r.parts)
-    .filter((x) => x.type === "data" && x.name === "subagent");
+  rows.flatMap((r) => r.parts).filter(isSubagent);
+const isTool = (part: AgentPart): part is AgentToolPart => part.type === "tool";
+// Replace a usage/context data part with the latest event payload; the SDK
+// renders it below the message.
+function show(
+  row: Row,
+  name: "usage" | "context",
+  data: UsageData | ContextData,
+) {
+  const part = row.parts.find((x) => x.type === "data" && x.name === name);
+  if (part?.type === "data") part.data = data;
+  else row.parts.push({ type: "data", name, data });
+}
+const toolInput = (args: ToolArguments) => ({
+  ...args,
+  before: args.old_str,
+  after: args.new_str,
+});
 
-export function reduce(state: State, frame: any, id: number): State {
-  const s = structuredClone(state),
-    p = frame.payload || {};
-  if (frame.type === "ready" && frame.model) s.model = frame.model;
-  if (frame.type === "user") {
-    settle(s.rows.at(-1));
-    s.rows.push({
-      id: `u-${id}`,
-      role: "user",
-      parts: [{ type: "text", text: frame.text }],
-    });
-    s.busy = true;
+export function reduce(state: State, frame: Frame, id: number): State {
+  const s = structuredClone(state);
+  switch (frame.type) {
+    case "ready":
+      if (frame.model) s.model = frame.model;
+      return s;
+    case "input_requested":
+      s.pending[frame.request_id] = frame;
+      return s;
+    case "done":
+      settle(s.rows.at(-1));
+      s.busy = false;
+      s.pending = {};
+      return s;
+    case "error":
+      s.error = frame.message;
+      return s;
+    case "event":
+      return applyEvent(s, frame, id);
   }
-  if (frame.type === "input_requested") s.pending[frame.request_id] = frame;
-  if (frame.type === "answered") delete s.pending[frame.request_id];
-  if (frame.type === "done") {
-    settle(s.rows.at(-1));
-    s.busy = false;
-    s.pending = {};
-  }
-  if (frame.type === "error") s.error = frame.message;
-  if (frame.type !== "event") return s;
-  if (p.parent_id) {
-    const card = subagents(s.rows).find((x) => x.data.id === p.agent_id);
+}
+
+function applyEvent(s: State, frame: EventFrame, id: number): State {
+  // A question blocks the run, so any later event means it was answered.
+  if (frame.event !== "question_asked") s.pending = {};
+  if (frame.payload.parent_id) {
+    const card = subagents(s.rows).find(
+      (x) => x.data.id === frame.payload.agent_id,
+    );
     if (card) {
-      const payload = { ...p };
-      delete payload.parent_id;
-      const child = reduce(
-        { ...initial(), rows: card.data.messages || [] },
-        { ...frame, payload },
+      const child = applyEvent(
+        { ...initial(), rows: card.data.messages },
+        {
+          ...frame,
+          payload: { ...frame.payload, parent_id: undefined },
+        } as EventFrame,
         id,
       );
       card.data.messages = child.rows;
     }
     return s;
   }
-  if (frame.event === "run_started") s.busy = true;
+  // The protocol's run_started event carries the prompt for this turn.
+  if (frame.event === "run_started") {
+    settle(s.rows.at(-1));
+    s.busy = true;
+    if (frame.payload.prompt)
+      s.rows.push({
+        id: `u-${id}`,
+        role: "user",
+        parts: [{ type: "text", text: frame.payload.prompt }],
+      });
+    return s;
+  }
+  if (frame.event === "question_asked") return s;
   let row = s.rows.at(-1);
   if (!row || row.role !== "assistant") {
     row = { id: `a-${id}`, role: "assistant", parts: [] };
     s.rows.push(row);
   }
-  if (frame.event === "reasoning_delta" && p.delta) {
-    const last = row.parts.at(-1);
-    if (last?.type === "reasoning" && last.state === "streaming")
-      last.text += p.delta;
-    else
-      row.parts.push({ type: "reasoning", text: p.delta, state: "streaming" });
-  }
-  if (frame.event === "reasoning_completed") settle(row);
-  if (frame.event === "text_delta") {
-    const last = row.parts.at(-1);
-    if (last?.type === "text") last.text += p.delta;
-    else {
+  switch (frame.event) {
+    case "reasoning_delta": {
+      const last = row.parts.at(-1);
+      if (last?.type === "reasoning" && last.state === "streaming")
+        last.text += frame.payload.delta;
+      else
+        row.parts.push({
+          type: "reasoning",
+          text: frame.payload.delta,
+          state: "streaming",
+        });
+      break;
+    }
+    case "reasoning_completed":
       settle(row);
-      row.parts.push({ type: "text", text: p.delta, state: "streaming" });
+      break;
+    case "text_delta": {
+      const last = row.parts.at(-1);
+      if (last?.type === "text") last.text += frame.payload.delta;
+      else {
+        settle(row);
+        row.parts.push({
+          type: "text",
+          text: frame.payload.delta,
+          state: "streaming",
+        });
+      }
+      break;
     }
-  }
-  if (frame.event === "usage")
-    meter(row, "usage", (data) => {
-      data.input_tokens = (data.input_tokens || 0) + (p.prompt_tokens || 0);
-      data.output_tokens =
-        (data.output_tokens || 0) + (p.completion_tokens || 0);
-      if (p.reasoning_tokens)
-        data.reasoning_tokens =
-          (data.reasoning_tokens || 0) + p.reasoning_tokens;
-      data.total_tokens = p.cumulative_tokens;
-    });
-  if (frame.event === "context" && p.context_limit)
-    meter(row, "context", (data) => {
-      data.current_tokens = p.tokens_used || 0;
-      data.context_window = p.context_limit;
-    });
-  if (frame.event?.startsWith("tool_execution_")) {
-    settle(row);
-    let tool = row.parts.find(
-      (x) => x.type === "tool" && x.toolCallId === p.tool_call_id,
-    );
-    if (!tool) {
-      tool = {
-        type: "tool",
-        toolCallId: p.tool_call_id,
-        toolName: p.tool_name,
-      };
-      row.parts.push(tool);
+    case "usage":
+      show(row, "usage", { total_tokens: frame.payload.cumulative_tokens });
+      break;
+    case "context":
+      if (frame.payload.context_limit)
+        show(row, "context", {
+          current_tokens: frame.payload.tokens_used,
+          context_window: frame.payload.context_limit,
+        });
+      break;
+    case "tool_execution_started":
+    case "tool_execution_updated":
+    case "tool_execution_completed": {
+      const p = frame.payload;
+      settle(row);
+      let tool = row.parts
+        .filter(isTool)
+        .find((x) => x.toolCallId === p.tool_call_id);
+      if (!tool) {
+        tool = {
+          type: "tool",
+          toolCallId: p.tool_call_id,
+          toolName: p.tool_name || "tool",
+          state: "input-available",
+        };
+        row.parts.push(tool);
+      }
+      if (p.arguments) tool.input = toolInput(p.arguments);
+      if (frame.event === "tool_execution_completed") {
+        const value = p.output ?? p.result ?? p.content;
+        tool.state = p.status === "error" ? "output-error" : "output-available";
+        tool.output =
+          p.status === "success" ? widgetOutput(tool, value) : value;
+      }
+      break;
     }
-    Object.assign(tool, {
-      input: p.arguments
-        ? {
-            ...p.arguments,
-            before: p.arguments.old_str,
-            after: p.arguments.new_str,
-          }
-        : tool.input,
-      output:
-        p.status === "success"
-          ? widgetOutput(tool, p.output ?? p.result ?? p.content)
-          : (p.output ?? p.result ?? p.content),
-      state: frame.event.endsWith("started")
-        ? "input-available"
-        : p.status === "error"
-          ? "output-error"
-          : "output-available",
-    });
-  }
-  // A written file renders as the SDK artifact card through its tool output.
-  if (frame.event === "tool_execution_completed" && p.status === "success") {
-    const tool = row.parts.find(
-      (x) => x.type === "tool" && x.toolCallId === p.tool_call_id,
-    );
-    if (tool?.toolName === "write_file")
-      tool.output = {
-        artifact: {
-          id: p.tool_call_id,
-          filename: tool.input.path,
-          mediaType: "text/plain",
-          status: "ready",
-          content: tool.input.content,
-        },
-      };
-  }
-  if (
-    ["agent_spawned", "agent_completed", "agent_failed"].includes(frame.event)
-  ) {
-    const key = String(p.child_id);
-    let card = subagents(s.rows).find((x) => x.data.id === key);
-    if (!card) {
-      card = {
-        type: "data",
-        name: "subagent",
-        id: key,
-        data: { id: key, title: p.label || "Subagent" },
-      };
-      row.parts.push(card);
-    }
-    Object.assign(card.data, {
-      task: p.prompt || card.data.task,
-      state:
+    case "agent_spawned":
+    case "agent_completed":
+    case "agent_failed": {
+      const p = frame.payload;
+      const key = String(p.child_id);
+      let card = subagents(s.rows).find((x) => x.data.id === key);
+      if (!card) {
+        card = {
+          type: "data",
+          name: "subagent",
+          id: key,
+          data: {
+            id: key,
+            title: p.label || "Subagent",
+            state: "running",
+            messages: [],
+          },
+        };
+        row.parts.push(card);
+      }
+      const data = card.data;
+      data.task = p.prompt || data.task;
+      data.state =
         frame.event === "agent_spawned"
           ? "running"
           : frame.event === "agent_completed"
             ? "completed"
-            : "failed",
-      messages: card.data.messages?.length
-        ? card.data.messages
-        : p.output_text
-          ? [
-              {
-                id: key,
-                role: "assistant",
-                parts: [{ type: "text", text: p.output_text }],
-              },
-            ]
-          : [],
-    });
+            : "failed";
+      if (!data.messages.length && p.output_text)
+        data.messages = [
+          {
+            id: key,
+            role: "assistant",
+            parts: [{ type: "text", text: p.output_text }],
+          },
+        ];
+      break;
+    }
   }
   return s;
 }
 
-export function historical(data: any): State {
+const parseInput = (raw: ToolArguments | string | undefined): ToolArguments => {
+  if (typeof raw !== "string") return raw || {};
+  try {
+    const value: unknown = JSON.parse(raw);
+    return value && typeof value === "object"
+      ? (value as ToolArguments)
+      : { raw };
+  } catch {
+    return { raw };
+  }
+};
+
+export function historical(data: SessionHistory): State {
   const s = initial(),
-    tools = new Map<string, any>();
+    tools = new Map<string, AgentToolPart>();
   for (const [index, m] of data.messages.entries()) {
     if (m.role === "system") continue;
     if (m.role === "tool") {
-      const t = tools.get(m.tool_call_id);
-      if (t)
-        Object.assign(t, {
-          output: widgetOutput(t, m.content),
-          state: "output-available",
-        });
+      const t = m.tool_call_id ? tools.get(m.tool_call_id) : undefined;
+      if (t) {
+        t.output = widgetOutput(t, m.content);
+        t.state = "output-available";
+      }
       continue;
     }
-    const row: Row = {
-      id: `h-${index}`,
-      role: m.role,
-      parts:
-        typeof m.content === "string"
-          ? [{ type: "text", text: m.content }]
-          : m.content || [],
-    };
+    const parts: AgentPart[] =
+      typeof m.content === "string"
+        ? [{ type: "text", text: m.content }]
+        : normalizeAgentParts(
+            (m.content || []).flatMap((part) =>
+              typeof part.type === "string"
+                ? [{ ...part, type: part.type }]
+                : [],
+            ),
+          );
+    const row: Row = { id: `h-${index}`, role: m.role, parts };
     for (const call of m.tool_calls || []) {
-      let input = call.function?.arguments || call.arguments || {};
-      if (typeof input === "string") {
-        try {
-          input = JSON.parse(input);
-        } catch {
-          input = { raw: input };
-        }
-      }
-      const tool = {
+      const tool: AgentToolPart = {
         type: "tool",
         toolCallId: call.id,
-        toolName: call.function?.name || call.name,
-        input: { ...input, before: input.old_str, after: input.new_str },
+        toolName: call.function?.name || call.name || "tool",
+        input: toolInput(
+          parseInput(call.function?.arguments ?? call.arguments),
+        ),
         state: "input-available",
       };
       row.parts.push(tool);
@@ -237,9 +288,16 @@ export function historical(data: any): State {
     }
     s.rows.push(row);
   }
-  for (const [i, [event, payload]] of (data.events || []).entries()) {
-    if (["agent_spawned", "agent_completed", "agent_failed"].includes(event))
-      Object.assign(s, reduce(s, { type: "event", event, payload }, -i - 1));
+  for (const [i, [event, payload]] of data.events.entries()) {
+    if (
+      event === "agent_spawned" ||
+      event === "agent_completed" ||
+      event === "agent_failed"
+    )
+      Object.assign(
+        s,
+        reduce(s, { type: "event", event, payload } as EventFrame, -i - 1),
+      );
   }
   return s;
 }
@@ -262,14 +320,15 @@ function searchResults(value: string) {
 // The SDK treats a plain patch result string as a candidate unified diff.
 // Symphony returns a status sentence; retain it as metadata so before/after
 // inputs can supply the actual diff instead of falling back to a generic tool.
-function widgetOutput(tool: any, value: any) {
+function widgetOutput(tool: AgentToolPart, value: unknown) {
   if (tool.toolName === "search" && typeof value === "string")
     return searchResults(value);
+  const input = tool.input as { before?: unknown; after?: unknown } | undefined;
   if (
     tool.toolName === "patch" &&
     typeof value === "string" &&
-    typeof tool.input?.before === "string" &&
-    typeof tool.input?.after === "string" &&
+    typeof input?.before === "string" &&
+    typeof input?.after === "string" &&
     !/^(@@|diff --git|--- |\*\*\* Begin Patch)/m.test(value)
   )
     return { message: value };

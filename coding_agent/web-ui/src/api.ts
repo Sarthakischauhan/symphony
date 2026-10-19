@@ -5,7 +5,7 @@ if (location.hash) {
   sessionStorage.setItem("symphony-token", token);
   history.replaceState(null, "", location.pathname);
 }
-export async function api(path: string, data?: object) {
+export async function api<T>(path: string, data?: object): Promise<T> {
   const r = await fetch("/api/" + path, {
     method: data ? "POST" : "GET",
     headers: {
@@ -14,9 +14,15 @@ export async function api(path: string, data?: object) {
     },
     body: data ? JSON.stringify(data) : undefined,
   });
-  const value = await r.json();
-  if (!r.ok) throw new Error(value.error || r.statusText);
-  return value;
+  const value: unknown = await r.json();
+  if (!r.ok) {
+    const message =
+      value && typeof value === "object" && "error" in value
+        ? String(value.error)
+        : r.statusText;
+    throw new Error(message);
+  }
+  return value as T;
 }
 export const withToken = (path: string) =>
   `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;

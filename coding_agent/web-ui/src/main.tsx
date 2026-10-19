@@ -15,6 +15,13 @@ import "@sarchauhan/chat/styles.css";
 import "./style.css";
 import { api, withToken } from "./api";
 import { historical, initial, reduce, type Row, type State } from "./events";
+import {
+  parseFrame,
+  type SessionHistory,
+  type SessionSummary,
+  type SlashCommand,
+} from "./frames";
+import { isDataPart, isToolPart } from "@sarchauhan/protocol";
 import { SessionSidebar, type Session } from "./Sidebar";
 import { Welcome, type Workspace } from "./Welcome";
 import { Button } from "@/components/ui/button";
@@ -27,24 +34,24 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 type Waiter = { id: string; baseline: number; resolve: () => void };
 
-// Artifact downloads go through the capability-checked session endpoint.
-const withDownloads = (session: string, parts: any[]) =>
-  parts.map((part) =>
-    part.type === "tool" && part.output?.artifact
-      ? {
-          ...part,
-          output: {
-            artifact: {
-              ...part.output.artifact,
-              url: withToken(
-                `/api/sessions/${session}/artifacts/${encodeURIComponent(part.output.artifact.id)}`,
-              ),
-            },
-          },
-        }
-      : part,
-  );
-function MessageRow({ row, session }: { row: Row; session: string }) {
+type SessionView = SessionHistory & { owned: boolean; model: string };
+type CatalogModel = {
+  id: string;
+  label: string;
+  description?: string;
+  thinkingLevels?: string[];
+};
+type Catalog = {
+  defaultProviderId: string;
+  default: string;
+  providers: {
+    id: string;
+    label: string;
+    defaultModel: string;
+    models: CatalogModel[];
+  }[];
+};
+function MessageRow({ row }: { row: Row }) {
   if (row.role === "user")
     return (
       <div className="chat-message chat-message-user">
@@ -58,8 +65,8 @@ function MessageRow({ row, session }: { row: Row; session: string }) {
   return (
     <div className="chat-message chat-message-assistant">
       <div className="chat-message-assistant-inner">
-        <MessageContent parts={withDownloads(session, row.parts)} />
-        <MessageUsage parts={row.parts.filter((p) => p.type === "data")} />
+        <MessageContent parts={row.parts} />
+        <MessageUsage parts={row.parts.filter(isDataPart)} />
       </div>
     </div>
   );
@@ -72,22 +79,20 @@ function ModelSync({ model }: { model: string }) {
   }, [model, registry]);
   return null;
 }
-const knows = (catalog: any, model?: string) =>
+const knows = (catalog: Catalog | null, model?: string) =>
   !!model &&
-  !!catalog?.providers?.some((p: any) =>
-    p.models.some((m: any) => m.id === model),
-  );
+  !!catalog?.providers.some((p) => p.models.some((m) => m.id === model));
 const activity = (state: State) => {
   const tool = state.rows
     .at(-1)
-    ?.parts.findLast(
-      (part) => part.type === "tool" && part.state === "input-available",
-    );
+    ?.parts.filter(isToolPart)
+    .findLast((part) => part.state === "input-available");
   return tool ? `Running ${tool.toolName}` : "Thinking";
 };
 
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]),
+    [commands, setCommands] = useState<SlashCommand[]>([]),
     [selected, setSelected] = useState(
       sessionStorage.getItem("symphony-session") || "",
     );
@@ -95,7 +100,7 @@ export function App() {
     [owned, setOwned] = useState(false),
     [connected, setConnected] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null),
-    [catalog, setCatalog] = useState<any>(null);
+    [catalog, setCatalog] = useState<Catalog | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("symphony-sidebar-open") !== "false",
   );
@@ -118,9 +123,15 @@ export function App() {
       return !finished;
     });
   };
-  const error = (e: any) =>
-    setState((s) => ({ ...s, error: String(e.message || e) }));
-  const refresh = () => api("sessions").then(setSessions).catch(error);
+  const error = (e: unknown) =>
+    setState((s) => ({
+      ...s,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+  const refresh = () =>
+    api<(SessionSummary & { owned: boolean })[]>("sessions")
+      .then(setSessions)
+      .catch(error);
   async function open(id: string) {
     const current = ++generation.current;
     stream.current?.close();
@@ -132,7 +143,7 @@ export function App() {
     sessionStorage.setItem("symphony-session", id);
     if (!id) return setState(initial());
     try {
-      const data = await api(`sessions/${id}`);
+      const data = await api<SessionView>(`sessions/${id}`);
       if (current !== generation.current) return;
       setState({ ...historical(data), model: data.model || "" });
       setOwned(data.owned);
@@ -152,14 +163,19 @@ export function App() {
             return;
           }
           cursor = seq;
-          const frame = JSON.parse(e.data);
+          const frame = parseFrame(JSON.parse(e.data));
+          if (!frame) return;
           setState((s) => reduce(s, frame, seq));
-          if (frame.type === "done" || frame.event === "run_started") refresh();
+          if (
+            frame.type === "done" ||
+            (frame.type === "event" && frame.event === "run_started")
+          )
+            refresh();
           if (frame.type === "done") {
             runs.current.done[id] = (runs.current.done[id] || 0) + 1;
             wake();
           }
-          if (frame.status === "worker_exited") {
+          if (frame.type === "done" && frame.status === "worker_exited") {
             source.close();
             setOwned(false);
             setConnected(false);
@@ -172,7 +188,7 @@ export function App() {
     }
   }
   // Start, resume, or continue the selected session with one prompt. A model
-  // picked in the composer restarts an idle worker on that model first.
+  // picked in the composer switches the live worker through the protocol.
   async function prompt(text: string, model?: string, effort?: string) {
     const {
       selected: current,
@@ -182,14 +198,18 @@ export function App() {
     } = latest.current;
     if (current && !live && list.find((s) => s.session_id === current)?.active)
       throw new Error(
-        "This session is open in the TUI. Close it there to continue here.",
+        "This session is open in another Symphony process. Close it there to continue here.",
       );
     const switching = !!model && live && model !== active;
     const choice = model ? { model } : {};
+    type Opened = { session_id: string; model: string };
     let id = current;
-    if (!id) id = (await api("sessions", choice)).session_id;
-    else if (!live || switching) await api(`sessions/${id}/resume`, choice);
-    if (id !== current || !live || switching) await open(id);
+    if (!id) id = (await api<Opened>("sessions", choice)).session_id;
+    else if (!live || switching) {
+      const opened = await api<Opened>(`sessions/${id}/resume`, choice);
+      if (live) setState((s) => ({ ...s, model: opened.model }));
+    }
+    if (id !== current || !live) await open(id);
     const baseline = runs.current.done[id] || 0;
     await api(`sessions/${id}/prompt`, {
       prompt: text,
@@ -212,7 +232,7 @@ export function App() {
           throw failure;
         }
         const text = message.parts
-          .map((part: any) => (part.type === "text" ? part.text : ""))
+          .map((part) => (part.type === "text" ? part.text : ""))
           .join("\n")
           .trim();
         let run: { id: string; baseline: number };
@@ -248,10 +268,13 @@ export function App() {
   );
   useEffect(() => {
     refresh();
-    api("info").then(setWorkspace).catch(error);
-    api("models")
+    api<Workspace>("info").then(setWorkspace).catch(error);
+    api<Catalog>("models")
       .then(setCatalog)
       .catch(() => setCatalog(null));
+    api<SlashCommand[]>("commands")
+      .then(setCommands)
+      .catch(() => setCommands([]));
     if (selected) void open(selected);
     return () => {
       ++generation.current;
@@ -376,10 +399,11 @@ export function App() {
                       workspace={workspace}
                       model={state.model || catalog?.default}
                       resuming={!!selected}
+                      commands={commands}
                     />
                   )}
                   {state.rows.map((row) => (
-                    <MessageRow key={row.id} row={row} session={selected} />
+                    <MessageRow key={row.id} row={row} />
                   ))}
                   {pending.map((q) => (
                     <QuestionWidget
@@ -392,6 +416,13 @@ export function App() {
                           request_id: q.request_id,
                           value: answer.text || answer.values.join(", "),
                         });
+                        // The protocol has no answered frame; the next run
+                        // event (or done) confirms it.
+                        setState((s) => {
+                          const pending = { ...s.pending };
+                          delete pending[q.request_id];
+                          return { ...s, pending };
+                        });
                       }}
                     />
                   ))}
@@ -403,7 +434,8 @@ export function App() {
               <div className="chat-composer" ref={composer}>
                 {locked && (
                   <p className="composer-note">
-                    Open in the TUI. Close it there to continue here.
+                    Open in another Symphony process. Close it there to continue
+                    here.
                   </p>
                 )}
                 <ChatContextProvider

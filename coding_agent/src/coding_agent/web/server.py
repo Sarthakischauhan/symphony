@@ -1,5 +1,7 @@
 """Dependency-free loopback HTTP commands and ordered, replayable SSE events."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import secrets
@@ -8,11 +10,11 @@ import threading
 import uuid
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Sequence
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-from coding_agent.commands.catalog import EFFORTS
-from coding_agent.web.sessions import Sessions
+from coding_agent.web.sessions import JsonObject, Sessions, WorkerError
 
 STATIC = Path(__file__).with_name("static")
 
@@ -20,20 +22,20 @@ STATIC = Path(__file__).with_name("static")
 class Server(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, sessions):
+    def __init__(self, address: tuple[str, int], sessions: Sessions) -> None:
         self.sessions = sessions
         self.token = secrets.token_urlsafe(32)
         super().__init__(address, Handler)
         self.origin = f"http://127.0.0.1:{self.server_port}"
 
-    def handle_error(self, request, client_address):
+    def handle_error(self, request: object, client_address: object) -> None:
         # Browsers drop idle keep-alive connections (reloads, closed streams);
         # http.server reads the next request line outside the handler's try.
         if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
             return
-        super().handle_error(request, client_address)
+        super().handle_error(request, client_address)  # type: ignore[arg-type]
 
-    def server_close(self):
+    def server_close(self) -> None:
         self.sessions.close()
         super().server_close()
 
@@ -41,16 +43,23 @@ class Server(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, *args):
+    def log_message(self, format: str, *args: object) -> None:
         pass  # URLs may contain the per-launch capability token.
 
-    def _guard(self, mutation=False):
+    @property
+    def app(self) -> Server:
+        server = self.server
+        if not isinstance(server, Server):
+            raise TypeError("Handler requires the Symphony Web server")
+        return server
+
+    def _guard(self, mutation: bool = False) -> None:
         # Exact Host stops DNS rebinding. Origin + Fetch Metadata + a random
         # capability stop cross-site requests, including form and SSE requests.
-        if self.headers.get("Host") != urlsplit(self.server.origin).netloc:
+        if self.headers.get("Host") != urlsplit(self.app.origin).netloc:
             raise PermissionError("Invalid Host")
         origin = self.headers.get("Origin")
-        if origin and origin != self.server.origin:
+        if origin and origin != self.app.origin:
             raise PermissionError("Invalid Origin")
         if self.headers.get("Sec-Fetch-Site") not in (None, "same-origin", "none"):
             raise PermissionError("Cross-site request denied")
@@ -58,10 +67,10 @@ class Handler(BaseHTTPRequestHandler):
             raise PermissionError("JSON content type required")
         if urlsplit(self.path).path.startswith("/api/"):
             supplied = self.headers.get("X-Symphony-Token") or parse_qs(urlsplit(self.path).query).get("token", [""])[0]
-            if not secrets.compare_digest(supplied, self.server.token):
+            if not secrets.compare_digest(supplied, self.app.token):
                 raise PermissionError("Invalid capability")
 
-    def _headers(self, status, content_type, length=None):
+    def _headers(self, status: int, content_type: str, length: int | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
@@ -75,38 +84,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(length))
         self.end_headers()
 
-    def _json(self, data, status=200):
+    def _json(self, data: object, status: int = 200) -> None:
         body = json.dumps(data, default=str).encode()
         self._headers(status, "application/json", len(body))
         self.wfile.write(body)
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         try:
             self._guard()
             path = urlsplit(self.path).path
             parts = path.strip("/").split("/")
             if path == "/api/sessions":
-                return self._json(self.server.sessions.listing())
+                return self._json(self.app.sessions.listing())
             if path == "/api/info":
-                return self._json(self.server.sessions.info())
+                return self._json(self.app.sessions.info())
             if path == "/api/models":
-                return self._json(self.server.sessions.models())
+                return self._json(self.app.sessions.models())
+            if path == "/api/commands":
+                return self._json(self.app.sessions.commands())
             if len(parts) >= 3 and parts[:2] == ["api", "sessions"]:
                 session_id = str(uuid.UUID(parts[2]))
-                worker = self.server.sessions.workers.get(session_id)
-                if len(parts) == 5 and parts[3] == "artifacts":
-                    asset = worker.artifacts.get(unquote(parts[4])) if worker else None
-                    if asset is None or not asset.resolve().is_relative_to(self.server.sessions.workspace):
-                        raise ValueError("Unknown artifact")
-                    body = asset.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Content-Disposition", "attachment")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
+                worker = self.app.sessions.workers.get(session_id)
                 if len(parts) == 4 and parts[3] == "events":
                     if worker is None:
                         return self._json({"error": "Resume session first"}, 409)
@@ -115,23 +113,26 @@ class Handler(BaseHTTPRequestHandler):
                     if cursor < 0 or cursor > len(worker.events):
                         return self._json({"error": "Invalid event cursor; reload session"}, 409)
                     self._headers(200, "text/event-stream")
+                    live = worker
                     while True:
-                        with worker.condition:
-                            worker.condition.wait_for(lambda: len(worker.events) > cursor, timeout=10)
-                            batch = worker.events[cursor:]
+                        with live.condition:
+                            live.condition.wait_for(lambda: len(live.events) > cursor, timeout=10)
+                            batch = live.events[cursor:]
                         for event in batch:
                             self.wfile.write(f"id: {event['id']}\ndata: {json.dumps(event['data'])}\n\n".encode())
                             cursor = event["id"]
                         if not batch:
                             self.wfile.write(b": heartbeat\n\n")
                         self.wfile.flush()
-                        if worker.process.poll() is not None and cursor == len(worker.events):
+                        if not live.alive and cursor == len(live.events):
                             return
                 if len(parts) != 3:
                     return self._json({"error": "Not found"}, 404)
-                alive = worker is not None and worker.process.poll() is None
-                history = worker.baseline if alive else self.server.sessions.history(session_id)
-                return self._json({**history, "owned": alive, "model": worker.model if alive else ""})
+                owned = self.app.sessions.owned(session_id)
+                if owned is None:
+                    return self._json({**self.app.sessions.history(session_id), "owned": False, "model": ""})
+                baseline = self.app.sessions.baselines.get(session_id, {})
+                return self._json({**baseline, "owned": True, "model": owned.ready.model})
             if path.startswith("/api/"):
                 return self._json({"error": "Not found"}, 404)
             asset = (STATIC / ("index.html" if path == "/" else path.lstrip("/"))).resolve()
@@ -151,73 +152,61 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 403)
         except (ValueError, KeyError) as exc:
             self._json({"error": str(exc)}, 400)
+        except WorkerError as exc:
+            self._json({"error": str(exc)}, 503)
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:
             self._json({"error": str(exc)}, 500)
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         try:
             self._guard(mutation=True)
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= 1024 * 1024:
                 raise ValueError("Request must be between 1 byte and 1 MiB")
             self.connection.settimeout(30)
-            data = json.loads(self.rfile.read(length))
+            data: object = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
                 raise ValueError("Expected JSON object")
             parts = urlsplit(self.path).path.strip("/").split("/")
-            sessions = self.server.sessions
+            sessions = self.app.sessions
             model = data.get("model")
             if model is not None and (not isinstance(model, str) or not 0 < len(model) <= 200):
                 raise ValueError("Invalid model")
             if parts == ["api", "sessions"]:
-                return self._json({"session_id": sessions.resume(model=model)})
+                sid = sessions.resume(model=model)
+                return self._json({"session_id": sid, "model": sessions.model_of(sid)})
             if len(parts) != 4 or parts[:2] != ["api", "sessions"]:
                 return self._json({"error": "Not found"}, 404)
             session_id = str(uuid.UUID(parts[2]))
             if parts[3] == "resume":
-                known = {item["session_id"] for item in sessions.listing()} | sessions.workers.keys()
+                known = {str(item.get("session_id")) for item in sessions.listing()} | sessions.workers.keys()
                 if session_id not in known:
                     raise ValueError("Unknown session")
-                return self._json({"session_id": sessions.resume(session_id, model)})
-            worker = sessions.workers.get(session_id)
+                sid = sessions.resume(session_id, model)
+                return self._json({"session_id": sid, "model": sessions.model_of(sid)})
+            worker = sessions.owned(session_id)
             if worker is None:
-                raise RuntimeError("Resume session first")
+                raise WorkerError("Resume session first")
             if parts[3] == "prompt":
-                if not isinstance(data.get("prompt"), str) or not data["prompt"].strip():
+                prompt = data.get("prompt")
+                if not isinstance(prompt, str) or not prompt.strip():
                     raise ValueError("A prompt is required")
-                command = {"type": "run", "prompt": data["prompt"]}
+                command: JsonObject = {"type": "run", "prompt": prompt}
                 effort = data.get("reasoning_effort")
-                if effort is not None:
-                    if effort not in EFFORTS:
-                        raise ValueError("Unsupported reasoning effort")
+                if isinstance(effort, str):
+                    # The worker validates the effort and rejects overlapping runs.
                     command["reasoning_effort"] = effort
-                # The worker protocol rejects overlapping turns. Serialize the
-                # command and busy check here so two tabs cannot race.
-                with worker.condition:
-                    if worker.busy:
-                        raise RuntimeError("Session is already running")
-                    worker.busy = True
-                    try:
-                        worker.command(command)
-                    except Exception:
-                        worker.busy = False
-                        raise
-                    worker.append({"type": "user", "text": data["prompt"]})
+                worker.command(command)
             elif parts[3] == "cancel":
                 worker.command({"type": "interrupt"})
             elif parts[3] == "answer":
-                with worker.condition:
-                    request_id = data.get("request_id")
-                    if (
-                        not isinstance(request_id, str)
-                        or request_id not in worker.pending
-                        or not isinstance(data.get("value"), str)
-                    ):
-                        raise ValueError("Unknown approval request or invalid answer")
-                    worker.command({"type": "answer", "request_id": request_id, "value": data["value"]})
-                    worker.append({"type": "answered", "request_id": request_id})
+                request_id, value = data.get("request_id"), data.get("value")
+                if not isinstance(request_id, str) or not isinstance(value, str):
+                    raise ValueError("An answer needs a request_id and a value")
+                # The worker rejects ids with no waiting question.
+                worker.command({"type": "answer", "request_id": request_id, "value": value})
             else:
                 return self._json({"error": "Not found"}, 404)
             self._json({"ok": True})
@@ -225,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 403)
         except (ValueError, KeyError) as exc:
             self._json({"error": str(exc)}, 400)
-        except RuntimeError as exc:
+        except WorkerError as exc:
             self._json({"error": str(exc)}, 409)
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -233,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 500)
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="symphony web", description="Run Symphony in your local browser")
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--model")

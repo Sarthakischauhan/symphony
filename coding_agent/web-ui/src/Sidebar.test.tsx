@@ -71,7 +71,9 @@ it("searches, pins persistently, indicates ownership and selects", () => {
     create = vi.fn(),
     refresh = vi.fn();
   mount({ onSelect: select, onCreate: create, onRefresh: refresh });
-  expect(screen.getByText("Active in TUI · read only")).toBeTruthy();
+  expect(
+    screen.getByText("Active in another process · read only"),
+  ).toBeTruthy();
   const first = screen.getByRole("button", { name: /^Add streaming retries/ });
   expect(first.getAttribute("aria-current")).toBe("page");
   fireEvent.click(

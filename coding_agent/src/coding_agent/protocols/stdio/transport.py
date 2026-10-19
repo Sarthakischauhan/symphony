@@ -19,7 +19,7 @@ def _write(frame: Mapping[str, Any]) -> None:
     stdio.write_frame(frame)
 
 PROTOCOL_VERSION = 2
-CAPABILITIES = ["runs", "resume", "interrupt", "input", "steer", "models", "images", "subagents", "commands"]
+CAPABILITIES = ["runs", "resume", "interrupt", "input", "steer", "models", "images", "subagents", "commands", "sessions", "model_switch"]
 
 
 def write_frame(frame: Mapping[str, Any]) -> None:
