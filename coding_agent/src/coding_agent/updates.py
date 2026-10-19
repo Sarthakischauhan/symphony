@@ -3,9 +3,12 @@
 The check runs before the TUI starts. It compares the installed
 ``symphony-code`` version with the latest version published on PyPI. A
 matching version continues silently. A newer release asks before installing,
-unless ``updates.auto`` is true in ``~/.symphony/config.json``. An editable
-or unknown install is left alone: rewriting a source checkout is not an
-update.
+unless ``updates.auto`` is true in ``~/.symphony/config.json``.
+
+Only a uv tool install of the PyPI release is ever replaced. A run from a
+source checkout, a local (``file://``) install, editable or not, and any
+install ``uv tool list`` does not show as this PyPI tool are left alone:
+rewriting a developer's build is not an update.
 """
 
 from __future__ import annotations
@@ -17,13 +20,17 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, distribution, version
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Callable, Mapping
 
 PACKAGE = "symphony-code"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
 TIMEOUT_SECONDS = 3.0
+# The repository root when this module runs from a source checkout
+# (``coding_agent/src/coding_agent/updates.py``). In an installed package it is
+# a directory of the environment (``lib``), which has no ``.git``.
+SOURCE_ROOT = Path(__file__).resolve().parents[3]
 
 Prompt = Callable[[str, str], bool]
 
@@ -39,22 +46,54 @@ class UpdateDecision:
 
 
 def installed_version() -> str | None:
-    """Return the installed release, or None when it cannot be identified."""
+    """Return the installed release, or None when there is none to update.
+
+    None for a run from a source checkout, for a local install (its
+    ``direct_url.json`` names a ``file://`` url: a directory, editable or not,
+    or a wheel file), and when the release cannot be identified.
+    """
+    if (SOURCE_ROOT / ".git").exists():
+        return None
     try:
         dist = distribution(PACKAGE)
-        value = version(PACKAGE)
     except PackageNotFoundError:
         return None
-    editable = dist.read_text("direct_url.json")
-    if editable:
+    direct = dist.read_text("direct_url.json")
+    if direct:
         try:
-            if json.loads(editable).get("dir_info", {}).get("editable"):
-                return None
+            origin = json.loads(direct)
         except json.JSONDecodeError:
             return None
+        url = origin.get("url") if isinstance(origin, dict) else None
+        if not isinstance(url, str) or url.startswith("file:"):
+            return None
+    value = dist.version
     if not value or value == "0.0.0":
         return None
     return value
+
+
+def pypi_tool_install() -> bool:
+    """Whether ``uv tool list`` shows this running symphony-code as a PyPI install.
+
+    Its line must name no url requirement (``file://`` or ``git+https://``),
+    only a version specifier or none, and its tool environment must be the one
+    running now, so the upgrade replaces this install and nothing else.
+    """
+    command = ["uv", "tool", "list", "--show-version-specifiers", "--show-paths"]
+    try:
+        listed = subprocess.run(command, check=False, text=True, capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if listed.returncode != 0:
+        return False
+    for line in listed.stdout.splitlines():
+        if not line.startswith(f"{PACKAGE} v"):
+            continue
+        required = line.partition(" [required: ")[2].partition("]")[0]
+        environment = line.rpartition(" (")[2].removesuffix(")")
+        return "://" not in required and Path(environment).resolve() == Path(sys.prefix).resolve()
+    return False
 
 
 def latest_version(
@@ -123,26 +162,14 @@ def check_for_update(
 
 
 def apply_update(target: str) -> subprocess.CompletedProcess[str]:
-    """Install one exact symphony-code release with the tool that installed it."""
+    """Install one exact symphony-code release as the uv tool it already is.
+
+    Only called once :func:`pypi_tool_install` holds; there is no pip path.
+    """
     if not target or any(character.isspace() for character in target):
         raise ValueError(f"invalid release version: {target!r}")
-    command = _update_command(target)
+    command = ["uv", "tool", "install", "--upgrade", f"{PACKAGE}=={target}"]
     return subprocess.run(command, check=False, text=True, capture_output=True)
-
-
-def _update_command(target: str) -> list[str]:
-    specifier = f"{PACKAGE}=={target}"
-    if _installed_with_uv():
-        return ["uv", "tool", "install", "--upgrade", specifier]
-    return [sys.executable, "-m", "pip", "install", "--upgrade", specifier]
-
-
-def _installed_with_uv() -> bool:
-    try:
-        location = Path(distribution(PACKAGE).locate_file(""))
-    except PackageNotFoundError:
-        return False
-    return "uv" in location.parts
 
 
 def _screen_prompt(current: str, latest: str) -> bool:
@@ -171,11 +198,12 @@ def startup_update_check(
     current: Callable[[], str | None] = installed_version,
     latest: Callable[[], str | None] = latest_version,
     prompt: Prompt | None = None,
-    install: Callable[[str], subprocess.CompletedProcess[str]] = apply_update,
+    install: Callable[[str], subprocess.CompletedProcess[str]] | None = None,
     output: Callable[[str], None] = print,
     enabled: bool | None = None,
     install_web: Callable[[str, Path], Path] | None = None,
     web_root: Callable[[], Path] | None = None,
+    pypi_install: Callable[[], bool] = pypi_tool_install,
 ) -> UpdateDecision:
     """Run the pre-start check described by ``updates`` in the user config.
 
@@ -183,7 +211,9 @@ def startup_update_check(
     and made current. A failed bundle install keeps the old bundle and only
     warns: the package update itself already succeeded. ``install_web`` and
     ``web_root`` default to :mod:`coding_agent.web.bundle`, imported only once
-    an update is under way.
+    an update is under way. A newer release is offered only when
+    ``pypi_install`` confirms a uv tool install from PyPI; ``install``
+    defaults to :func:`apply_update`, looked up at call time.
     """
     settings = config.get("updates") if isinstance(config.get("updates"), Mapping) else {}
     if enabled is None:
@@ -200,6 +230,9 @@ def startup_update_check(
     if target is None:
         # check_for_update names the version for every action except continue.
         return UpdateDecision("continue", decision.current)
+    if not pypi_install():
+        # A pip, git or local install, or another tool environment: not ours to replace.
+        return UpdateDecision("continue", decision.current, decision.latest)
     accepted = decision.action == "update"
     if decision.action == "ask":
         ask = prompt or _screen_prompt
@@ -212,7 +245,7 @@ def startup_update_check(
             return UpdateDecision("continue", decision.current, decision.latest)
     else:
         output(decision.message)
-    result = install(target)
+    result = (install or apply_update)(target)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         output(f"Update to {decision.latest} failed; continuing with {decision.current}.")
