@@ -165,6 +165,17 @@ def test_real_worker_stream_history_refresh_and_recovery(web):
     wait(web.sessions.workers[sid], lambda w: any(e["data"].get("type") == "done" for e in w.events))
 
 
+def test_warm_starts_the_control_worker_before_any_request(web):
+    assert web.sessions._control is None
+    web.sessions.warm()
+    deadline = time.monotonic() + 15
+    while web.sessions._control is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert web.sessions._control is not None and web.sessions._control.alive
+    status, info = request(web, "/api/info")
+    assert status == 200 and info["path"] == str(web.sessions.workspace)
+
+
 def test_workspace_info_models_and_commands_come_from_the_worker(web):
     import subprocess as sp
 

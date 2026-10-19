@@ -129,26 +129,79 @@ export const initial = (): State => ({
   error: "",
   model: "",
 });
-const settle = (row: Row | undefined) =>
-  row?.parts.forEach((part) => {
-    if (part.type === "reasoning" || part.type === "text") part.state = "done";
+// Copy-on-write editing. A frame shallow-copies only the state, rows and
+// parts it changes, so unchanged rows keep their identity (MessageRow is
+// memoized) and a frame costs O(changed parts), not a transcript deep clone.
+type Draft = WeakSet<object>;
+function own<T extends object>(d: Draft, value: T): T {
+  if (d.has(value)) return value;
+  const copy = (Array.isArray(value) ? [...value] : { ...value }) as T;
+  d.add(copy);
+  return copy;
+}
+// Edit a row of an already-owned rows array.
+function editRow(d: Draft, rows: Row[], index: number): Row {
+  const row = own(d, rows[index]);
+  row.parts = own(d, row.parts);
+  rows[index] = row;
+  return row;
+}
+// Edit a part of an already-edited row.
+function editPart<T extends AgentPart>(d: Draft, row: Row, index: number): T {
+  const part = own(d, row.parts[index]) as T;
+  row.parts[index] = part;
+  return part;
+}
+// Newest match first: live frames almost always target the last row.
+function locate(
+  rows: Row[],
+  test: (part: AgentPart) => boolean,
+): [number, number] | undefined {
+  for (let r = rows.length - 1; r >= 0; r--) {
+    const p = rows[r].parts.findLastIndex(test);
+    if (p >= 0) return [r, p];
+  }
+}
+// Mark streaming text and reasoning done, copying the row only if needed.
+function settle(d: Draft, rows: Row[], index: number) {
+  const parts = rows[index]?.parts;
+  if (!parts?.some((part) => streams(part) && part.state !== "done")) return;
+  const row = editRow(d, rows, index);
+  parts.forEach((part, i) => {
+    if (streams(part) && part.state !== "done")
+      editPart<typeof part>(d, row, i).state = "done";
   });
-const isSubagent = (
-  part: AgentPart,
-): part is AgentDataPart & { data: SubagentData } =>
+}
+const streams = (part: AgentPart) =>
+  part.type === "reasoning" || part.type === "text";
+type SubagentCard = AgentDataPart & { data: SubagentData };
+const isSubagent = (part: AgentPart): part is SubagentCard =>
   part.type === "data" && part.name === "subagent";
-const subagents = (rows: Row[]) =>
-  rows.flatMap((r) => r.parts).filter(isSubagent);
+// The matching subagent card, copied with its own data for editing.
+function editSubagent(
+  d: Draft,
+  rows: Row[],
+  test: (data: SubagentData) => boolean,
+): SubagentCard | undefined {
+  const at = locate(rows, (part) => isSubagent(part) && test(part.data));
+  if (!at) return;
+  const card = editPart<SubagentCard>(d, editRow(d, rows, at[0]), at[1]);
+  card.data = own(d, card.data);
+  return card;
+}
 const isTool = (part: AgentPart): part is AgentToolPart => part.type === "tool";
 // Replace a usage/context data part with the latest event payload; the SDK
 // renders it below the message.
 function show(
+  d: Draft,
   row: Row,
   name: "usage" | "context",
   data: UsageData | ContextData,
 ) {
-  const part = row.parts.find((x) => x.type === "data" && x.name === name);
-  if (part?.type === "data") part.data = data;
+  const index = row.parts.findIndex(
+    (x) => x.type === "data" && x.name === name,
+  );
+  if (index >= 0) editPart<AgentDataPart>(d, row, index).data = data;
   else row.parts.push({ type: "data", name, data });
 }
 const toolInput = (args: ToolArguments) => ({
@@ -158,16 +211,18 @@ const toolInput = (args: ToolArguments) => ({
 });
 
 export function reduce(state: State, frame: Frame, id: number): State {
-  const s = structuredClone(state);
+  const d: Draft = new WeakSet();
+  const s = own(d, state);
   switch (frame.type) {
     case "ready":
       if (frame.model) s.model = frame.model;
       return s;
     case "input_requested":
-      s.pending[frame.request_id] = frame;
+      s.pending = { ...s.pending, [frame.request_id]: frame };
       return s;
     case "done":
-      settle(s.rows.at(-1));
+      s.rows = own(d, s.rows);
+      settle(d, s.rows, s.rows.length - 1);
       s.busy = false;
       s.pending = {};
       return s;
@@ -175,14 +230,19 @@ export function reduce(state: State, frame: Frame, id: number): State {
       s.error = frame.message;
       return s;
     case "event":
-      return applyEvent(s, frame, id);
+      return applyEvent(d, s, frame, id);
   }
 }
 
-function applyEvent(s: State, frame: EventFrame, id: number): State {
+// `s` is owned by this frame; everything reachable from it is shared until
+// copied with own/editRow/editPart.
+function applyEvent(d: Draft, s: State, frame: EventFrame, id: number): State {
+  s.rows = own(d, s.rows);
   if (frame.event === "subagent_step") {
-    const card = subagents(s.rows).find(
-      (x) => x.data.id === frame.payload.agent_id,
+    const card = editSubagent(
+      d,
+      s.rows,
+      (data) => data.id === frame.payload.agent_id,
     );
     if (card) {
       card.data.step = frame.payload.turn;
@@ -194,28 +254,35 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
     // Chunks carry no agent ids; parent_call_id names the spawning call.
     const call = frame.payload.parent_call_id;
     if (call) {
-      const card = subagents(s.rows).find((x) => x.data.callId === call);
+      const card = editSubagent(d, s.rows, (data) => data.callId === call);
       if (card)
         card.data.messages = applyEvent(
+          d,
           { ...initial(), rows: card.data.messages },
           { ...frame, payload: { ...frame.payload, parent_call_id: null } },
           id,
         ).rows;
       return s;
     }
-    const tool = s.rows
-      .flatMap((r) => r.parts)
-      .filter(isTool)
-      .find((x) => x.toolCallId === frame.payload.tool_call_id);
-    if (tool && tool.state === "input-available") {
+    const at = locate(
+      s.rows,
+      (x) => isTool(x) && x.toolCallId === frame.payload.tool_call_id,
+    );
+    const found = at && s.rows[at[0]].parts[at[1]];
+    if (found && isTool(found) && found.state === "input-available") {
+      const tool = editPart<AgentToolPart>(d, editRow(d, s.rows, at[0]), at[1]);
       const prior = metaOf(tool.output);
-      const chunks = [
-        ...(prior.chunks ?? []),
-        {
-          stream: frame.payload.stream === "stderr" ? "stderr" : "stdout",
-          text: frame.payload.delta,
-        } as const,
-      ];
+      const stream = frame.payload.stream === "stderr" ? "stderr" : "stdout";
+      const chunks = [...(prior.chunks ?? [])];
+      const last = chunks.at(-1);
+      // The terminal widget joins chunk text, so consecutive deltas on one
+      // stream merge; long outputs stay a few chunks instead of thousands.
+      if (last?.stream === stream)
+        chunks[chunks.length - 1] = {
+          stream,
+          text: last.text + frame.payload.delta,
+        };
+      else chunks.push({ stream, text: frame.payload.delta });
       tool.output = withMeta(undefined, { ...prior, chunks });
     }
     return s;
@@ -223,11 +290,14 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
   // A question blocks the run, so any later event means it was answered.
   if (frame.event !== "question_asked") s.pending = {};
   if (frame.payload.parent_id) {
-    const card = subagents(s.rows).find(
-      (x) => x.data.id === frame.payload.agent_id,
+    const card = editSubagent(
+      d,
+      s.rows,
+      (data) => data.id === frame.payload.agent_id,
     );
     if (card) {
       const child = applyEvent(
+        d,
         { ...initial(), rows: card.data.messages },
         {
           ...frame,
@@ -241,7 +311,7 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
   }
   // The protocol's run_started event carries the prompt for this turn.
   if (frame.event === "run_started") {
-    settle(s.rows.at(-1));
+    settle(d, s.rows, s.rows.length - 1);
     s.busy = true;
     if (frame.payload.prompt)
       s.rows.push({
@@ -252,16 +322,16 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
     return s;
   }
   if (frame.event === "question_asked") return s;
-  let row = s.rows.at(-1);
-  if (!row || row.role !== "assistant") {
-    row = { id: `a-${id}`, role: "assistant", parts: [] };
-    s.rows.push(row);
-  }
+  if (s.rows.at(-1)?.role !== "assistant")
+    s.rows.push({ id: `a-${id}`, role: "assistant", parts: [] });
+  const index = s.rows.length - 1;
+  const row = editRow(d, s.rows, index);
+  const last = row.parts.length - 1;
   switch (frame.event) {
     case "reasoning_delta": {
-      const last = row.parts.at(-1);
-      if (last?.type === "reasoning" && last.state === "streaming")
-        last.text += frame.payload.delta;
+      const part = row.parts[last];
+      if (part?.type === "reasoning" && part.state === "streaming")
+        editPart<typeof part>(d, row, last).text += frame.payload.delta;
       else
         row.parts.push({
           type: "reasoning",
@@ -271,13 +341,14 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
       break;
     }
     case "reasoning_completed":
-      settle(row);
+      settle(d, s.rows, index);
       break;
     case "text_delta": {
-      const last = row.parts.at(-1);
-      if (last?.type === "text") last.text += frame.payload.delta;
+      const part = row.parts[last];
+      if (part?.type === "text")
+        editPart<typeof part>(d, row, last).text += frame.payload.delta;
       else {
-        settle(row);
+        settle(d, s.rows, index);
         row.parts.push({
           type: "text",
           text: frame.payload.delta,
@@ -287,11 +358,11 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
       break;
     }
     case "usage":
-      show(row, "usage", { total_tokens: frame.payload.cumulative_tokens });
+      show(d, row, "usage", { total_tokens: frame.payload.cumulative_tokens });
       break;
     case "context":
       if (frame.payload.context_limit)
-        show(row, "context", {
+        show(d, row, "context", {
           current_tokens: frame.payload.tokens_used,
           context_window: frame.payload.context_limit,
         });
@@ -300,11 +371,13 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
     case "tool_execution_updated":
     case "tool_execution_completed": {
       const p = frame.payload;
-      settle(row);
-      let tool = row.parts
-        .filter(isTool)
-        .find((x) => x.toolCallId === p.tool_call_id);
-      if (!tool) {
+      settle(d, s.rows, index);
+      const at = row.parts.findIndex(
+        (x) => isTool(x) && x.toolCallId === p.tool_call_id,
+      );
+      let tool: AgentToolPart;
+      if (at >= 0) tool = editPart<AgentToolPart>(d, row, at);
+      else {
         tool = {
           type: "tool",
           toolCallId: p.tool_call_id,
@@ -326,7 +399,7 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
     case "agent_failed": {
       const p = frame.payload;
       const key = String(p.child_id);
-      let card = subagents(s.rows).find((x) => x.data.id === key);
+      let card = editSubagent(d, s.rows, (data) => data.id === key);
       if (!card) {
         card = {
           type: "data",

@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   ChatComposer,
@@ -18,6 +25,7 @@ import { ApprovalCard } from "./Approval";
 import { historical, initial, reduce, type Row, type State } from "./events";
 import {
   parseFrame,
+  type Frame,
   type SessionHistory,
   type SessionSummary,
   type SlashCommand,
@@ -53,7 +61,15 @@ type Catalog = {
     models: CatalogModel[];
   }[];
 };
-function MessageRow({ row, showUsage }: { row: Row; showUsage: boolean }) {
+// Memoized: reduce() keeps unchanged rows by identity, so a streamed token
+// re-renders only the row it lands in.
+const MessageRow = memo(function MessageRow({
+  row,
+  showUsage,
+}: {
+  row: Row;
+  showUsage: boolean;
+}) {
   if (row.role === "user")
     return (
       <div className="chat-message chat-message-user">
@@ -72,7 +88,7 @@ function MessageRow({ row, showUsage }: { row: Row; showUsage: boolean }) {
       </div>
     </div>
   );
-}
+});
 // Show the session's own model in the SDK picker once the registry loads.
 function ModelSync({ model }: { model: string }) {
   const { registry, setProvider } = useModel();
@@ -112,7 +128,10 @@ export function App() {
   }));
   const stream = useRef<EventSource | null>(null),
     generation = useRef(0),
-    scroller = useRef<HTMLDivElement>(null);
+    scroller = useRef<HTMLDivElement>(null),
+    // Follow new output only while the reader is at the bottom.
+    following = useRef(true),
+    backlog = useRef<{ frame: Frame; seq: number }[]>([]);
   // Completed runs per session, so a composer send can wait for its own run.
   const runs = useRef<{ done: Record<string, number>; waiters: Waiter[] }>({
     done: {},
@@ -133,6 +152,20 @@ export function App() {
       ...s,
       error: e instanceof Error ? e.message : String(e),
     }));
+  // Frames that arrive between paints apply together in one render.
+  const enqueue = (frame: Frame, seq: number) => {
+    if (backlog.current.push({ frame, seq }) > 1) return;
+    const flush = () => {
+      const frames = backlog.current;
+      backlog.current = [];
+      setState((s) =>
+        frames.reduce((acc, item) => reduce(acc, item.frame, item.seq), s),
+      );
+    };
+    // Hidden tabs get no animation frames; keep the title badge current.
+    if (document.hidden) setTimeout(flush, 100);
+    else requestAnimationFrame(flush);
+  };
   const refresh = () =>
     api<(SessionSummary & { owned: boolean })[]>("sessions")
       .then(setSessions)
@@ -140,6 +173,8 @@ export function App() {
   async function open(id: string) {
     const current = ++generation.current;
     stream.current?.close();
+    backlog.current = [];
+    following.current = true;
     wake(true);
     runs.current.done[id] = 0;
     setConnected(false);
@@ -170,7 +205,7 @@ export function App() {
           cursor = seq;
           const frame = parseFrame(JSON.parse(e.data));
           if (!frame) return;
-          setState((s) => reduce(s, frame, seq));
+          enqueue(frame, seq);
           if (
             frame.type === "done" ||
             (frame.type === "event" && frame.event === "run_started")
@@ -205,6 +240,8 @@ export function App() {
       throw new Error(
         "This session is open in another Symphony process. Close it there to continue here.",
       );
+    // Sending a prompt returns the transcript to the newest output.
+    following.current = true;
     const switching = !!model && live && model !== active;
     const choice = model ? { model } : {};
     type Opened = { session_id: string; model: string };
@@ -294,7 +331,7 @@ export function App() {
   }, [preferences]);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [state, selected]);
   const pending = Object.values(state.pending);
   const session = sessions.find((s) => s.session_id === selected);
@@ -393,7 +430,16 @@ export function App() {
                   </button>
                 </p>
               )}
-              <div className="chat-messages" ref={scroller} aria-live="polite">
+              <div
+                className="chat-messages"
+                ref={scroller}
+                aria-live="polite"
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  following.current =
+                    el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                }}
+              >
                 <div className="chat-messages-inner">
                   {!state.rows.length && (
                     <Welcome

@@ -190,6 +190,17 @@ class Sessions:
                 self._control = Worker(self.workspace, str(uuid.uuid4()), self.model)
             return self._control
 
+    def warm(self) -> None:
+        """Start the control worker in the background so the first page load does not wait for it."""
+
+        def start() -> None:
+            try:
+                self.control()
+            except (WorkerError, OSError):
+                pass  # The first API request retries and reports the failure.
+
+        threading.Thread(target=start, name="symphony-web-warm", daemon=True).start()
+
     def info(self) -> JsonObject:
         ready = self.control().ready
         path = Path(ready.workspace or str(self.workspace))

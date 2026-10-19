@@ -451,3 +451,62 @@ describe("tool output guards", () => {
     );
   });
 });
+
+describe("copy-on-write frames", () => {
+  it("copies only the row a frame changes and leaves the previous state intact", () => {
+    const before = run([
+      event("run_started", { prompt: "first" }),
+      event("text_delta", { delta: "one" }),
+      event("run_started", { prompt: "second" }),
+      event("text_delta", { delta: "two" }),
+    ]);
+    const snapshot = structuredClone(before);
+    const after = apply(before, event("text_delta", { delta: " more" }), 5);
+    expect(before).toEqual(snapshot);
+    before.rows.slice(0, 3).forEach((row, i) => expect(after.rows[i]).toBe(row));
+    expect(after.rows[3]).not.toBe(before.rows[3]);
+    expect(partsOf(after, 3)[0].text).toBe("two more");
+  });
+
+  it("merges consecutive output on one stream", () => {
+    const out = (delta: string, stream: string) =>
+      event("tool_execution_output", { tool_call_id: "b", delta, stream });
+    const s = run([
+      event("run_started", { prompt: "t" }),
+      event("tool_execution_started", { tool_call_id: "b", tool_name: "bash" }),
+      out("a\n", "stdout"),
+      out("b\n", "stdout"),
+      out("c\n", "stderr"),
+      out("d\n", "stdout"),
+    ]);
+    expect(partsOf(s, 1)[0].output.chunks).toEqual([
+      { stream: "stdout", text: "a\nb\n" },
+      { stream: "stderr", text: "c\n" },
+      { stream: "stdout", text: "d\n" },
+    ]);
+  });
+
+  it("keeps journaled tool facts that follow a subagent event in history", () => {
+    const s = historical({
+      messages: [
+        { role: "user", content: "t" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "b", function: { name: "bash", arguments: '{"command":"make"}' } }],
+        },
+        { role: "tool", tool_call_id: "b", content: "exit=2\nfail" },
+      ],
+      events: [
+        ["agent_spawned", { child_id: "k", label: "Helper" }],
+        [
+          "tool_execution_completed",
+          { tool_call_id: "b", tool_name: "bash", status: "error", result: "exit=2\nfail", exit_code: 2 },
+        ],
+      ],
+      children: [],
+    });
+    const bash = partsOf(s, 1).find((p) => p.type === "tool");
+    expect(bash).toMatchObject({ state: "output-error", output: { exitCode: 2 } });
+  });
+});

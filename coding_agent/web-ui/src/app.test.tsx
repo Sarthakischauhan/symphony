@@ -20,6 +20,12 @@ class Stream {
   }
   close() {}
 }
+// main.tsx applies SSE frames together on the next animation frame.
+const paint = () =>
+  act(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -136,6 +142,7 @@ it("loads history, streams a task, renders SDK tool/approval/subagent widgets", 
       }),
     );
   });
+  await paint();
   // The user turn comes from the protocol's run_started prompt.
   expect(screen.getAllByText("Build a report").length).toBeGreaterThan(0);
   expect(screen.getByText("Working on it")).toBeTruthy();
@@ -167,6 +174,7 @@ it("loads history, streams a task, renders SDK tool/approval/subagent widgets", 
   await act(async () =>
     source.onmessage({ lastEventId: "2", data: JSON.stringify(frames[1]) }),
   );
+  await paint();
   expect(screen.getAllByText("Working on it")).toHaveLength(1);
   await act(async () =>
     source.onmessage({
@@ -225,6 +233,7 @@ it("answers an approval card with the chosen choice through the answer frame", a
       }),
     });
   });
+  await paint();
   const card = screen.getByRole("region", { name: "Approval required" });
   expect(card.textContent).toContain("app/api.py");
   expect(card.textContent).toContain("29 bytes");

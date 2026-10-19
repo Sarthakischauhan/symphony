@@ -264,6 +264,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("127.0.0.1", args.port), Sessions(Path(args.workspace).expanduser().resolve(), args.model), static
     )
     print(f"Symphony Web listening on {server.origin}", flush=True)
+    server.sessions.warm()
     # Capability stays in the URL fragment, never in the HTTP request or logs.
     if not args.no_browser:
         threading.Timer(0.2, webbrowser.open, args=[f"{server.origin}/#{server.token}"]).start()
