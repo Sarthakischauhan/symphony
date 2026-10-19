@@ -5,7 +5,7 @@
 # we build them from git and stage only each package.json + dist into
 # .chat-sdk/<name>, which package.json references as file: deps.
 set -euo pipefail
-SHA=8a2b3b5bdcad9421c7fdaf5d3d56b524f8ee62fa
+SHA=eb79fcf1979e06fa6a4312fe0e212ea53ba5c05f
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$HERE/.chat-sdk"
 SRC="$OUT/src"

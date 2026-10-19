@@ -563,11 +563,42 @@ function widgetOutput(
   if (tool.toolName === "patch" && typeof value === "string")
     return { message: value };
   if (tool.toolName === "read_file" && typeof value === "string")
-    return { content: value };
+    return readFileOutput(value);
   if (tool.toolName === "ask_user" && typeof value === "string")
     return { answer: value };
   return value;
 }
+// read_file numbers every line `   12|code`: the tool description promises
+// that format and the model pages with those numbers (`offset`), so the result
+// keeps them. The widget draws its own gutter, so hand it the code without the
+// prefixes and the first number as its start line; that is the read's offset.
+// The truncation note the tool may append after the numbered lines is left
+// out of the code. Text that is not numbered (an image read, an empty file)
+// passes through as is.
+type ReadFileOutput = { content: string; startLine?: number };
+const NUMBERED_LINE = /^ *(\d+)\|(.*)$/s;
+function readFileOutput(text: string): ReadFileOutput {
+  const lines = text.split("\n");
+  const code: string[] = [];
+  let startLine: number | undefined;
+  for (const line of lines) {
+    const match = NUMBERED_LINE.exec(line);
+    if (!match) break;
+    const number = Number(match[1]);
+    if (startLine === undefined) startLine = number;
+    else if (number !== startLine + code.length) return { content: text };
+    code.push(match[2]);
+  }
+  if (startLine === undefined) return { content: text };
+  const rest = lines.slice(code.length);
+  // Only an empty line (the file's final newline) or the truncation note
+  // (after a blank line) may follow the numbered lines.
+  const trailing = rest.filter((line) => line !== "");
+  if (trailing.length > 1 || (trailing.length === 1 && !TRUNCATION_NOTE.test(trailing[0])))
+    return { content: text };
+  return { content: code.join("\n"), startLine };
+}
+const TRUNCATION_NOTE = /^<output truncated at \d+ bytes; read again with offset=\d+ to continue>$/;
 // Keep protocol 3 facts beside the rendered result. A string result (bash,
 // read) moves under `output` so it is not mistaken for a diff or a summary.
 function withMeta(value: unknown, meta: RunMeta) {

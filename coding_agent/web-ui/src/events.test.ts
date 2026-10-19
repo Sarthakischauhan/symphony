@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import {
   historical,
@@ -613,25 +614,27 @@ describe("only the protocol's own fields", () => {
 });
 
 describe("read_file results", () => {
+  // Exactly what ReadFileTool returns (`numbered_text`), from the tool itself.
   const text = "     1|export const a = 1;\n     2|export const b = 2;\n";
-  it("pass the protocol result as the read-file widget's content, live and from history", async () => {
+  const code = "export const a = 1;\nexport const b = 2;";
+  const readCall = (result: string, args: Record<string, unknown> = { path: "src/a.ts" }) => [
+    event("tool_execution_started", {
+      tool_call_id: "r", tool_name: "read_file", arguments: args, started_at: 1792317600,
+    }),
+    event("tool_execution_completed", {
+      tool_call_id: "r", tool_name: "read_file", status: "success", result, duration_ms: 7,
+      summary: { lines: 2, matches: null, added: null, removed: null, start_line: null },
+    }),
+  ];
+  it("give the widget the code without the N| prefixes, live and from history", async () => {
     const { computeToolWidget } = await import("@sarchauhan/chat");
-    const live = run([
-      event("tool_execution_started", {
-        tool_call_id: "r", tool_name: "read_file", arguments: { path: "src/a.ts" }, started_at: 1792317600,
-      }),
-      event("tool_execution_completed", {
-        tool_call_id: "r", tool_name: "read_file", status: "success", result: text, duration_ms: 7,
-        summary: { lines: 2, matches: null, added: null, removed: null, start_line: null },
-      }),
-    ]);
-    const part = partsOf(live, 0)[0];
+    const part = partsOf(run(readCall(text)), 0)[0];
     // The timing facts sit beside the content, not over it.
-    expect(part.output).toMatchObject({ content: text, durationMs: 7 });
+    expect(part.output).toMatchObject({ content: code, startLine: 1, durationMs: 7 });
     expect(part.output.output).toBeUndefined();
     const widget = computeToolWidget(part);
     expect(widget?.name).toBe("read-file");
-    expect(widget?.props).toMatchObject({ path: "src/a.ts", content: text });
+    expect(widget?.props).toMatchObject({ path: "src/a.ts", content: code, startLine: 1 });
 
     const old = historical({
       messages: [
@@ -647,7 +650,56 @@ describe("read_file results", () => {
       children: [],
     });
     const read = partsOf(old, 1).find((p) => p.type === "tool");
-    expect(read.output).toEqual({ content: text });
-    expect(computeToolWidget(read)?.props.content).toBe(text);
+    expect(read.output).toEqual({ content: code, startLine: 1 });
+    expect(computeToolWidget(read)?.props).toMatchObject({ content: code, startLine: 1 });
+  });
+
+  it("start the gutter at the read's offset and draw each number once", async () => {
+    const { computeToolWidget } = await import("@sarchauhan/chat");
+    const { ReadFileWidget } = await import("@sarchauhan/chat/widgets");
+    const { render } = await import("@testing-library/react");
+    const { createElement } = await import("react");
+    const part = partsOf(run(readCall("  41|line 41\n  42|line 42\n", { path: "a.ts", offset: 41, limit: 2 })), 0)[0];
+    expect(part.output).toMatchObject({ content: "line 41\nline 42", startLine: 41 });
+    const widget = computeToolWidget(part);
+    expect(widget?.props).toMatchObject({ startLine: 41 });
+    // The SDK widget draws the gutter from startLine; the code has no prefix.
+    const { container } = render(
+      createElement(ReadFileWidget, { path: "a.ts", content: part.output.content, startLine: part.output.startLine }),
+    );
+    const gutter = Array.from(container.querySelectorAll(".chat-line-number")).map((n) => n.textContent);
+    const lines = Array.from(container.querySelectorAll(".chat-code-line code")).map((n) => n.textContent);
+    expect(gutter).toEqual(["41", "42"]);
+    expect(lines).toEqual(["line 41", "line 42"]);
+  });
+
+  it("leave the truncation note out of the code and pass unnumbered text through", () => {
+    const truncated = "   7|line 7\n   8|line 8\n\n<output truncated at 14 bytes; read again with offset=9 to continue>";
+    expect(partsOf(run(readCall(truncated)), 0)[0].output).toMatchObject({ content: "line 7\nline 8", startLine: 7 });
+    const image = "Read image shot.png (image/png, 68 bytes)";
+    expect(partsOf(run(readCall(image)), 0)[0].output).toMatchObject({ content: image });
+    expect(partsOf(run(readCall(image)), 0)[0].output.startLine).toBeUndefined();
+    // Gaps or stray lines are not the tool's format; keep the text as is.
+    const gap = "   1|a\n   3|c\n";
+    expect(partsOf(run(readCall(gap)), 0)[0].output).toMatchObject({ content: gap });
+    expect(partsOf(run(readCall("")), 0)[0].output).toMatchObject({ content: "" });
+  });
+});
+
+describe("failed ask_user calls", () => {
+  it("show the error, never as an answer", async () => {
+    const { computeToolWidget } = await import("@sarchauhan/chat");
+    const error = "[tool:error] AskUserFailed: no human available; pick the safest reasonable option and continue\ndefault: sqlite";
+    const s = run([
+      event("tool_execution_started", { tool_call_id: "q", tool_name: "ask_user", arguments: { question: "Which db?" } }),
+      event("tool_execution_completed", { tool_call_id: "q", tool_name: "ask_user", status: "error", result: error, duration_ms: 1 }),
+    ]);
+    const part = partsOf(s, 0)[0];
+    expect(part.state).toBe("output-error");
+    expect(part.errorText).toBe(error);
+    expect(part.output.answer).toBeUndefined();
+    const widget = computeToolWidget(part);
+    expect(widget?.props.answer).toBeUndefined();
+    expect(widget?.props.error).toBe(error);
   });
 });
