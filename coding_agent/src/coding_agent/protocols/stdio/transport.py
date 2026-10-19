@@ -11,7 +11,7 @@ from core_ai.content import image_part_from_bytes, sniff_image_media_type
 from core_ai.types import Content
 from core_harness import EventSink, HumanInteraction
 
-from coding_agent.protocols.fields import EventFields
+from coding_agent.widget_fields import EventFields
 
 
 def _write(frame: Mapping[str, Any]) -> None:

@@ -11,8 +11,9 @@ import pytest
 from textual.app import App
 
 from coding_agent.addons.approvals import approval_metadata
+from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.protocols import stdio
-from coding_agent.protocols.fields import SUBAGENT_STEP, EventFields
+from coding_agent.widget_fields import SUBAGENT_STEP, EventFields
 from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSION, StdioSink
 from coding_agent.tools.bash import BashTool, CommandFailed
 from coding_agent.tools.summary import diff_counts, summarize
@@ -108,20 +109,26 @@ def test_event_fields_enrich_tool_events() -> None:
     assert done["exit_code"] == 2
     assert done["summary"]["lines"] == 2
     assert done["duration_ms"] == 12
-    assert fields.exit_codes == {}
+    assert fields.exit_codes == {"b1": 2}  # read, not popped: the journal reads it too
 
 
 def test_event_fields_map_subagent_events_to_spawn_call() -> None:
     fields = EventFields()
-    [(_, spawned)] = fields.apply("agent_spawned", {"child_id": "kid", "tool_call_id": "spawn-1", "agent_id": "root"})
+    [(_, spawned)] = fields.apply("agent_spawned", {
+        "child_id": "kid", "tool_call_id": "spawn-1", "agent_id": "root", "session_id": "parent-session",
+    })
     assert spawned["parent_call_id"] == "spawn-1"
     events = fields.apply("turn_started", {"agent_id": "kid", "parent_id": "root", "turn": 1, "started_at": "t1"})
     assert [name for name, _ in events] == ["turn_started", SUBAGENT_STEP]
     assert events[1][1] == {
-        "agent_id": "kid", "parent_id": "root", "parent_call_id": "spawn-1", "turn": 1, "started_at": "t1",
+        "session_id": "parent-session", "agent_id": "kid", "parent_id": "root", "parent_call_id": "spawn-1",
+        "turn": 1, "started_at": "t1",
     }
     [(_, child_tool)] = fields.apply("tool_execution_started", {"agent_id": "kid", "parent_id": "root", "tool_call_id": "c"})
     assert child_tool["parent_call_id"] == "spawn-1"
+    # Output chunks carry no agent ids; the started event's mapping supplies it.
+    [(_, chunk)] = fields.apply("tool_execution_output", {"tool_call_id": "c", "delta": "x"})
+    assert chunk["parent_call_id"] == "spawn-1"
     assert len(fields.apply("turn_started", {"agent_id": "root", "turn": 1})) == 1
 
 
@@ -201,3 +208,38 @@ def test_tui_cards_use_payload_fields() -> None:
             assert patch._summary() == "x.py +5 -4"
 
     asyncio.run(run())
+
+
+# persistence
+
+
+def test_journal_keeps_widget_fields(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path)
+    store.fields = EventFields()
+    store.fields.exit_codes["b1"] = 1
+    base = {"session_id": "s1", "run_id": "r1"}
+
+    async def run() -> list[tuple[str, dict[str, Any]]]:
+        seq = 0
+        for event_type, payload in [
+            ("tool_execution_started", {"tool_call_id": "b1", "tool_name": "bash", "arguments": {"command": "x"},
+                                        "started_at": 1.0}),
+            ("tool_execution_completed", {"tool_call_id": "b1", "tool_name": "bash", "status": "error",
+                                          "result": "exit=1\nboom", "duration_ms": 2340}),
+            ("question_asked", {"request_id": "q1", "question": "Overwrite?", "choices": ["Allow once"],
+                                "default": "Allow once", "kind": "approval", "tool_call_id": "w1",
+                                **approval_metadata("write_file", {"path": "a.py", "content": "abc"}, "Overwrite?", "w1")}),
+            ("agent_spawned", {"child_id": "kid", "tool_call_id": "s1", "child_session_id": "kid"}),
+            ("turn_started", {"agent_id": "kid", "parent_id": "root", "turn": 1, "started_at": 2.0}),
+        ]:
+            seq += 1
+            await store.append_event(event_type=event_type, payload={**base, "seq": seq, **payload})
+        return await store.load_events(session_id="s1")
+
+    events = dict((kind, payload) for kind, payload in asyncio.run(run()))
+    done = events["tool_execution_completed"]
+    assert (done["exit_code"], done["duration_ms"], done["call_id"]) == (1, 2340, "b1")
+    assert done["summary"]["lines"] == 2
+    assert events["question_asked"]["target"] == "a.py" and events["question_asked"]["bytes"] == 3
+    assert events["subagent_step"]["parent_call_id"] == "s1"
+    assert events["agent_spawned"]["parent_call_id"] == "s1"

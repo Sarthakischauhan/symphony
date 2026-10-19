@@ -205,6 +205,8 @@ class ApprovalAddon(Addon):
             default=ALLOW_ONCE,
             kind="approval",
             metadata=approval_metadata(tool_name, arguments, prompt, tool_call.id if tool_call is not None else ""),
+            # The harness emit journals the question, so history keeps target, detail and bytes.
+            emit=emit,
         )
         allowed, promote = self.policy.interpret(approvals, answer)
         if promote:

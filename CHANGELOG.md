@@ -7,7 +7,8 @@
   approvals carry `target`, `detail` and `bytes`; a derived
   `subagent_step` event follows each subagent turn. Bash reads stdout and
   stderr separately, and a non-zero exit is now a tool error. The TUI uses these
-  fields and falls back to the old derivation for old sessions.
+  fields and falls back to the old derivation for old sessions. The session
+  journal stores the same fields, so reloads and `session/history` keep them.
 
 - Removed plan mode, its entry/exit tools, mode controls, saved-plan commands,
   and plan approval/build UI. There is no replacement planning gate; normal

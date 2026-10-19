@@ -53,6 +53,7 @@ from coding_agent.config.prompts import SYSTEM_PROMPT
 from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
 from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
 from core_harness.extensions import EMPTY_SNAPSHOT
+from coding_agent.widget_fields import EventFields
 from coding_agent.tools import BashJobs, build_tools
 
 
@@ -510,6 +511,7 @@ def build_agent(
         config=loaded,
         overrides=overrides or None,
     )
+    store = JsonlPersistence(sessions_dir(workspace, client=client))
     agent = CodingAgent(
         registry=registry,
         model_id=default_model_id(registry, model_id or resolved.last_model),
@@ -517,7 +519,10 @@ def build_agent(
         sink=sink,
         session_id=session_id,
         config=resolved,
-        persistence=JsonlPersistence(sessions_dir(workspace, client=client)),
+        persistence=store,
     )
-    agent.persistence.client = client
+    store.client = client
+    # Journal the same widget fields the hosts add (protocol 3).
+    store.fields = EventFields()
+    store.fields.bind(agent)
     return agent

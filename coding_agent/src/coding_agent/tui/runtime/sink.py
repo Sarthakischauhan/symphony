@@ -15,7 +15,7 @@ from textual.message import Message
 
 from core_harness import EventSink, ControlPlaneEventType, HumanInteraction
 
-from coding_agent.protocols.fields import EventFields
+from coding_agent.widget_fields import EventFields
 
 
 class HarnessEvent(Message):
