@@ -13,6 +13,7 @@ import {
   LoadingState,
   MessageContent,
   MessageUsage,
+  ProviderLogo,
   QuestionWidget,
   ThemeProvider,
   useModel,
@@ -35,7 +36,6 @@ import { SessionSidebar, stored, type Session } from "./Sidebar";
 import type { Preferences } from "./Settings";
 import { Welcome } from "./Welcome";
 import { ContextMeter } from "./ContextMeter";
-import { ProviderLogo } from "./ProviderLogo";
 import { ThreadPalette } from "./Palette";
 import { Folder, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -110,12 +110,9 @@ function modelParts(catalog: Catalog | null, model: string) {
     .find((m) => m.id === model)?.label;
   return { provider, name: label || model.slice(separator + 1) };
 }
-// The host stages PNG, JPEG, GIF and WebP images for the stdio run frame.
-// chat-sdk feat/composer-polish reads attachmentAccept (picker filter, paste,
-// drop); the pinned SDK ignores it and the adapter still sends images only.
-const IMAGES_ONLY: { attachmentAccept: string } = {
-  attachmentAccept: "image/png,image/jpeg,image/gif,image/webp",
-};
+// The host stages PNG, JPEG, GIF and WebP images for the stdio run frame; the
+// composer filters picked, pasted and dropped files to these.
+const IMAGE_TYPES = "image/png,image/jpeg,image/gif,image/webp";
 // A composer file part as the web host's prompt attachment (a data URL).
 type Attachment = { filename: string; media_type: string; data_url: string };
 const knows = (catalog: Catalog | null, model?: string) =>
@@ -554,7 +551,7 @@ export function App() {
                   <ChatComposer
                     showModelSelector={!!catalog}
                     collapsedVariant="circle"
-                    {...IMAGES_ONLY}
+                    attachmentAccept={IMAGE_TYPES}
                     inputLabel="Coding task"
                     placeholder={
                       selected

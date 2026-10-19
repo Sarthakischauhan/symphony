@@ -4,7 +4,7 @@
 # 0.1.0 is not on npm, so we build it from git and stage only package.json
 # + dist into .chat-sdk/chat, which package.json references as a file: dep.
 set -euo pipefail
-SHA=1762f2714bd86df313091a22d6a1f10ebf7f255d
+SHA=e1d3f3c1109ff39476bc24fae5303e3e540e479b
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$HERE/.chat-sdk"
 SRC="$OUT/src"
