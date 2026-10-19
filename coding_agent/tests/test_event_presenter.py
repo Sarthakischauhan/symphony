@@ -24,6 +24,8 @@ class RecordingView:
         self.tools: list[tuple[str, str]] = []
         self.tool_updates: list[str] = []
         self.tool_output: list[tuple[str, str]] = []
+        self.outcomes: list[tuple[str, Any]] = []
+        self.streams: list[tuple[str, str]] = []
         self.tool_events: list[tuple[str, str, Any]] = []
         self.tool_payloads: list[tuple[str, Optional[Mapping[str, Any]], str]] = []
         self.notices: list[str] = []
@@ -74,13 +76,16 @@ class RecordingView:
         raw_arguments: str = "",
         status: str = "preparing",
         result: Any = None,
+        outcome: Any = None,
     ) -> None:
         del tool_name
+        self.outcomes.append((call_id, outcome))
         self.tool_events.append((call_id, status, result))
         self.tool_updates.append(f"{call_id}:{status}")
         self.tool_payloads.append((call_id, arguments, raw_arguments))
 
-    def append_tool_output(self, call_id: str, chunk: str) -> None:
+    def append_tool_output(self, call_id: str, chunk: str, stream: str = "stdout") -> None:
+        self.streams.append((call_id, stream))
         self.tool_output.append((call_id, chunk))
         self.tool_events.append((call_id, "output", chunk))
 

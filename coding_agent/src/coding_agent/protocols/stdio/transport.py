@@ -11,6 +11,8 @@ from core_ai.content import image_part_from_bytes, sniff_image_media_type
 from core_ai.types import Content
 from core_harness import EventSink, HumanInteraction
 
+from coding_agent.widget_fields import EventFields
+
 
 def _write(frame: Mapping[str, Any]) -> None:
     """Write through the package so ``stdio.write_frame`` stays patchable."""
@@ -18,8 +20,13 @@ def _write(frame: Mapping[str, Any]) -> None:
 
     stdio.write_frame(frame)
 
-PROTOCOL_VERSION = 2
-CAPABILITIES = ["runs", "resume", "interrupt", "input", "steer", "models", "images", "subagents", "commands", "sessions", "model_switch"]
+PROTOCOL_VERSION = 3
+CAPABILITIES = [
+    "runs", "resume", "interrupt", "input", "steer", "models", "images", "subagents", "commands",
+    "sessions", "model_switch", "widget_fields",
+]
+# Approval fields lifted from the question's metadata onto input_requested.
+APPROVAL_FIELDS = ("target", "detail", "bytes")
 
 
 def write_frame(frame: Mapping[str, Any]) -> None:
@@ -51,21 +58,29 @@ class StdioSink(EventSink):
 
     A question is the ``question_asked`` event like in every other host.
     Protocol 2 hosts read ``input_requested``, so that frame follows it.
+    Protocol 3 adds the widget fields from :class:`EventFields`, and an
+    approval's ``target``, ``detail`` and ``bytes`` on ``input_requested`` itself.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.interaction = HumanInteraction(self)
+        self.fields = EventFields()
 
     async def deliver(self, event_type: str, payload: Dict[str, Any]) -> None:
-        _write({"type": "event", "event": event_type, "payload": payload})
-        if event_type == "question_asked":
+        for name, body in self.fields.apply(event_type, payload):
+            _write({"type": "event", "event": name, "payload": body})
+            if name != "question_asked":
+                continue
             known = {"request_id", "question", "choices", "default", "kind"}
-            _write({
+            frame: Dict[str, Any] = {
                 "type": "input_requested",
-                **{key: payload.get(key) for key in ("request_id", "question", "choices", "default", "kind")},
-                "metadata": {key: value for key, value in payload.items() if key not in known},
-            })
+                **{key: body.get(key) for key in ("request_id", "question", "choices", "default", "kind")},
+                "metadata": {key: value for key, value in body.items() if key not in known},
+            }
+            if body.get("kind") == "approval":
+                frame.update({key: body.get(key) for key in APPROVAL_FIELDS})
+            _write(frame)
 
 
-__all__ = ["CAPABILITIES", "PROTOCOL_VERSION", "StdioSink", "user_content", "write_frame"]
+__all__ = ["APPROVAL_FIELDS", "CAPABILITIES", "PROTOCOL_VERSION", "StdioSink", "user_content", "write_frame"]

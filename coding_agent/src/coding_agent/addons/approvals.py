@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Union
 
 from core_harness import Addon, EventSink
+from core_harness.models import ToolCall
 
 from coding_agent.config import ApprovalConfig, ensure_spawn_settings
 
@@ -50,6 +51,22 @@ def matching_rule(
     """First pattern matching the bash command, the prefixed query, or any normalized form of the path."""
     subjects = rule_subjects(tool_name, arguments, workspace)
     return next((p for p in patterns if any(fnmatchcase(s, p) for s in subjects)), None)
+
+
+def approval_metadata(tool_name: str, arguments: Dict[str, Any], question: str, call_id: str) -> Dict[str, Any]:
+    """What an approval card shows: the subject, the question and the size of the write."""
+    field = RULE_SUBJECTS.get(tool_name)
+    target = str(arguments.get(field) or "").strip() if field else ""
+    written = arguments.get("content") if tool_name == "write_file" else (
+        arguments.get("new_str") if tool_name == "patch" else None
+    )
+    return {
+        "tool_name": tool_name,
+        "tool_call_id": call_id,
+        "target": target,
+        "detail": question,
+        "bytes": len(written.encode("utf-8")) if isinstance(written, str) else None,
+    }
 
 
 class ApprovalPolicy:
@@ -160,7 +177,7 @@ class ApprovalAddon(Addon):
         arguments: Dict[str, Any],
         sink: Optional[EventSink] = None,
         emit: Any = None,
-        tool_call: Any = None,
+        tool_call: Optional[ToolCall] = None,
         **_: Any,
     ) -> Optional[str]:
         approvals = self.approvals
@@ -187,7 +204,9 @@ class ApprovalAddon(Addon):
             choices=APPROVAL_CHOICES,
             default=ALLOW_ONCE,
             kind="approval",
-            metadata={"tool_name": tool_name, "tool_call_id": str(getattr(tool_call, "id", "") or "")},
+            metadata=approval_metadata(tool_name, arguments, prompt, tool_call.id if tool_call is not None else ""),
+            # The harness emit journals the question, so history keeps target, detail and bytes.
+            emit=emit,
         )
         allowed, promote = self.policy.interpret(approvals, answer)
         if promote:
@@ -219,6 +238,7 @@ __all__ = [
     "AUTO_DECISION",
     "ApprovalAddon",
     "ApprovalPolicy",
+    "approval_metadata",
     "DENY",
     "matching_rule",
 ]

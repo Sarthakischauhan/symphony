@@ -66,8 +66,11 @@ def patch_path(arguments: Mapping[str, Any], raw_arguments: str = "", result: st
     return ""
 
 
-def tool_header_text(label: str, target: str, status: str) -> Content:
-    """Status-colored tool name plus a muted target, without parsing the target as markup."""
+def tool_header_text(label: str, target: str, status: str, facts: str = "") -> Content:
+    """Status-colored tool name plus a muted target, without parsing the target as markup.
+
+    ``facts`` (for example ``exit 2 · 1.4s``) trails the target in the status color.
+    """
     color = {
         "preparing": "#d7a84b",
         "running": "#d7a84b",
@@ -77,6 +80,8 @@ def tool_header_text(label: str, target: str, status: str) -> Content:
     parts: list[tuple[str, str]] = [(label, f"bold {color}")]
     if target:
         parts.append((f" {target}", "#9aa7b2"))
+    if facts:
+        parts.append((f"  {facts}", color))
     return Content.assemble(*parts)
 
 
@@ -115,14 +120,15 @@ def read_file_detail(arguments: Mapping[str, Any], raw_arguments: str) -> str:
     return f"{path}  lines {offset}–{end}"
 
 
-def read_file_result(result: str) -> str:
+def read_file_result(result: str, lines: int | None = None) -> str:
+    """``lines`` is the payload summary's count; old sessions count the result."""
     if not result:
         return ""
     if result.startswith("error:"):
         return result
     if result.startswith("Read image ") or "[image:" in result:
         return result.splitlines()[0]
-    count = len(result.splitlines())
+    count = len(result.splitlines()) if lines is None else lines
     size = len(result.encode("utf-8"))
     return f"Read {count} lines ({size:,} bytes)"
 

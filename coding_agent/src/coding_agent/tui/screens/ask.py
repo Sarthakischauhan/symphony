@@ -19,6 +19,9 @@ class QuestionSurface:
         choices = [str(choice) for choice in payload.get("choices") or []]
         default = str(payload.get("default") or "")
         kind = str(payload.get("kind") or "")
+        size = payload.get("bytes")
+        if kind == "approval" and isinstance(size, int):
+            question = f"{question} ({size:,} bytes)"
         if not request_id or not question:
             self.add_notice("The agent sent an invalid question request.", "error")
             return

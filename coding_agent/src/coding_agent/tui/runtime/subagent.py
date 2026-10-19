@@ -364,7 +364,9 @@ class SubagentSurface:
             prompt=str(payload.get("prompt") or ""),
             model_id=str(payload.get("model_id") or ""),
         )
-        record.tool_call_id = str(payload.get("tool_call_id") or record.tool_call_id)
+        record.tool_call_id = str(
+            payload.get("parent_call_id") or payload.get("tool_call_id") or record.tool_call_id
+        )
         record.session_id = str(payload.get("child_session_id") or child_id)
         record.label = str(payload.get("label") or record.label)
         record.prompt = str(payload.get("prompt") or record.prompt)
@@ -415,6 +417,7 @@ class SubagentSurface:
                 prompt="",
                 model_id=str(payload.get("model_id") or ""),
             )
+            record.tool_call_id = str(payload.get("parent_call_id") or "")
             if agent_id:
                 self._subagents[agent_id] = record
             self._bind_spawn_widget(record)

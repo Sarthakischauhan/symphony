@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Union
 
 from coding_agent.addons.persistence.artifacts import (
     append_bytes,
@@ -42,6 +42,10 @@ from coding_agent.addons.persistence.collection import (
 )
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+
+if TYPE_CHECKING:
+    from coding_agent.widget_fields import EventFields
+
 _SKIP_EVENTS = frozenset({"text_delta", "reasoning_delta", "tool_call_delta"})
 _MESSAGE_FIELDS = ("role", "content", "tool_calls", "tool_call_id", "tool_call_metadata")
 _MESSAGE_TYPES = frozenset({"system", "user", "assistant", "tool_result", "message"})
@@ -325,6 +329,9 @@ class JsonlPersistence:
         # Product fields (goal, todo, live background jobs) merged into every
         # checkpoint so an interrupted run can be continued later.
         self.checkpoint_metadata: Callable[[], Dict[str, Any]] = dict
+        # Protocol-3 widget fields journaled with each event, so reloads and
+        # session/history keep them. ``build_agent`` sets it.
+        self.fields: EventFields | None = None
 
     def session_dir(self, session_id: str) -> Path:
         """Return a validated session artifact directory (without creating it)."""
@@ -860,6 +867,11 @@ class JsonlPersistence:
     async def append_event(self, *, event_type: str, payload: dict[str, Any]) -> None:
         if event_type in _SKIP_EVENTS:
             return
+        fields = self.fields
+        for name, body in fields.apply(event_type, payload) if fields is not None else [(event_type, payload)]:
+            self._journal(name, body)
+
+    def _journal(self, event_type: str, payload: dict[str, Any]) -> None:
         session_id = str(payload.get("session_id") or "")
         if not session_id:
             return

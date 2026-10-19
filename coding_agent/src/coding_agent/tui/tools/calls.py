@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from difflib import unified_diff
 from pathlib import Path
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Final, Mapping
 
@@ -16,6 +17,8 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
+from coding_agent.tools.bash import Stream
+from coding_agent.tools.summary import ToolSummary
 from coding_agent.tui.tools.activity import strip_activity_json, take_activity
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.tools.labels import (
@@ -61,6 +64,48 @@ class BashToolHeader(Horizontal, can_focus=True):
             self.post_message(self.Toggle())
 
 
+@dataclass(frozen=True)
+class ToolOutcome:
+    """Completion fields from a protocol-3 ``tool_execution_completed`` payload."""
+
+    status: str
+    duration_ms: int | None = None
+    exit_code: int | None = None
+    summary: ToolSummary | None = None
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ToolOutcome | None":
+        """Read the typed fields; ``None`` when the event predates them."""
+        status = payload.get("status")
+        if not isinstance(status, str):
+            return None
+        duration = payload.get("duration_ms")
+        exit_code = payload.get("exit_code")
+        raw = payload.get("summary")
+        summary: ToolSummary | None = None
+        if isinstance(raw, Mapping):
+            summary = ToolSummary(
+                lines=_count(raw.get("lines")),
+                matches=_count(raw.get("matches")),
+                added=_count(raw.get("added")),
+                removed=_count(raw.get("removed")),
+            )
+        return cls(
+            status=status,
+            duration_ms=int(duration) if isinstance(duration, (int, float)) else None,
+            exit_code=exit_code if isinstance(exit_code, int) else None,
+            summary=summary,
+        )
+
+    @property
+    def failed(self) -> bool:
+        return self.status in {"error", "cancelled", "timeout"}
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) else None
+
+
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
@@ -80,6 +125,8 @@ class ToolCallWidget(Collapsible):
         self.status = "preparing"
         self._started_at = monotonic()
         self._duration: float | None = None
+        self.exit_code: int | None = None
+        self.summary: ToolSummary | None = None
         self.activity_verb = ""
         self.activity_reason = ""
         self.activity_group = ""
@@ -177,10 +224,19 @@ class ToolCallWidget(Collapsible):
         self.activity_reason = activity.reason
         self.activity_group = activity.group
 
-    def set_result(self, result: Any) -> None:
-        if self._duration is None:
+    def set_result(self, result: Any, outcome: ToolOutcome | None = None) -> None:
+        """Finish the card. ``outcome`` carries payload fields; without it
+        (old sessions) duration and status are derived as before."""
+        if outcome is not None and outcome.duration_ms is not None:
+            self._duration = outcome.duration_ms / 1000
+        elif self._duration is None:
             self._duration = max(0.0, monotonic() - self._started_at)
-        self.status = "failed" if str(result).startswith("error:") else "done"
+        if outcome is not None:
+            self.status = "failed" if outcome.failed else "done"
+            self.exit_code = outcome.exit_code
+            self.summary = outcome.summary
+        else:
+            self.status = "failed" if str(result).startswith("error:") else "done"
         self.result = str(result or "")
         self._body_dirty = True
         self.refresh_content()
@@ -294,8 +350,8 @@ class GenerateImageWidget(ToolCallWidget):
     def _result_summary(self) -> str:
         return generate_image_result(self.result)
 
-    def set_result(self, result: Any) -> None:
-        super().set_result(result)
+    def set_result(self, result: Any, outcome: ToolOutcome | None = None) -> None:
+        super().set_result(result, outcome)
         if self.status == "done":
             self.collapsed = False
 
@@ -345,7 +401,8 @@ class ReadFileWidget(ToolCallWidget):
         return read_file_detail(self.arguments, self.raw_arguments)
 
     def _result_summary(self) -> str:
-        return read_file_result(self.result)
+        lines = self.summary["lines"] if self.summary is not None else None
+        return read_file_result(self.result, lines)
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         rows: list[Any] = [Text(self._summary() or "Read", style="bold #d0d0d0")]
@@ -382,8 +439,9 @@ class BashToolWidget(ToolCallWidget):
         self._tail.display = False
         # A fixed window: new chunks repaint the tail without a layout pass.
         self._tail.styles.height = LIVE_OUTPUT_TAIL_LINES
-        self._tail_lines: deque[str] = deque(maxlen=LIVE_OUTPUT_TAIL_LINES)
+        self._tail_lines: deque[tuple[Stream, str]] = deque(maxlen=LIVE_OUTPUT_TAIL_LINES)
         self._partial_line = ""
+        self._partial_stream: Stream = "stdout"
         super().__init__(call_id, tool_name)
         self.add_class("bash-tool")
         self._body.add_class("bash-tool-body")
@@ -394,23 +452,37 @@ class BashToolWidget(ToolCallWidget):
         yield self._tail
         yield self._body
 
-    def append_output(self, chunk: str) -> None:
-        """Take one streamed output chunk; only the tail's text changes."""
+    def append_output(self, chunk: str, stream: Stream = "stdout") -> None:
+        """Take one streamed output chunk; only the tail's text changes.
+
+        stderr lines render red. A stream switch ends the partial line.
+        """
+        if self._partial_line and stream != self._partial_stream:
+            self._tail_lines.append((self._partial_stream, self._partial_line))
+            self._partial_line = ""
         lines = (self._partial_line + chunk).split("\n")
         self._partial_line = lines.pop()
-        self._tail_lines.extend(lines)
+        self._partial_stream = stream
+        self._tail_lines.extend((stream, line) for line in lines)
         self._refresh_tail()
 
-    def _live_tail(self) -> list[str]:
+    def _live_tail(self) -> list[tuple[Stream, str]]:
         if self.status not in LIVE_STATUSES:
             return []
-        lines = [*self._tail_lines, self._partial_line] if self._partial_line else list(self._tail_lines)
+        lines = list(self._tail_lines)
+        if self._partial_line:
+            lines.append((self._partial_stream, self._partial_line))
         return lines[-LIVE_OUTPUT_TAIL_LINES:]
 
     def _refresh_tail(self) -> None:
         lines = self._live_tail()
         if lines:
-            self._tail.update("\n".join(lines), layout=False)
+            tail = Text()
+            for index, (stream, line) in enumerate(lines):
+                if index:
+                    tail.append("\n")
+                tail.append(line, style="#d66b73" if stream == "stderr" else "")
+            self._tail.update(tail, layout=False)
         if bool(lines) != self._tail.display:
             self._tail.display = bool(lines)
 
@@ -427,9 +499,18 @@ class BashToolWidget(ToolCallWidget):
 
     def refresh_content(self) -> None:
         target = header_target(clip_text(self._summary(), 180))
-        values = ("Bash", target, self.status)
+        facts = " · ".join(
+            part
+            for part in (
+                f"exit {self.exit_code}" if self.exit_code else "",
+                f"{self._duration:.1f}s" if self._duration is not None and self.status not in LIVE_STATUSES else "",
+            )
+            if part
+        )
+        values = ("Bash", target, f"{self.status} {facts}")
         if values != self._header_values:
-            self._bash_label.update(tool_header_text("Bash", target, self.status), layout=False)
+            # Facts widen the label once, at completion; tail updates stay layout-free.
+            self._bash_label.update(tool_header_text("Bash", target, self.status, facts), layout=bool(facts))
             self._header_values = values
         self._refresh_status_class()
         self._refresh_tail()
@@ -452,6 +533,10 @@ class PatchDiffWidget(ToolCallWidget):
     def _summary(self) -> str:
         """Keep live and collected Update rows on the same path-plus-stats line."""
         path = self._patch_path()
+        summary_fields = self.summary
+        if summary_fields is not None and summary_fields["added"] is not None and summary_fields["removed"] is not None:
+            stats = f"+{summary_fields['added']} -{summary_fields['removed']}"
+            return f"{path} {stats}" if path else stats
         summary = patch_summary(path, self._diff())
         if summary:
             return summary

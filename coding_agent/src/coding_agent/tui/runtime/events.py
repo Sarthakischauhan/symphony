@@ -11,7 +11,9 @@ from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
 from coding_agent.addons.voice.summary import SpokenSummaryStream, split_spoken_summary
+from coding_agent.tools.bash import Stream
 from coding_agent.tui.runtime.state import UiRunState
+from coding_agent.tui.tools.calls import ToolOutcome
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.partial_args import string_field
 from coding_agent.tui.transcript.messages import preview_text
@@ -140,9 +142,10 @@ class TranscriptView(Protocol):
         raw_arguments: str = "",
         status: str = "preparing",
         result: Any = None,
+        outcome: ToolOutcome | None = None,
     ) -> None: ...
 
-    def append_tool_output(self, call_id: str, chunk: str) -> None: ...
+    def append_tool_output(self, call_id: str, chunk: str, stream: Stream = "stdout") -> None: ...
 
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
@@ -184,7 +187,7 @@ class EventPresenter:
         self._pending_assistant: Optional[tuple[str, bool]] = None
         self._pending_reasoning: Optional[tuple[str, bool]] = None
         self._pending_tool_paints: dict[str, None] = {}
-        self._pending_tool_output: dict[str, list[str]] = {}
+        self._pending_tool_output: dict[str, list[tuple[Stream, str]]] = {}
         self._pending_thinking: Optional[str] = None
         self._flush_scheduled = False
         self._stream_generation = 0
@@ -288,7 +291,8 @@ class EventPresenter:
         for call_id in pending_tools:
             self._paint_pending_tool(call_id)
         for call_id, chunks in pending_output.items():
-            self.view.append_tool_output(call_id, "".join(chunks))
+            for stream, text in chunks:
+                self.view.append_tool_output(call_id, text, stream)
 
     def _paint_pending_tool(self, call_id: str) -> None:
         """Mount/update a buffered tool paint only when the real name is known."""
@@ -640,7 +644,12 @@ class EventPresenter:
         chunk = str(payload.get("delta") or "")
         if chunk:
             call_id = str(payload.get("tool_call_id") or "tool")
-            self._pending_tool_output.setdefault(call_id, []).append(chunk)
+            stream: Stream = "stderr" if payload.get("stream") == "stderr" else "stdout"
+            pending = self._pending_tool_output.setdefault(call_id, [])
+            if pending and pending[-1][0] == stream:
+                pending[-1] = (stream, pending[-1][1] + chunk)
+            else:
+                pending.append((stream, chunk))
 
     def _on_tool_execution_completed(self, payload: Mapping[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")
@@ -652,6 +661,7 @@ class EventPresenter:
             tool_name=str(payload.get("tool_name") or self._tool_names.get(call_id, "tool")),
             status=status,
             result=payload.get("result", ""),
+            outcome=ToolOutcome.from_payload(payload),
         )
         self._tool_argument_chunks.pop(call_id, None)
         self._tool_argument_tails.pop(call_id, None)
@@ -720,6 +730,10 @@ class EventPresenter:
         self.state.phase = "waiting"
         self.state.detail = f"waiting for {count} subagent{'s' if count != 1 else ''}"
         self.view.set_working(self.state.detail)
+
+    def _on_subagent_step(self, payload: Mapping[str, Any]) -> None:
+        """A child agent began a turn; the subagent card shows its transcript."""
+        self.state.detail = f"subagent turn {payload.get('turn') or 1}"
 
     def _on_question_asked(self, payload: Mapping[str, Any]) -> None:
         self.state.phase = "paused"
