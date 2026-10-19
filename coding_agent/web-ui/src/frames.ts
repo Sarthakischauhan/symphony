@@ -47,24 +47,27 @@ export type ToolSummary = {
   matches: number | null;
   added: number | null;
   removed: number | null;
-  // 1-based file line where a patch matched; numbers the diff from the file.
-  start_line?: number | null;
+  // Patch only: the 1-based file line where old_str matched.
+  start_line: number | null;
 };
+// One search tool result (protocol 3 `search_results`); files mode has no line.
+export type SearchHit = { path: string; line: number | null; text: string };
 // The spawn_agent call a subagent's event belongs to (protocol 3).
 type Spawned = { parent_call_id?: string | null };
+// tool_execution_started carries arguments and started_at (epoch seconds);
+// tool_execution_completed carries status, result and the protocol 3 facts.
 type ToolPayload = Routed & Spawned & {
   tool_call_id: string;
   call_id?: string;
-  started_at?: number | string;
+  started_at?: number;
   duration_ms?: number;
   exit_code?: number | null;
   summary?: ToolSummary | null;
+  search_results?: SearchHit[] | null;
   tool_name?: string;
   arguments?: ToolArguments;
   status?: "success" | "error" | "cancelled" | "timeout";
-  output?: unknown;
-  result?: unknown;
-  content?: unknown;
+  result?: string;
 };
 type AgentPayload = Routed & Spawned & {
   child_id: string;
@@ -98,10 +101,7 @@ export type StdioEvent =
       payload: Routed & { tokens_used: number; context_limit: number | null };
     }
   | {
-      event:
-        | "tool_execution_started"
-        | "tool_execution_updated"
-        | "tool_execution_completed";
+      event: "tool_execution_started" | "tool_execution_completed";
       payload: ToolPayload;
     }
   | {
@@ -114,7 +114,7 @@ export type StdioEvent =
     }
   | {
       event: "subagent_step";
-      payload: Routed & Spawned & { turn?: number; started_at?: number | string };
+      payload: Routed & Spawned & { turn?: number; started_at?: number };
     }
   | {
       event: "agent_spawned" | "agent_completed" | "agent_failed";
@@ -143,7 +143,6 @@ const EVENTS = new Set<string>([
   "usage",
   "context",
   "tool_execution_started",
-  "tool_execution_updated",
   "tool_execution_completed",
   "tool_execution_output",
   "subagent_step",
@@ -175,11 +174,11 @@ export type SessionSummary = {
   client: string;
   active: boolean;
 };
+// A persisted assistant tool call; `arguments` is a JSON string.
 export type ToolCall = {
   id: string;
-  name?: string;
-  arguments?: ToolArguments | string;
-  function?: { name: string; arguments: ToolArguments | string };
+  type: "function";
+  function: { name: string; arguments: string };
 };
 export type HistoryMessage = {
   role: "system" | "user" | "assistant" | "tool";

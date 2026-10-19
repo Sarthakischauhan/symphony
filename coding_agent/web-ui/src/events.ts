@@ -10,6 +10,7 @@ import type {
   EventFrame,
   Frame,
   InputRequestedFrame,
+  SearchHit,
   SessionHistory,
   ToolArguments,
   ToolSummary,
@@ -34,13 +35,12 @@ export type SubagentData = {
 // Protocol 3 completion fields, live or from the session journal.
 export type ToolFacts = {
   status?: string;
-  result?: unknown;
-  output?: unknown;
-  content?: unknown;
-  started_at?: number | string;
+  result?: string;
+  started_at?: number;
   duration_ms?: number;
   exit_code?: number | null;
   summary?: ToolSummary | null;
+  search_results?: SearchHit[] | null;
 };
 export type TerminalChunk = { stream: "stdout" | "stderr"; text: string };
 // Facts the chat SDK reads off a tool's output object. Absent fields stay unset
@@ -55,12 +55,8 @@ type RunMeta = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 // The harness stamps started_at as epoch seconds (a float) on the wire.
-const startedAt = (value: number | string | undefined) =>
-  typeof value === "number"
-    ? new Date(value * 1000).toISOString()
-    : typeof value === "string"
-      ? value
-      : undefined;
+const startedAt = (value: number | undefined) =>
+  typeof value === "number" ? new Date(value * 1000).toISOString() : undefined;
 
 function runMeta(p: ToolFacts, chunks?: TerminalChunk[]): RunMeta {
   const meta: RunMeta = {};
@@ -80,8 +76,7 @@ export const isToolSummary = (value: unknown): value is ToolSummary =>
   countOrNull(value.matches) &&
   countOrNull(value.added) &&
   countOrNull(value.removed) &&
-  // start_line is newer than the counts; older sessions omit it.
-  (value.start_line === undefined || countOrNull(value.start_line));
+  countOrNull(value.start_line);
 export const isTerminalChunk = (value: unknown): value is TerminalChunk =>
   isRecord(value) &&
   (value.stream === "stdout" || value.stream === "stderr") &&
@@ -101,9 +96,9 @@ const metaOf = (output: unknown): RunMeta =>
 
 // Settle a tool card from its completion payload.
 function finish(tool: AgentToolPart, p: ToolFacts) {
-  const value = p.output ?? p.result ?? p.content;
+  const value = p.result;
   const failed = p.status !== undefined && p.status !== "success";
-  const rendered = failed ? value : widgetOutput(tool, value);
+  const rendered = failed ? value : widgetOutput(tool, value, p.search_results);
   const meta = { ...metaOf(tool.output), ...runMeta(p) };
   tool.state = failed ? "output-error" : "output-available";
   tool.output = withMeta(rendered, meta);
@@ -315,8 +310,15 @@ function applyEvent(d: Draft, s: State, frame: EventFrame, id: number): State {
     }
     return s;
   }
-  // A question blocks the run, so any later event means it was answered.
-  if (frame.event !== "question_asked") s.pending = {};
+  // A question blocks its own call: an approval is settled by the call's
+  // tool_execution_started (or the completed event of a denied call), an
+  // ask_user question by its call's completion. Other calls, including a
+  // subagent's, leave it open; `done` clears whatever is left.
+  if (
+    frame.event === "tool_execution_started" ||
+    frame.event === "tool_execution_completed"
+  )
+    s.pending = settleQuestions(s.pending, frame.payload.tool_call_id);
   // The header gauge follows the parent agent only; subagents have their own window.
   if (frame.event === "context" && !frame.payload.parent_id)
     s.context = contextOf(frame.payload);
@@ -401,7 +403,6 @@ function applyEvent(d: Draft, s: State, frame: EventFrame, id: number): State {
         });
       break;
     case "tool_execution_started":
-    case "tool_execution_updated":
     case "tool_execution_completed": {
       const p = frame.payload;
       settle(d, s.rows, index);
@@ -471,17 +472,23 @@ function applyEvent(d: Draft, s: State, frame: EventFrame, id: number): State {
   return s;
 }
 
-const parseInput = (raw: ToolArguments | string | undefined): ToolArguments => {
-  if (typeof raw !== "string") return raw || {};
-  try {
-    const value: unknown = JSON.parse(raw);
-    return value && typeof value === "object"
-      ? (value as ToolArguments)
-      : { raw };
-  } catch {
-    return { raw };
-  }
+// Persisted tool_calls carry their arguments as the JSON of an object.
+const parseInput = (raw: string): ToolArguments => {
+  const value: unknown = JSON.parse(raw);
+  return isRecord(value) ? value : {};
 };
+// Pending questions that are not waiting on `toolCallId`.
+function settleQuestions(
+  pending: State["pending"],
+  toolCallId: string,
+): State["pending"] {
+  const open = Object.entries(pending).filter(
+    ([, q]) => q.metadata?.tool_call_id !== toolCallId,
+  );
+  return open.length === Object.keys(pending).length
+    ? pending
+    : Object.fromEntries(open);
+}
 
 export function historical(data: SessionHistory): State {
   const s = initial(),
@@ -511,10 +518,8 @@ export function historical(data: SessionHistory): State {
       const tool: AgentToolPart = {
         type: "tool",
         toolCallId: call.id,
-        toolName: call.function?.name || call.name || "tool",
-        input: toolInput(
-          parseInput(call.function?.arguments ?? call.arguments),
-        ),
+        toolName: call.function.name,
+        input: toolInput(parseInput(call.function.arguments)),
         state: "input-available",
       };
       row.parts.push(tool);
@@ -544,36 +549,21 @@ export function historical(data: SessionHistory): State {
   return s;
 }
 
-// Symphony's search tool answers "N content matches" then "path:line:text"
-// lines (or bare paths in files mode); the SDK search view wants results.
-function searchResults(value: string) {
-  const [summary, ...lines] = value.split("\n");
-  if (!/^\d+ (content|files) matches/.test(summary)) return value;
-  return {
-    total: Number.parseInt(summary, 10),
-    results: lines.filter(Boolean).map((line) => {
-      const match = /^(.+?):(\d+):(.*)$/.exec(line);
-      return match
-        ? { path: match[1], line: Number(match[2]), text: match[3] }
-        : { path: line };
-    }),
-  };
-}
-// The SDK treats a plain patch result string as a candidate unified diff.
-// Symphony returns a status sentence; retain it as metadata so before/after
-// inputs can supply the actual diff instead of falling back to a generic tool.
-function widgetOutput(tool: AgentToolPart, value: unknown) {
-  if (tool.toolName === "search" && typeof value === "string")
-    return searchResults(value);
-  const input = tool.input as { before?: unknown; after?: unknown } | undefined;
-  if (
-    tool.toolName === "patch" &&
-    typeof value === "string" &&
-    typeof input?.before === "string" &&
-    typeof input?.after === "string" &&
-    !/^(@@|diff --git|--- |\*\*\* Begin Patch)/m.test(value)
-  )
+// Shape a successful result for the SDK widget. Search renders the
+// protocol's search_results (else the plain text); patch keeps its status
+// sentence as `message` so the before/after inputs supply the diff; ask_user
+// passes the answer explicitly.
+function widgetOutput(
+  tool: AgentToolPart,
+  value: unknown,
+  hits?: SearchHit[] | null,
+) {
+  if (tool.toolName === "search" && hits)
+    return { results: hits, total: hits.length };
+  if (tool.toolName === "patch" && typeof value === "string")
     return { message: value };
+  if (tool.toolName === "ask_user" && typeof value === "string")
+    return { answer: value };
   return value;
 }
 // Keep protocol 3 facts beside the rendered result. A string result (bash,

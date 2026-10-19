@@ -1,6 +1,8 @@
 // Node 25+ ships a global localStorage that shadows jsdom's (and is undefined
 // without --localstorage-file). Point the globals back at the jsdom window.
-const dom = (globalThis as any).jsdom?.window;
+// vitest's jsdom environment exposes its JSDOM instance as `jsdom`.
+declare var jsdom: { window: Window } | undefined;
+const dom = globalThis.jsdom?.window;
 if (dom)
   for (const key of ["localStorage", "sessionStorage"] as const)
     Object.defineProperty(globalThis, key, {

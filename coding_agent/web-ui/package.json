@@ -9,7 +9,9 @@
     "preinstall": "./scripts/fetch-chat-sdk.sh"
   },
   "dependencies": {
+    "@sarchauhan/adapter": "file:.chat-sdk/adapter",
     "@sarchauhan/chat": "file:.chat-sdk/chat",
+    "@sarchauhan/protocol": "file:.chat-sdk/protocol",
     "class-variance-authority": "^0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "^1.59.0",
@@ -33,8 +35,5 @@
     "typescript": "^5",
     "vite": "^7",
     "vitest": "^3"
-  },
-  "overrides": {
-    "@sarchauhan/protocol": "0.0.2"
   }
 }

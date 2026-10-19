@@ -16,7 +16,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import logo from "./assets/symphony-logo.svg";
 import { SettingsDialog, type Preferences } from "./Settings";
 import type { Workspace } from "./frames";
 
@@ -129,7 +128,7 @@ export function SessionSidebar({
     <Sidebar aria-label="Session navigation">
       <SidebarHeader>
         <div className="brand">
-          <img className="brand-logo" src={logo} alt="Symphony" />
+          <span className="brand-logo">symphony</span>
           <Button
             variant="ghost"
             size="icon"

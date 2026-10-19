@@ -52,7 +52,6 @@ type SessionView = SessionHistory & { owned: boolean; model: string };
 type CatalogModel = {
   id: string;
   label: string;
-  description?: string;
   thinkingLevels?: string[];
 };
 type Catalog = {
@@ -93,22 +92,24 @@ const MessageRow = memo(function MessageRow({
     </div>
   );
 });
+// The catalog provider whose model rows include `model` (the row's
+// provider is the API route, not the id's prefix).
+const providerOf = (catalog: Catalog | null, model: string) =>
+  catalog?.providers.find((p) => p.models.some((m) => m.id === model));
 // Show the session's own model in the SDK picker once the registry loads.
-function ModelSync({ model }: { model: string }) {
+function ModelSync({ model, catalog }: { model: string; catalog: Catalog | null }) {
   const { registry, setProvider } = useModel();
   useEffect(() => {
-    if (model) setProvider(model.split(":")[0], model);
-  }, [model, registry]);
+    const provider = providerOf(catalog, model);
+    if (provider) setProvider(provider.id, model);
+  }, [model, catalog, registry]);
   return null;
 }
-// "openai:gpt-6.1" → provider "openai", name from the catalog label or the id.
+// The header's model: its provider and catalog label; an unlisted model shows its id.
 function modelParts(catalog: Catalog | null, model: string) {
-  const separator = model.indexOf(":");
-  const provider = separator > 0 ? model.slice(0, separator) : "";
-  const label = catalog?.providers
-    .flatMap((p) => p.models)
-    .find((m) => m.id === model)?.label;
-  return { provider, name: label || model.slice(separator + 1) };
+  const provider = providerOf(catalog, model);
+  const row = provider?.models.find((m) => m.id === model);
+  return { provider: provider?.id ?? "", name: row ? row.label : model };
 }
 // The host stages PNG, JPEG, GIF and WebP images for the stdio run frame; the
 // composer filters picked, pasted and dropped files to these.
@@ -545,7 +546,7 @@ export function App() {
                   defaultProvider=""
                   registryUrl={withToken("/api/models")}
                 >
-                  <ModelSync model={state.model} />
+                  <ModelSync model={state.model} catalog={catalog} />
                   {/* The circle variant carries the model picker; style.css
                       keeps the resting composer a full-width bar. */}
                   <ChatComposer

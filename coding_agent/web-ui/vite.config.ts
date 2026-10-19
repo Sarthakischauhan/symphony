@@ -6,21 +6,6 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^@\//, replacement: fileURLToPath(new URL("./src/", import.meta.url)) },
-      {
-        find: /^@sarchauhan\/protocol$/,
-        replacement: fileURLToPath(
-          new URL("./src/protocol-compat.ts", import.meta.url),
-        ),
-      },
-      {
-        find: "@sarchauhan/protocol-original",
-        replacement: fileURLToPath(
-          new URL(
-            "./node_modules/@sarchauhan/protocol/dist/index.mjs",
-            import.meta.url,
-          ),
-        ),
-      },
     ],
   },
   test: {

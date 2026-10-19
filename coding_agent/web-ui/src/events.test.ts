@@ -8,7 +8,6 @@ import {
   type State,
 } from "./events";
 import { parseFrame } from "./frames";
-import { parseArtifact, parseSubagent, parseUsage } from "./protocol-compat";
 
 // Frames arrive as JSON; parse them the way the SSE handler does.
 const apply = (state: State, raw: unknown, id: number) => {
@@ -27,7 +26,7 @@ const event = (name: string, payload: Record<string, unknown>) => ({
 });
 
 describe("Symphony event adapter", () => {
-  it("takes the user turn from run_started and keeps questions until a later event", () => {
+  it("takes the user turn from run_started and keeps a question until its own call moves", () => {
     let s = run([
       event("run_started", { prompt: "task", model_id: "m" }),
       event("text_delta", { delta: "Hello " }),
@@ -46,18 +45,36 @@ describe("Symphony event adapter", () => {
         request_id: "q",
         question: "Allow?",
         choices: ["Yes"],
+        kind: "approval",
+        metadata: { tool_call_id: "t" },
       },
       4,
     );
     expect(s.pending.q.question).toBe("Allow?");
-    // No answered frame exists; the next run event confirms the answer.
+    // A parallel call, a subagent's call and other events leave it open.
+    for (const [i, frame] of [
+      event("tool_execution_started", { tool_call_id: "other", tool_name: "read_file" }),
+      event("tool_execution_completed", { tool_call_id: "other", tool_name: "read_file", status: "success", result: "x" }),
+      event("tool_execution_started", { tool_call_id: "kid-call", tool_name: "bash", agent_id: "kid", parent_id: "root" }),
+      event("text_delta", { delta: "!" }),
+    ].entries())
+      s = apply(s, frame, 5 + i);
+    expect(Object.keys(s.pending)).toEqual(["q"]);
+    // No answered frame exists; the approved call starting settles it.
     s = apply(
       s,
       event("tool_execution_started", { tool_call_id: "t", tool_name: "bash" }),
-      5,
+      9,
     );
     expect(s.pending).toEqual({});
-    expect(apply(s, { type: "done", status: "completed" }, 6).busy).toBe(false);
+    // An ask_user question settles on its call's completion, or on done.
+    s = apply(s, { type: "input_requested", request_id: "a", question: "Which?", choices: null, metadata: { tool_call_id: "ask" } }, 10);
+    s = apply(s, { type: "input_requested", request_id: "z", question: "Stray?", choices: null }, 11);
+    s = apply(s, event("tool_execution_completed", { tool_call_id: "ask", tool_name: "ask_user", status: "success", result: "A" }), 12);
+    expect(Object.keys(s.pending)).toEqual(["z"]);
+    const done = apply(s, { type: "done", status: "completed" }, 13);
+    expect(done.busy).toBe(false);
+    expect(done.pending).toEqual({});
   });
   it("ignores frames this client does not render", () => {
     expect(parseFrame({ type: "user", text: "made up" })).toBeNull();
@@ -116,8 +133,9 @@ describe("Symphony event adapter", () => {
     const summary = { lines: null, matches: null, added: 1, removed: 1, start_line: 42 };
     expect(isToolSummary(summary)).toBe(true);
     expect(isToolSummary({ ...summary, start_line: "42" })).toBe(false);
+    // Summaries without start_line predate it; they are not read.
     const { start_line: _, ...older } = summary;
-    expect(isToolSummary(older)).toBe(true);
+    expect(isToolSummary(older)).toBe(false);
     const s = run([
       event("tool_execution_started", {
         tool_call_id: "p",
@@ -150,29 +168,6 @@ describe("Symphony event adapter", () => {
     expect(partsOf(s, 0)[0].data.messages[0].parts[0].text).toBe("Child reply");
     expect(partsOf(s, 0).some((p) => p.type === "text")).toBe(false);
   });
-  it("validates compatibility envelopes", () => {
-    expect(parseArtifact(null)).toBeNull();
-    expect(parseSubagent({ id: "x", title: "x", state: "bogus" })).toBeNull();
-    expect(
-      parseSubagent({ id: "x", title: "x", state: "running" })?.state,
-    ).toBe("running");
-    expect(
-      parseArtifact({
-        id: "a",
-        filename: "a.txt",
-        content: "<script>bad</script>",
-      })?.content,
-    ).toContain("<script>");
-    expect(
-      parseArtifact({ id: "a", filename: "a.txt", status: "bogus" })?.status,
-    ).toBe("ready");
-    expect(parseUsage({ total_tokens: 5, input_tokens: "x" })).toEqual({
-      input_tokens: undefined,
-      output_tokens: undefined,
-      reasoning_tokens: undefined,
-      total_tokens: 5,
-    });
-  });
   it("rebuilds history from the session_history reply", () => {
     const s = historical({
       messages: [
@@ -184,7 +179,8 @@ describe("Symphony event adapter", () => {
           tool_calls: [
             {
               id: "c1",
-              function: { name: "search", arguments: '{"pattern":"def main"}' },
+              type: "function",
+              function: { name: "search", arguments: '{"query":"def main"}' },
             },
           ],
         },
@@ -195,7 +191,18 @@ describe("Symphony event adapter", () => {
         },
         { role: "assistant", content: [{ type: "text", text: "Found it" }] },
       ],
-      events: [["agent_spawned", { child_id: "k", label: "Helper" }]],
+      events: [
+        [
+          "tool_execution_completed",
+          {
+            tool_call_id: "c1", tool_name: "search", status: "success",
+            result: "1 content matches\na.py:3:def main():",
+            summary: { lines: null, matches: 1, added: null, removed: null, start_line: null },
+            search_results: [{ path: "a.py", line: 3, text: "def main():" }],
+          },
+        ],
+        ["agent_spawned", { child_id: "k", label: "Helper" }],
+      ],
       children: [],
     });
     expect(s.rows.map((r) => r.role)).toEqual([
@@ -205,8 +212,8 @@ describe("Symphony event adapter", () => {
     ]);
     expect(partsOf(s, 1).at(-1)).toMatchObject({
       toolName: "search",
-      input: { pattern: "def main" },
-      output: { total: 1, results: [{ path: "a.py", line: 3 }] },
+      input: { query: "def main" },
+      output: { total: 1, results: [{ path: "a.py", line: 3, text: "def main():" }] },
     });
     expect(partsOf(s, 2)[0]).toMatchObject({ type: "text", text: "Found it" });
     expect(partsOf(s, 2).some((p) => p.name === "subagent")).toBe(true);
@@ -284,7 +291,7 @@ describe("protocol 3 widget fields", () => {
         tool_call_id: "b",
         tool_name: "bash",
         arguments: { command: "pytest" },
-        started_at: "2026-10-18T10:00:00Z",
+        started_at: 1792317600,
       }),
       event("tool_execution_output", {
         tool_call_id: "b",
@@ -301,7 +308,7 @@ describe("protocol 3 widget fields", () => {
       { stream: "stdout", text: "ok\n" },
       { stream: "stderr", text: "E boom\n" },
     ]);
-    expect(partsOf(s, 1)[0].output.startedAt).toBe("2026-10-18T10:00:00Z");
+    expect(partsOf(s, 1)[0].output.startedAt).toBe("2026-10-18T10:00:00.000Z");
     const done = apply(
       s,
       event("tool_execution_completed", {
@@ -311,7 +318,7 @@ describe("protocol 3 widget fields", () => {
         result: "exit=1\nE boom",
         duration_ms: 1500,
         exit_code: 1,
-        summary: { lines: 2, matches: null, added: null, removed: null },
+        summary: { lines: 2, matches: null, added: null, removed: null, start_line: null },
       }),
       5,
     );
@@ -322,12 +329,12 @@ describe("protocol 3 widget fields", () => {
         output: "exit=1\nE boom",
         exitCode: 1,
         durationMs: 1500,
-        startedAt: "2026-10-18T10:00:00Z",
+        startedAt: "2026-10-18T10:00:00.000Z",
         chunks: [
           { stream: "stdout", text: "ok\n" },
           { stream: "stderr", text: "E boom\n" },
         ],
-        summary: { lines: 2, matches: null, added: null, removed: null },
+        summary: { lines: 2, matches: null, added: null, removed: null, start_line: null },
       },
     });
   });
@@ -345,7 +352,7 @@ describe("protocol 3 widget fields", () => {
         status: "success",
         result: "patched a.py",
         duration_ms: 10,
-        summary: { lines: null, matches: null, added: 2, removed: 1 },
+        summary: { lines: null, matches: null, added: 2, removed: 1, start_line: 3 },
       }),
     ]);
     expect(partsOf(s, 0)[0].output).toMatchObject({
@@ -380,7 +387,7 @@ describe("protocol 3 widget fields", () => {
         {
           role: "assistant",
           content: "",
-          tool_calls: [{ id: "b", function: { name: "bash", arguments: '{"command":"make"}' } }],
+          tool_calls: [{ id: "b", type: "function", function: { name: "bash", arguments: '{"command":"make"}' } }],
         },
         { role: "tool", tool_call_id: "b", content: "exit=2\nfail" },
       ],
@@ -390,7 +397,7 @@ describe("protocol 3 widget fields", () => {
           {
             tool_call_id: "b", tool_name: "bash", status: "error", result: "exit=2\nfail",
             duration_ms: 900, exit_code: 2,
-            summary: { lines: 2, matches: null, added: null, removed: null },
+            summary: { lines: 2, matches: null, added: null, removed: null, start_line: null },
           },
         ],
       ],
@@ -412,8 +419,8 @@ describe("protocol 3 widget fields", () => {
 
 describe("tool output guards", () => {
   it("accepts only well-formed summaries", () => {
-    expect(isToolSummary({ lines: 2, matches: null, added: null, removed: null })).toBe(true);
-    expect(isToolSummary({ lines: "2", matches: null, added: null, removed: null })).toBe(false);
+    expect(isToolSummary({ lines: 2, matches: null, added: null, removed: null, start_line: null })).toBe(true);
+    expect(isToolSummary({ lines: "2", matches: null, added: null, removed: null, start_line: null })).toBe(false);
     expect(isToolSummary({ lines: 2 })).toBe(false);
     expect(isToolSummary([1, 2])).toBe(false);
     expect(isToolSummary(null)).toBe(false);
@@ -515,7 +522,7 @@ describe("copy-on-write frames", () => {
         {
           role: "assistant",
           content: "",
-          tool_calls: [{ id: "b", function: { name: "bash", arguments: '{"command":"make"}' } }],
+          tool_calls: [{ id: "b", type: "function", function: { name: "bash", arguments: '{"command":"make"}' } }],
         },
         { role: "tool", tool_call_id: "b", content: "exit=2\nfail" },
       ],
@@ -530,5 +537,77 @@ describe("copy-on-write frames", () => {
     });
     const bash = partsOf(s, 1).find((p) => p.type === "tool");
     expect(bash).toMatchObject({ state: "output-error", output: { exitCode: 2 } });
+  });
+});
+
+describe("only the protocol's own fields", () => {
+  it("reads result, never output or content, and drops unknown events", () => {
+    expect(parseFrame(event("tool_execution_updated", { tool_call_id: "x" }))).toBeNull();
+    const s = run([
+      event("tool_execution_started", {
+        tool_call_id: "w", tool_name: "write_file", arguments: { path: "a" }, started_at: "2026-10-18T10:00:00Z",
+      }),
+      event("tool_execution_completed", {
+        tool_call_id: "w", tool_name: "write_file", status: "success", output: "guessed", content: "guessed",
+      }),
+    ]);
+    const tool = partsOf(s, 0)[0];
+    // A string started_at is not the protocol's epoch seconds; it is not read.
+    expect(tool.output).toBeUndefined();
+    expect(tool.state).toBe("output-available");
+  });
+
+  it("renders search from search_results, else as its plain text", () => {
+    const text = "1 content matches\na.py:3:def main():";
+    const call = event("tool_execution_started", { tool_call_id: "s", tool_name: "search", arguments: { query: "main" } });
+    const plain = run([
+      call,
+      event("tool_execution_completed", { tool_call_id: "s", tool_name: "search", status: "success", result: text }),
+    ]);
+    // No regex over the result text builds results.
+    expect(partsOf(plain, 0)[0].output).toBe(text);
+    const files = run([
+      call,
+      event("tool_execution_completed", {
+        tool_call_id: "s", tool_name: "search", status: "success", result: "1 files matches\na.py",
+        search_results: [{ path: "a.py", line: null, text: "" }],
+      }),
+    ]);
+    expect(partsOf(files, 0)[0].output).toEqual({ results: [{ path: "a.py", line: null, text: "" }], total: 1 });
+  });
+
+  it("keeps any patch result as a message, even one that looks like a diff", () => {
+    const s = run([
+      event("tool_execution_started", { tool_call_id: "p", tool_name: "patch", arguments: { path: "a", old_str: "a", new_str: "b" } }),
+      event("tool_execution_completed", { tool_call_id: "p", tool_name: "patch", status: "success", result: "@@ -1 +1 @@" }),
+    ]);
+    expect(partsOf(s, 0)[0].output).toEqual({ message: "@@ -1 +1 @@" });
+  });
+
+  it("passes the ask_user answer explicitly, live and from an old session", async () => {
+    const { computeToolWidget } = await import("@sarchauhan/chat");
+    const live = run([
+      event("tool_execution_started", { tool_call_id: "q", tool_name: "ask_user", arguments: { question: "Push?" } }),
+      event("tool_execution_completed", { tool_call_id: "q", tool_name: "ask_user", status: "success", result: "Yes", duration_ms: 5 }),
+    ]);
+    expect(partsOf(live, 0)[0].output).toMatchObject({ answer: "Yes", durationMs: 5 });
+    expect(computeToolWidget(partsOf(live, 0)[0])?.props.answer).toBe("Yes");
+    // A session without journaled completions still has the tool message.
+    const old = historical({
+      messages: [
+        { role: "user", content: "t" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "q", type: "function", function: { name: "ask_user", arguments: '{"question":"Push?"}' } }],
+        },
+        { role: "tool", tool_call_id: "q", content: "Yes" },
+      ],
+      events: [],
+      children: [],
+    });
+    const asked = partsOf(old, 1).find((p) => p.type === "tool");
+    expect(asked.output).toEqual({ answer: "Yes" });
+    expect(computeToolWidget(asked)?.props.answer).toBe("Yes");
   });
 });
