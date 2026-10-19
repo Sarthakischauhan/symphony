@@ -21,6 +21,8 @@ from importlib.metadata import PackageNotFoundError, distribution, version
 from pathlib import Path
 from typing import Callable, Mapping
 
+from coding_agent.web.bundle import BundleError, bundle_root, install as install_web_bundle
+
 PACKAGE = "symphony-code"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
 TIMEOUT_SECONDS = 3.0
@@ -174,8 +176,15 @@ def startup_update_check(
     install: Callable[[str], subprocess.CompletedProcess[str]] = apply_update,
     output: Callable[[str], None] = print,
     enabled: bool | None = None,
+    install_web: Callable[[str, Path], Path] = install_web_bundle,
+    web_root: Callable[[], Path] = bundle_root,
 ) -> UpdateDecision:
-    """Run the pre-start check described by ``updates`` in the user config."""
+    """Run the pre-start check described by ``updates`` in the user config.
+
+    After the package updates, the matching Symphony Web bundle is installed
+    and made current. A failed bundle install keeps the old bundle and only
+    warns: the package update itself already succeeded.
+    """
     settings = config.get("updates") if isinstance(config.get("updates"), Mapping) else {}
     if enabled is None:
         enabled = os.environ.get("SYMPHONY_NO_UPDATE_CHECK", "").strip().lower() not in {"1", "true", "yes"}
@@ -206,5 +215,9 @@ def startup_update_check(
         if detail:
             output(detail)
         return UpdateDecision("failed", decision.current, decision.latest, detail)
+    try:
+        install_web(decision.latest or "", web_root())
+    except BundleError as exc:
+        output(f"Symphony Web {decision.latest} was not installed ({exc}); run `symphony web --update` to retry.")
     output(f"Updated symphony-code to {decision.latest}. Restart `symphony` to use it.")
     return UpdateDecision("updated", decision.current, decision.latest)

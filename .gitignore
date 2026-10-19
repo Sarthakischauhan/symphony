@@ -7,3 +7,6 @@ secrets.json
 .symphony
 node_modules/
 dist/
+
+# Built frontend; release assets carry it (web-<version>.tar.gz).
+coding_agent/src/coding_agent/web/static/

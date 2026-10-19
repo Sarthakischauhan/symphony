@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from coding_agent.addons.persistence import register_active, release_active
+from coding_agent.web.bundle import resolve_static
 from coding_agent.web.server import Server
 from coding_agent.web.sessions import Sessions
 
@@ -76,10 +77,16 @@ def model(monkeypatch):
     server.server_close()
 
 
+@pytest.fixture(scope="session")
+def static(tmp_path_factory):
+    # No installed bundle: the source checkout's web-ui is built (or reused).
+    return resolve_static(tmp_path_factory.mktemp("web"))
+
+
 @pytest.fixture
-def web(tmp_path, model):
+def web(tmp_path, model, static):
     sessions = Sessions(tmp_path, "local:web-test")
-    server = Server(("127.0.0.1", 0), sessions)
+    server = Server(("127.0.0.1", 0), sessions, static)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
     server.shutdown()
@@ -346,7 +353,7 @@ def test_persistence_honors_configured_symphony_home(tmp_path, monkeypatch):
     assert active_dir() == tmp_path / "custom" / "active"
 
 
-def test_cli_opens_browser(monkeypatch, tmp_path):
+def test_cli_opens_browser(monkeypatch, tmp_path, static):
     from types import SimpleNamespace
     from coding_agent.web import server
 
@@ -356,6 +363,7 @@ def test_cli_opens_browser(monkeypatch, tmp_path):
         server.threading, "Timer", lambda delay, callback, args: SimpleNamespace(start=lambda: callback(*args))
     )
     monkeypatch.setattr(server.Server, "serve_forever", lambda self: None)
+    monkeypatch.setattr(server, "resolve_static", lambda root: static)
     assert server.main(["--workspace", str(tmp_path)]) == 0
     assert len(opened) == 1 and opened[0].startswith("http://127.0.0.1:")
     assert len(opened[0].split("#")[1]) >= 32

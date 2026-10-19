@@ -52,6 +52,19 @@ jobs:
         # tests run against the built packages rather than only src/ on sys.path.
         run: uv sync --locked --all-packages --dev
 
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: coding_agent/web-ui/package-lock.json
+
+      - name: Build the web frontend
+        # The web tests serve coding_agent/web-ui/dist, the source-checkout fallback.
+        working-directory: coding_agent/web-ui
+        run: |
+          npm ci
+          npm run build
+
       - name: Install Chromium for the browser agent
         # The browser_agent end-to-end and snapshot tests drive a real page
         # with the Chromium sandbox on. Ubuntu 24.04 blocks the unprivileged
@@ -83,10 +96,8 @@ jobs:
           npm ci
           npm test
           npm run build
-      - name: Check committed assets
-        run: |
-          git diff --exit-code -- coding_agent/src/coding_agent/web/static
-          test -z "$(git ls-files --others --exclude-standard -- coding_agent/src/coding_agent/web/static)"
+      - name: No built frontend is tracked
+        run: test -z "$(git ls-files -- coding_agent/src/coding_agent/web/static)"
 
   build:
     runs-on: ubuntu-latest
@@ -107,7 +118,23 @@ jobs:
           uv build --package symphony-harness -o dist
           uv build --package symphony-code -o dist
 
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: coding_agent/web-ui/package-lock.json
+
+      - name: Build the web release asset
+        # Same commands as publish-web.yml.
+        working-directory: coding_agent/web-ui
+        run: |
+          npm ci
+          npm run build
+          tar -C dist -czf "$RUNNER_TEMP/web-0.0.1.tar.gz" .
+
       - name: Smoke test the installed wheel
+        env:
+          SYMPHONY_SMOKE_WEB_TARBALL: ${{ runner.temp }}/web-0.0.1.tar.gz
         run: |
           uv venv /tmp/symphony-wheel-smoke
           uv pip install --python /tmp/symphony-wheel-smoke/bin/python dist/*.whl

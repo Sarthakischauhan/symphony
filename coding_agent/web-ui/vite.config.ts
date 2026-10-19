@@ -28,8 +28,6 @@ export default defineConfig({
     server: { deps: { inline: [/@sarchauhan\//] } },
   },
   build: {
-    outDir: "../src/coding_agent/web/static",
-    emptyOutDir: true,
     rollupOptions: {
       // RSC "use client" directives (and the sourcemap notes they cause) do
       // not apply to this single-page bundle.

@@ -1,11 +1,13 @@
 """Startup update checks compare an installed release with PyPI."""
 
 import json
+from pathlib import Path
 from subprocess import CompletedProcess
 
 import pytest
 
 from coding_agent.config import CodingAgentConfig, ensure_spawn_settings
+from coding_agent.web.bundle import BundleError
 from coding_agent.updates import (
     UpdateDecision,
     check_for_update,
@@ -63,6 +65,10 @@ def test_prompt_yes_installs_exact_release() -> None:
         installed.append(target)
         return CompletedProcess([], 0, "", "")
 
+    def install_web(target: str, root: Path) -> Path:
+        installed.append(f"web {target} {root.name}")
+        return root
+
     decision = startup_update_check(
         {"updates": {"auto": False}},
         current=lambda: "0.0.1",
@@ -71,8 +77,10 @@ def test_prompt_yes_installs_exact_release() -> None:
         install=install,
         output=lambda _message: None,
         enabled=True,
+        install_web=install_web,
+        web_root=lambda: Path("web"),
     )
-    assert installed == ["0.0.2"]
+    assert installed == ["0.0.2", "web 0.0.2 web"]
     assert decision.action == "updated"
 
 
@@ -100,3 +108,23 @@ def test_config_defaults_ask_before_updating(tmp_path, monkeypatch) -> None:
     CodingAgentConfig.model_validate({"updates": {"auto": True}})
     with pytest.raises(ValueError):
         CodingAgentConfig.model_validate({"updates": {"channel": "beta"}})
+
+
+def test_failed_web_bundle_still_reports_the_package_update() -> None:
+    messages: list[str] = []
+
+    def broken(target: str, root: Path) -> Path:
+        raise BundleError("checksum mismatch")
+
+    decision = startup_update_check(
+        {"updates": {"auto": True}},
+        current=lambda: "0.0.1",
+        latest=lambda: "0.0.2",
+        install=lambda _target: CompletedProcess([], 0, "", ""),
+        output=messages.append,
+        enabled=True,
+        install_web=broken,
+        web_root=lambda: Path("web"),
+    )
+    assert decision.action == "updated"
+    assert any("checksum mismatch" in m and "symphony web --update" in m for m in messages)

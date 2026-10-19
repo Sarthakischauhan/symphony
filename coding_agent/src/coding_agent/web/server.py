@@ -15,16 +15,16 @@ from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from coding_agent.web.bundle import BundleError, bundle_root, install, resolve_static, rollback
 from coding_agent.web.sessions import JsonObject, Sessions, WorkerError
-
-STATIC = Path(__file__).with_name("static")
 
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], sessions: Sessions) -> None:
+    def __init__(self, address: tuple[str, int], sessions: Sessions, static: Path) -> None:
         self.sessions = sessions
+        self.static = static
         self.token = secrets.token_urlsafe(32)
         super().__init__(address, Handler)
         self.origin = f"http://127.0.0.1:{self.server_port}"
@@ -140,8 +140,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({**baseline, "owned": True, "model": owned.ready.model})
             if path.startswith("/api/"):
                 return self._json({"error": "Not found"}, 404)
-            asset = (STATIC / ("index.html" if path == "/" else path.lstrip("/"))).resolve()
-            if not asset.is_relative_to(STATIC.resolve()) or not asset.is_file():
+            static = self.app.static.resolve()
+            asset = (static / ("index.html" if path == "/" else path.lstrip("/"))).resolve()
+            if not asset.is_relative_to(static) or not asset.is_file():
                 return self._json({"error": "Not found"}, 404)
             types = {
                 ".html": "text/html",
@@ -233,10 +234,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--model")
     parser.add_argument("--port", type=int, default=0, help="Local port (default: choose a free port)")
     parser.add_argument("--no-browser", action="store_true")
+    assets = parser.add_mutually_exclusive_group()
+    assets.add_argument(
+        "--update",
+        action="store_true",
+        help="Download and switch to the web assets for the installed symphony-code (or --bundle-version), then exit",
+    )
+    assets.add_argument("--rollback", action="store_true", help="Switch back to the previous web assets, then exit")
+    parser.add_argument("--bundle-version", help="Release to install with --update (default: installed symphony-code)")
     args = parser.parse_args(argv)
-    if not (STATIC / "index.html").is_file():
-        parser.error("Web assets missing. Contributors: run npm ci && npm run build in coding_agent/web-ui")
-    server = Server(("127.0.0.1", args.port), Sessions(Path(args.workspace).expanduser().resolve(), args.model))
+    root = bundle_root()
+    try:
+        if args.update:
+            from coding_agent.updates import installed_version
+
+            version = args.bundle_version or installed_version()
+            if version is None:
+                parser.error("cannot tell the installed symphony-code release; pass --bundle-version")
+            print(f"Symphony Web {version} installed in {install(version, root)}", flush=True)
+            return 0
+        if args.rollback:
+            print(f"Symphony Web rolled back to {rollback(root)}", flush=True)
+            return 0
+        static = resolve_static(root)
+    except BundleError as exc:
+        print(f"symphony web: error: {exc}", file=sys.stderr, flush=True)
+        return 1
+    server = Server(
+        ("127.0.0.1", args.port), Sessions(Path(args.workspace).expanduser().resolve(), args.model), static
+    )
     print(f"Symphony Web listening on {server.origin}", flush=True)
     # Capability stays in the URL fragment, never in the HTTP request or logs.
     if not args.no_browser:

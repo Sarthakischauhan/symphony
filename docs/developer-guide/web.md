@@ -88,8 +88,8 @@ first) and settles when that run's `done` frame arrives. The composer's stop
 button interrupts the run. Prompts are text only, so the composer is mounted
 with `showAttachments={false}`, `inputLabel="Coding task"` and a placeholder.
 
-The Python host and compiled assets live in `coding_agent/src/coding_agent/web`
-to fit the existing Python package layout. To review the UI without a worker or
+The Python host lives in `coding_agent/src/coding_agent/web`; the frontend
+source is `coding_agent/web-ui` and its build output is never committed. To review the UI without a worker or
 provider, run `npx vite` in `coding_agent/web-ui` and open `/demo/`; it mocks the
 local API and plays a scripted run. The demo page is not part of the build.
 
@@ -107,9 +107,16 @@ uv build --package symphony-code -o dist
 /path/to/venv/bin/python coding_agent/tests/web_wheel_smoke.py
 ```
 
-Commit both frontend sources/lockfile and generated `web/static` assets. Python
-wheel builds ship these assets without invoking npm. CI rebuilds and checks for
-asset drift. The wheel can be installed and used on a machine without Node.
+Built assets are not committed or shipped in the wheel. Each release's
+`publish-web.yml` uploads `web-<version>.tar.gz` and `web-<version>.tar.gz.sha256`.
+`install.sh`, the startup self-update, and `symphony web --update [--bundle-version X]`
+download the asset for the installed `symphony-code`, verify the SHA-256, extract
+it in a temp dir under `~/.symphony/web/`, rename it to `~/.symphony/web/<version>/`,
+and swap the `current` symlink by rename (the old target becomes `previous`). Only
+`current` and `previous` are kept. `symphony web --rollback` swaps them back.
+`symphony web` serves `~/.symphony/web/current`; in a source checkout without an
+installed bundle it serves `coding_agent/web-ui/dist`, running `npm ci`/`npm run
+build` first if needed. Otherwise it exits and names `symphony web --update`.
 The browser integration test uses Playwright Chromium (system `chromium` when
 available, otherwise `uv run playwright install chromium`); Chromium's sandbox
 must be supported on the test host.
