@@ -50,6 +50,8 @@ const mount = (props: Partial<Parameters<typeof SessionSidebar>[0]> = {}) =>
           onSelect={vi.fn()}
           onCreate={vi.fn()}
           onRefresh={vi.fn()}
+          preferences={{ showUsage: true }}
+          onPreferencesChange={vi.fn()}
           {...props}
         />
       </SidebarProvider>
@@ -108,4 +110,33 @@ it("collapses with the shadcn keyboard shortcut", () => {
   expect(state()).toBe("expanded");
   fireEvent.keyDown(window, { key: "b", ctrlKey: true });
   expect(state()).toBe("collapsed");
+});
+it("opens settings with workspace facts, preferences and pin reset", () => {
+  const change = vi.fn();
+  localStorage.setItem("symphony-pinned-sessions", JSON.stringify(["c"]));
+  mount({
+    workspace: {
+      path: "/home/me/symphony",
+      display: "~/symphony",
+      name: "symphony",
+      branch: "main",
+    },
+    defaultModel: "anthropic:claude-opus-5-5",
+    onPreferencesChange: change,
+  });
+  fireEvent.click(screen.getByRole("button", { name: /^Settings/ }));
+  const dialog = screen.getByRole("dialog", { name: "Settings" });
+  expect(within(dialog).getByText("~/symphony")).toBeTruthy();
+  expect(within(dialog).getByText("main")).toBeTruthy();
+  expect(within(dialog).getByText("anthropic:claude-opus-5-5")).toBeTruthy();
+  fireEvent.click(
+    within(dialog).getByRole("switch", { name: /Show token usage/ }),
+  );
+  expect(change).toHaveBeenCalledWith({ showUsage: false });
+  expect(within(dialog).getByText("1 pinned in this browser.")).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Clear pins" }));
+  expect(within(dialog).getByText("Nothing pinned yet.")).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem("symphony-pinned-sessions")!)).toEqual(
+    [],
+  );
 });

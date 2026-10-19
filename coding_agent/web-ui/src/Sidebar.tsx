@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Folder, GitBranch, Plus, RefreshCw, Search, Star } from "lucide-react";
+import { Plus, RefreshCw, Search, Star } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import logo from "./assets/symphony-logo.svg";
+import { SettingsDialog, type Preferences } from "./Settings";
 import type { Workspace } from "./Welcome";
 
 export type Session = {
@@ -29,13 +30,16 @@ export type Session = {
 };
 type Props = {
   workspace?: Workspace | null;
+  defaultModel?: string;
+  preferences: Preferences;
+  onPreferencesChange: (preferences: Preferences) => void;
   sessions: Session[];
   selected: string;
   onSelect: (id: string) => void;
   onCreate: () => void;
   onRefresh: () => void;
 };
-function stored<T>(key: string, fallback: T): T {
+export function stored<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
   } catch {
@@ -96,6 +100,9 @@ function meta(session: Session) {
 }
 export function SessionSidebar({
   workspace,
+  defaultModel,
+  preferences,
+  onPreferencesChange,
   sessions,
   selected,
   onSelect,
@@ -232,20 +239,18 @@ export function SessionSidebar({
         ))}
       </SidebarContent>
       <SidebarFooter>
-        {workspace && (
-          <div className="sidebar-workspace" title={workspace.path}>
-            <span>
-              <Folder aria-hidden="true" />
-              {workspace.display}
-            </span>
-            {workspace.branch && (
-              <span>
-                <GitBranch aria-hidden="true" />
-                {workspace.branch}
-              </span>
-            )}
-          </div>
-        )}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SettingsDialog
+              workspace={workspace}
+              defaultModel={defaultModel}
+              preferences={preferences}
+              onPreferencesChange={onPreferencesChange}
+              pinned={pins.length}
+              onClearPins={() => setPins([])}
+            />
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

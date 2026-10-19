@@ -22,7 +22,8 @@ import {
   type SlashCommand,
 } from "./frames";
 import { isDataPart, isToolPart } from "@sarchauhan/protocol";
-import { SessionSidebar, type Session } from "./Sidebar";
+import { SessionSidebar, stored, type Session } from "./Sidebar";
+import type { Preferences } from "./Settings";
 import { Welcome, type Workspace } from "./Welcome";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,7 +52,7 @@ type Catalog = {
     models: CatalogModel[];
   }[];
 };
-function MessageRow({ row }: { row: Row }) {
+function MessageRow({ row, showUsage }: { row: Row; showUsage: boolean }) {
   if (row.role === "user")
     return (
       <div className="chat-message chat-message-user">
@@ -66,7 +67,7 @@ function MessageRow({ row }: { row: Row }) {
     <div className="chat-message chat-message-assistant">
       <div className="chat-message-assistant-inner">
         <MessageContent parts={row.parts} />
-        <MessageUsage parts={row.parts.filter(isDataPart)} />
+        {showUsage && <MessageUsage parts={row.parts.filter(isDataPart)} />}
       </div>
     </div>
   );
@@ -104,6 +105,10 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("symphony-sidebar-open") !== "false",
   );
+  const [preferences, setPreferences] = useState<Preferences>(() => ({
+    showUsage: true,
+    ...stored("symphony-preferences", {}),
+  }));
   const stream = useRef<EventSource | null>(null),
     generation = useRef(0),
     scroller = useRef<HTMLDivElement>(null),
@@ -284,6 +289,9 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("symphony-sidebar-open", String(sidebarOpen));
   }, [sidebarOpen]);
+  useEffect(() => {
+    localStorage.setItem("symphony-preferences", JSON.stringify(preferences));
+  }, [preferences]);
   // chat@0.0.1's composer has no placeholder or label props yet; switch to
   // ChatComposer's placeholder/inputLabel once chat-sdk#33 is released.
   useEffect(() => {
@@ -313,6 +321,9 @@ export function App() {
       <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SessionSidebar
           workspace={workspace}
+          defaultModel={catalog?.default}
+          preferences={preferences}
+          onPreferencesChange={setPreferences}
           sessions={sessions}
           selected={selected}
           onCreate={() => void open("")}
@@ -403,7 +414,11 @@ export function App() {
                     />
                   )}
                   {state.rows.map((row) => (
-                    <MessageRow key={row.id} row={row} />
+                    <MessageRow
+                      key={row.id}
+                      row={row}
+                      showUsage={preferences.showUsage}
+                    />
                   ))}
                   {pending.map((q) => (
                     <QuestionWidget

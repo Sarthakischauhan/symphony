@@ -229,6 +229,11 @@ body {
   background: rgba(255, 255, 255, 0.06);
   color: var(--sy-ink);
 }
+.pill:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
 .pill-primary,
 .pill-primary:hover {
   border-color: var(--sy-ink);
@@ -358,31 +363,110 @@ body {
   font-size: 0.8125rem;
   color: var(--sy-mute);
 }
-.sidebar-workspace {
-  display: grid;
-  gap: 0.375rem;
-  padding: 0.5rem;
-  border-top: 1px solid var(--sy-hairline);
+.settings-trigger-meta {
+  margin-left: auto;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--sy-mono);
   font-size: 0.6875rem;
   color: var(--sy-mute);
 }
-.sidebar-workspace span {
-  display: flex;
-  align-items: center;
+
+/* ---- Settings dialog (portalled outside .chat-root) ---- */
+.settings {
+  gap: 1.25rem;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  background: var(--sy-soft);
+  border-color: var(--sy-hairline);
+  box-shadow: none;
+  font-family: var(--sy-sans);
+  color: var(--sy-body);
+}
+.settings :is(h2, h3, p, dl, dd) {
+  margin: 0;
+}
+.settings [data-slot="dialog-title"] {
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--sy-ink);
+}
+.settings [data-slot="dialog-description"] {
+  font-size: 0.8125rem;
+  color: var(--sy-mute);
+}
+.settings section {
+  display: grid;
   gap: 0.5rem;
+}
+.settings h3 {
+  font-family: var(--sy-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sy-mute);
+}
+.settings dl,
+.settings-row {
+  border: 1px solid var(--sy-hairline);
+  border-radius: 8px;
+  background: var(--sy-card);
+}
+.settings dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.8125rem;
+}
+.settings dl > div + div {
+  border-top: 1px solid var(--sy-hairline);
+}
+.settings dt {
+  color: var(--sy-mute);
+}
+.settings dd {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-family: var(--sy-mono);
+  font-size: 0.75rem;
+  color: var(--sy-ink);
 }
-.sidebar-workspace span:first-child {
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 0.75rem;
+}
+label.settings-row {
+  cursor: pointer;
+}
+.settings-row > span {
+  display: grid;
+  gap: 0.125rem;
+}
+.settings-row strong {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--sy-ink);
+}
+.settings-row small {
+  font-size: 0.75rem;
+  color: var(--sy-mute);
+}
+.settings kbd {
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--sy-hairline);
+  border-radius: 4px;
+  font-family: var(--sy-mono);
+  font-size: 0.6875rem;
   color: var(--sy-body);
-}
-.sidebar-workspace svg {
-  flex: 0 0 auto;
-  width: 0.875rem;
-  height: 0.875rem;
 }
 
 /* ---- Workspace (chat SDK layout) ---- */

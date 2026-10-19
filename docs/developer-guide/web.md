@@ -138,6 +138,11 @@ launches. `Cmd/Ctrl B` toggles navigation. Below 768px wide, navigation becomes 
 modal drawer with contained keyboard focus, Escape dismissal, and focus returned
 to the menu button.
 
+**Settings** at the foot of the sidebar opens a shadcn/ui `Dialog` showing the
+workspace path, git branch and default model, a toggle for the token usage line
+under each reply, a control to clear pinned sessions, and the keyboard
+shortcuts. Like pins, these preferences live in browser storage.
+
 ## Screenshots
 
 These are browser captures of the `/demo/` page, which renders the real
