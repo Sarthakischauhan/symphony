@@ -112,6 +112,28 @@ describe("Symphony event adapter", () => {
       state: "output-available",
     });
   });
+  it("keeps a patch's start_line so the diff is numbered from the file", () => {
+    const summary = { lines: null, matches: null, added: 1, removed: 1, start_line: 42 };
+    expect(isToolSummary(summary)).toBe(true);
+    expect(isToolSummary({ ...summary, start_line: "42" })).toBe(false);
+    const { start_line: _, ...older } = summary;
+    expect(isToolSummary(older)).toBe(true);
+    const s = run([
+      event("tool_execution_started", {
+        tool_call_id: "p",
+        tool_name: "patch",
+        arguments: { path: "a.py", old_str: "old", new_str: "new" },
+      }),
+      event("tool_execution_completed", {
+        tool_call_id: "p",
+        tool_name: "patch",
+        status: "success",
+        result: "patched a.py at line 42 (1 replacement(s), +0 bytes)",
+        summary,
+      }),
+    ]);
+    expect(partsOf(s, 0)[0]).toMatchObject({ output: { summary: { start_line: 42 } } });
+  });
   it("routes child text into subagent views", () => {
     const s = run([
       event("agent_spawned", {

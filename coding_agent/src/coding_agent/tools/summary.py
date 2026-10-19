@@ -13,6 +13,8 @@ from typing import TypedDict
 
 # The search tool's first line: "<N> content matches" or "<N> files matches".
 _SEARCH_HEADER = re.compile(r"^(\d+) (?:content|files) matches")
+# The patch tool's result: "patched <path> at line <N> (...)" or "at lines <N>, <M> (...)".
+_PATCH_AT = re.compile(r"^patched .+ at lines? (\d+)(?:, \d+)*(?: \(\+\d+ more\))? \(\d+ replacement")
 
 
 class ToolSummary(TypedDict):
@@ -20,6 +22,8 @@ class ToolSummary(TypedDict):
     matches: int | None
     added: int | None
     removed: int | None
+    # 1-based file line where a patch's (first) old_str match starts.
+    start_line: int | None
 
 
 def _text(arguments: Mapping[str, object], key: str) -> str:
@@ -29,6 +33,12 @@ def _text(arguments: Mapping[str, object], key: str) -> str:
 
 def _line_count(text: str) -> int:
     return len(text.splitlines())
+
+
+def patch_start_line(result: str) -> int | None:
+    """The first matched line a patch result reports, or None for older results."""
+    found = _PATCH_AT.match(result)
+    return int(found.group(1)) if found else None
 
 
 def diff_counts(old: str, new: str) -> tuple[int, int]:
@@ -43,7 +53,7 @@ def diff_counts(old: str, new: str) -> tuple[int, int]:
 
 
 def summarize(tool_name: str, arguments: Mapping[str, object], result: str, *, failed: bool = False) -> ToolSummary:
-    summary = ToolSummary(lines=None, matches=None, added=None, removed=None)
+    summary = ToolSummary(lines=None, matches=None, added=None, removed=None, start_line=None)
     if tool_name == "bash":
         summary["lines"] = _line_count(result)
     elif failed:
@@ -59,7 +69,8 @@ def summarize(tool_name: str, arguments: Mapping[str, object], result: str, *, f
     elif tool_name == "patch":
         added, removed = diff_counts(_text(arguments, "old_str"), _text(arguments, "new_str"))
         summary["added"], summary["removed"] = added, removed
+        summary["start_line"] = patch_start_line(result)
     return summary
 
 
-__all__ = ["ToolSummary", "diff_counts", "summarize"]
+__all__ = ["ToolSummary", "diff_counts", "patch_start_line", "summarize"]

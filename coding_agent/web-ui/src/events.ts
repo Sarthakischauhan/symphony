@@ -79,7 +79,9 @@ export const isToolSummary = (value: unknown): value is ToolSummary =>
   countOrNull(value.lines) &&
   countOrNull(value.matches) &&
   countOrNull(value.added) &&
-  countOrNull(value.removed);
+  countOrNull(value.removed) &&
+  // start_line is newer than the counts; older sessions omit it.
+  (value.start_line === undefined || countOrNull(value.start_line));
 export const isTerminalChunk = (value: unknown): value is TerminalChunk =>
   isRecord(value) &&
   (value.stream === "stdout" || value.stream === "stderr") &&

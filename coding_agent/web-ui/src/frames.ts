@@ -47,6 +47,8 @@ export type ToolSummary = {
   matches: number | null;
   added: number | null;
   removed: number | null;
+  // 1-based file line where a patch matched; numbers the diff from the file.
+  start_line?: number | null;
 };
 // The spawn_agent call a subagent's event belongs to (protocol 3).
 type Spawned = { parent_call_id?: string | null };

@@ -88,6 +88,7 @@ class PatchTool(WorkspaceTool):
                 return ambiguous_match(path, locations)
             updated_base = base.replace(old, new) if replace_all else base.replace(old, new, 1)
             replaced = count if replace_all else 1
+            starts = locations if replace_all else locations[:1]
         else:
             windows = relaxed_windows(base, old)
             if not windows:
@@ -102,6 +103,8 @@ class PatchTool(WorkspaceTool):
             used = windows if replace_all else windows[:1]
             updated_base = replace_windows(base, old, new, used)
             replaced = len(used)
+            # Folded matches are line windows; report them 1-based like exact ones.
+            starts = [start + 1 for start in used]
 
         updated = bom + from_lf(updated_base, ending)
         try:
@@ -110,7 +113,14 @@ class PatchTool(WorkspaceTool):
         except OSError as exc:
             return f"error: failed to write {path}: {exc}"
         delta = len(updated.encode("utf-8")) - len(original.encode("utf-8"))
-        return f"patched {path} ({replaced} replacement(s), {delta:+d} bytes)"
+        return f"patched {path} {at_lines(starts)} ({replaced} replacement(s), {delta:+d} bytes)"
+
+
+def at_lines(starts: list[int]) -> str:
+    """Where old_str matched, as 1-based lines of the file before the edit."""
+    shown = ", ".join(str(n) for n in starts[:8])
+    extra = f" (+{len(starts) - 8} more)" if len(starts) > 8 else ""
+    return f"at line {shown}" if len(starts) == 1 else f"at lines {shown}{extra}"
 
 
 def to_lf(text: str) -> str:

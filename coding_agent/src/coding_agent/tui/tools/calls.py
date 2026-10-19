@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from difflib import unified_diff
 from pathlib import Path
@@ -18,7 +19,7 @@ from textual.message import Message
 from textual.widgets import Collapsible, Static
 
 from coding_agent.tools.bash import Stream
-from coding_agent.tools.summary import ToolSummary
+from coding_agent.tools.summary import ToolSummary, patch_start_line
 from coding_agent.tui.tools.activity import strip_activity_json, take_activity
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.tools.labels import (
@@ -89,6 +90,7 @@ class ToolOutcome:
                 matches=_count(raw.get("matches")),
                 added=_count(raw.get("added")),
                 removed=_count(raw.get("removed")),
+                start_line=_count(raw.get("start_line")),
             )
         return cls(
             status=status,
@@ -543,7 +545,7 @@ class PatchDiffWidget(ToolCallWidget):
         return path or header_target(self.raw_arguments)
 
     def __init__(self, call_id: str, tool_name: str) -> None:
-        self._diff_key: tuple[str, str, str] | None = None
+        self._diff_key: tuple[str, str, str, int] | None = None
         self._diff_cache: list[str] = []
         super().__init__(call_id, tool_name)
         self.add_class("diff-tool")
@@ -552,12 +554,20 @@ class PatchDiffWidget(ToolCallWidget):
         old = str(self.arguments.get("old_str") or "")
         new = str(self.arguments.get("new_str") or "")
         path = str(self.arguments.get("path") or "file")
-        key = (path, old, new)
+        start = self._start_line()
+        key = (path, old, new, start)
         if key == self._diff_key:
             return self._diff_cache
         self._diff_key = key
-        self._diff_cache = make_unified_diff(old, new, path) if old or new else []
+        self._diff_cache = make_unified_diff(old, new, path, start) if old or new else []
         return self._diff_cache
+
+    def _start_line(self) -> int:
+        """File line of the match: the protocol summary, else the live result text."""
+        reported = self.summary["start_line"] if self.summary is not None else None
+        if reported is None and self.result:
+            reported = patch_start_line(self.result)
+        return reported or 1
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         rows = [code_view("\n".join(self._diff()), lexer="diff", wrap=wrap)]
@@ -613,10 +623,18 @@ def make_tool_widget(
     return ToolCallWidget(call_id, tool_name)
 
 
-def make_unified_diff(old: str, new: str, path: str) -> list[str]:
-    """Build display-ready unified diff lines for an exact-text edit."""
+_HUNK = re.compile(r"^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@")
+
+
+def make_unified_diff(old: str, new: str, path: str, start_line: int = 1) -> list[str]:
+    """Build display-ready unified diff lines for an exact-text edit.
+
+    difflib numbers hunks from the snippet's first line; ``start_line`` (where
+    old_str matched in the file) shifts every hunk header to file line numbers.
+    """
     if not old and not new:
         return []
+    offset = max(start_line, 1) - 1
     lines = list(
         unified_diff(
             old.splitlines(),
@@ -626,7 +644,20 @@ def make_unified_diff(old: str, new: str, path: str) -> list[str]:
             lineterm="",
         )
     )
-    return lines[2:] if len(lines) >= 2 else lines
+    body = lines[2:] if len(lines) >= 2 else lines
+    return [shift_hunk(line, offset) for line in body] if offset else body
+
+
+def shift_hunk(line: str, offset: int) -> str:
+    """Move a hunk header by ``offset`` lines; other lines pass through."""
+    found = _HUNK.match(line)
+    if not found:
+        return line
+    old_start, old_len, new_start, new_len = found.groups()
+    return (
+        f"@@ -{int(old_start) + offset}{old_len or ''} +{int(new_start) + offset}{new_len or ''} @@"
+        + line[found.end() :]
+    )
 
 
 def diff_stats(diff: list[str]) -> tuple[int, int]:

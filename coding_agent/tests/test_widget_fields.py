@@ -16,7 +16,7 @@ from coding_agent.protocols import stdio
 from coding_agent.widget_fields import SUBAGENT_STEP, EventFields
 from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSION, StdioSink
 from coding_agent.tools.bash import BashTool, CommandFailed
-from coding_agent.tools.summary import diff_counts, summarize
+from coding_agent.tools.summary import diff_counts, patch_start_line, summarize
 from coding_agent.tui.tools.calls import BashToolWidget, PatchDiffWidget, ReadFileWidget, ToolOutcome
 from core_harness import EventSink
 from core_harness.tools import current_tool_call_id
@@ -67,13 +67,19 @@ def test_bash_nonzero_exit_raises_and_records_exit_code(tmp_path: Path) -> None:
 
 
 def test_summary_counts_per_tool() -> None:
-    assert summarize("bash", {}, "a\nb\n") == {"lines": 2, "matches": None, "added": None, "removed": None}
+    assert summarize("bash", {}, "a\nb\n") == {"lines": 2, "matches": None, "added": None, "removed": None, "start_line": None}
     assert summarize("read_file", {}, "1\n2\n3")["lines"] == 3
     assert summarize("search", {}, "4 content matches\nx")["matches"] == 4
     assert summarize("search", {}, "no content matches")["matches"] == 0
     assert summarize("write_file", {"content": "a\nb"}, "ok")["added"] == 2
     patch = summarize("patch", {"old_str": "a\nb", "new_str": "a\nc\nd"}, "ok")
     assert (patch["added"], patch["removed"]) == (2, 1)
+    assert patch["start_line"] is None
+    placed = summarize("patch", {"old_str": "a", "new_str": "b"}, "patched src/a b.py at line 42 (1 replacement(s), +0 bytes)")
+    assert placed["start_line"] == 42
+    many = "patched a.py at lines 3, 9, 12 (3 replacement(s), +0 bytes)"
+    assert summarize("patch", {"old_str": "a", "new_str": "b"}, many)["start_line"] == 3
+    assert patch_start_line("old_str not found in a.py") is None
     assert summarize("read_file", {}, "error: x", failed=True)["lines"] is None
     assert diff_counts("", "") == (0, 0)
 
@@ -175,7 +181,10 @@ def test_tool_outcome_reads_payload_and_ignores_old_events() -> None:
         "status": "error", "duration_ms": 1500, "exit_code": 2,
         "summary": {"lines": 1, "matches": None, "added": None, "removed": None},
     })
-    assert outcome == ToolOutcome("error", 1500, 2, {"lines": 1, "matches": None, "added": None, "removed": None})
+    # An older summary without start_line reads it as None.
+    assert outcome == ToolOutcome(
+        "error", 1500, 2, {"lines": 1, "matches": None, "added": None, "removed": None, "start_line": None}
+    )
     assert outcome.failed
     assert ToolOutcome.from_payload({"result": "x"}) is None
 
@@ -199,13 +208,21 @@ def test_tui_cards_use_payload_fields() -> None:
             assert old.status == "failed" and old.exit_code is None and old.duration is not None
 
             read = ReadFileWidget("r", "read_file")
-            read.set_result("a\nb", ToolOutcome("success", 3, None, {"lines": 40, "matches": None, "added": None, "removed": None}))
+            read.set_result("a\nb", ToolOutcome("success", 3, None, {"lines": 40, "matches": None, "added": None, "removed": None, "start_line": None}))
             assert read._result_summary().startswith("Read 40 lines")
 
             patch = PatchDiffWidget("p", "patch")
             patch.set_running({"path": "x.py", "old_str": "a", "new_str": "b"})
-            patch.set_result("ok", ToolOutcome("success", 3, None, {"lines": None, "matches": None, "added": 5, "removed": 4}))
+            patch.set_result(
+                "ok", ToolOutcome("success", 3, None, {"lines": None, "matches": None, "added": 5, "removed": 4, "start_line": 30})
+            )
             assert patch._summary() == "x.py +5 -4"
+            # The card's hunk header uses the file line from summary.start_line.
+            assert patch._diff()[0] == "@@ -30 +30 @@"
+            live = PatchDiffWidget("q", "patch")
+            live.set_running({"path": "y.py", "old_str": "a", "new_str": "b"})
+            live.set_result("patched y.py at line 7 (1 replacement(s), +0 bytes)")
+            assert live._diff()[0] == "@@ -7 +7 @@"
 
     asyncio.run(run())
 

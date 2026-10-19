@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from coding_agent.tools import PatchArgs, PatchTool
+from coding_agent.tools.summary import summarize
+from coding_agent.tui.tools.calls import make_unified_diff
 
 
 async def invoke(tool, **kwargs):
@@ -79,7 +81,7 @@ def test_patch_duplicate_matches_require_replace_all(tmp_path: Path) -> None:
     ok = asyncio.run(
         invoke(tool, path="a.txt", old_str="x", new_str="y", replace_all=True)
     )
-    assert ok.startswith("patched a.txt (2 replacement")
+    assert ok.startswith("patched a.txt at lines 1, 2 (2 replacement")
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "y\ny\n"
 
 
@@ -187,3 +189,57 @@ def test_patch_unique_fuzzy_match_still_applies(
     result = PatchTool(tmp_path).run("a.py", old, new)
     assert result.startswith("patched")
     assert target.read_text(encoding="utf-8") == expected
+
+
+# Line numbers: the result, the protocol summary and the TUI diff all use file lines.
+
+
+def numbered(count: int) -> str:
+    return "".join(f"line {n}\n" for n in range(1, count + 1))
+
+
+def patched_diff(tmp_path: Path, old: str, new: str) -> tuple[str, list[str]]:
+    target = tmp_path / "a.py"
+    if not target.exists():
+        target.write_text(numbered(60), encoding="utf-8")
+    result = PatchTool(tmp_path).run("a.py", old, new)
+    start = summarize("patch", {"old_str": old, "new_str": new}, result)["start_line"]
+    assert start is not None, result
+    return result, make_unified_diff(old, new, "a.py", start)
+
+
+def test_patch_reports_the_file_line_and_offsets_hunks(tmp_path: Path) -> None:
+    result, diff = patched_diff(tmp_path, "line 41\nline 42\nline 43\n", "line 41\nLINE 42\nline 43\n")
+    assert result.startswith("patched a.py at line 41 (1 replacement")
+    assert diff[0] == "@@ -41,3 +41,3 @@"
+
+
+def test_patch_multi_hunk_headers_all_shift(tmp_path: Path) -> None:
+    old = "".join(f"line {n}\n" for n in range(10, 31))
+    new = old.replace("line 11\n", "LINE 11\n").replace("line 29\n", "LINE 29\n")
+    _, diff = patched_diff(tmp_path, old, new)
+    headers = [line for line in diff if line.startswith("@@")]
+    # Two hunks, each numbered from line 10 of the file, not from 1.
+    assert headers == ["@@ -10,5 +10,5 @@", "@@ -26,5 +26,5 @@"]
+
+
+def test_patch_insert_at_top(tmp_path: Path) -> None:
+    result, diff = patched_diff(tmp_path, "line 1\n", "# header\nline 1\n")
+    assert "at line 1 " in result
+    assert diff[:3] == ["@@ -1 +1,2 @@", "+# header", " line 1"]
+
+
+def test_patch_delete_at_end(tmp_path: Path) -> None:
+    result, diff = patched_diff(tmp_path, "line 59\nline 60\n", "")
+    assert "at line 59 " in result
+    assert diff == ["@@ -59,2 +58,0 @@", "-line 59", "-line 60"]
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == numbered(58)
+
+
+def test_patch_fuzzy_match_reports_its_window_line(tmp_path: Path) -> None:
+    target = tmp_path / "a.py"
+    target.write_text(numbered(20).replace("line 15\n", "line 15   \n"), encoding="utf-8")
+    # Trailing whitespace differs, so only the folded match applies.
+    result, diff = patched_diff(tmp_path, "line 14\nline 15\n", "line 14\nline fifteen\n")
+    assert result.startswith("patched a.py at line 14 (1 replacement")
+    assert diff[0] == "@@ -14,2 +14,2 @@"
