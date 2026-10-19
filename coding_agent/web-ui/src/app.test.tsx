@@ -72,7 +72,9 @@ it("loads history, streams a task, renders SDK tool/approval/subagent widgets", 
   const input = await screen.findByLabelText("Coding task");
   fireEvent.change(input, { target: { value: "Build a report" } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-  await screen.findByText("Connected");
+  // A connected session shows no status badge; the context gauge takes its place.
+  await waitFor(() => expect(source?.onmessage).toBeTruthy());
+  await waitFor(() => expect(screen.queryByText("reconnecting…")).toBeNull());
   await waitFor(() =>
     expect(calls.some(([url]) => url.endsWith("/prompt"))).toBe(true),
   );
@@ -128,6 +130,11 @@ it("loads history, streams a task, renders SDK tool/approval/subagent widgets", 
       },
     },
     {
+      type: "event",
+      event: "context",
+      payload: { tokens_used: 92200, context_limit: 128000 },
+    },
+    {
       type: "input_requested",
       request_id: "q",
       question: "Allow writing?",
@@ -153,6 +160,14 @@ it("loads history, streams a task, renders SDK tool/approval/subagent widgets", 
   expect(
     screen.getByLabelText("Context and token usage").textContent,
   ).toContain("total 1,280");
+  // The header gauge: context event totals, usage rows only for present fields.
+  const meter = screen.getByLabelText(/^Context 72% full/);
+  expect(meter.getAttribute("data-level")).toBe("warning");
+  expect(meter.textContent).toContain("92.2k / 128k");
+  expect(meter.textContent).toContain("Input1.2k");
+  expect(meter.textContent).toContain("Output80");
+  expect(meter.textContent).not.toContain("Reasoning");
+  expect(meter.textContent).not.toContain("Cached");
   // While the run is live the SDK send button becomes the stop control.
   expect(screen.getByRole("button", { name: "Stop response" })).toBeTruthy();
   fireEvent.click(screen.getByText("Allow once"));
@@ -212,7 +227,9 @@ it("answers an approval card with the chosen choice through the answer frame", a
   const input = await screen.findByLabelText("Coding task");
   fireEvent.change(input, { target: { value: "Fix health" } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-  await screen.findByText("Connected");
+  // A connected session shows no status badge; the context gauge takes its place.
+  await waitFor(() => expect(source?.onmessage).toBeTruthy());
+  await waitFor(() => expect(screen.queryByText("reconnecting…")).toBeNull());
   await act(async () => {
     source.onmessage({
       lastEventId: "1",

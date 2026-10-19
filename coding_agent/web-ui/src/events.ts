@@ -115,12 +115,18 @@ const subagentTitle = (data: SubagentData) =>
   data.step ? `${data.label || "Subagent"} · step ${data.step}` : data.label || "Subagent";
 export type UsageData = { total_tokens: number };
 export type ContextData = { current_tokens: number; context_window: number };
+// The latest top-level `context` event: tokens in the window and its size.
+export type ContextGauge = { used: number; limit: number | null };
+// The latest top-level `usage` event. A key is set only when the payload has it.
+export type UsageBreakdown = { input?: number; output?: number; reasoning?: number };
 export type State = {
   rows: Row[];
   pending: Record<string, InputRequestedFrame>;
   busy: boolean;
   error: string;
   model: string;
+  context: ContextGauge | null;
+  usage: UsageBreakdown | null;
 };
 export const initial = (): State => ({
   rows: [],
@@ -128,7 +134,27 @@ export const initial = (): State => ({
   busy: false,
   error: "",
   model: "",
+  context: null,
+  usage: null,
 });
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+export function contextOf(payload: Record<string, unknown>): ContextGauge | null {
+  const used = count(payload.tokens_used);
+  if (used === undefined) return null;
+  const limit = count(payload.context_limit);
+  return { used, limit: limit ? limit : null };
+}
+export function usageOf(payload: Record<string, unknown>): UsageBreakdown {
+  const out: UsageBreakdown = {};
+  const input = count(payload.prompt_tokens),
+    output = count(payload.completion_tokens),
+    reasoning = count(payload.reasoning_tokens);
+  if (input !== undefined) out.input = input;
+  if (output !== undefined) out.output = output;
+  if (reasoning !== undefined) out.reasoning = reasoning;
+  return out;
+}
 // Copy-on-write editing. A frame shallow-copies only the state, rows and
 // parts it changes, so unchanged rows keep their identity (MessageRow is
 // memoized) and a frame costs O(changed parts), not a transcript deep clone.
@@ -289,6 +315,11 @@ function applyEvent(d: Draft, s: State, frame: EventFrame, id: number): State {
   }
   // A question blocks the run, so any later event means it was answered.
   if (frame.event !== "question_asked") s.pending = {};
+  // The header gauge follows the parent agent only; subagents have their own window.
+  if (frame.event === "context" && !frame.payload.parent_id)
+    s.context = contextOf(frame.payload);
+  if (frame.event === "usage" && !frame.payload.parent_id)
+    s.usage = usageOf(frame.payload);
   if (frame.payload.parent_id) {
     const card = editSubagent(
       d,
@@ -490,6 +521,8 @@ export function historical(data: SessionHistory): State {
     s.rows.push(row);
   }
   for (const [i, [event, payload]] of data.events.entries()) {
+    if (event === "context" && !payload.parent_id) s.context = contextOf(payload);
+    if (event === "usage" && !payload.parent_id) s.usage = usageOf(payload);
     // Protocol 3 journals duration_ms, exit_code and summary with each call.
     if (event === "tool_execution_completed" && !payload.parent_id) {
       const tool = tools.get(String(payload.tool_call_id));

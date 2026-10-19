@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import logo from "./assets/symphony-logo.svg";
 import { SettingsDialog, type Preferences } from "./Settings";
-import type { Workspace } from "./Welcome";
+import type { Workspace } from "./frames";
 
 export type Session = {
   session_id: string;

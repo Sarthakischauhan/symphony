@@ -320,7 +320,9 @@ def test_browser_refresh_streaming_and_approval(web):
         # The chat SDK composer starts a session with its first prompt.
         page.get_by_label("Coding task").fill("write a file")
         page.get_by_role("button", name="Send message", exact=True).click()
-        expect(page.get_by_text("Connected", exact=True)).to_be_visible()
+        # A live session shows its model in the header and no reconnecting badge.
+        expect(page.locator(".topbar .model")).to_contain_text("web-test")
+        expect(page.get_by_text("reconnecting…", exact=True)).to_have_count(0)
         # Overwriting the pre-existing file must require human confirmation.
         # The HTTP test checks structured approval correlation; interact with
         # the real question here using its published accessible controls.
@@ -337,7 +339,8 @@ def test_browser_refresh_streaming_and_approval(web):
         expect(page.get_by_text("Web task completed", exact=True)).to_be_visible(timeout=15000)
         page.reload()
         expect(page.get_by_text("Web task completed", exact=True)).to_be_visible()
-        expect(page.get_by_text("Connected", exact=True)).to_be_visible()
+        expect(page.locator(".topbar .model")).to_contain_text("web-test")
+        expect(page.get_by_text("reconnecting…", exact=True)).to_have_count(0)
         page.get_by_label("Coding task").fill("second turn")
         page.get_by_role("button", name="Send message", exact=True).click()
         expect(page.get_by_text("Web task completed", exact=True)).to_have_count(2, timeout=15000)
