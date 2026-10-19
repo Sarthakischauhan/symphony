@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { historical, initial, reduce, type State } from "./events";
+import {
+  historical,
+  initial,
+  isTerminalChunk,
+  isToolSummary,
+  reduce,
+  type State,
+} from "./events";
 import { parseFrame } from "./frames";
 import { parseArtifact, parseSubagent, parseUsage } from "./protocol-compat";
 
@@ -378,5 +385,69 @@ describe("protocol 3 widget fields", () => {
         summary: { lines: 2 },
       },
     });
+  });
+});
+
+describe("tool output guards", () => {
+  it("accepts only well-formed summaries", () => {
+    expect(isToolSummary({ lines: 2, matches: null, added: null, removed: null })).toBe(true);
+    expect(isToolSummary({ lines: "2", matches: null, added: null, removed: null })).toBe(false);
+    expect(isToolSummary({ lines: 2 })).toBe(false);
+    expect(isToolSummary([1, 2])).toBe(false);
+    expect(isToolSummary(null)).toBe(false);
+  });
+
+  it("accepts only stdout/stderr chunks with text", () => {
+    expect(isTerminalChunk({ stream: "stdout", text: "x" })).toBe(true);
+    expect(isTerminalChunk({ stream: "stderr", text: "" })).toBe(true);
+    expect(isTerminalChunk({ stream: "stdin", text: "x" })).toBe(false);
+    expect(isTerminalChunk({ stream: "stdout", text: 1 })).toBe(false);
+    expect(isTerminalChunk("stdout")).toBe(false);
+  });
+
+  it("drops malformed live chunks and summaries when a tool settles", () => {
+    const s = run([
+      event("run_started", { prompt: "t" }),
+      event("tool_execution_started", {
+        tool_call_id: "b",
+        tool_name: "bash",
+        arguments: { command: "ls" },
+      }),
+      event("tool_execution_output", { tool_call_id: "b", delta: "ok\n", stream: "stdout" }),
+    ]);
+    const part = partsOf(s, 1)[0];
+    part.output = {
+      ...part.output,
+      summary: { lines: "many" },
+      chunks: [...part.output.chunks, { stream: "stdin", text: "bad" }, 7],
+    };
+    const done = apply(
+      s,
+      event("tool_execution_completed", {
+        tool_call_id: "b",
+        tool_name: "bash",
+        status: "success",
+        result: "ok",
+      }),
+      4,
+    );
+    const output = partsOf(done, 1)[0].output;
+    expect(output.chunks).toEqual([{ stream: "stdout", text: "ok\n" }]);
+    expect(output.summary).toBeUndefined();
+  });
+
+  it("reads the harness started_at as epoch seconds", () => {
+    const s = run([
+      event("run_started", { prompt: "t" }),
+      event("tool_execution_started", {
+        tool_call_id: "b",
+        tool_name: "bash",
+        arguments: { command: "ls" },
+        started_at: 1792396800.5,
+      }),
+    ]);
+    expect(partsOf(s, 1)[0].output.startedAt).toBe(
+      new Date(1792396800500).toISOString(),
+    );
   });
 });

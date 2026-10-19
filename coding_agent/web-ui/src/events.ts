@@ -42,7 +42,7 @@ export type ToolFacts = {
   exit_code?: number | null;
   summary?: ToolSummary | null;
 };
-type TerminalChunk = { stream: "stdout" | "stderr"; text: string };
+export type TerminalChunk = { stream: "stdout" | "stderr"; text: string };
 // Facts the chat SDK reads off a tool's output object. Absent fields stay unset
 // so an older session does not invent an exit code or a duration.
 type RunMeta = {
@@ -54,9 +54,10 @@ type RunMeta = {
 };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
+// The harness stamps started_at as epoch seconds (a float) on the wire.
 const startedAt = (value: number | string | undefined) =>
   typeof value === "number"
-    ? new Date(value).toISOString()
+    ? new Date(value * 1000).toISOString()
     : typeof value === "string"
       ? value
       : undefined;
@@ -71,18 +72,28 @@ function runMeta(p: ToolFacts, chunks?: TerminalChunk[]): RunMeta {
   if (chunks?.length) meta.chunks = chunks;
   return meta;
 }
+const countOrNull = (value: unknown): value is number | null =>
+  value === null || typeof value === "number";
+export const isToolSummary = (value: unknown): value is ToolSummary =>
+  isRecord(value) &&
+  countOrNull(value.lines) &&
+  countOrNull(value.matches) &&
+  countOrNull(value.added) &&
+  countOrNull(value.removed);
+export const isTerminalChunk = (value: unknown): value is TerminalChunk =>
+  isRecord(value) &&
+  (value.stream === "stdout" || value.stream === "stderr") &&
+  typeof value.text === "string";
+const terminalChunks = (value: unknown): TerminalChunk[] | undefined =>
+  Array.isArray(value) ? value.filter(isTerminalChunk) : undefined;
 const metaOf = (output: unknown): RunMeta =>
   isRecord(output)
     ? {
-        summary: isRecord(output.summary)
-          ? (output.summary as ToolSummary)
-          : undefined,
+        summary: isToolSummary(output.summary) ? output.summary : undefined,
         startedAt: typeof output.startedAt === "string" ? output.startedAt : undefined,
         durationMs: typeof output.durationMs === "number" ? output.durationMs : undefined,
         exitCode: typeof output.exitCode === "number" ? output.exitCode : undefined,
-        chunks: Array.isArray(output.chunks)
-          ? (output.chunks as TerminalChunk[])
-          : undefined,
+        chunks: terminalChunks(output.chunks),
       }
     : {};
 
