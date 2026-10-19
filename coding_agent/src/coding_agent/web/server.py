@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import secrets
+import socket
 import sys
 import threading
 import uuid
@@ -28,12 +29,16 @@ class Server(ThreadingHTTPServer):
         super().__init__(address, Handler)
         self.origin = f"http://127.0.0.1:{self.server_port}"
 
-    def handle_error(self, request: object, client_address: object) -> None:
+    def handle_error(
+        self,
+        request: socket.socket | tuple[bytes, socket.socket],
+        client_address: tuple[str, int],
+    ) -> None:
         # Browsers drop idle keep-alive connections (reloads, closed streams);
         # http.server reads the next request line outside the handler's try.
         if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
             return
-        super().handle_error(request, client_address)  # type: ignore[arg-type]
+        super().handle_error(request, client_address)
 
     def server_close(self) -> None:
         self.sessions.close()

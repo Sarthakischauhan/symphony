@@ -365,15 +365,28 @@ def test_tool_execution_started_frame_carries_started_at(monkeypatch):
     import time
     from typing import Any
 
+    from collections.abc import AsyncGenerator
+    from typing import Optional
+
+    from core_ai.registry import ModelRegistry
     from core_ai.types import Message, StreamEvent
     from core_harness import CoreHarness, HarnessConfig, Tool
 
-    class Scripted:
+    class Scripted(ModelRegistry):
         def __init__(self) -> None:
+            super().__init__()
             self.calls = 0
 
-        async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
-            del model_id, messages, tools
+        async def stream(
+            self,
+            model_id: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]] = [],
+            max_output_tokens: Optional[int] = None,
+            reasoning_effort: Optional[str] = None,
+            extra_headers: Optional[dict[str, str]] = None,
+        ) -> AsyncGenerator[StreamEvent, None]:
+            del model_id, messages, tools, max_output_tokens, reasoning_effort, extra_headers
             self.calls += 1
             if self.calls == 1:
                 yield StreamEvent(type="toolcall_start", content_index=0, tool_call_id="call-1", tool_name="echo")
@@ -397,7 +410,7 @@ def test_tool_execution_started_frame_carries_started_at(monkeypatch):
 
     monkeypatch.setattr(stdio.sys, "__stdout__", Stdout())
     harness = CoreHarness(
-        registry=Scripted(),  # type: ignore[arg-type]
+        registry=Scripted(),
         model_id="fake:stdio",
         system_prompt="test",
         config=HarnessConfig(max_turns=3),
