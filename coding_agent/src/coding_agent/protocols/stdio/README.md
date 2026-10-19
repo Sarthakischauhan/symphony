@@ -79,10 +79,14 @@ and `null` for top-level events.
 - `summary` is `{lines, matches, added, removed, start_line}`, each an
   integer or `null`: `lines` for bash and read_file, `matches` for search,
   `lines` and `added` for write_file, `added`, `removed` and `start_line` for
-  patch. Failed non-bash calls report all `null`.
-- `start_line` (patch only) is the 1-based line, in the file as it was before
-  the edit, where `old_str` first matched. The patch tool records it per call;
-  it is never parsed from `result`.
+  patch, and `start_line` for read_file too. Failed non-bash calls report all
+  `null`.
+- `start_line` is recorded per call by the tool, never parsed from `result`.
+  For patch it is the 1-based line, in the file as it was before the edit,
+  where `old_str` first matched. For read_file it is the number of the first
+  line of a text read (its `offset`); each result line is that number plus its
+  index, right-aligned to one width, then `|`. It is `null` for image reads
+  and reads that returned no lines.
 - `search_results` (search only, else `null`) lists the search tool's results
   in order: `{path, line, text}`, where `line` is `null` and `text` is empty
   in files mode. `summary.matches` is its length.

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 from coding_agent.tools.bash import BashTool
 from coding_agent.tools.patch import PatchTool
+from coding_agent.tools.read_file import ReadFileTool
 from coding_agent.tools.search import SearchHit, SearchTool
 from coding_agent.tools.summary import summarize
 
@@ -48,10 +49,12 @@ class EventFields:
 
     def __init__(self) -> None:
         # Bound by ``bind`` to the session's BashTool.exit_codes,
-        # PatchTool.start_lines and SearchTool.hits. Read, never popped: the
-        # session store and the host sink both read each entry.
+        # PatchTool.start_lines, ReadFileTool.start_lines and SearchTool.hits.
+        # Read, never popped: the session store and the host sink both read
+        # each entry.
         self.exit_codes: dict[str, int] = {}
         self.start_lines: dict[str, int] = {}
+        self.read_start_lines: dict[str, int] = {}
         self.search_hits: dict[str, list[SearchHit]] = {}
         self._arguments: dict[str, Mapping[str, object]] = {}
         # child agent id -> (spawning call id, parent session id)
@@ -66,6 +69,8 @@ class EventFields:
                 self.exit_codes = tool.exit_codes
             elif isinstance(tool, PatchTool):
                 self.start_lines = tool.start_lines
+            elif isinstance(tool, ReadFileTool):
+                self.read_start_lines = tool.start_lines
             elif isinstance(tool, SearchTool):
                 self.search_hits = tool.hits
 
@@ -96,14 +101,16 @@ class EventFields:
         elif event_type == "tool_execution_completed":
             out["call_id"] = call_id
             hits = self.search_hits.get(call_id)
+            tool_name = _str(payload, "tool_name")
+            start_lines = self.read_start_lines if tool_name == "read_file" else self.start_lines
             out["exit_code"] = self.exit_codes.get(call_id)
             out["summary"] = summarize(
-                _str(payload, "tool_name"),
+                tool_name,
                 self._arguments.pop(call_id, {}),
                 _str(payload, "result"),
                 failed=payload.get("status") != "success",
                 matches=len(hits) if hits is not None else None,
-                start_line=self.start_lines.get(call_id),
+                start_line=start_lines.get(call_id),
             )
             out["search_results"] = list(hits) if hits is not None else None
             self._call_parents.pop(call_id, None)

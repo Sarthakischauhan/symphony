@@ -56,7 +56,8 @@ def summarize(
     """Counts for one finished call.
 
     ``matches`` is the number of results the search tool recorded and
-    ``start_line`` the line the patch tool recorded (``PatchTool.start_lines``).
+    ``start_line`` the line the patch or read_file tool recorded
+    (``PatchTool.start_lines``, ``ReadFileTool.start_lines``).
     """
     summary = ToolSummary(lines=None, matches=None, added=None, removed=None, start_line=None)
     if tool_name == "bash":
@@ -65,6 +66,7 @@ def summarize(
         return summary
     elif tool_name == "read_file":
         summary["lines"] = _line_count(result)
+        summary["start_line"] = start_line
     elif tool_name == "search":
         summary["matches"] = matches
     elif tool_name == "write_file":

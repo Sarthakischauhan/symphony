@@ -4,6 +4,7 @@ approval metadata, stdio frames and the TUI's use of them."""
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
 from typing import Any, AsyncGenerator, Mapping
 
@@ -18,6 +19,7 @@ from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSIO
 from coding_agent.tools.ask_user import AskUserTool
 from coding_agent.tools.bash import BashTool, CommandFailed
 from coding_agent.tools.patch import PatchTool
+from coding_agent.tools.read_file import ReadFileTool
 from coding_agent.tools.search import SearchTool
 from coding_agent.tools.summary import diff_counts, summarize
 from coding_agent.tui.tools.calls import BashToolWidget, PatchDiffWidget, ReadFileWidget, ToolOutcome
@@ -278,6 +280,125 @@ def test_stdio_ask_user_result_is_the_answer_frame_value(
     assert asked["metadata"] == {"tool_call_id": "ask-1"}
     done = events["tool_execution_completed"]
     assert (done["tool_call_id"], done["status"], done["result"]) == ("ask-1", "success", "Metric")
+
+
+
+def test_read_file_records_start_line_from_offset(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("".join(f"line {n}\n" for n in range(1, 61)), encoding="utf-8")
+    (tmp_path / "shot.png").write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    ))
+    read = ReadFileTool(tmp_path)
+
+    async def call(call_id: str, args: dict[str, Any]) -> object:
+        token = current_tool_call_id.set(call_id)
+        try:
+            return await read.execute(sink=None, args=args)
+        finally:
+            current_tool_call_id.reset(token)
+
+    async def run() -> list[object]:
+        return [
+            await call("r41", {"path": "a.py", "offset": 41, "limit": 2}),
+            await call("r1", {"path": "a.py", "limit": 1}),
+            await call("missing", {"path": "nope.py"}),
+            await call("past-end", {"path": "a.py", "offset": 99}),
+            await call("image", {"path": "shot.png"}),
+        ]
+
+    results = asyncio.run(run())
+    assert results[0] == "  41|line 41\n  42|line 42\n"
+    # Only numbered text reads record a start line; it is the read's offset.
+    assert read.start_lines == {"r41": 41, "r1": 1}
+
+
+def test_read_file_start_line_reaches_stdio_frames_and_the_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core_ai.providers.base import BaseProvider
+    from core_ai.registry import ModelRegistry
+    from core_ai.types import Message, StreamEvent
+
+    from coding_agent import CodingAgent
+    from coding_agent.config import CodingAgentConfig, LangfuseConfig, LearningConfig
+
+    (tmp_path / "a.py").write_text("".join(f"line {n}\n" for n in range(1, 61)), encoding="utf-8")
+    calls = [("r41", '{"path": "a.py", "offset": 41, "limit": 2}'), ("gone", '{"path": "nope.py"}')]
+    turns = [
+        [
+            *(
+                event
+                for index, (call_id, args) in enumerate(calls)
+                for event in (
+                    StreamEvent(type="toolcall_start", content_index=index, tool_call_id=call_id,
+                                tool_name="read_file"),
+                    StreamEvent(type="toolcall_delta", content_index=index, delta=args),
+                )
+            ),
+            StreamEvent(type="done"),
+        ],
+        [StreamEvent(type="text_delta", delta="ok"), StreamEvent(type="done")],
+    ]
+
+    class Scripted(BaseProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def stream(
+            self,
+            model_name: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]] = [],
+            max_output_tokens: int | None = None,
+            reasoning_effort: str | None = None,
+            extra_headers: dict[str, str] | None = None,
+        ) -> AsyncGenerator[StreamEvent, None]:
+            del model_name, messages, tools, max_output_tokens, reasoning_effort, extra_headers
+            turn = turns[min(self.calls, len(turns) - 1)]
+            self.calls += 1
+            for event in turn:
+                yield event
+
+    registry = ModelRegistry()
+    registry.register("fake", Scripted())
+    frames: list[Mapping[str, Any]] = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    sink = StdioSink()
+    agent = CodingAgent(
+        registry=registry,
+        model_id="fake:read",
+        workspace=tmp_path,
+        sink=sink,
+        config=CodingAgentConfig(
+            learning=LearningConfig(enabled=False), langfuse=LangfuseConfig(enabled=False), unattended=True
+        ),
+    )
+    # What the stdio server, the TUI and the session store each do.
+    sink.fields.bind(agent)
+    emitted: list[tuple[str, dict[str, Any]]] = []
+    sink.subscribe(lambda name, body: emitted.append((name, dict(body))))
+    asyncio.run(agent.run("read"))
+
+    done = {frame["payload"]["tool_call_id"]: frame["payload"] for frame in frames
+            if frame.get("event") == "tool_execution_completed"}
+    assert done["r41"]["result"] == "  41|line 41\n  42|line 42\n"
+    assert done["r41"]["summary"]["start_line"] == 41
+    assert done["gone"]["summary"]["start_line"] is None
+
+    store = JsonlPersistence(tmp_path / "store")
+    store.fields = EventFields()
+    store.fields.bind(agent)
+    base = {"session_id": "s1", "run_id": "r1"}
+
+    async def journal() -> list[tuple[str, dict[str, Any]]]:
+        tool_events = [(name, body) for name, body in emitted if name.startswith("tool_execution_")]
+        for seq, (name, body) in enumerate(tool_events, start=1):
+            await store.append_event(event_type=name, payload={**base, "seq": seq, **body, "session_id": "s1"})
+        return await store.load_events(session_id="s1")
+
+    kept = {payload["tool_call_id"]: payload for kind, payload in asyncio.run(journal())
+            if kind == "tool_execution_completed"}
+    assert kept["r41"]["summary"]["start_line"] == 41
 
 
 # TUI
