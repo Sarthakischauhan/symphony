@@ -110,6 +110,7 @@ def wait(worker, predicate):
         assert worker.condition.wait_for(lambda: predicate(worker), timeout=15), worker.events
 
 
+@pytest.mark.slow
 def test_client_disconnects_are_not_logged(web, capsys):
     import socket
     import struct
@@ -123,6 +124,7 @@ def test_client_disconnects_are_not_logged(web, capsys):
     assert "Traceback" not in capsys.readouterr().err
 
 
+@pytest.mark.slow
 def test_security_policy(web):
     assert request(web)[0] == 200
     for headers in [
@@ -138,6 +140,7 @@ def test_security_policy(web):
     assert request(web, "/")[0] == 200
 
 
+@pytest.mark.slow
 def test_real_worker_stream_history_refresh_and_recovery(web):
     status, data = request(web, data={})
     assert status == 200, data
@@ -167,6 +170,7 @@ def test_real_worker_stream_history_refresh_and_recovery(web):
     wait(web.sessions.workers[sid], lambda w: any(e["data"].get("type") == "done" for e in w.events))
 
 
+@pytest.mark.slow
 def test_warm_starts_the_control_worker_before_any_request(web):
     assert web.sessions._control is None
     web.sessions.warm()
@@ -178,6 +182,7 @@ def test_warm_starts_the_control_worker_before_any_request(web):
     assert status == 200 and info["path"] == str(web.sessions.workspace)
 
 
+@pytest.mark.slow
 def test_workspace_info_models_and_commands_come_from_the_worker(web):
     import subprocess as sp
 
@@ -201,6 +206,7 @@ def test_workspace_info_models_and_commands_come_from_the_worker(web):
     assert status == 200 and any(item["name"] == "help" for item in commands)
 
 
+@pytest.mark.slow
 def test_model_switch_uses_the_protocol_on_the_live_worker(web):
     status, data = request(web, data={"model": "local:web-test"})
     assert status == 200, data
@@ -223,6 +229,7 @@ def test_model_switch_uses_the_protocol_on_the_live_worker(web):
     assert web.sessions.workers[sid] is worker
 
 
+@pytest.mark.slow
 def test_approval_and_cancellation_through_the_protocol(web):
     (web.sessions.workspace / "web-result.txt").write_text("Original content\n")
     status, data = request(web, data={})
@@ -256,6 +263,7 @@ def test_approval_and_cancellation_through_the_protocol(web):
     wait(worker, lambda w: sum(e["data"].get("type") == "done" for e in w.events) > done)
 
 
+@pytest.mark.slow
 def test_tui_owner_cannot_be_resumed(web):
     sid = str(uuid.uuid4())
     register_active(sid, workspace=web.sessions.workspace, kind="tui")
@@ -275,6 +283,7 @@ def test_tui_owner_cannot_be_resumed(web):
     assert web.sessions.resume(sid) == sid
 
 
+@pytest.mark.slow
 def test_historical_web_sessions_come_from_session_frames(web):
     from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
     from core_ai.types import Message
@@ -299,6 +308,7 @@ def test_cli_web_dispatch(monkeypatch):
     assert exit.value.code == 0 and calls == [["--no-browser"]]
 
 
+@pytest.mark.slow
 def test_browser_refresh_streaming_and_approval(web):
     """Run with the CI-installed Chromium or the system browser."""
     import shutil
@@ -387,6 +397,7 @@ def test_cli_opens_browser(monkeypatch, tmp_path, static):
     assert len(opened[0].split("#")[1]) >= 32
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(os.name == "nt", reason="POSIX terminal process-group signals")
 @pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
 def test_cli_shutdown_closes_workers_without_tracebacks(tmp_path, model, signum):

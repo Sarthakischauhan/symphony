@@ -41,8 +41,9 @@ if [ -z "$dirs" ]; then
     echo "pre-commit: no package changes staged; skipping tests"
 else
     echo "pre-commit: running fast tests in $dirs"
+    # worksteal rebalances a few long tests that would otherwise pin one worker.
     # shellcheck disable=SC2086 # dirs is a space-separated list of paths
-    uv run --no-sync pytest $dirs -m "not slow and not browser" -n auto -q -p no:cacheprovider
+    uv run --no-sync pytest $dirs -m "not slow and not browser" -n auto --dist worksteal -q -p no:cacheprovider
 fi
 
 echo "pre-commit: fast checks passed (full suite and builds run in CI)"
