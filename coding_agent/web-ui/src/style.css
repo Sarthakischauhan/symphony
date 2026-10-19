@@ -827,12 +827,11 @@ label.settings-row {
   color: var(--sy-ink);
 }
 
-/* Tool, widget and artifact chrome: hairline cards, mono status labels. */
+/* Generic tool, question and artifact chrome: hairline cards, mono status
+   labels. Prebuilt tool and subagent rows stay the SDK's borderless rows. */
 .chat-root .agent-tool,
-.chat-root .chat-tool-widget,
 .chat-root .chat-question,
-.chat-root .chat-artifact,
-.chat-root .chat-subagent {
+.chat-root .chat-artifact {
   border: 1px solid var(--sy-hairline);
   border-radius: var(--chat-radius);
   background: var(--sy-card);
@@ -850,8 +849,6 @@ label.settings-row {
   margin-top: -12px;
 }
 .chat-root .agent-tool-state,
-.chat-root .chat-tool-widget-status,
-.chat-root .chat-tool-widget-label,
 .chat-root .chat-subagent-state,
 .chat-root .chat-artifact-state,
 .chat-root .chat-question-eyebrow,
@@ -863,16 +860,11 @@ label.settings-row {
   text-transform: uppercase;
   color: var(--sy-mute);
 }
-.chat-root .chat-tool-widget[data-state="running"] .chat-tool-widget-status,
 .chat-root .agent-tool-pending .agent-tool-state {
   color: var(--sy-orange);
 }
-.chat-root .chat-tool-widget[data-state="error"] .chat-tool-widget-status,
 .chat-root .agent-tool-error .agent-tool-state {
   color: var(--sy-coral);
-}
-.chat-root .chat-tool-widget[data-state="approval"] {
-  border-color: color-mix(in oklab, var(--sy-coral) 45%, var(--sy-hairline));
 }
 .chat-root .chat-question {
   border-color: color-mix(in oklab, var(--sy-coral) 45%, var(--sy-hairline));
