@@ -358,3 +358,59 @@ def test_overlapping_run_is_rejected(monkeypatch):
     errors = [frame for frame in frames if frame["type"] == "error"]
     assert errors[0]["message"] == "run rejected: a run is already active"
     assert "active run" in errors[1]["message"] and errors[1]["request_id"] == "m-1"
+
+
+def test_tool_execution_started_frame_carries_started_at(monkeypatch):
+    """Capture the real stdout bytes of a harness tool call through StdioSink."""
+    import time
+    from typing import Any
+
+    from core_ai.types import Message, StreamEvent
+    from core_harness import CoreHarness, HarnessConfig, Tool
+
+    class Scripted:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def stream(self, model_id: str, messages: list[Message], tools: list[dict[str, Any]]):
+            del model_id, messages, tools
+            self.calls += 1
+            if self.calls == 1:
+                yield StreamEvent(type="toolcall_start", content_index=0, tool_call_id="call-1", tool_name="echo")
+                yield StreamEvent(type="toolcall_delta", content_index=0, delta='{"text": "hi"}')
+            else:
+                yield StreamEvent(type="text_delta", delta="ok")
+            yield StreamEvent(type="usage", prompt_tokens=1, completion_tokens=1, total_tokens=2)
+            yield StreamEvent(type="done")
+
+    def echo(text: str = "") -> str:
+        return f"echo:{text}"
+
+    wire: list[str] = []
+
+    class Stdout:
+        def write(self, value: str) -> None:
+            wire.append(value)
+
+        def flush(self) -> None:
+            pass
+
+    monkeypatch.setattr(stdio.sys, "__stdout__", Stdout())
+    harness = CoreHarness(
+        registry=Scripted(),  # type: ignore[arg-type]
+        model_id="fake:stdio",
+        system_prompt="test",
+        config=HarnessConfig(max_turns=3),
+        tools=[Tool(echo)],
+        sink=stdio.StdioSink(),
+    )
+    before = time.time()
+    asyncio.run(harness.run("go"))
+    frames = [json.loads(line) for line in "".join(wire).splitlines()]
+    started = [f for f in frames if f.get("event") == "tool_execution_started"]
+    assert len(started) == 1
+    payload = started[0]["payload"]
+    # Epoch seconds (a float), stamped by the harness tool loop.
+    assert isinstance(payload["started_at"], float)
+    assert before <= payload["started_at"] <= time.time()
+    assert payload["call_id"] == "call-1"
