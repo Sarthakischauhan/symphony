@@ -970,3 +970,30 @@ label.settings-row {
   opacity: 0.7;
   font-size: 0.75rem;
 }
+
+/* Approval card: the protocol's detail, target and write size, one button per choice. */
+.approval-card {
+  border: 1px solid var(--border, #333);
+  border-radius: 0.75rem;
+  padding: 0.875rem 1rem;
+  margin: 0.5rem 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.approval-detail {
+  margin: 0;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.approval-meta {
+  margin: 0;
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  opacity: 0.8;
+}
+.approval-choices {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}

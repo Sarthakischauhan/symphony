@@ -14,6 +14,7 @@ import {
 import "@sarchauhan/chat/styles.css";
 import "./style.css";
 import { api, withToken } from "./api";
+import { ApprovalCard } from "./Approval";
 import { historical, initial, reduce, type Row, type State } from "./events";
 import {
   parseFrame,
@@ -420,27 +421,39 @@ export function App() {
                       showUsage={preferences.showUsage}
                     />
                   ))}
-                  {pending.map((q) => (
-                    <QuestionWidget
-                      key={q.request_id}
-                      prompt={q.question}
-                      options={q.choices || []}
-                      allowCustom
-                      onSubmit={async (answer) => {
-                        await api(`sessions/${selected}/answer`, {
-                          request_id: q.request_id,
-                          value: answer.text || answer.values.join(", "),
-                        });
-                        // The protocol has no answered frame; the next run
-                        // event (or done) confirms it.
-                        setState((s) => {
-                          const pending = { ...s.pending };
-                          delete pending[q.request_id];
-                          return { ...s, pending };
-                        });
-                      }}
-                    />
-                  ))}
+                  {pending.map((q) => {
+                    // Both widgets answer through the stdio answer frame.
+                    const answer = async (value: string) => {
+                      await api(`sessions/${selected}/answer`, {
+                        request_id: q.request_id,
+                        value,
+                      });
+                      // The protocol has no answered frame; the next run
+                      // event (or done) confirms it.
+                      setState((s) => {
+                        const pending = { ...s.pending };
+                        delete pending[q.request_id];
+                        return { ...s, pending };
+                      });
+                    };
+                    return q.kind === "approval" ? (
+                      <ApprovalCard
+                        key={q.request_id}
+                        question={q}
+                        onAnswer={answer}
+                      />
+                    ) : (
+                      <QuestionWidget
+                        key={q.request_id}
+                        prompt={q.question}
+                        options={q.choices || []}
+                        allowCustom
+                        onSubmit={(reply) =>
+                          answer(reply.text || reply.values.join(", "))
+                        }
+                      />
+                    );
+                  })}
                   {state.busy && !pending.length && (
                     <LoadingState label={activity(state)} compact />
                   )}

@@ -309,10 +309,9 @@ def test_browser_refresh_streaming_and_approval(web):
         wait(worker, lambda w: bool(questions(w)) or any(e["data"].get("type") == "done" for e in w.events))
         if questions(worker):
             q = questions(worker)[0]
-            option = page.get_by_text(q["choices"][0], exact=True)
-            expect(option).to_be_visible()
-            option.click()
-            page.get_by_role("button", name="Confirm", exact=True).click()
+            # An approval renders one button per choice; a click sends the answer frame.
+            expect(page.get_by_role("region", name="Approval required")).to_be_visible()
+            page.get_by_role("button", name=q["choices"][0], exact=True).click()
         expect(page.get_by_text("Web task completed", exact=True)).to_be_visible(timeout=15000)
         page.reload()
         expect(page.get_by_text("Web task completed", exact=True)).to_be_visible()

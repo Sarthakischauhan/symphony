@@ -143,6 +143,23 @@ workspace path, git branch and default model, a toggle for the token usage line
 under each reply, a control to clear pinned sessions, and the keyboard
 shortcuts. Like pins, these preferences live in browser storage.
 
+## Approvals and protocol 3 fields
+
+An `input_requested` frame with `kind: "approval"` renders as an approval
+card: the `detail` (or `question`), the `target`, the write size in `bytes`,
+and one button per entry in `choices`, with `default` highlighted. A click
+posts `{request_id, value}` to `/api/sessions/<id>/answer`, which the host
+relays as the stdio `answer` frame. Approvals are never sent as chat
+messages.
+
+Finished tool cards are titled with the protocol 3 facts, for example
+`bash · exit 1 · 1.2s · 3 lines`, from `exit_code`, `duration_ms` and
+`summary`. Live `tool_execution_output` chunks fill a running card, and
+subagent chunks are routed by `parent_call_id`. `subagent_step` adds the
+turn to the subagent card's title. The session journal stores these fields,
+so a reloaded session (read from `session/history`) shows the same titles.
+Sessions recorded before protocol 3 show the plain tool name.
+
 ## Screenshots
 
 These are browser captures of the `/demo/` page, which renders the real

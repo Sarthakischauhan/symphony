@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { historical, initial, reduce, type State } from "./events";
+import { historical, initial, reduce, toolTitle, type State } from "./events";
 import { parseFrame } from "./frames";
 import { parseArtifact, parseSubagent, parseUsage } from "./protocol-compat";
 
@@ -244,5 +244,99 @@ describe("SDK message shape", () => {
       context_window: 1000,
     });
     expect(s.busy).toBe(false);
+  });
+});
+
+describe("protocol 3 widget fields", () => {
+  it("titles finished tools with exit code, duration and summary", () => {
+    expect(
+      toolTitle("bash", {
+        exit_code: 1,
+        duration_ms: 2340,
+        summary: { lines: 4, matches: null, added: null, removed: null },
+      }),
+    ).toBe("bash · exit 1 · 2.3s · 4 lines");
+    expect(
+      toolTitle("patch", {
+        duration_ms: 10,
+        summary: { lines: null, matches: null, added: 2, removed: 1 },
+      }),
+    ).toBe("patch · 0.0s · +2 −1");
+    expect(toolTitle("read_file", {})).toBeUndefined();
+  });
+
+  it("streams output, then settles a failed bash with its facts", () => {
+    const s = run([
+      event("run_started", { prompt: "t" }),
+      event("tool_execution_started", {
+        tool_call_id: "b",
+        tool_name: "bash",
+        arguments: { command: "pytest" },
+      }),
+      event("tool_execution_output", { tool_call_id: "b", delta: "E boom\n", stream: "stderr" }),
+    ]);
+    expect(partsOf(s, 1)[0].output).toBe("E boom\n");
+    const done = apply(
+      s,
+      event("tool_execution_completed", {
+        tool_call_id: "b",
+        tool_name: "bash",
+        status: "error",
+        result: "exit=1\nE boom",
+        duration_ms: 1500,
+        exit_code: 1,
+        summary: { lines: 2, matches: null, added: null, removed: null },
+      }),
+      4,
+    );
+    expect(partsOf(done, 1)[0]).toMatchObject({
+      state: "output-error",
+      title: "bash · exit 1 · 1.5s · 2 lines",
+      errorText: "exit=1\nE boom",
+    });
+  });
+
+  it("routes subagent output by parent_call_id and counts subagent steps", () => {
+    const s = run([
+      event("run_started", { prompt: "t" }),
+      event("agent_spawned", { child_id: "kid", label: "Research", tool_call_id: "s1", parent_call_id: "s1" }),
+      event("tool_execution_started", {
+        agent_id: "kid", parent_id: "root", tool_call_id: "c", tool_name: "bash", parent_call_id: "s1",
+      }),
+      event("tool_execution_output", { tool_call_id: "c", delta: "hi", parent_call_id: "s1" }),
+      event("subagent_step", { agent_id: "kid", parent_id: "root", parent_call_id: "s1", turn: 2 }),
+    ]);
+    const card = partsOf(s, 1).find((p) => p.name === "subagent");
+    expect(card.data.title).toBe("Research · step 2");
+    expect(card.data.messages[0].parts[0].output).toBe("hi");
+  });
+
+  it("reads the journaled facts back from session history", () => {
+    const s = historical({
+      messages: [
+        { role: "user", content: "t" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "b", function: { name: "bash", arguments: '{"command":"make"}' } }],
+        },
+        { role: "tool", tool_call_id: "b", content: "exit=2\nfail" },
+      ],
+      events: [
+        [
+          "tool_execution_completed",
+          {
+            tool_call_id: "b", tool_name: "bash", status: "error", result: "exit=2\nfail",
+            duration_ms: 900, exit_code: 2,
+            summary: { lines: 2, matches: null, added: null, removed: null },
+          },
+        ],
+      ],
+      children: [],
+    });
+    expect(partsOf(s, 1).find((p) => p.type === "tool")).toMatchObject({
+      state: "output-error",
+      title: "bash · exit 2 · 0.9s · 2 lines",
+    });
   });
 });

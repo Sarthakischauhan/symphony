@@ -12,6 +12,7 @@ import type {
   InputRequestedFrame,
   SessionHistory,
   ToolArguments,
+  ToolSummary,
 } from "./frames";
 
 export type Row = {
@@ -25,7 +26,48 @@ export type SubagentData = {
   task?: string;
   state: "running" | "completed" | "failed";
   messages: Row[];
+  // The spawn_agent call (protocol 3 parent_call_id) and the latest turn.
+  label?: string;
+  callId?: string;
+  step?: number;
 };
+// Protocol 3 completion fields, live or from the session journal.
+export type ToolFacts = {
+  status?: string;
+  result?: unknown;
+  output?: unknown;
+  content?: unknown;
+  duration_ms?: number;
+  exit_code?: number | null;
+  summary?: ToolSummary | null;
+};
+
+/** "bash · exit 1 · 2.3s · 4 lines"; undefined when the payload has no facts. */
+export function toolTitle(name: string, p: ToolFacts): string | undefined {
+  const facts: string[] = [];
+  if (typeof p.exit_code === "number" && p.exit_code !== 0)
+    facts.push(`exit ${p.exit_code}`);
+  if (typeof p.duration_ms === "number")
+    facts.push(`${(p.duration_ms / 1000).toFixed(1)}s`);
+  const s = p.summary;
+  if (s?.added != null)
+    facts.push(s.removed != null ? `+${s.added} −${s.removed}` : `+${s.added}`);
+  else if (s?.matches != null) facts.push(`${s.matches} matches`);
+  else if (s?.lines != null) facts.push(`${s.lines} lines`);
+  return facts.length ? [name, ...facts].join(" · ") : undefined;
+}
+
+// Settle a tool card from its completion payload.
+function finish(tool: AgentToolPart, p: ToolFacts) {
+  const value = p.output ?? p.result ?? p.content;
+  const failed = p.status !== undefined && p.status !== "success";
+  tool.state = failed ? "output-error" : "output-available";
+  tool.output = failed ? value : widgetOutput(tool, value);
+  if (failed && typeof value === "string") tool.errorText = value;
+  tool.title = toolTitle(tool.toolName, p) ?? tool.title;
+}
+const subagentTitle = (data: SubagentData) =>
+  data.step ? `${data.label || "Subagent"} · step ${data.step}` : data.label || "Subagent";
 export type UsageData = { total_tokens: number };
 export type ContextData = { current_tokens: number; context_window: number };
 export type State = {
@@ -93,6 +135,37 @@ export function reduce(state: State, frame: Frame, id: number): State {
 }
 
 function applyEvent(s: State, frame: EventFrame, id: number): State {
+  if (frame.event === "subagent_step") {
+    const card = subagents(s.rows).find(
+      (x) => x.data.id === frame.payload.agent_id,
+    );
+    if (card) {
+      card.data.step = frame.payload.turn;
+      card.data.title = subagentTitle(card.data);
+    }
+    return s;
+  }
+  if (frame.event === "tool_execution_output") {
+    // Chunks carry no agent ids; parent_call_id names the spawning call.
+    const call = frame.payload.parent_call_id;
+    if (call) {
+      const card = subagents(s.rows).find((x) => x.data.callId === call);
+      if (card)
+        card.data.messages = applyEvent(
+          { ...initial(), rows: card.data.messages },
+          { ...frame, payload: { ...frame.payload, parent_call_id: null } },
+          id,
+        ).rows;
+      return s;
+    }
+    const tool = s.rows
+      .flatMap((r) => r.parts)
+      .filter(isTool)
+      .find((x) => x.toolCallId === frame.payload.tool_call_id);
+    if (tool && tool.state === "input-available")
+      tool.output = `${typeof tool.output === "string" ? tool.output : ""}${frame.payload.delta}`;
+    return s;
+  }
   // A question blocks the run, so any later event means it was answered.
   if (frame.event !== "question_asked") s.pending = {};
   if (frame.payload.parent_id) {
@@ -187,12 +260,8 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
         row.parts.push(tool);
       }
       if (p.arguments) tool.input = toolInput(p.arguments);
-      if (frame.event === "tool_execution_completed") {
-        const value = p.output ?? p.result ?? p.content;
-        tool.state = p.status === "error" ? "output-error" : "output-available";
-        tool.output =
-          p.status === "success" ? widgetOutput(tool, value) : value;
-      }
+      if (frame.event === "tool_execution_started") tool.output = undefined;
+      if (frame.event === "tool_execution_completed") finish(tool, p);
       break;
     }
     case "agent_spawned":
@@ -209,6 +278,7 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
           data: {
             id: key,
             title: p.label || "Subagent",
+            label: p.label,
             state: "running",
             messages: [],
           },
@@ -217,6 +287,7 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
       }
       const data = card.data;
       data.task = p.prompt || data.task;
+      data.callId = p.parent_call_id || p.tool_call_id || data.callId;
       data.state =
         frame.event === "agent_spawned"
           ? "running"
@@ -289,10 +360,16 @@ export function historical(data: SessionHistory): State {
     s.rows.push(row);
   }
   for (const [i, [event, payload]] of data.events.entries()) {
+    // Protocol 3 journals duration_ms, exit_code and summary with each call.
+    if (event === "tool_execution_completed" && !payload.parent_id) {
+      const tool = tools.get(String(payload.tool_call_id));
+      if (tool) finish(tool, payload as ToolFacts);
+    }
     if (
       event === "agent_spawned" ||
       event === "agent_completed" ||
-      event === "agent_failed"
+      event === "agent_failed" ||
+      event === "subagent_step"
     )
       Object.assign(
         s,

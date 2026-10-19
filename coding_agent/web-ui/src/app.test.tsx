@@ -176,3 +176,69 @@ it("loads history, streams a task, renders SDK tool/approval/subagent widgets", 
   );
   await screen.findByRole("button", { name: "Send message" });
 });
+
+it("answers an approval card with the chosen choice through the answer frame", async () => {
+  vi.stubGlobal("EventSource", Stream);
+  const calls: any[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, options) => {
+      calls.push([url, options]);
+      const path = String(url);
+      return {
+        ok: true,
+        json: async () =>
+          options?.method === "POST"
+            ? { session_id: "session-1", model: "local:test" }
+            : path === "/api/sessions"
+              ? []
+              : path === "/api/models"
+                ? { defaultProviderId: "", default: "", providers: [] }
+                : path === "/api/commands"
+                  ? []
+                  : { owned: true, messages: [], events: [], children: [], model: "" },
+      };
+    }),
+  );
+  render(<App />);
+  const input = await screen.findByLabelText("Coding task");
+  fireEvent.change(input, { target: { value: "Fix health" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByText("Connected");
+  await act(async () => {
+    source.onmessage({
+      lastEventId: "1",
+      data: JSON.stringify({ type: "event", event: "run_started", payload: { prompt: "Fix health" } }),
+    });
+    source.onmessage({
+      lastEventId: "2",
+      data: JSON.stringify({
+        type: "input_requested",
+        request_id: "q-7",
+        question: "Overwrite existing file `app/api.py`?",
+        choices: ["Allow once", "Always allow", "Deny"],
+        default: "Allow once",
+        kind: "approval",
+        target: "app/api.py",
+        detail: "Overwrite existing file `app/api.py`?",
+        bytes: 29,
+      }),
+    });
+  });
+  const card = screen.getByRole("region", { name: "Approval required" });
+  expect(card.textContent).toContain("app/api.py");
+  expect(card.textContent).toContain("29 bytes");
+  const posted = () => calls.filter(([url]) => String(url).endsWith("/prompt")).length;
+  const before = posted();
+  fireEvent.click(screen.getByRole("button", { name: "Always allow" }));
+  await waitFor(() =>
+    expect(calls.some(([url]) => String(url).endsWith("/answer"))).toBe(true),
+  );
+  const [, options] = calls.find(([url]) => String(url).endsWith("/answer"));
+  expect(JSON.parse(options.body)).toEqual({ request_id: "q-7", value: "Always allow" });
+  // An approval is never sent as a chat message.
+  expect(posted()).toBe(before);
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Approval required" })).toBeNull(),
+  );
+});

@@ -20,6 +20,10 @@ export type InputRequestedFrame = {
   default?: string | null;
   kind?: string | null;
   metadata?: Record<string, unknown>;
+  // Protocol 3 approvals: what is touched, the question, the write size.
+  target?: string;
+  detail?: string;
+  bytes?: number | null;
 };
 export type DoneFrame = {
   type: "done";
@@ -37,17 +41,32 @@ export type ToolArguments = Record<string, unknown> & {
   old_str?: string;
   new_str?: string;
 };
-type ToolPayload = Routed & {
+// Protocol 3 tool summary counts; null where a tool has no such count.
+export type ToolSummary = {
+  lines: number | null;
+  matches: number | null;
+  added: number | null;
+  removed: number | null;
+};
+// The spawn_agent call a subagent's event belongs to (protocol 3).
+type Spawned = { parent_call_id?: string | null };
+type ToolPayload = Routed & Spawned & {
   tool_call_id: string;
+  call_id?: string;
+  started_at?: number | string;
+  duration_ms?: number;
+  exit_code?: number | null;
+  summary?: ToolSummary | null;
   tool_name?: string;
   arguments?: ToolArguments;
-  status?: "success" | "error";
+  status?: "success" | "error" | "cancelled" | "timeout";
   output?: unknown;
   result?: unknown;
   content?: unknown;
 };
-type AgentPayload = Routed & {
+type AgentPayload = Routed & Spawned & {
   child_id: string;
+  tool_call_id?: string;
   label?: string;
   prompt?: string;
   output_text?: string;
@@ -74,6 +93,18 @@ export type StdioEvent =
         | "tool_execution_updated"
         | "tool_execution_completed";
       payload: ToolPayload;
+    }
+  | {
+      event: "tool_execution_output";
+      payload: Spawned & {
+        tool_call_id: string;
+        delta: string;
+        stream?: "stdout" | "stderr";
+      };
+    }
+  | {
+      event: "subagent_step";
+      payload: Routed & Spawned & { turn?: number; started_at?: number | string };
     }
   | {
       event: "agent_spawned" | "agent_completed" | "agent_failed";
@@ -104,6 +135,8 @@ const EVENTS = new Set<string>([
   "tool_execution_started",
   "tool_execution_updated",
   "tool_execution_completed",
+  "tool_execution_output",
+  "subagent_step",
   "agent_spawned",
   "agent_completed",
   "agent_failed",
