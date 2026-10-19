@@ -31,6 +31,8 @@ about files, shells, TUIs, or session files belongs in `coding_agent`, not
 uv sync                    # install all workspace packages + dev tools (locked)
 uv run pytest              # every suite; or pass a package's tests/ dir
 uv run ruff check .        # lint; CI runs exactly this
+uv run pytest -m "not slow" -n auto   # fast parallel subset; CI runs everything
+git config core.hooksPath .githooks   # pre-commit: ruff + fast tests of the touched packages
 uv build --package symphony-core -o dist   # same build CI and releases run
 uv run --package symphony-code symphony    # launch the TUI
 ```

@@ -20,36 +20,6 @@ from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from addon_fakes import no_user_addons
 
 
-PROVIDER_ENV = (
-    "OPENAI_API_KEY",
-    "SYMPHONY_OPENAI_AUTH",
-    "SYMPHONY_ANTHROPIC_AUTH",
-    "SYMPHONY_GROK_AUTH",
-    "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "XAI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "AI_GATEWAY_API_KEY",
-    "VERCEL_AI_GATEWAY_API_KEY",
-    "SYMPHONY_MODEL",
-    "OLLAMA_API_KEY",
-    "OLLAMA_BASE_URL",
-    "OLLAMA_HOST",
-    "OLLAMA_ENABLED",
-    "OLLAMA_MODEL",
-    "LOCAL_API_KEY",
-    "LOCAL_BASE_URL",
-    "LOCAL_MODEL",
-)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in PROVIDER_ENV:
-        monkeypatch.delenv(name, raising=False)
-
-
 def _highlight_provider(app: OnboardApp, provider_id: str) -> None:
     listing = app.query_one("#provider-list", OptionList)
     listing.highlighted = next(

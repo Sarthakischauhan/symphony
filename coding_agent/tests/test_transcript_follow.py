@@ -73,6 +73,7 @@ def _timeline(app: CodingAgentApp) -> list[Widget]:
     return list(app._process.children)
 
 
+@pytest.mark.slow
 def test_follow_stays_at_the_bottom_over_100_streamed_updates(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -96,6 +97,7 @@ def test_follow_stays_at_the_bottom_over_100_streamed_updates(
     asyncio.run(_run())
 
 
+@pytest.mark.slow
 def test_scrolled_up_reader_stays_put_while_rows_append_and_groups_fold(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -283,6 +285,7 @@ def _start_bash(app: CodingAgentApp, call_id: str) -> None:
     )
 
 
+@pytest.mark.slow
 def test_bash_card_identity_is_stable_across_output_and_status(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -355,6 +358,7 @@ def test_long_bash_output_lines_are_clipped_to_one_row_each(
     asyncio.run(_run())
 
 
+@pytest.mark.slow
 def test_follow_stays_at_the_bottom_while_bash_output_streams(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

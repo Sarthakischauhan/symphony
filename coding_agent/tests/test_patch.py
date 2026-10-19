@@ -171,25 +171,19 @@ def test_patch_crlf_file_accepts_lf_needle(tmp_path: Path) -> None:
     assert target.read_bytes() == b"def f():\r\n    return 2\r\n"
 
 
-def test_patch_unique_trailing_whitespace_still_applies(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("original", "old", "new", "expected"),
+    [
+        pytest.param("    return x  \n", "    return x\n", "    return y\n", "    return y\n", id="trailing-whitespace"),
+        pytest.param("msg = \u201chello\u201d\n", 'msg = "hello"\n', 'msg = "bye"\n', 'msg = "bye"\n', id="curly-quotes"),
+        pytest.param("\ufeffhello\n", "hello\n", "world\n", "\ufeffworld\n", id="bom-kept"),
+    ],
+)
+def test_patch_unique_fuzzy_match_still_applies(
+    tmp_path: Path, original: str, old: str, new: str, expected: str
+) -> None:
     target = tmp_path / "a.py"
-    target.write_text("    return x  \n", encoding="utf-8")
-    result = PatchTool(tmp_path).run("a.py", "    return x\n", "    return y\n")
+    target.write_text(original, encoding="utf-8")
+    result = PatchTool(tmp_path).run("a.py", old, new)
     assert result.startswith("patched")
-    assert target.read_text(encoding="utf-8") == "    return y\n"
-
-
-def test_patch_unique_curly_quotes_still_apply(tmp_path: Path) -> None:
-    target = tmp_path / "a.py"
-    target.write_text("msg = \u201chello\u201d\n", encoding="utf-8")
-    result = PatchTool(tmp_path).run("a.py", 'msg = "hello"\n', 'msg = "bye"\n')
-    assert result.startswith("patched")
-    assert target.read_text(encoding="utf-8") == 'msg = "bye"\n'
-
-
-def test_patch_strips_bom_for_matching(tmp_path: Path) -> None:
-    target = tmp_path / "a.py"
-    target.write_text("\ufeffhello\n", encoding="utf-8")
-    result = PatchTool(tmp_path).run("a.py", "hello\n", "world\n")
-    assert result.startswith("patched")
-    assert target.read_text(encoding="utf-8") == "\ufeffworld\n"
+    assert target.read_text(encoding="utf-8") == expected

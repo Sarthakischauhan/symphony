@@ -1,6 +1,12 @@
 #!/bin/sh
-# Run the same checks as GitHub Actions CI before creating a commit.
+# Fast local checks before a commit; target is well under 20 s.
 # Install with: git config core.hooksPath .githooks
+#
+# Runs Ruff, the generated-catalog guard, and the fast tests of the packages
+# the staged files touch, in parallel. Tests marked `slow` or `browser`, the
+# browser_agent suite, and the package builds run in GitHub Actions CI only.
+# SYMPHONY_HOOK_FULL=1 runs every package's fast tests regardless of what is
+# staged. The tests run against the working tree, not only the staged hunks.
 set -eu
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -8,8 +14,7 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "pre-commit: syncing workspace"
-uv sync --locked --all-packages --dev
+uv sync --locked --all-packages --dev --quiet
 
 echo "pre-commit: running Ruff"
 uv run --no-sync ruff check .
@@ -17,16 +22,27 @@ uv run --no-sync ruff check .
 echo "pre-commit: checking generated catalog"
 git diff --exit-code -- core_ai/src/core_ai/models/generated.py
 
-echo "pre-commit: running tests"
-uv run --no-sync pytest coding_agent/tests core_ai/tests core_harness/tests core_server/tests
+all="coding_agent/tests core_ai/tests core_harness/tests core_server/tests"
+if [ "${SYMPHONY_HOOK_FULL:-}" = "1" ]; then
+    dirs=$all
+else
+    # Dependencies run core_ai -> core_harness -> coding_agent / core_server,
+    # so a change runs its own package's tests and its dependents'.
+    dirs=$(git diff --cached --name-only --diff-filter=ACMRD | awk -v all="$all" '
+        /^core_ai\//                       { print all; next }
+        /^(conftest\.py|pyproject\.toml|uv\.lock)$/ { print all; next }
+        /^core_harness\//                  { print "core_harness/tests coding_agent/tests core_server/tests"; next }
+        /^coding_agent\//                  { print "coding_agent/tests"; next }
+        /^core_server\//                   { print "core_server/tests"; next }
+    ' | tr ' ' '\n' | sort -u | tr '\n' ' ')
+fi
 
-echo "pre-commit: building published packages"
-rm -rf dist
-uv build --package symphony-core -o dist
-uv build --package symphony-harness -o dist
-uv build --package symphony-code -o dist
+if [ -z "$dirs" ]; then
+    echo "pre-commit: no package changes staged; skipping tests"
+else
+    echo "pre-commit: running fast tests in $dirs"
+    # shellcheck disable=SC2086 # dirs is a space-separated list of paths
+    uv run --no-sync pytest $dirs -m "not slow and not browser" -n auto -q -p no:cacheprovider
+fi
 
-echo "pre-commit: checking generated catalog after build"
-git diff --exit-code -- core_ai/src/core_ai/models/generated.py
-
-echo "pre-commit: all CI checks passed"
+echo "pre-commit: fast checks passed (full suite and builds run in CI)"

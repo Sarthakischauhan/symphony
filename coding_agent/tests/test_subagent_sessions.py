@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.chrome import ComposerOverlay
@@ -131,6 +133,7 @@ def test_child_view_compaction_and_parent_updates_are_isolated(monkeypatch, tmp_
     asyncio.run(run())
 
 
+@pytest.mark.slow
 def test_child_view_survives_events_that_banner_above_the_parent_composer(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     endings = (
