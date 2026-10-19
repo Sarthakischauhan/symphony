@@ -16,8 +16,10 @@ Node.js is only required to develop or rebuild the frontend.
 `SYMPHONY_HOME` can relocate configuration, sessions and ownership records when
 the default user home is read-only.
 
-Select **New session** to start, or select a historical TUI session in the sidebar
-and choose **Resume session**. Web uses the same `JsonlPersistence` transcript,
+Type a task into the composer to start a session; the first prompt creates it.
+**New session** returns to that empty composer. Select a historical TUI session
+in the sidebar to read it, then choose **Resume session** or simply send a prompt,
+which resumes the session first. Web uses the same `JsonlPersistence` transcript,
 context, and checkpoint APIs and the same TUI session directory. Prompts execute
 through the existing stdio protocol, `CodingAgent`, and `CoreHarness`. Existing
 provider configuration, tools, approval policy, and deny rules apply. Questions
@@ -37,7 +39,17 @@ that lack lifetime locks against the same session storage concurrently.
 
 Commands are JSON POST requests to `/api/sessions` (new) or
 `/api/sessions/{id}/{resume,prompt,cancel,answer}`. Reads expose the session list,
-historical messages/events/children, and `/api/sessions/{id}/events` SSE.
+historical messages/events/children, `/api/sessions/{id}/events` SSE, the
+workspace path and git branch (`/api/info`), and the model catalog
+(`/api/models`).
+
+The composer's model picker lists the providers you have configured. A short-lived
+worker process builds the catalog once per server, so provider credentials stay out
+of the server process. Creating or resuming a session accepts an optional `model`;
+picking a different model for an idle live session restarts its worker on that
+model, and the persisted transcript carries over. Switching while a task runs
+returns HTTP 409. A prompt may carry a `reasoning_effort` from the picker's
+reasoning levels.
 The SSE envelope has an increasing integer `id` and the existing stdio JSON frame
 as `data`. `Last-Event-ID` replays missed frames. The frontend rejects gaps and
 ignores duplicates. Its initial snapshot plus replay reconstructs pending
@@ -57,12 +69,28 @@ your user permissions; the browser UI does not add a filesystem sandbox.
 
 ## Frontend and wheel pipeline
 
-`coding_agent/web-ui` is a React/Vite application using the published
-`@sarchauhan/chat@0.0.1` components. Symphony event translation lives in
-`src/events.ts`; the SDK has no Symphony-specific changes. It provides streaming
-messages, tool outputs, patch diffs, approval questions, artifacts, and subagent
-activity views. The Python host and compiled assets live in
-`coding_agent/src/coding_agent/web` to fit the existing Python package layout.
+`coding_agent/web-ui` is a React/Vite application. All chat UI comes from the
+published `@sarchauhan/chat@0.0.1`: the composer (`ChatComposer` inside
+`ChatContextProvider`), message rendering (`MessageContent`, `MessageUsage`),
+`LoadingState`, approval questions, the model picker, and the read, patch,
+search, artifact, and subagent widgets. The session sidebar is the shadcn/ui `Sidebar`
+(`src/components/ui`, Tailwind CSS v4 without preflight so the SDK keeps its
+browser defaults). `src/style.css` maps both shadcn variables and `--chat-*`
+tokens onto one dark theme.
+
+Symphony-specific glue stays in this app, not the SDK. `src/events.ts`
+translates stdio frames and journals into SDK message parts: write results use
+the SDK `{ artifact }` tool-output envelope, search hits become search results,
+and usage/context events become `data` parts. A small `ChatAdapter` in
+`src/main.tsx` sends the composer's prompt (creating or resuming the session
+first) and settles when that run's `done` frame arrives. The composer's stop
+button interrupts the run. Prompts are text only, so the SDK attach button is
+hidden.
+
+The Python host and compiled assets live in `coding_agent/src/coding_agent/web`
+to fit the existing Python package layout. To review the UI without a worker or
+provider, run `npx vite` in `coding_agent/web-ui` and open `/demo/`; it mocks the
+local API and plays a scripted run. The demo page is not part of the build.
 
 ```sh
 uv sync --locked --all-packages --dev
@@ -102,18 +130,18 @@ user's configured provider and is not exercised by these tests.
 ## Session navigation
 
 The sidebar supports title/ID search, pinned sessions, active/today/recent/older
-sections, message counts, and explicit TUI ownership indicators. Pinning, desktop
-width, and collapse state are saved in this browser; they do not rewrite session
-journals. Preferences are scoped to the browser origin; use a stable `--port`
-to retain them across separate server launches. Use the resize handle or its arrow keys to adjust desktop width.
-`Cmd/Ctrl K` focuses search, `Cmd/Ctrl B` toggles navigation, and arrow/Home/End
-keys move between session buttons. On mobile, navigation becomes a modal drawer
-with a backdrop, contained keyboard focus, Escape dismissal, and focus restoration.
+sections, message counts, and explicit TUI ownership indicators. A session that
+is open in the TUI is read only here. Pinning and collapse state are saved in
+this browser; they do not rewrite session journals. Preferences are scoped to the
+browser origin; use a stable `--port` to retain them across separate server
+launches. `Cmd/Ctrl B` toggles navigation. Below 768px wide, navigation becomes a
+modal drawer with contained keyboard focus, Escape dismissal, and focus returned
+to the menu button.
 
 ## Screenshots
 
-These are browser captures of the compiled frontend with seeded local history
-and a local model stub, rather than live external provider responses.
+These are browser captures of the `/demo/` page, which renders the real
+frontend against a mocked local API, rather than live provider responses.
 
 Welcome and session navigation:
 
