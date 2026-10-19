@@ -10,8 +10,7 @@ from typing import Any, Mapping
 import pytest
 from textual.app import App
 
-from coding_agent.addons.approvals import APPROVAL_OPTIONS, ApprovalAddon, approval_metadata
-from coding_agent.config import ApprovalConfig
+from coding_agent.addons.approvals import approval_metadata
 from coding_agent.protocols import stdio
 from coding_agent.protocols.fields import SUBAGENT_STEP, EventFields
 from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSION, StdioSink
@@ -81,21 +80,14 @@ def test_summary_counts_per_tool() -> None:
 # approvals
 
 
-def test_approval_metadata_has_target_detail_bytes_options() -> None:
+def test_approval_metadata_has_target_detail_bytes() -> None:
     meta = approval_metadata("write_file", {"path": "a.txt", "content": "héllo"}, "Write a.txt?", "c1")
-    assert meta["call_id"] == "c1"
+    assert meta["tool_call_id"] == "c1"
+    assert set(meta) == {"tool_name", "tool_call_id", "target", "detail", "bytes"}
     assert meta["target"] == "a.txt"
     assert meta["detail"] == "Write a.txt?"
     assert meta["bytes"] == 6
-    assert [option["id"] for option in meta["options"]] == ["deny", "allow_always", "allow_once"]
     assert approval_metadata("bash", {"command": "ls"}, "Run?", "c2")["bytes"] is None
-
-
-@pytest.mark.parametrize(("answer", "allowed"), [("allow_once", True), ("deny", False), ("allow_always", True)])
-def test_approval_accepts_option_ids(tmp_path: Path, answer: str, allowed: bool) -> None:
-    addon = ApprovalAddon(tmp_path, None, approvals=ApprovalConfig())
-    assert addon.policy.interpret(addon.approvals, answer)[0] is allowed
-    assert {option["id"] for option in APPROVAL_OPTIONS} == {"deny", "allow_always", "allow_once"}
 
 
 # shared enricher
@@ -160,12 +152,12 @@ def test_stdio_frames_carry_widget_fields(monkeypatch: pytest.MonkeyPatch) -> No
     output = next(frame for frame in frames if frame.get("event") == "tool_execution_output")
     assert output["payload"]["stream"] == "stderr"
     [requested] = [frame for frame in frames if frame["type"] == "input_requested"]
-    assert requested["call_id"] == "b"
+    assert requested["metadata"]["tool_call_id"] == "b"
+    assert requested["choices"] == ["Allow once", "Always allow", "Deny"]
     assert requested["target"] == "ls"
     assert requested["detail"] == "Run ls?"
     assert requested["bytes"] is None
-    assert [option["id"] for option in requested["options"]] == ["deny", "allow_always", "allow_once"]
-    assert requested["metadata"]["call_id"] == "b"
+    assert "options" not in requested and "call_id" not in requested
 
 
 # TUI

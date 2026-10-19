@@ -49,8 +49,8 @@ and `null` for top-level events.
 | `tool_execution_started` | `call_id`, `parent_call_id` (`started_at` was already present) |
 | `tool_execution_output` | `call_id`, `stream` (`"stdout"` or `"stderr"`), `parent_call_id` |
 | `tool_execution_completed` | `call_id`, `exit_code`, `summary`, `parent_call_id` (`status` and `duration_ms` were already present) |
-| `question_asked` | `parent_call_id`; approvals also carry `call_id`, `target`, `detail`, `bytes`, `options` |
-| `input_requested` (approval) | top-level `call_id`, `target`, `detail`, `bytes`, `options`, `parent_call_id` (also kept in `metadata`) |
+| `question_asked` (approval) | `target`, `detail`, `bytes` (`tool_call_id`, `choices`, `default` were already present) |
+| `input_requested` (approval) | top-level `target`, `detail`, `bytes` (also kept in `metadata`) |
 | `agent_spawned` | `parent_call_id` (same value as `tool_call_id`) |
 | `subagent_step` (new, derived) | `agent_id`, `parent_id`, `parent_call_id`, `turn`, `started_at`; follows each subagent `turn_started` |
 
@@ -61,10 +61,7 @@ and `null` for top-level events.
   `null`: `lines` for bash and read_file, `matches` for search, `lines` and
   `added` for write_file, `added` and `removed` for patch. Failed non-bash
   calls report all `null`.
-- `options` is `[{"id": "deny", "label": "Deny"}, {"id": "allow_always",
-  "label": "Always allow"}, {"id": "allow_once", "label": "Allow once"}]`.
-  Answer with the existing `input` frame using either the `id` or the
-  `label`.
+- Answer an approval with the existing `input` frame using one of `choices`.
 - `bytes` is the UTF-8 size of a write_file `content` or patch `new_str`, else `null`.
 - Derived fields are added on delivery and are not persisted; resumed
   sessions replay protocol 2 payloads, and clients should fall back to deriving

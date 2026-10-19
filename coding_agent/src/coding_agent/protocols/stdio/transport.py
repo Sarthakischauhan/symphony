@@ -25,7 +25,7 @@ CAPABILITIES = [
     "runs", "resume", "interrupt", "input", "steer", "models", "images", "subagents", "commands", "widget_fields",
 ]
 # Approval fields lifted from the question's metadata onto input_requested.
-APPROVAL_FIELDS = ("call_id", "target", "detail", "bytes", "options", "parent_call_id")
+APPROVAL_FIELDS = ("target", "detail", "bytes")
 
 
 def write_frame(frame: Mapping[str, Any]) -> None:
@@ -58,8 +58,7 @@ class StdioSink(EventSink):
     A question is the ``question_asked`` event like in every other host.
     Protocol 2 hosts read ``input_requested``, so that frame follows it.
     Protocol 3 adds the widget fields from :class:`EventFields`, and an
-    approval's ``call_id``, ``target``, ``detail``, ``bytes`` and ``options``
-    on ``input_requested`` itself.
+    approval's ``target``, ``detail`` and ``bytes`` on ``input_requested`` itself.
     """
 
     def __init__(self) -> None:

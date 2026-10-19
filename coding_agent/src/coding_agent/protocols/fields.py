@@ -7,7 +7,6 @@ fields derived from data Symphony already owns, keeping every existing key:
 - ``tool_execution_started``: ``call_id``, ``parent_call_id``
 - ``tool_execution_output``: ``call_id``, ``stream``, ``parent_call_id``
 - ``tool_execution_completed``: ``call_id``, ``exit_code``, ``summary``, ``parent_call_id``
-- ``question_asked``: ``parent_call_id``
 - ``agent_spawned``: ``parent_call_id`` (the spawning call)
 - a child's ``turn_started`` is followed by one ``subagent_step`` event
 
@@ -91,7 +90,7 @@ class EventFields:
                 "started_at": payload.get("started_at", payload.get("ts")),
             }
             derived.append((SUBAGENT_STEP, step))
-        elif event_type != "question_asked":
+        else:
             return [(event_type, out), *derived]
         out["parent_call_id"] = parent_call_id
         return [(event_type, out), *derived]

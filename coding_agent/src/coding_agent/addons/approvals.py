@@ -24,13 +24,6 @@ ALLOW_ONCE = "Allow once"
 ALLOW_ALWAYS = "Always allow"
 DENY = "Deny"
 APPROVAL_CHOICES = (ALLOW_ONCE, ALLOW_ALWAYS, DENY)
-# Stable ids for the same choices. A host may answer with the id or the label.
-APPROVAL_OPTIONS = (
-    {"id": "deny", "label": DENY},
-    {"id": "allow_always", "label": ALLOW_ALWAYS},
-    {"id": "allow_once", "label": ALLOW_ONCE},
-)
-_OPTION_LABELS = {option["id"]: option["label"].lower() for option in APPROVAL_OPTIONS}
 AUTO_DECISION = "auto_decision"
 RULE_SUBJECTS = {
     "bash": "command", "write_file": "path", "patch": "path", "generate_image": "path",
@@ -61,7 +54,7 @@ def matching_rule(
 
 
 def approval_metadata(tool_name: str, arguments: Dict[str, Any], question: str, call_id: str) -> Dict[str, Any]:
-    """What an approval card shows: the subject, the question, the size of the write, the choices."""
+    """What an approval card shows: the subject, the question and the size of the write."""
     field = RULE_SUBJECTS.get(tool_name)
     target = str(arguments.get(field) or "").strip() if field else ""
     written = arguments.get("content") if tool_name == "write_file" else (
@@ -70,11 +63,9 @@ def approval_metadata(tool_name: str, arguments: Dict[str, Any], question: str, 
     return {
         "tool_name": tool_name,
         "tool_call_id": call_id,
-        "call_id": call_id,
         "target": target,
         "detail": question,
         "bytes": len(written.encode("utf-8")) if isinstance(written, str) else None,
-        "options": [dict(option) for option in APPROVAL_OPTIONS],
     }
 
 
@@ -125,7 +116,6 @@ class ApprovalPolicy:
         if config.mode == "always_allow":
             return True, False
         normalized = answer.strip().lower()
-        normalized = _OPTION_LABELS.get(normalized, normalized)
         if normalized == ALLOW_ALWAYS.lower():
             return True, True
         return normalized in config.allow_answers, False
@@ -243,7 +233,6 @@ __all__ = [
     "ALLOW_ALWAYS",
     "ALLOW_ONCE",
     "APPROVAL_CHOICES",
-    "APPROVAL_OPTIONS",
     "AUTO_DECISION",
     "ApprovalAddon",
     "ApprovalPolicy",
