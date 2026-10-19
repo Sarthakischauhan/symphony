@@ -170,16 +170,12 @@ frontend against a mocked local API, rather than live provider responses.
 
 Welcome, with the text-only composer (no attach button):
 
-![Symphony Web welcome with searchable sessions](../assets/web/welcome-desktop.png)
+![Symphony Web welcome with searchable sessions](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/welcome-desktop.png?raw=true)
 
 A resumed session: an edited file with its diff, and a command that passed with its exit code and duration:
 
-![Historical session with a patch diff and a passed terminal run](../assets/web/session-desktop.png)
+![Historical session with a patch diff and a passed terminal run](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/session-desktop.png?raw=true)
 
 A live run: a failed command with stderr, the patch, and the overwrite approval:
 
-![Failed command, patch diff, and overwrite approval](../assets/web/approval-desktop.png)
-
-The model picker, with each model's hint separated from its name:
-
-![Model picker with provider groups and context hints](../assets/web/model-picker.png)
+![Failed command, patch diff, and overwrite approval](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/approval-desktop.png?raw=true)
