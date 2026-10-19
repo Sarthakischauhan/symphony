@@ -87,8 +87,10 @@ const history = {
         tool_call_id: "r1",
         tool_name: "read_file",
         status: "success",
+        result:
+          "   1|export function connect(id: string) {\n   2|  const cursor = 0;\n   3|  return new EventSource(`/events/${id}?after=${cursor}`);\n   4|}\n",
         duration_ms: 18,
-        summary: { lines: 4, matches: null, added: null, removed: null, start_line: null },
+        summary: { lines: 4, matches: null, added: null, removed: null, start_line: 1 },
       },
     ],
     [
@@ -172,7 +174,7 @@ async function play(id: string, prompt: string) {
   await step(300);
   emit(id, ev("tool_execution_started", { tool_call_id: "t1", tool_name: "read_file", arguments: { path: "src/client.ts" }, started_at: startedAt() }));
   await step(500);
-  emit(id, ev("tool_execution_completed", { tool_call_id: "t1", tool_name: "read_file", status: "success", result: "   1|export async function request(url: string) {\n   2|  return fetch(url);\n   3|}\n", duration_ms: 22, summary: { lines: 3, matches: null, added: null, removed: null, start_line: null } }));
+  emit(id, ev("tool_execution_completed", { tool_call_id: "t1", tool_name: "read_file", status: "success", result: "   1|export async function request(url: string) {\n   2|  return fetch(url);\n   3|}\n", duration_ms: 22, summary: { lines: 3, matches: null, added: null, removed: null, start_line: 1 } }));
   emit(id, ev("tool_execution_started", { tool_call_id: "sh", tool_name: "bash", arguments: { command: "npm test -- client" }, started_at: startedAt() }));
   await step(200);
   emit(id, ev("tool_execution_output", { tool_call_id: "sh", delta: "FAIL src/client.test.ts\n", stream: "stdout" }));

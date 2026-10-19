@@ -98,7 +98,9 @@ const metaOf = (output: unknown): RunMeta =>
 function finish(tool: AgentToolPart, p: ToolFacts) {
   const value = p.result;
   const failed = p.status !== undefined && p.status !== "success";
-  const rendered = failed ? value : widgetOutput(tool, value, p.search_results);
+  const rendered = failed
+    ? value
+    : widgetOutput(tool, value, p.search_results, p.summary?.start_line ?? null);
   const meta = { ...metaOf(tool.output), ...runMeta(p) };
   tool.state = failed ? "output-error" : "output-available";
   tool.output = withMeta(rendered, meta);
@@ -552,53 +554,52 @@ export function historical(data: SessionHistory): State {
 // Shape a successful result for the SDK widget. Search renders the
 // protocol's search_results (else the plain text); patch keeps its status
 // sentence as `message` so the before/after inputs supply the diff; read_file
-// passes its text as `content`; ask_user passes the answer explicitly.
+// passes its code as `content` with its start_line; ask_user passes the
+// answer explicitly.
 function widgetOutput(
   tool: AgentToolPart,
   value: unknown,
   hits?: SearchHit[] | null,
+  startLine: number | null = null,
 ) {
   if (tool.toolName === "search" && hits)
     return { results: hits, total: hits.length };
   if (tool.toolName === "patch" && typeof value === "string")
     return { message: value };
   if (tool.toolName === "read_file" && typeof value === "string")
-    return readFileOutput(value);
+    return readFileOutput(value, startLine);
   if (tool.toolName === "ask_user" && typeof value === "string")
     return { answer: value };
   return value;
 }
-// read_file numbers every line `   12|code`: the tool description promises
-// that format and the model pages with those numbers (`offset`), so the result
-// keeps them. The widget draws its own gutter, so hand it the code without the
-// prefixes and the first number as its start line; that is the read's offset.
-// The truncation note the tool may append after the numbered lines is left
-// out of the code. Text that is not numbered (an image read, an empty file)
-// passes through as is.
+// read_file numbers every line (`numbered_text`): the line's number,
+// right-aligned to one width of at least 4, then `|`. The model pages with
+// those numbers, so the result keeps them; the widget draws its own gutter.
+// The tool records the first number per call as `summary.start_line`, so the
+// prefix of every line is known in advance: walk the lines, drop each exact
+// prefix, and stop at the first line without its own (the final newline or the
+// truncation note). With no start_line (an image read, an old session) the
+// text passes through as is.
 type ReadFileOutput = { content: string; startLine?: number };
-const NUMBERED_LINE = /^ *(\d+)\|(.*)$/s;
-function readFileOutput(text: string): ReadFileOutput {
+function readFileOutput(text: string, startLine: number | null): ReadFileOutput {
+  if (startLine === null) return { content: text };
   const lines = text.split("\n");
+  const prefix = (index: number, width: number) =>
+    `${String(startLine + index).padStart(width)}|`;
+  // The width is that of the last number, which is at most the line count
+  // past start_line; exactly one candidate fits the first line.
+  const widest = Math.max(4, String(startLine + lines.length - 1).length);
+  let width = Math.max(4, String(startLine).length);
+  while (width <= widest && !lines[0].startsWith(prefix(0, width))) width += 1;
+  if (width > widest) return { content: text };
   const code: string[] = [];
-  let startLine: number | undefined;
   for (const line of lines) {
-    const match = NUMBERED_LINE.exec(line);
-    if (!match) break;
-    const number = Number(match[1]);
-    if (startLine === undefined) startLine = number;
-    else if (number !== startLine + code.length) return { content: text };
-    code.push(match[2]);
+    const own = prefix(code.length, width);
+    if (!line.startsWith(own)) break;
+    code.push(line.slice(own.length));
   }
-  if (startLine === undefined) return { content: text };
-  const rest = lines.slice(code.length);
-  // Only an empty line (the file's final newline) or the truncation note
-  // (after a blank line) may follow the numbered lines.
-  const trailing = rest.filter((line) => line !== "");
-  if (trailing.length > 1 || (trailing.length === 1 && !TRUNCATION_NOTE.test(trailing[0])))
-    return { content: text };
   return { content: code.join("\n"), startLine };
 }
-const TRUNCATION_NOTE = /^<output truncated at \d+ bytes; read again with offset=\d+ to continue>$/;
 // Keep protocol 3 facts beside the rendered result. A string result (bash,
 // read) moves under `output` so it is not mistaken for a diff or a summary.
 function withMeta(value: unknown, meta: RunMeta) {

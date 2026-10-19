@@ -615,20 +615,28 @@ describe("only the protocol's own fields", () => {
 
 describe("read_file results", () => {
   // Exactly what ReadFileTool returns (`numbered_text`), from the tool itself.
-  const text = "     1|export const a = 1;\n     2|export const b = 2;\n";
+  const text = "   1|export const a = 1;\n   2|export const b = 2;\n";
   const code = "export const a = 1;\nexport const b = 2;";
-  const readCall = (result: string, args: Record<string, unknown> = { path: "src/a.ts" }) => [
+  const summary = (start_line: number | null) => ({ lines: 2, matches: null, added: null, removed: null, start_line });
+  const readCall = (
+    result: string,
+    start_line: number | null,
+    args: Record<string, unknown> = { path: "src/a.ts" },
+  ) => [
     event("tool_execution_started", {
       tool_call_id: "r", tool_name: "read_file", arguments: args, started_at: 1792317600,
     }),
     event("tool_execution_completed", {
       tool_call_id: "r", tool_name: "read_file", status: "success", result, duration_ms: 7,
-      summary: { lines: 2, matches: null, added: null, removed: null, start_line: null },
+      summary: summary(start_line),
     }),
   ];
-  it("give the widget the code without the N| prefixes, live and from history", async () => {
+  const outputOf = (result: string, start_line: number | null) =>
+    partsOf(run(readCall(result, start_line)), 0)[0].output;
+
+  it("drop each known N| prefix, live and from the journal", async () => {
     const { computeToolWidget } = await import("@sarchauhan/chat");
-    const part = partsOf(run(readCall(text)), 0)[0];
+    const part = partsOf(run(readCall(text, 1)), 0)[0];
     // The timing facts sit beside the content, not over it.
     expect(part.output).toMatchObject({ content: code, startLine: 1, durationMs: 7 });
     expect(part.output.output).toBeUndefined();
@@ -646,23 +654,22 @@ describe("read_file results", () => {
         },
         { role: "tool", tool_call_id: "r", content: text },
       ],
-      events: [],
+      events: [["tool_execution_completed", { tool_call_id: "r", tool_name: "read_file", status: "success", result: text, summary: summary(1) }]],
       children: [],
     });
     const read = partsOf(old, 1).find((p) => p.type === "tool");
-    expect(read.output).toEqual({ content: code, startLine: 1 });
+    expect(read.output).toMatchObject({ content: code, startLine: 1 });
     expect(computeToolWidget(read)?.props).toMatchObject({ content: code, startLine: 1 });
   });
 
-  it("start the gutter at the read's offset and draw each number once", async () => {
+  it("start the gutter at start_line for an offset=41 read and draw each number once", async () => {
     const { computeToolWidget } = await import("@sarchauhan/chat");
     const { ReadFileWidget } = await import("@sarchauhan/chat/widgets");
     const { render } = await import("@testing-library/react");
     const { createElement } = await import("react");
-    const part = partsOf(run(readCall("  41|line 41\n  42|line 42\n", { path: "a.ts", offset: 41, limit: 2 })), 0)[0];
+    const part = partsOf(run(readCall("  41|line 41\n  42|line 42\n", 41, { path: "a.ts", offset: 41, limit: 2 })), 0)[0];
     expect(part.output).toMatchObject({ content: "line 41\nline 42", startLine: 41 });
-    const widget = computeToolWidget(part);
-    expect(widget?.props).toMatchObject({ startLine: 41 });
+    expect(computeToolWidget(part)?.props).toMatchObject({ startLine: 41 });
     // The SDK widget draws the gutter from startLine; the code has no prefix.
     const { container } = render(
       createElement(ReadFileWidget, { path: "a.ts", content: part.output.content, startLine: part.output.startLine }),
@@ -673,16 +680,25 @@ describe("read_file results", () => {
     expect(lines).toEqual(["line 41", "line 42"]);
   });
 
-  it("leave the truncation note out of the code and pass unnumbered text through", () => {
+  it("count the prefix width from start_line, including a wider last number", () => {
+    // numbered_text pads to the widest number in the read: 9998..10001 is 5 wide.
+    const wide = " 9998|a\n 9999|b|c\n10000|  d\n10001|\n";
+    expect(outputOf(wide, 9998)).toMatchObject({ content: "a\nb|c\n  d\n", startLine: 9998 });
+    // A body that itself looks numbered is code, not a prefix.
+    expect(outputOf("   7|   8|x\n", 7)).toMatchObject({ content: "   8|x", startLine: 7 });
+  });
+
+  it("stop at the truncation note and pass unnumbered text through", () => {
     const truncated = "   7|line 7\n   8|line 8\n\n<output truncated at 14 bytes; read again with offset=9 to continue>";
-    expect(partsOf(run(readCall(truncated)), 0)[0].output).toMatchObject({ content: "line 7\nline 8", startLine: 7 });
+    expect(outputOf(truncated, 7)).toMatchObject({ content: "line 7\nline 8", startLine: 7 });
+    // Without start_line (an image read, an old session) nothing is stripped.
     const image = "Read image shot.png (image/png, 68 bytes)";
-    expect(partsOf(run(readCall(image)), 0)[0].output).toMatchObject({ content: image });
-    expect(partsOf(run(readCall(image)), 0)[0].output.startLine).toBeUndefined();
-    // Gaps or stray lines are not the tool's format; keep the text as is.
-    const gap = "   1|a\n   3|c\n";
-    expect(partsOf(run(readCall(gap)), 0)[0].output).toMatchObject({ content: gap });
-    expect(partsOf(run(readCall("")), 0)[0].output).toMatchObject({ content: "" });
+    expect(outputOf(image, null)).toMatchObject({ content: image });
+    expect(outputOf(image, null).startLine).toBeUndefined();
+    expect(outputOf(text, null)).toMatchObject({ content: text });
+    expect(outputOf(text, null).startLine).toBeUndefined();
+    // A start_line that does not fit the first line strips nothing.
+    expect(outputOf(text, 5)).toMatchObject({ content: text });
   });
 });
 
