@@ -37,34 +37,68 @@ export type ToolFacts = {
   result?: unknown;
   output?: unknown;
   content?: unknown;
+  started_at?: number | string;
   duration_ms?: number;
   exit_code?: number | null;
   summary?: ToolSummary | null;
 };
+type TerminalChunk = { stream: "stdout" | "stderr"; text: string };
+// Facts the chat SDK reads off a tool's output object. Absent fields stay unset
+// so an older session does not invent an exit code or a duration.
+type RunMeta = {
+  summary?: ToolSummary;
+  startedAt?: string;
+  durationMs?: number;
+  exitCode?: number;
+  chunks?: TerminalChunk[];
+};
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+const startedAt = (value: number | string | undefined) =>
+  typeof value === "number"
+    ? new Date(value).toISOString()
+    : typeof value === "string"
+      ? value
+      : undefined;
 
-/** "bash · exit 1 · 2.3s · 4 lines"; undefined when the payload has no facts. */
-export function toolTitle(name: string, p: ToolFacts): string | undefined {
-  const facts: string[] = [];
-  if (typeof p.exit_code === "number" && p.exit_code !== 0)
-    facts.push(`exit ${p.exit_code}`);
-  if (typeof p.duration_ms === "number")
-    facts.push(`${(p.duration_ms / 1000).toFixed(1)}s`);
-  const s = p.summary;
-  if (s?.added != null)
-    facts.push(s.removed != null ? `+${s.added} −${s.removed}` : `+${s.added}`);
-  else if (s?.matches != null) facts.push(`${s.matches} matches`);
-  else if (s?.lines != null) facts.push(`${s.lines} lines`);
-  return facts.length ? [name, ...facts].join(" · ") : undefined;
+function runMeta(p: ToolFacts, chunks?: TerminalChunk[]): RunMeta {
+  const meta: RunMeta = {};
+  if (p.summary) meta.summary = p.summary;
+  const started = startedAt(p.started_at);
+  if (started) meta.startedAt = started;
+  if (typeof p.duration_ms === "number") meta.durationMs = p.duration_ms;
+  if (typeof p.exit_code === "number") meta.exitCode = p.exit_code;
+  if (chunks?.length) meta.chunks = chunks;
+  return meta;
 }
+const metaOf = (output: unknown): RunMeta =>
+  isRecord(output)
+    ? {
+        summary: isRecord(output.summary)
+          ? (output.summary as ToolSummary)
+          : undefined,
+        startedAt: typeof output.startedAt === "string" ? output.startedAt : undefined,
+        durationMs: typeof output.durationMs === "number" ? output.durationMs : undefined,
+        exitCode: typeof output.exitCode === "number" ? output.exitCode : undefined,
+        chunks: Array.isArray(output.chunks)
+          ? (output.chunks as TerminalChunk[])
+          : undefined,
+      }
+    : {};
 
 // Settle a tool card from its completion payload.
 function finish(tool: AgentToolPart, p: ToolFacts) {
   const value = p.output ?? p.result ?? p.content;
   const failed = p.status !== undefined && p.status !== "success";
+  const rendered = failed ? value : widgetOutput(tool, value);
+  const meta = { ...metaOf(tool.output), ...runMeta(p) };
   tool.state = failed ? "output-error" : "output-available";
-  tool.output = failed ? value : widgetOutput(tool, value);
-  if (failed && typeof value === "string") tool.errorText = value;
-  tool.title = toolTitle(tool.toolName, p) ?? tool.title;
+  tool.output = withMeta(rendered, meta);
+  // Bash renders through the terminal widget, which already shows the result
+  // and the exit code. Other tools have no body for a failed call, so the
+  // result stays in errorText.
+  if (failed && typeof value === "string" && tool.toolName !== "bash")
+    tool.errorText = value;
 }
 const subagentTitle = (data: SubagentData) =>
   data.step ? `${data.label || "Subagent"} · step ${data.step}` : data.label || "Subagent";
@@ -162,8 +196,17 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
       .flatMap((r) => r.parts)
       .filter(isTool)
       .find((x) => x.toolCallId === frame.payload.tool_call_id);
-    if (tool && tool.state === "input-available")
-      tool.output = `${typeof tool.output === "string" ? tool.output : ""}${frame.payload.delta}`;
+    if (tool && tool.state === "input-available") {
+      const prior = metaOf(tool.output);
+      const chunks = [
+        ...(prior.chunks ?? []),
+        {
+          stream: frame.payload.stream === "stderr" ? "stderr" : "stdout",
+          text: frame.payload.delta,
+        } as const,
+      ];
+      tool.output = withMeta(undefined, { ...prior, chunks });
+    }
     return s;
   }
   // A question blocks the run, so any later event means it was answered.
@@ -260,7 +303,10 @@ function applyEvent(s: State, frame: EventFrame, id: number): State {
         row.parts.push(tool);
       }
       if (p.arguments) tool.input = toolInput(p.arguments);
-      if (frame.event === "tool_execution_started") tool.output = undefined;
+      if (frame.event === "tool_execution_started") {
+        const prior = metaOf(tool.output);
+        tool.output = withMeta(undefined, runMeta(p, prior.chunks));
+      }
       if (frame.event === "tool_execution_completed") finish(tool, p);
       break;
     }
@@ -410,4 +456,16 @@ function widgetOutput(tool: AgentToolPart, value: unknown) {
   )
     return { message: value };
   return value;
+}
+// Keep protocol 3 facts beside the rendered result. A string result (bash,
+// read) moves under `output` so it is not mistaken for a diff or a summary.
+function withMeta(value: unknown, meta: RunMeta) {
+  const present = Object.values(meta).some((item) => item !== undefined);
+  if (!present) return value;
+  const base = isRecord(value)
+    ? value
+    : value === undefined
+      ? {}
+      : { output: value };
+  return { ...base, ...meta };
 }

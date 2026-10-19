@@ -778,14 +778,6 @@ label.settings-row {
   text-transform: uppercase;
   color: var(--sy-mute);
 }
-/* chat@0.0.1 hard-codes 500/600 weights in widget CSS (tokenized in
-   chat-sdk#33); keep the 400 voice until that release. */
-.chat-root .chat-question :where(h3, h4, legend, strong, p),
-.chat-root .chat-widget-title,
-.chat-root .chat-question-option-title {
-  font-weight: 400;
-}
-
 /* Composer (chat SDK) */
 .workspace .chat-composer {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
@@ -868,16 +860,8 @@ label.settings-row {
   letter-spacing: 0.04em;
   color: var(--sy-mute);
 }
-/* chat@0.0.1's picker: Radix wraps label and hint in one span, so the flex
-   gap never applies; letter badges duplicate the provider label. */
-.workspace .chat-model-item-hint {
-  margin-left: 0.5rem;
-}
+/* Letter badges duplicate the provider label already shown beside them. */
 .workspace .chat-model-provider-fallback {
-  display: none;
-}
-/* Symphony prompts take text; the SDK attach button is not wired yet. */
-.workspace .chat-attach {
   display: none;
 }
 .composer-note {
@@ -891,7 +875,7 @@ label.settings-row {
   pointer-events: auto;
 }
 
-/* LoadingState: the SDK's 3×3 pixel grid plays the wordmark's spectrum. */
+/* LoadingState label. The SDK owns the pixel grid; these colors restyle it. */
 .chat-loading-inline {
   display: flex;
   align-items: center;
@@ -904,40 +888,19 @@ label.settings-row {
   text-transform: uppercase;
   color: var(--sy-mute);
 }
-.chat-pixel-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 4px);
-  gap: 2px;
-}
-.chat-pixel-grid > span {
-  width: 4px;
-  height: 4px;
-  opacity: 0.15;
-  animation: sy-pixel 1.2s steps(1, end) infinite;
-}
-.chat-pixel-grid > span:nth-child(1) { background: var(--sy-coral); animation-delay: 0ms; }
-.chat-pixel-grid > span:nth-child(2) { background: var(--sy-orange); animation-delay: 130ms; }
-.chat-pixel-grid > span:nth-child(3) { background: var(--sy-yellow); animation-delay: 260ms; }
-.chat-pixel-grid > span:nth-child(6) { background: var(--sy-green); animation-delay: 390ms; }
-.chat-pixel-grid > span:nth-child(9) { background: var(--sy-cyan); animation-delay: 520ms; }
-.chat-pixel-grid > span:nth-child(8) { background: var(--sy-sky); animation-delay: 650ms; }
-.chat-pixel-grid > span:nth-child(7) { background: var(--sy-indigo); animation-delay: 780ms; }
-.chat-pixel-grid > span:nth-child(4) { background: var(--sy-violet); animation-delay: 910ms; }
-.chat-pixel-grid > span:nth-child(5) { background: var(--sy-ink); animation-delay: 1040ms; }
+.chat-pixel-grid > span:nth-child(1) { background: var(--sy-coral); }
+.chat-pixel-grid > span:nth-child(2) { background: var(--sy-orange); }
+.chat-pixel-grid > span:nth-child(3) { background: var(--sy-yellow); }
+.chat-pixel-grid > span:nth-child(6) { background: var(--sy-green); }
+.chat-pixel-grid > span:nth-child(9) { background: var(--sy-cyan); }
+.chat-pixel-grid > span:nth-child(8) { background: var(--sy-sky); }
+.chat-pixel-grid > span:nth-child(7) { background: var(--sy-indigo); }
+.chat-pixel-grid > span:nth-child(4) { background: var(--sy-violet); }
+.chat-pixel-grid > span:nth-child(5) { background: var(--sy-ink); }
 .chat-loading-timer {
   color: var(--sy-faint);
 }
 
-@keyframes sy-pixel {
-  0%,
-  30% {
-    opacity: 1;
-  }
-  31%,
-  100% {
-    opacity: 0.15;
-  }
-}
 @keyframes sy-blink {
   50% {
     opacity: 0.3;
@@ -952,7 +915,6 @@ label.settings-row {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chat-pixel-grid > span,
   .session-status,
   .status-badge::before {
     animation: none;

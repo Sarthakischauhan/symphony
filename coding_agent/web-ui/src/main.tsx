@@ -112,8 +112,7 @@ export function App() {
   }));
   const stream = useRef<EventSource | null>(null),
     generation = useRef(0),
-    scroller = useRef<HTMLDivElement>(null),
-    composer = useRef<HTMLDivElement>(null);
+    scroller = useRef<HTMLDivElement>(null);
   // Completed runs per session, so a composer send can wait for its own run.
   const runs = useRef<{ done: Record<string, number>; waiters: Waiter[] }>({
     done: {},
@@ -293,16 +292,6 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("symphony-preferences", JSON.stringify(preferences));
   }, [preferences]);
-  // chat@0.0.1's composer has no placeholder or label props yet; switch to
-  // ChatComposer's placeholder/inputLabel once chat-sdk#33 is released.
-  useEffect(() => {
-    const input = composer.current?.querySelector("textarea");
-    input?.setAttribute("aria-label", "Coding task");
-    input?.setAttribute(
-      "placeholder",
-      selected ? "Describe the next change…" : "Describe a coding task…",
-    );
-  });
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -459,7 +448,7 @@ export function App() {
                   )}
                 </div>
               </div>
-              <div className="chat-composer" ref={composer}>
+              <div className="chat-composer">
                 {locked && (
                   <p className="composer-note">
                     Open in another Symphony process. Close it there to continue
@@ -473,11 +462,18 @@ export function App() {
                   registryUrl={withToken("/api/models")}
                 >
                   <ModelSync model={state.model} />
-                  {/* chat@0.0.1 renders its model picker only in the circle
-                      variant; style.css keeps the resting composer a bar. */}
+                  {/* The circle variant carries the model picker; style.css
+                      keeps the resting composer a full-width bar. */}
                   <ChatComposer
                     showModelSelector={!!catalog}
                     collapsedVariant="circle"
+                    showAttachments={false}
+                    inputLabel="Coding task"
+                    placeholder={
+                      selected
+                        ? "Describe the next change…"
+                        : "Describe a coding task…"
+                    }
                   />
                 </ChatContextProvider>
               </div>

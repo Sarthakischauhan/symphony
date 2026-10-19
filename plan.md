@@ -33,6 +33,6 @@ The following are directions, not promises or currently shipped behavior. Confir
 - Publish and document supported packages on PyPI; add tested versioned install instructions when that happens.
 - Improve usability and operational tooling for long-running and unattended agent sessions.
 - Continue evaluating provider compatibility and catalog refresh workflows.
-- Symphony Web: once `@sarchauhan/chat` releases chat-sdk#33, use its composer props and drop the composer shim and weight overrides. If the SDK adds adapter subscriptions and mid-run widget answers, move to the full `Chat` component.
+- Symphony Web: if the chat SDK adds adapter subscriptions and mid-run widget answers, move to the full `Chat` component. The composer props and token-driven widget chrome from chat-sdk#34 are already in use.
 
 Update this page when a concrete roadmap item is selected; detailed implementation plans belong with the associated work, not in the user documentation.

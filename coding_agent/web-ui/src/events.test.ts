@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { historical, initial, reduce, toolTitle, type State } from "./events";
+import { historical, initial, reduce, type State } from "./events";
 import { parseFrame } from "./frames";
 import { parseArtifact, parseSubagent, parseUsage } from "./protocol-compat";
 
@@ -248,34 +248,31 @@ describe("SDK message shape", () => {
 });
 
 describe("protocol 3 widget fields", () => {
-  it("titles finished tools with exit code, duration and summary", () => {
-    expect(
-      toolTitle("bash", {
-        exit_code: 1,
-        duration_ms: 2340,
-        summary: { lines: 4, matches: null, added: null, removed: null },
-      }),
-    ).toBe("bash · exit 1 · 2.3s · 4 lines");
-    expect(
-      toolTitle("patch", {
-        duration_ms: 10,
-        summary: { lines: null, matches: null, added: 2, removed: 1 },
-      }),
-    ).toBe("patch · 0.0s · +2 −1");
-    expect(toolTitle("read_file", {})).toBeUndefined();
-  });
-
-  it("streams output, then settles a failed bash with its facts", () => {
+  it("streams stdout and stderr, then settles a failed bash with its facts", () => {
     const s = run([
       event("run_started", { prompt: "t" }),
       event("tool_execution_started", {
         tool_call_id: "b",
         tool_name: "bash",
         arguments: { command: "pytest" },
+        started_at: "2026-10-18T10:00:00Z",
       }),
-      event("tool_execution_output", { tool_call_id: "b", delta: "E boom\n", stream: "stderr" }),
+      event("tool_execution_output", {
+        tool_call_id: "b",
+        delta: "ok\n",
+        stream: "stdout",
+      }),
+      event("tool_execution_output", {
+        tool_call_id: "b",
+        delta: "E boom\n",
+        stream: "stderr",
+      }),
     ]);
-    expect(partsOf(s, 1)[0].output).toBe("E boom\n");
+    expect(partsOf(s, 1)[0].output.chunks).toEqual([
+      { stream: "stdout", text: "ok\n" },
+      { stream: "stderr", text: "E boom\n" },
+    ]);
+    expect(partsOf(s, 1)[0].output.startedAt).toBe("2026-10-18T10:00:00Z");
     const done = apply(
       s,
       event("tool_execution_completed", {
@@ -287,13 +284,47 @@ describe("protocol 3 widget fields", () => {
         exit_code: 1,
         summary: { lines: 2, matches: null, added: null, removed: null },
       }),
-      4,
+      5,
     );
+    expect(partsOf(done, 1)[0].errorText).toBeUndefined();
     expect(partsOf(done, 1)[0]).toMatchObject({
       state: "output-error",
-      title: "bash · exit 1 · 1.5s · 2 lines",
-      errorText: "exit=1\nE boom",
+      output: {
+        output: "exit=1\nE boom",
+        exitCode: 1,
+        durationMs: 1500,
+        startedAt: "2026-10-18T10:00:00Z",
+        chunks: [
+          { stream: "stdout", text: "ok\n" },
+          { stream: "stderr", text: "E boom\n" },
+        ],
+        summary: { lines: 2, matches: null, added: null, removed: null },
+      },
     });
+  });
+
+  it("puts summary counts on a finished patch without inventing facts", () => {
+    const s = run([
+      event("tool_execution_started", {
+        tool_call_id: "p",
+        tool_name: "patch",
+        arguments: { path: "a.py", old_str: "old", new_str: "new" },
+      }),
+      event("tool_execution_completed", {
+        tool_call_id: "p",
+        tool_name: "patch",
+        status: "success",
+        result: "patched a.py",
+        duration_ms: 10,
+        summary: { lines: null, matches: null, added: 2, removed: 1 },
+      }),
+    ]);
+    expect(partsOf(s, 0)[0].output).toMatchObject({
+      message: "patched a.py",
+      durationMs: 10,
+      summary: { added: 2, removed: 1 },
+    });
+    expect(partsOf(s, 0)[0].output.exitCode).toBeUndefined();
   });
 
   it("routes subagent output by parent_call_id and counts subagent steps", () => {
@@ -308,7 +339,9 @@ describe("protocol 3 widget fields", () => {
     ]);
     const card = partsOf(s, 1).find((p) => p.name === "subagent");
     expect(card.data.title).toBe("Research · step 2");
-    expect(card.data.messages[0].parts[0].output).toBe("hi");
+    expect(card.data.messages[0].parts[0].output.chunks).toEqual([
+      { stream: "stdout", text: "hi" },
+    ]);
   });
 
   it("reads the journaled facts back from session history", () => {
@@ -334,9 +367,16 @@ describe("protocol 3 widget fields", () => {
       ],
       children: [],
     });
-    expect(partsOf(s, 1).find((p) => p.type === "tool")).toMatchObject({
+    const bash = partsOf(s, 1).find((p) => p.type === "tool");
+    expect(bash.errorText).toBeUndefined();
+    expect(bash).toMatchObject({
       state: "output-error",
-      title: "bash · exit 2 · 0.9s · 2 lines",
+      output: {
+        output: "exit=2\nfail",
+        exitCode: 2,
+        durationMs: 900,
+        summary: { lines: 2 },
+      },
     });
   });
 });

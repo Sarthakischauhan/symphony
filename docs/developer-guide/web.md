@@ -69,11 +69,12 @@ your user permissions; the browser UI does not add a filesystem sandbox.
 
 ## Frontend and wheel pipeline
 
-`coding_agent/web-ui` is a React/Vite application. All chat UI comes from the
-published `@sarchauhan/chat@0.0.1`: the composer (`ChatComposer` inside
+`coding_agent/web-ui` is a React/Vite application. All chat UI comes from
+`@sarchauhan/chat` (the `feat/tool-widgets-direction-b` build, which is ahead of
+the published `0.0.1`): the composer (`ChatComposer` inside
 `ChatContextProvider`), message rendering (`MessageContent`, `MessageUsage`),
-`LoadingState`, approval questions, the model picker, and the read, patch,
-search, artifact, and subagent widgets. The session sidebar is the shadcn/ui `Sidebar`
+`LoadingState`, the model picker, and the read, patch, search, terminal,
+artifact, and subagent widgets. The session sidebar is the shadcn/ui `Sidebar`
 (`src/components/ui`, Tailwind CSS v4 without preflight so the SDK keeps its
 browser defaults). `src/style.css` maps both shadcn variables and `--chat-*`
 tokens onto one dark theme.
@@ -84,8 +85,8 @@ the SDK `{ artifact }` tool-output envelope, search hits become search results,
 and usage/context events become `data` parts. A small `ChatAdapter` in
 `src/main.tsx` sends the composer's prompt (creating or resuming the session
 first) and settles when that run's `done` frame arrives. The composer's stop
-button interrupts the run. Prompts are text only, so the SDK attach button is
-hidden.
+button interrupts the run. Prompts are text only, so the composer is mounted
+with `showAttachments={false}`, `inputLabel="Coding task"` and a placeholder.
 
 The Python host and compiled assets live in `coding_agent/src/coding_agent/web`
 to fit the existing Python package layout. To review the UI without a worker or
@@ -152,35 +153,33 @@ posts `{request_id, value}` to `/api/sessions/<id>/answer`, which the host
 relays as the stdio `answer` frame. Approvals are never sent as chat
 messages.
 
-Finished tool cards are titled with the protocol 3 facts, for example
-`bash · exit 1 · 1.2s · 3 lines`, from `exit_code`, `duration_ms` and
-`summary`. Live `tool_execution_output` chunks fill a running card, and
-subagent chunks are routed by `parent_call_id`. `subagent_step` adds the
-turn to the subagent card's title. The session journal stores these fields,
-so a reloaded session (read from `session/history`) shows the same titles.
-Sessions recorded before protocol 3 show the plain tool name.
+Finished tool cards carry the protocol 3 facts on the tool output the SDK
+widgets read: `exit_code`, `duration_ms`, `started_at` and `summary`. A bash
+card is the terminal widget ("Ran"), with `tool_execution_output` chunks
+split into stdout and stderr. Read, patch and search cards show the summary
+counts. Subagent chunks are routed by `parent_call_id`, and `subagent_step`
+adds the turn to the subagent card's title. The session journal stores these
+fields, so a reloaded session (read from `session/history`) shows the same
+cards. Sessions recorded before protocol 3 omit the exit code, duration and
+counts instead of inventing them.
 
 ## Screenshots
 
 These are browser captures of the `/demo/` page, which renders the real
 frontend against a mocked local API, rather than live provider responses.
 
-Welcome and session navigation:
+Welcome, with the text-only composer (no attach button):
 
-![Symphony Web welcome with searchable and pinned sessions](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/welcome-desktop.png?raw=true)
+![Symphony Web welcome with searchable sessions](../assets/web/welcome-desktop.png)
 
-Historical conversation and a computed patch diff:
+A resumed session: an edited file with its diff, and a command that passed with its exit code and duration:
 
-![Historical session with a patch widget](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/session-desktop.png?raw=true)
+![Historical session with a patch diff and a passed terminal run](../assets/web/session-desktop.png)
 
-Interactive overwrite approval:
+A live run: a failed command with stderr, the patch, and the overwrite approval:
 
-![Approval before overwriting an existing file](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/approval-desktop.png?raw=true)
+![Failed command, patch diff, and overwrite approval](../assets/web/approval-desktop.png)
 
-Created artifact after completion and browser refresh:
+The model picker, with each model's hint separated from its name:
 
-![Created file with preview and download controls](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/artifact-desktop.png?raw=true)
-
-Mobile navigation:
-
-<img src="https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/sidebar-mobile.png?raw=true" alt="Mobile session navigation drawer" width="390" />
+![Model picker with provider groups and context hints](../assets/web/model-picker.png)

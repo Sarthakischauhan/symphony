@@ -71,7 +71,51 @@ const history = {
         "The client now resumes from its **last event id**, so a refresh keeps the conversation in order.\n\n- `connect()` reads the stored cursor\n- the server replays everything after it\n- duplicate ids are ignored\n\n```ts\nconst cursor = lastEventId(id);\n```\n\nThe session tests pass.",
     },
   ],
-  events: [],
+  events: [
+    [
+      "tool_execution_completed",
+      {
+        tool_call_id: "r1",
+        tool_name: "read_file",
+        status: "success",
+        duration_ms: 18,
+        summary: { lines: 4, matches: null, added: null, removed: null },
+      },
+    ],
+    [
+      "tool_execution_completed",
+      {
+        tool_call_id: "g1",
+        tool_name: "search",
+        status: "success",
+        duration_ms: 40,
+        summary: { lines: null, matches: 2, added: null, removed: null },
+      },
+    ],
+    [
+      "tool_execution_completed",
+      {
+        tool_call_id: "p1",
+        tool_name: "patch",
+        status: "success",
+        result: "Patched src/session.ts",
+        duration_ms: 26,
+        summary: { lines: null, matches: null, added: 1, removed: 1 },
+      },
+    ],
+    [
+      "tool_execution_completed",
+      {
+        tool_call_id: "b1",
+        tool_name: "bash",
+        status: "success",
+        result: "PASS  src/session.test.ts (4 tests)\nTests: 4 passed, 4 total",
+        duration_ms: 1400,
+        exit_code: 0,
+        summary: { lines: 2, matches: null, added: null, removed: null },
+      },
+    ],
+  ],
   children: [],
 };
 
@@ -111,16 +155,22 @@ async function play(id: string, prompt: string) {
     emit(id, ev("reasoning_delta", { delta }));
   }
   await step(300);
-  emit(id, ev("tool_execution_started", { tool_call_id: "t1", tool_name: "read_file", arguments: { path: "src/client.ts" } }));
+  emit(id, ev("tool_execution_started", { tool_call_id: "t1", tool_name: "read_file", arguments: { path: "src/client.ts" }, started_at: new Date().toISOString() }));
   await step(500);
-  emit(id, ev("tool_execution_completed", { tool_call_id: "t1", status: "success", output: "export async function request(url: string) {\n  return fetch(url);\n}\n" }));
+  emit(id, ev("tool_execution_completed", { tool_call_id: "t1", status: "success", output: "export async function request(url: string) {\n  return fetch(url);\n}\n", duration_ms: 22, summary: { lines: 3, matches: null, added: null, removed: null } }));
+  emit(id, ev("tool_execution_started", { tool_call_id: "sh", tool_name: "bash", arguments: { command: "npm test -- client" }, started_at: new Date().toISOString() }));
+  await step(200);
+  emit(id, ev("tool_execution_output", { tool_call_id: "sh", delta: "FAIL src/client.test.ts\n", stream: "stdout" }));
+  emit(id, ev("tool_execution_output", { tool_call_id: "sh", delta: "Error: fetch is not defined\n", stream: "stderr" }));
+  await step(300);
+  emit(id, ev("tool_execution_completed", { tool_call_id: "sh", tool_name: "bash", status: "error", result: "exit=1\nError: fetch is not defined", duration_ms: 860, exit_code: 1, summary: { lines: 2, matches: null, added: null, removed: null } }));
   emit(id, ev("tool_execution_started", { tool_call_id: "t2", tool_name: "patch", arguments: { path: "src/client.ts", old_str: "  return fetch(url);\n", new_str: "  return withRetry(() => fetch(url), { attempts: 3 });\n" } }));
   await step(400);
-  emit(id, ev("tool_execution_completed", { tool_call_id: "t2", status: "success", output: "Patched src/client.ts" }));
+  emit(id, ev("tool_execution_completed", { tool_call_id: "t2", status: "success", output: "Patched src/client.ts", duration_ms: 14, summary: { lines: null, matches: null, added: 1, removed: 1 } }));
   emit(id, ev("usage", { prompt_tokens: 4200, completion_tokens: 310, cumulative_tokens: 4510 }));
   emit(id, ev("context", { tokens_used: 4200, context_limit: 200000 }));
   emit(id, ev("question_asked", {}));
-  emit(id, { type: "input_requested", request_id: "q1", question: "Overwrite src/retry.ts? It already exists.", choices: ["Allow once", "Always allow in this session", "Deny"] });
+  emit(id, { type: "input_requested", request_id: "q1", kind: "approval", question: "Overwrite src/retry.ts? It already exists.", detail: "It already exists and will be overwritten.", target: "src/retry.ts", bytes: 248, choices: ["Deny", "Always allow", "Allow once"], default: "Allow once" });
   await new Promise<void>((resolve) => (waiting = resolve));
   emit(id, { type: "answered", request_id: "q1" });
   emit(id, ev("tool_execution_started", { tool_call_id: "w1", tool_name: "write_file", arguments: { path: "src/retry.ts", content: "export async function withRetry<T>(fn: () => Promise<T>, { attempts = 3 } = {}) {\n  for (let i = 1; ; i++) {\n    try { return await fn(); } catch (e) { if (i >= attempts) throw e; }\n  }\n}\n" } }));
