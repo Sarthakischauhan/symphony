@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, AsyncGenerator, Mapping
 
 import pytest
 from textual.app import App
@@ -15,6 +15,7 @@ from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.protocols import stdio
 from coding_agent.widget_fields import SUBAGENT_STEP, EventFields
 from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSION, StdioSink
+from coding_agent.tools.ask_user import AskUserTool
 from coding_agent.tools.bash import BashTool, CommandFailed
 from coding_agent.tools.patch import PatchTool
 from coding_agent.tools.search import SearchTool
@@ -210,6 +211,73 @@ def test_stdio_completed_frames_carry_patch_start_line_and_search_results(
     assert hits[0] == {"path": "a.py", "line": 5, "text": "line 5"}
     assert [hit["line"] for hit in hits] == [5, *range(50, 60)]
     assert done["s1"]["summary"]["matches"] == len(hits)
+
+
+
+def test_stdio_ask_user_result_is_the_answer_frame_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The completed ask_user `result` is the value of the host's answer frame."""
+    from core_ai.providers.base import BaseProvider
+    from core_ai.registry import ModelRegistry
+    from core_ai.types import Message, StreamEvent
+    from core_harness import Answer, CoreHarness, HarnessConfig
+
+    turns = [
+        [
+            StreamEvent(type="toolcall_start", content_index=0, tool_call_id="ask-1", tool_name="ask_user"),
+            StreamEvent(type="toolcall_delta", content_index=0, delta='{"question": "Units?"}'),
+            StreamEvent(type="done"),
+        ],
+        [StreamEvent(type="text_delta", delta="ok"), StreamEvent(type="done")],
+    ]
+
+    class Scripted(BaseProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def stream(
+            self,
+            model_name: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]] = [],
+            max_output_tokens: int | None = None,
+            reasoning_effort: str | None = None,
+            extra_headers: dict[str, str] | None = None,
+        ) -> AsyncGenerator[StreamEvent, None]:
+            del model_name, messages, tools, max_output_tokens, reasoning_effort, extra_headers
+            turn = turns[min(self.calls, len(turns) - 1)]
+            self.calls += 1
+            for event in turn:
+                yield event
+
+    registry = ModelRegistry()
+    registry.register("fake", Scripted())
+    harness: list[CoreHarness] = []
+    frames: list[Mapping[str, Any]] = []
+
+    def write(frame: Mapping[str, Any]) -> None:
+        frames.append(frame)
+        # What the host's `{"type":"answer","request_id",...,"value"}` frame submits.
+        if frame.get("type") == "input_requested":
+            assert harness[0].submit(Answer(str(frame["request_id"]), "  Metric  "))
+
+    monkeypatch.setattr(stdio, "write_frame", write)
+    sink = StdioSink()
+    harness.append(CoreHarness(
+        registry=registry,
+        model_id="fake:ask",
+        system_prompt="test",
+        config=HarnessConfig(max_turns=3),
+        tools=[AskUserTool(str(tmp_path)).as_harness_tool()],
+        sink=sink,
+    ))
+    asyncio.run(harness[0].run("go"))
+    events = {frame["event"]: frame["payload"] for frame in frames if frame.get("type") == "event"}
+    asked = next(frame for frame in frames if frame.get("type") == "input_requested")
+    assert asked["metadata"] == {"tool_call_id": "ask-1"}
+    done = events["tool_execution_completed"]
+    assert (done["tool_call_id"], done["status"], done["result"]) == ("ask-1", "success", "Metric")
 
 
 # TUI
