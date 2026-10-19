@@ -84,7 +84,14 @@ def test_unattended_run_never_prompts_and_denies_in_parent_and_child(tmp_path: P
     assert (tmp_path / "keep").is_dir()
     parent_results = _tool_results(registry, "PARENT")
     assert "parent-ran" in parent_results[0]
-    assert parent_results[1].startswith("no human available; pick the safest reasonable option")
+    # The auto-answer is a failed call; the model still reads the hints and the
+    # run goes on to the next tool.
+    assert parent_results[1].startswith(
+        "[tool:error] AskUserFailed: no human available; pick the safest reasonable option"
+    )
+    asked = [event.payload for event in sink.events if event.event_type == "tool_execution_completed"
+             and event.payload["tool_name"] == "ask_user"]
+    assert [payload["status"] for payload in asked] == ["error"]
     assert "default: sqlite" in parent_results[1] and "choices: sqlite, postgres" in parent_results[1]
     assert "denied by rule" in parent_results[2]
     assert "denied by rule" in _tool_results(registry, "CHILD")[0]

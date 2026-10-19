@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import pytest
+from coding_agent.tools.ask_user import AskUserFailed, AskUserTool
 from coding_agent.tools.bash import CommandFailed
 
 
@@ -468,3 +469,20 @@ def test_tool_widget_only_treats_error_prefix_as_failed() -> None:
     assert widget.status == "done"
     widget.set_result("error: failed to run command: boom")
     assert widget.status == "failed"
+
+
+def test_ask_user_without_an_answer_fails_the_call(tmp_path: Path) -> None:
+    async def ask(tool: AskUserTool, **args: object) -> str:
+        return await tool.execute(sink=None, args={"question": "Which db?", **args})
+
+    with pytest.raises(AskUserFailed, match="^interactive user questions require"):
+        asyncio.run(ask(AskUserTool(str(tmp_path))))
+    unattended = AskUserTool(str(tmp_path), unattended=True)
+    with pytest.raises(AskUserFailed) as failed:
+        asyncio.run(ask(unattended, choices=["sqlite", "postgres"], default="sqlite"))
+    assert str(failed.value) == (
+        "no human available; pick the safest reasonable option and continue\n"
+        "default: sqlite\nchoices: sqlite, postgres"
+    )
+    with pytest.raises(AskUserFailed, match="non-empty"):
+        asyncio.run(unattended.run("  "))

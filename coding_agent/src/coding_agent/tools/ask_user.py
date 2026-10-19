@@ -12,6 +12,14 @@ from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 NO_HUMAN_ANSWER = "no human available; pick the safest reasonable option and continue"
 
 
+class AskUserFailed(RuntimeError):
+    """No human answered. The harness reports any raised error as ``status="error"``.
+
+    The message is what the model reads: for an unattended run it carries the
+    default and choices so the model picks one and keeps going.
+    """
+
+
 class AskUserArgs(ToolArgsModel):
     question: str = Field(..., min_length=1, description="Clarifying question to show the user.")
     choices: list[str] = Field(default_factory=list, description="Optional preset answers to present.")
@@ -40,16 +48,16 @@ class AskUserTool(WorkspaceTool):
     ) -> str:
         question = question.strip()
         if not question:
-            return "error: question must be a non-empty string"
+            raise AskUserFailed("question must be a non-empty string")
 
         if self.unattended:
             # ApprovalAddon records the auto_decision; never block on a human here.
             hints = [f"default: {default}"] if default else []
             hints += [f"choices: {', '.join(choices)}"] if choices else []
-            return "\n".join([NO_HUMAN_ANSWER, *hints])
+            raise AskUserFailed("\n".join([NO_HUMAN_ANSWER, *hints]))
 
         if sink is None:
-            return "error: interactive user questions require an interactive control plane"
+            raise AskUserFailed("interactive user questions require an interactive control plane")
 
         # The call id lets a host match the question to this call's
         # tool_execution_completed, like an approval's metadata.
