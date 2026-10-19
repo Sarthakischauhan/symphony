@@ -17,7 +17,7 @@ import pytest
 from coding_agent.addons.persistence import register_active, release_active
 from coding_agent.web.bundle import resolve_static
 from coding_agent.web.server import Server, stage_attachments
-from coding_agent.web.sessions import Sessions
+from coding_agent.web.sessions import Sessions, registry
 
 
 @pytest.fixture
@@ -481,3 +481,20 @@ def test_prompt_images_reach_the_run_frame_as_paths(web):
     wait(worker, lambda w: any(e["data"].get("type") == "done" for e in w.events))
     assert not any(e["data"].get("type") == "error" for e in worker.events)
     assert len(list(web.uploads.iterdir())) == 1
+
+
+def test_model_registry_takes_the_provider_from_the_model_rows() -> None:
+    catalog = registry({
+        "default": "gw:vendor/model",
+        "models": [
+            {"id": "local:small", "label": "Small", "provider": "local", "context_limit": None},
+            # The row's provider is the API route, not the id's prefix.
+            {"id": "gw:vendor/model", "label": "Model", "provider": "gateway", "context_limit": 128000},
+        ],
+    })
+    assert catalog["defaultProviderId"] == "gateway"
+    [local, gateway] = catalog["providers"]
+    assert gateway["defaultModel"] == "gw:vendor/model"
+    assert gateway["models"] == [{"id": "gw:vendor/model", "label": "Model", "contextWindow": 128000}]
+    assert local["models"] == [{"id": "local:small", "label": "Small"}]
+

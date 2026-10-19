@@ -8,8 +8,9 @@ import shutil
 import subprocess
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypedDict
 
+from core_harness.tools import current_tool_call_id
 from pydantic import Field
 
 from coding_agent.config import SearchConfig
@@ -176,6 +177,24 @@ class SearchArgs(ToolArgsModel):
     max_line_chars: int = Field(default=DEFAULT_SEARCH_CONFIG.default_max_line_chars, ge=1)
 
 
+class SearchHit(TypedDict):
+    """One search result: a file path, plus its line and text in content mode.
+
+    Files mode has no line (``None``) and an empty ``text``.
+    """
+
+    path: str
+    line: int | None
+    text: str
+
+
+def hit_text(hit: SearchHit) -> str:
+    """The result line the model reads: ``path`` or ``path:line:text``."""
+    if hit["line"] is None:
+        return hit["path"]
+    return f"{hit['path']}:{hit['line']}:{hit['text']}"
+
+
 def _strip_dot(path: str) -> str:
     return path[2:] if path.startswith("./") else path
 
@@ -197,6 +216,10 @@ class SearchTool(WorkspaceTool):
         config: SearchConfig = DEFAULT_SEARCH_CONFIG,
     ) -> None:
         self.config = config
+        # Each finished search's results, keyed by tool_call_id. EventFields
+        # reads them for the protocol's ``search_results`` and
+        # ``summary.matches``, the way it reads ``BashTool.exit_codes``.
+        self.hits: dict[str, list[SearchHit]] = {}
         super().__init__(workspace, parallel=True)
         properties = self.parameters["properties"]
         properties["max_results"]["default"] = config.default_max_results
@@ -252,10 +275,13 @@ class SearchTool(WorkspaceTool):
         else:
             results = self._python_search(root, base, mode, glob, matcher, limit, line_cap)
 
+        call_id = current_tool_call_id.get()
+        if call_id:
+            self.hits[call_id] = results
         if not results:
             return f"no {mode} matches for {query!r}"
         suffix = " (capped)" if len(results) >= limit else ""
-        return f"{len(results)} {mode} matches{suffix}\n" + "\n".join(results)
+        return f"{len(results)} {mode} matches{suffix}\n" + "\n".join(hit_text(hit) for hit in results)
 
     def _rg_search(
         self,
@@ -270,7 +296,7 @@ class SearchTool(WorkspaceTool):
         matcher: re.Pattern,
         limit: int,
         line_cap: int,
-    ) -> list[str]:
+    ) -> list[SearchHit]:
         """Search ``root`` (a directory) with ripgrep. Output matches the Python walker.
 
         ripgrep already skips hidden files, binary files, and gitignored paths;
@@ -293,7 +319,7 @@ class SearchTool(WorkspaceTool):
             command += ["--regexp", query]
         command.append(".")
 
-        results: list[str] = []
+        results: list[SearchHit] = []
         try:
             process = subprocess.Popen(
                 command, cwd=root, stdin=subprocess.DEVNULL,
@@ -313,7 +339,7 @@ class SearchTool(WorkspaceTool):
                     relative = _strip_dot(line)
                     if not matcher.search(relative):
                         continue
-                    results.append(relative)
+                    results.append(SearchHit(path=relative, line=None, text=""))
                 else:
                     path, sep, rest = line.partition("\0")
                     line_no, sep2, content = rest.partition(":")
@@ -322,7 +348,7 @@ class SearchTool(WorkspaceTool):
                     content = content.rstrip()
                     if len(content) > line_cap:
                         content = content[:line_cap] + "…"
-                    results.append(f"{_strip_dot(path)}:{line_no}:{content}")
+                    results.append(SearchHit(path=_strip_dot(path), line=int(line_no), text=content))
                 if len(results) >= limit:
                     capped = True
                     break
@@ -346,13 +372,13 @@ class SearchTool(WorkspaceTool):
         matcher: re.Pattern,
         limit: int,
         line_cap: int,
-    ) -> list[str]:
-        results: list[str] = []
+    ) -> list[SearchHit]:
+        results: list[SearchHit] = []
         if mode == "files":
             for file_path in self._iter_files(root, glob, base):
                 relative = _display_path(file_path, base)
                 if matcher.search(relative):
-                    results.append(relative)
+                    results.append(SearchHit(path=relative, line=None, text=""))
                     if len(results) >= limit:
                         break
         else:
@@ -364,7 +390,7 @@ class SearchTool(WorkspaceTool):
                     content = line.rstrip()
                     if len(content) > line_cap:
                         content = content[:line_cap] + "…"
-                    results.append(f"{relative}:{line_no}:{content}")
+                    results.append(SearchHit(path=relative, line=line_no, text=content))
                     if len(results) >= limit:
                         break
                 if len(results) >= limit:

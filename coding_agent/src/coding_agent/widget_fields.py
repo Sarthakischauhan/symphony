@@ -6,7 +6,8 @@ fields derived from data Symphony already owns, keeping every existing key:
 
 - ``tool_execution_started``: ``call_id``, ``parent_call_id``
 - ``tool_execution_output``: ``call_id``, ``stream``, ``parent_call_id``
-- ``tool_execution_completed``: ``call_id``, ``exit_code``, ``summary``, ``parent_call_id``
+- ``tool_execution_completed``: ``call_id``, ``exit_code``, ``summary``,
+  ``search_results``, ``parent_call_id``
 - ``agent_spawned``: ``parent_call_id`` (the spawning call)
 - a child's ``turn_started`` is followed by one ``subagent_step`` event
 
@@ -21,6 +22,8 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from coding_agent.tools.bash import BashTool
+from coding_agent.tools.patch import PatchTool
+from coding_agent.tools.search import SearchHit, SearchTool
 from coding_agent.tools.summary import summarize
 
 if TYPE_CHECKING:
@@ -44,9 +47,12 @@ class EventFields:
     """
 
     def __init__(self) -> None:
-        # Bound to the session's BashTool.exit_codes by ``bind``. Read, never
-        # popped: the session store and the host sink both read each code.
+        # Bound by ``bind`` to the session's BashTool.exit_codes,
+        # PatchTool.start_lines and SearchTool.hits. Read, never popped: the
+        # session store and the host sink both read each entry.
         self.exit_codes: dict[str, int] = {}
+        self.start_lines: dict[str, int] = {}
+        self.search_hits: dict[str, list[SearchHit]] = {}
         self._arguments: dict[str, Mapping[str, object]] = {}
         # child agent id -> (spawning call id, parent session id)
         self._spawns: dict[str, tuple[str, str]] = {}
@@ -54,10 +60,14 @@ class EventFields:
         self._call_parents: dict[str, str | None] = {}
 
     def bind(self, agent: CodingAgent) -> None:
-        """Read exit codes from the agent's own bash tool."""
+        """Read the facts the agent's own tools record per call."""
         for tool in agent.tools:
             if isinstance(tool, BashTool):
                 self.exit_codes = tool.exit_codes
+            elif isinstance(tool, PatchTool):
+                self.start_lines = tool.start_lines
+            elif isinstance(tool, SearchTool):
+                self.search_hits = tool.hits
 
     def apply(self, event_type: str, payload: Mapping[str, object]) -> list[tuple[str, Payload]]:
         """The event with its added fields, then any derived events, in emit order."""
@@ -85,13 +95,17 @@ class EventFields:
             return [(event_type, out)]
         elif event_type == "tool_execution_completed":
             out["call_id"] = call_id
+            hits = self.search_hits.get(call_id)
             out["exit_code"] = self.exit_codes.get(call_id)
             out["summary"] = summarize(
                 _str(payload, "tool_name"),
                 self._arguments.pop(call_id, {}),
                 _str(payload, "result"),
                 failed=payload.get("status") != "success",
+                matches=len(hits) if hits is not None else None,
+                start_line=self.start_lines.get(call_id),
             )
+            out["search_results"] = list(hits) if hits is not None else None
             self._call_parents.pop(call_id, None)
         elif event_type == "turn_started" and spawn is not None:
             out["parent_call_id"] = parent_call_id

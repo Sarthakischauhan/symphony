@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import difflib
+from pathlib import Path
 
+from core_harness.tools import current_tool_call_id
 from pydantic import ConfigDict, Field
 
 from coding_agent.tools.base import NonEmptyPath, ToolArgsModel, WorkspaceTool
@@ -54,6 +56,14 @@ class PatchTool(WorkspaceTool):
         "is a no-op."
     )
     args_model = PatchArgs
+
+    def __init__(self, workspace: str | Path) -> None:
+        # Where each applied patch's (first) old_str matched, as a 1-based line
+        # of the file before the edit, keyed by tool_call_id. EventFields reads
+        # it for the protocol summary's ``start_line``, the way it reads
+        # ``BashTool.exit_codes``.
+        self.start_lines: dict[str, int] = {}
+        super().__init__(workspace)
 
     def run(self, path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
         old = to_lf(old_str)
@@ -112,6 +122,9 @@ class PatchTool(WorkspaceTool):
                 handle.write(updated)
         except OSError as exc:
             return f"error: failed to write {path}: {exc}"
+        call_id = current_tool_call_id.get()
+        if call_id:
+            self.start_lines[call_id] = starts[0]
         delta = len(updated.encode("utf-8")) - len(original.encode("utf-8"))
         return f"patched {path} {at_lines(starts)} ({replaced} replacement(s), {delta:+d} bytes)"
 
@@ -155,12 +168,21 @@ def match_lines(text: str, needle: str) -> list[int]:
 
 
 def relaxed_windows(base: str, old: str) -> list[int]:
+    """0-based starts of folded line windows matching ``old``, without overlaps.
+
+    Like ``match_lines``, a match resumes after the previous one ends, so
+    ``replace_all`` never rewrites a line twice.
+    """
     hay = [line.translate(CHAR_FOLD).rstrip() for line in content_lines(base)]
     ned = [line.translate(CHAR_FOLD).rstrip() for line in content_lines(old)]
     n = len(ned)
     if n == 0 or n > len(hay):
         return []
-    return [i for i in range(len(hay) - n + 1) if hay[i : i + n] == ned]
+    starts: list[int] = []
+    for i in range(len(hay) - n + 1):
+        if (not starts or i >= starts[-1] + n) and hay[i : i + n] == ned:
+            starts.append(i)
+    return starts
 
 
 def replace_windows(base: str, old: str, new: str, starts: list[int]) -> str:

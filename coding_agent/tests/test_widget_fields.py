@@ -16,7 +16,9 @@ from coding_agent.protocols import stdio
 from coding_agent.widget_fields import SUBAGENT_STEP, EventFields
 from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSION, StdioSink
 from coding_agent.tools.bash import BashTool, CommandFailed
-from coding_agent.tools.summary import diff_counts, patch_start_line, summarize
+from coding_agent.tools.patch import PatchTool
+from coding_agent.tools.search import SearchTool
+from coding_agent.tools.summary import diff_counts, summarize
 from coding_agent.tui.tools.calls import BashToolWidget, PatchDiffWidget, ReadFileWidget, ToolOutcome
 from core_harness import EventSink
 from core_harness.tools import current_tool_call_id
@@ -69,17 +71,17 @@ def test_bash_nonzero_exit_raises_and_records_exit_code(tmp_path: Path) -> None:
 def test_summary_counts_per_tool() -> None:
     assert summarize("bash", {}, "a\nb\n") == {"lines": 2, "matches": None, "added": None, "removed": None, "start_line": None}
     assert summarize("read_file", {}, "1\n2\n3")["lines"] == 3
-    assert summarize("search", {}, "4 content matches\nx")["matches"] == 4
-    assert summarize("search", {}, "no content matches")["matches"] == 0
+    # Search matches and the patch start line come from what the tool recorded.
+    assert summarize("search", {}, "4 content matches\nx", matches=4)["matches"] == 4
+    assert summarize("search", {}, "4 content matches\nx")["matches"] is None
     assert summarize("write_file", {"content": "a\nb"}, "ok")["added"] == 2
     patch = summarize("patch", {"old_str": "a\nb", "new_str": "a\nc\nd"}, "ok")
     assert (patch["added"], patch["removed"]) == (2, 1)
     assert patch["start_line"] is None
-    placed = summarize("patch", {"old_str": "a", "new_str": "b"}, "patched src/a b.py at line 42 (1 replacement(s), +0 bytes)")
+    placed = summarize("patch", {"old_str": "a", "new_str": "b"}, "patched a.py at line 42", start_line=42)
     assert placed["start_line"] == 42
-    many = "patched a.py at lines 3, 9, 12 (3 replacement(s), +0 bytes)"
-    assert summarize("patch", {"old_str": "a", "new_str": "b"}, many)["start_line"] == 3
-    assert patch_start_line("old_str not found in a.py") is None
+    # Result prose is never parsed for it.
+    assert summarize("patch", {"old_str": "a", "new_str": "b"}, "patched a.py at line 42")["start_line"] is None
     assert summarize("read_file", {}, "error: x", failed=True)["lines"] is None
     assert diff_counts("", "") == (0, 0)
 
@@ -173,6 +175,43 @@ def test_stdio_frames_carry_widget_fields(monkeypatch: pytest.MonkeyPatch) -> No
     assert "options" not in requested and "call_id" not in requested
 
 
+def test_stdio_completed_frames_carry_patch_start_line_and_search_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frames: list[Mapping[str, Any]] = []
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    (tmp_path / "a.py").write_text("".join(f"line {n}\n" for n in range(1, 61)), encoding="utf-8")
+    patch, search = PatchTool(tmp_path), SearchTool(tmp_path)
+    sink = StdioSink()
+    # What EventFields.bind(agent) does with the agent's own tools.
+    sink.fields.start_lines, sink.fields.search_hits = patch.start_lines, search.hits
+
+    async def call(call_id: str, tool_name: str, arguments: dict[str, Any], run: Any) -> None:
+        await sink.deliver("tool_execution_started", {"tool_call_id": call_id, "tool_name": tool_name,
+                                                      "arguments": arguments, "started_at": 1.0})
+        token = current_tool_call_id.set(call_id)
+        try:
+            result = await run.as_harness_tool().execute(sink=None, args=arguments)
+        finally:
+            current_tool_call_id.reset(token)
+        await sink.deliver("tool_execution_completed", {"tool_call_id": call_id, "tool_name": tool_name,
+                                                        "status": "success", "result": result, "duration_ms": 3})
+
+    async def run() -> None:
+        await call("p1", "patch", {"path": "a.py", "old_str": "line 41\n", "new_str": "LINE 41\n"}, patch)
+        await call("s1", "search", {"query": "line 5"}, search)
+
+    asyncio.run(run())
+    done = {frame["payload"]["tool_call_id"]: frame["payload"] for frame in frames
+            if frame.get("event") == "tool_execution_completed"}
+    assert done["p1"]["summary"]["start_line"] == 41
+    assert done["p1"]["search_results"] is None
+    hits = done["s1"]["search_results"]
+    assert hits[0] == {"path": "a.py", "line": 5, "text": "line 5"}
+    assert [hit["line"] for hit in hits] == [5, *range(50, 60)]
+    assert done["s1"]["summary"]["matches"] == len(hits)
+
+
 # TUI
 
 
@@ -219,10 +258,11 @@ def test_tui_cards_use_payload_fields() -> None:
             assert patch._summary() == "x.py +5 -4"
             # The card's hunk header uses the file line from summary.start_line.
             assert patch._diff()[0] == "@@ -30 +30 @@"
+            # Without a summary the card does not read the line out of the result text.
             live = PatchDiffWidget("q", "patch")
             live.set_running({"path": "y.py", "old_str": "a", "new_str": "b"})
             live.set_result("patched y.py at line 7 (1 replacement(s), +0 bytes)")
-            assert live._diff()[0] == "@@ -7 +7 @@"
+            assert live._diff()[0] == "@@ -1 +1 @@"
 
     asyncio.run(run())
 

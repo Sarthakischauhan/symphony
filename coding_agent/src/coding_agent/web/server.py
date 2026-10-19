@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from coding_agent.web.bundle import BundleError, bundle_root, install, resolve_static, rollback
-from coding_agent.web.sessions import JsonObject, Sessions, WorkerError
+from coding_agent.web.sessions import JsonObject, Sessions, Worker, WorkerError
 
 
 # The stdio run frame takes at most 8 images of under 20 MiB each.
@@ -141,6 +141,29 @@ class Handler(BaseHTTPRequestHandler):
         self._headers(status, "application/json", len(body))
         self.wfile.write(body)
 
+    def _stream(self, live: Worker, cursor: int) -> None:
+        """Send the worker's events after ``cursor`` as SSE until it exits.
+
+        Once the event-stream headers are out, a write error ends the stream;
+        it never becomes a JSON error body inside the stream.
+        """
+        self._headers(200, "text/event-stream")
+        try:
+            while True:
+                with live.condition:
+                    live.condition.wait_for(lambda: len(live.events) > cursor, timeout=10)
+                    batch = live.events[cursor:]
+                for event in batch:
+                    self.wfile.write(f"id: {event['id']}\ndata: {json.dumps(event['data'])}\n\n".encode())
+                    cursor = event["id"]
+                if not batch:
+                    self.wfile.write(b": heartbeat\n\n")
+                self.wfile.flush()
+                if not live.alive and cursor == len(live.events):
+                    return
+        except OSError:
+            return
+
     def do_GET(self) -> None:
         try:
             self._guard()
@@ -164,20 +187,7 @@ class Handler(BaseHTTPRequestHandler):
                     cursor = int(self.headers.get("Last-Event-ID") or query.get("after", ["0"])[0])
                     if cursor < 0 or cursor > len(worker.events):
                         return self._json({"error": "Invalid event cursor; reload session"}, 409)
-                    self._headers(200, "text/event-stream")
-                    live = worker
-                    while True:
-                        with live.condition:
-                            live.condition.wait_for(lambda: len(live.events) > cursor, timeout=10)
-                            batch = live.events[cursor:]
-                        for event in batch:
-                            self.wfile.write(f"id: {event['id']}\ndata: {json.dumps(event['data'])}\n\n".encode())
-                            cursor = event["id"]
-                        if not batch:
-                            self.wfile.write(b": heartbeat\n\n")
-                        self.wfile.flush()
-                        if not live.alive and cursor == len(live.events):
-                            return
+                    return self._stream(worker, cursor)
                 if len(parts) != 3:
                     return self._json({"error": "Not found"}, 404)
                 owned = self.app.sessions.owned(session_id)
@@ -209,8 +219,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 503)
         except (BrokenPipeError, ConnectionResetError):
             pass
-        except Exception as exc:
-            self._json({"error": str(exc)}, 500)
+        except OSError as exc:
+            # A static asset or an upload could not be read or written. Log
+            # the cause; the client gets no internals.
+            self.log_error("%s", exc)
+            self._json({"error": "Internal server error"}, 500)
 
     def do_POST(self) -> None:
         try:
@@ -276,8 +289,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 409)
         except (BrokenPipeError, ConnectionResetError):
             pass
-        except Exception as exc:
-            self._json({"error": str(exc)}, 500)
+        except OSError as exc:
+            # A static asset or an upload could not be read or written. Log
+            # the cause; the client gets no internals.
+            self.log_error("%s", exc)
+            self._json({"error": "Internal server error"}, 500)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

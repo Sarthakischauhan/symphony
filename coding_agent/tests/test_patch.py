@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from core_harness.tools import current_tool_call_id
+
 from coding_agent.tools import PatchArgs, PatchTool
-from coding_agent.tools.summary import summarize
 from coding_agent.tui.tools.calls import make_unified_diff
 
 
@@ -198,14 +199,24 @@ def numbered(count: int) -> str:
     return "".join(f"line {n}\n" for n in range(1, count + 1))
 
 
+def run_as_call(tool: PatchTool, call_id: str, path: str, old: str, new: str, replace_all: bool = False) -> str:
+    token = current_tool_call_id.set(call_id)
+    try:
+        return tool.run(path, old, new, replace_all)
+    finally:
+        current_tool_call_id.reset(token)
+
+
 def patched_diff(tmp_path: Path, old: str, new: str) -> tuple[str, list[str]]:
     target = tmp_path / "a.py"
     if not target.exists():
         target.write_text(numbered(60), encoding="utf-8")
-    result = PatchTool(tmp_path).run("a.py", old, new)
-    start = summarize("patch", {"old_str": old, "new_str": new}, result)["start_line"]
+    tool = PatchTool(tmp_path)
+    result = run_as_call(tool, "call-1", "a.py", old, new)
+    # The start line is recorded per call, never parsed back out of the result.
+    start = tool.start_lines.get("call-1")
     assert start is not None, result
-    return result, make_unified_diff(old, new, "a.py", start)
+    return result, make_unified_diff(old, new, start)
 
 
 def test_patch_reports_the_file_line_and_offsets_hunks(tmp_path: Path) -> None:
@@ -243,3 +254,23 @@ def test_patch_fuzzy_match_reports_its_window_line(tmp_path: Path) -> None:
     result, diff = patched_diff(tmp_path, "line 14\nline 15\n", "line 14\nline fifteen\n")
     assert result.startswith("patched a.py at line 14 (1 replacement")
     assert diff[0] == "@@ -14,2 +14,2 @@"
+
+
+def test_patch_records_no_start_line_for_a_failed_call(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text(numbered(5), encoding="utf-8")
+    tool = PatchTool(tmp_path)
+    assert run_as_call(tool, "miss", "a.py", "nope\n", "x\n").startswith("old_str not found")
+    assert tool.start_lines == {}
+
+
+def test_folded_replace_all_skips_overlapping_windows(tmp_path: Path) -> None:
+    target = tmp_path / "a.txt"
+    target.write_text("a \na \na \n", encoding="utf-8")
+    tool = PatchTool(tmp_path)
+    # Trailing spaces force the folded path; "a\na\n" fits at lines 1 and 2,
+    # but those windows overlap, so only the first one applies.
+    result = run_as_call(tool, "fold", "a.txt", "a\na\n", "b\n", replace_all=True)
+    assert result.startswith("patched a.txt at line 1 (1 replacement")
+    assert target.read_text(encoding="utf-8") == "b\na \n"
+    assert tool.start_lines == {"fold": 1}
+

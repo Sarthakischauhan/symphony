@@ -155,7 +155,7 @@ async def serve(
                     if run is not None and not run.done():
                         raise RuntimeError("model cannot change during an active run")
                     stdio.write_frame(select_model(agent, request_id, selected))
-            except Exception as exc:
+            except (ValueError, RuntimeError, OSError) as exc:
                 stdio.write_frame({
                     "type": "error", "request_id": request_id, "message": f"{type(exc).__name__}: {exc}",
                 })

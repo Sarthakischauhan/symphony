@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from collections import deque
-from difflib import unified_diff
-from pathlib import Path
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+from pathlib import Path
 from time import monotonic
 from typing import Any, Final, Mapping
 
@@ -19,7 +18,7 @@ from textual.message import Message
 from textual.widgets import Collapsible, Static
 
 from coding_agent.tools.bash import Stream
-from coding_agent.tools.summary import ToolSummary, patch_start_line
+from coding_agent.tools.summary import ToolSummary
 from coding_agent.tui.tools.activity import strip_activity_json, take_activity
 from coding_agent.tui.tools.images import ImageAttachment, ImageModal
 from coding_agent.tui.tools.labels import (
@@ -559,15 +558,13 @@ class PatchDiffWidget(ToolCallWidget):
         if key == self._diff_key:
             return self._diff_cache
         self._diff_key = key
-        self._diff_cache = make_unified_diff(old, new, path, start) if old or new else []
+        self._diff_cache = make_unified_diff(old, new, start) if old or new else []
         return self._diff_cache
 
     def _start_line(self) -> int:
-        """File line of the match: the protocol summary, else the live result text."""
+        """File line of the match from the protocol summary; 1 until it arrives."""
         reported = self.summary["start_line"] if self.summary is not None else None
-        if reported is None and self.result:
-            reported = patch_start_line(self.result)
-        return reported or 1
+        return reported if reported is not None else 1
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         rows = [code_view("\n".join(self._diff()), lexer="diff", wrap=wrap)]
@@ -623,41 +620,40 @@ def make_tool_widget(
     return ToolCallWidget(call_id, tool_name)
 
 
-_HUNK = re.compile(r"^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@")
-
-
-def make_unified_diff(old: str, new: str, path: str, start_line: int = 1) -> list[str]:
+def make_unified_diff(old: str, new: str, start_line: int = 1) -> list[str]:
     """Build display-ready unified diff lines for an exact-text edit.
 
-    difflib numbers hunks from the snippet's first line; ``start_line`` (where
-    old_str matched in the file) shifts every hunk header to file line numbers.
+    Hunks are numbered in file lines: ``start_line`` (where old_str matched in
+    the file) is the line number of old_str's first line on both sides.
     """
     if not old and not new:
         return []
     offset = max(start_line, 1) - 1
-    lines = list(
-        unified_diff(
-            old.splitlines(),
-            new.splitlines(),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}",
-            lineterm="",
-        )
-    )
-    body = lines[2:] if len(lines) >= 2 else lines
-    return [shift_hunk(line, offset) for line in body] if offset else body
+    a, b = old.splitlines(), new.splitlines()
+    lines: list[str] = []
+    for group in SequenceMatcher(None, a, b).get_grouped_opcodes(3):
+        first, last = group[0], group[-1]
+        old_range = _hunk_range(first[1] + offset, last[2] + offset)
+        new_range = _hunk_range(first[3] + offset, last[4] + offset)
+        lines.append(f"@@ -{old_range} +{new_range} @@")
+        for tag, i1, i2, j1, j2 in group:
+            if tag == "equal":
+                lines.extend(" " + line for line in a[i1:i2])
+                continue
+            if tag in {"replace", "delete"}:
+                lines.extend("-" + line for line in a[i1:i2])
+            if tag in {"replace", "insert"}:
+                lines.extend("+" + line for line in b[j1:j2])
+    return lines
 
 
-def shift_hunk(line: str, offset: int) -> str:
-    """Move a hunk header by ``offset`` lines; other lines pass through."""
-    found = _HUNK.match(line)
-    if not found:
-        return line
-    old_start, old_len, new_start, new_len = found.groups()
-    return (
-        f"@@ -{int(old_start) + offset}{old_len or ''} +{int(new_start) + offset}{new_len or ''} @@"
-        + line[found.end() :]
-    )
+def _hunk_range(start: int, stop: int) -> str:
+    """A unified-diff range for 0-based ``[start, stop)``, as difflib writes it."""
+    length = stop - start
+    if length == 1:
+        return str(start + 1)
+    # A zero-length side names the line before the change.
+    return f"{start + 1 if length else start},{length}"
 
 
 def diff_stats(diff: list[str]) -> tuple[int, int]:

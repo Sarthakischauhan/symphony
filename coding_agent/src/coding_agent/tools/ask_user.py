@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 from core_harness.events import EventSink
+from core_harness.tools import current_tool_call_id
 from pydantic import Field
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
@@ -50,10 +51,14 @@ class AskUserTool(WorkspaceTool):
         if sink is None:
             return "error: interactive user questions require an interactive control plane"
 
+        # The call id lets a host match the question to this call's
+        # tool_execution_completed, like an approval's metadata.
+        call_id = current_tool_call_id.get()
         answer = await sink.interaction.request_user_input(
             question=question,
             choices=list(choices),
             default=default,
+            metadata={"tool_call_id": call_id} if call_id else None,
         )
         answer = str(answer or "").strip()
         if not answer and default:

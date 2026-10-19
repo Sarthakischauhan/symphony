@@ -1,6 +1,8 @@
 """Startup update checks compare an installed release with PyPI."""
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -128,3 +130,9 @@ def test_failed_web_bundle_still_reports_the_package_update() -> None:
     )
     assert decision.action == "updated"
     assert any("checksum mismatch" in m and "symphony web --update" in m for m in messages)
+
+
+def test_importing_updates_does_not_load_the_web_bundle() -> None:
+    probe = "import sys, coding_agent.updates; print('coding_agent.web.bundle' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"

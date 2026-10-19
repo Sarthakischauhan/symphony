@@ -285,16 +285,18 @@ def registry(catalog: JsonObject) -> JsonObject:
         entry: JsonObject = {"id": model_id, "label": text(item, "label")}
         limit = item.get("context_limit")
         if isinstance(limit, int) and limit > 0:
-            # contextWindow drives the picker's "128K context window" line; older
-            # chat-sdk builds show the description. A null limit gets neither.
+            # contextWindow drives the picker's "128K context window" line; a
+            # null limit omits it.
             entry["contextWindow"] = limit
-            entry["description"] = f"{limit // 1000}k context"
         levels = strings(item, "reasoning_levels")
         if levels:
             entry["thinkingLevels"] = levels
         entries[provider].append(entry)
     default = text(catalog, "default")
-    provider = default.partition(":")[0]
+    # The default's provider is the one its own row names.
+    provider = next(
+        (text(item, "provider") for item in objects(catalog, "models") if text(item, "id") == default), ""
+    )
     if provider in providers:
         providers[provider]["defaultModel"] = default
     return {

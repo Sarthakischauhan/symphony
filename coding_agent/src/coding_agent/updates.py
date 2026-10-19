@@ -21,8 +21,6 @@ from importlib.metadata import PackageNotFoundError, distribution, version
 from pathlib import Path
 from typing import Callable, Mapping
 
-from coding_agent.web.bundle import BundleError, bundle_root, install as install_web_bundle
-
 PACKAGE = "symphony-code"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
 TIMEOUT_SECONDS = 3.0
@@ -176,14 +174,16 @@ def startup_update_check(
     install: Callable[[str], subprocess.CompletedProcess[str]] = apply_update,
     output: Callable[[str], None] = print,
     enabled: bool | None = None,
-    install_web: Callable[[str, Path], Path] = install_web_bundle,
-    web_root: Callable[[], Path] = bundle_root,
+    install_web: Callable[[str, Path], Path] | None = None,
+    web_root: Callable[[], Path] | None = None,
 ) -> UpdateDecision:
     """Run the pre-start check described by ``updates`` in the user config.
 
     After the package updates, the matching Symphony Web bundle is installed
     and made current. A failed bundle install keeps the old bundle and only
-    warns: the package update itself already succeeded.
+    warns: the package update itself already succeeded. ``install_web`` and
+    ``web_root`` default to :mod:`coding_agent.web.bundle`, imported only once
+    an update is under way.
     """
     settings = config.get("updates") if isinstance(config.get("updates"), Mapping) else {}
     if enabled is None:
@@ -196,11 +196,15 @@ def startup_update_check(
     )
     if decision.action == "continue":
         return decision
+    target = decision.latest
+    if target is None:
+        # check_for_update names the version for every action except continue.
+        return UpdateDecision("continue", decision.current)
     accepted = decision.action == "update"
     if decision.action == "ask":
         ask = prompt or _screen_prompt
         try:
-            accepted = bool(ask(decision.current or "", decision.latest or ""))
+            accepted = bool(ask(decision.current or "", target))
         except EOFError:
             accepted = False
         if not accepted:
@@ -208,16 +212,20 @@ def startup_update_check(
             return UpdateDecision("continue", decision.current, decision.latest)
     else:
         output(decision.message)
-    result = install(decision.latest or "")
+    result = install(target)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         output(f"Update to {decision.latest} failed; continuing with {decision.current}.")
         if detail:
             output(detail)
         return UpdateDecision("failed", decision.current, decision.latest, detail)
+    from coding_agent.web import bundle
+
     try:
-        install_web(decision.latest or "", web_root())
-    except BundleError as exc:
+        if install_web is None:
+            install_web = bundle.install
+        install_web(target, web_root() if web_root is not None else bundle.bundle_root())
+    except bundle.BundleError as exc:
         output(f"Symphony Web {decision.latest} was not installed ({exc}); run `symphony web --update` to retry.")
     output(f"Updated symphony-code to {decision.latest}. Restart `symphony` to use it.")
     return UpdateDecision("updated", decision.current, decision.latest)
