@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import secrets
+import shutil
 import signal
 import socket
 import sys
+import tempfile
 import threading
 import uuid
 import webbrowser
@@ -20,6 +24,45 @@ from coding_agent.web.bundle import BundleError, bundle_root, install, resolve_s
 from coding_agent.web.sessions import JsonObject, Sessions, WorkerError
 
 
+# The stdio run frame takes at most 8 images of under 20 MiB each.
+MAX_ATTACHMENTS = 8
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+# Base64 grows 4/3; a prompt may carry every image plus its text.
+PROMPT_LIMIT = MAX_ATTACHMENTS * (MAX_IMAGE_BYTES * 4 // 3 + 1024) + 1024 * 1024
+IMAGE_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
+
+
+def stage_attachments(raw: object, folder: Path) -> list[str]:
+    """Write composer images (data URLs) to files; the run frame takes host paths."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_ATTACHMENTS:
+        raise ValueError(f"attachments must be a list of at most {MAX_ATTACHMENTS} images")
+    decoded: list[tuple[str, bytes]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("Each attachment must be an object")
+        media_type, data_url = item.get("media_type"), item.get("data_url")
+        if not isinstance(media_type, str) or media_type not in IMAGE_TYPES:
+            raise ValueError("Attachments must be PNG, JPEG, GIF or WebP images")
+        prefix = f"data:{media_type};base64,"
+        if not isinstance(data_url, str) or not data_url.startswith(prefix):
+            raise ValueError("Attachment data must be a base64 data URL of its media type")
+        try:
+            data = base64.b64decode(data_url[len(prefix) :], validate=True)
+        except binascii.Error as exc:
+            raise ValueError("Attachment data is not valid base64") from exc
+        if not 0 < len(data) < MAX_IMAGE_BYTES:
+            raise ValueError("Each image must be under 20 MiB")
+        decoded.append((IMAGE_TYPES[media_type], data))
+    paths: list[str] = []
+    for suffix, data in decoded:
+        path = folder / f"{uuid.uuid4().hex}{suffix}"
+        path.write_bytes(data)
+        paths.append(str(path))
+    return paths
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -27,6 +70,8 @@ class Server(ThreadingHTTPServer):
         self.sessions = sessions
         self.static = static
         self.token = secrets.token_urlsafe(32)
+        # Composer images live here until the server stops; workers read them by path.
+        self.uploads = Path(tempfile.mkdtemp(prefix="symphony-web-uploads-"))
         super().__init__(address, Handler)
         self.origin = f"http://127.0.0.1:{self.server_port}"
 
@@ -43,6 +88,7 @@ class Server(ThreadingHTTPServer):
 
     def server_close(self) -> None:
         self.sessions.close()
+        shutil.rmtree(self.uploads, ignore_errors=True)
         super().server_close()
 
 
@@ -169,14 +215,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
             self._guard(mutation=True)
+            parts = urlsplit(self.path).path.strip("/").split("/")
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 1024 * 1024:
-                raise ValueError("Request must be between 1 byte and 1 MiB")
+            # Only a prompt may carry images; every other command stays small.
+            limit = PROMPT_LIMIT if parts[-1:] == ["prompt"] else 1024 * 1024
+            if not 0 < length <= limit:
+                raise ValueError(f"Request must be between 1 byte and {limit // (1024 * 1024)} MiB")
             self.connection.settimeout(30)
             data: object = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
                 raise ValueError("Expected JSON object")
-            parts = urlsplit(self.path).path.strip("/").split("/")
             sessions = self.app.sessions
             model = data.get("model")
             if model is not None and (not isinstance(model, str) or not 0 < len(model) <= 200):
@@ -201,6 +249,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(prompt, str) or not prompt.strip():
                     raise ValueError("A prompt is required")
                 command: JsonObject = {"type": "run", "prompt": prompt}
+                attachments = stage_attachments(data.get("attachments"), self.app.uploads)
+                if attachments:
+                    command["attachments"] = attachments
                 effort = data.get("reasoning_effort")
                 if isinstance(effort, str):
                     # The worker validates the effort and rejects overlapping runs.

@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SidebarMenuButton } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
-import type { Workspace } from "./Welcome";
+import type { Workspace } from "./frames";
 
 export type Preferences = { showUsage: boolean };
 type Props = {

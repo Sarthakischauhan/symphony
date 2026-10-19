@@ -16,7 +16,7 @@ import pytest
 
 from coding_agent.addons.persistence import register_active, release_active
 from coding_agent.web.bundle import resolve_static
-from coding_agent.web.server import Server
+from coding_agent.web.server import Server, stage_attachments
 from coding_agent.web.sessions import Sessions
 
 
@@ -195,6 +195,8 @@ def test_workspace_info_models_and_commands_come_from_the_worker(web):
     assert catalog["defaultProviderId"] == "local"
     local = next(p for p in catalog["providers"] if p["id"] == "local")
     assert any(m["id"] == "local:web-test" for m in local["models"])
+    # contextWindow is the frame's context_limit, only when it is a positive int.
+    assert all(isinstance(m.get("contextWindow", 1), int) for p in catalog["providers"] for m in p["models"])
     status, commands = request(web, "/api/commands")
     assert status == 200 and any(item["name"] == "help" for item in commands)
 
@@ -318,7 +320,9 @@ def test_browser_refresh_streaming_and_approval(web):
         # The chat SDK composer starts a session with its first prompt.
         page.get_by_label("Coding task").fill("write a file")
         page.get_by_role("button", name="Send message", exact=True).click()
-        expect(page.get_by_text("Connected", exact=True)).to_be_visible()
+        # A live session shows its model in the header and no reconnecting badge.
+        expect(page.locator(".topbar .model")).to_contain_text("web-test")
+        expect(page.get_by_text("reconnecting…", exact=True)).to_have_count(0)
         # Overwriting the pre-existing file must require human confirmation.
         # The HTTP test checks structured approval correlation; interact with
         # the real question here using its published accessible controls.
@@ -335,7 +339,8 @@ def test_browser_refresh_streaming_and_approval(web):
         expect(page.get_by_text("Web task completed", exact=True)).to_be_visible(timeout=15000)
         page.reload()
         expect(page.get_by_text("Web task completed", exact=True)).to_be_visible()
-        expect(page.get_by_text("Connected", exact=True)).to_be_visible()
+        expect(page.locator(".topbar .model")).to_contain_text("web-test")
+        expect(page.get_by_text("reconnecting…", exact=True)).to_have_count(0)
         page.get_by_label("Coding task").fill("second turn")
         page.get_by_role("button", name="Send message", exact=True).click()
         expect(page.get_by_text("Web task completed", exact=True)).to_have_count(2, timeout=15000)
@@ -443,3 +448,36 @@ def test_closed_sessions_reject_new_workers(tmp_path):
         sessions.control()
     with pytest.raises(WorkerError, match="shutting down"):
         sessions.resume()
+
+
+PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+
+def test_stage_attachments_validates_and_writes_images(tmp_path):
+    assert stage_attachments(None, tmp_path) == []
+    [path] = stage_attachments([{"media_type": "image/png", "data_url": f"data:image/png;base64,{PNG}"}], tmp_path)
+    assert path.endswith(".png") and open(path, "rb").read().startswith(b"\x89PNG")
+    for bad in (
+        "nope",
+        [{"media_type": "text/plain", "data_url": "data:text/plain;base64,aGk="}],
+        [{"media_type": "image/png", "data_url": "data:image/jpeg;base64,aGk="}],
+        [{"media_type": "image/png", "data_url": "data:image/png;base64,***"}],
+        [{"media_type": "image/png", "data_url": f"data:image/png;base64,{PNG}"}] * 9,
+    ):
+        with pytest.raises(ValueError):
+            stage_attachments(bad, tmp_path)
+    assert len(list(tmp_path.iterdir())) == 1
+
+
+def test_prompt_images_reach_the_run_frame_as_paths(web):
+    status, data = request(web, data={})
+    assert status == 200, data
+    sid = data["session_id"]
+    worker = web.sessions.workers[sid]
+    bad = {"prompt": "look", "attachments": [{"media_type": "image/svg+xml", "data_url": "data:,"}]}
+    assert request(web, f"/api/sessions/{sid}/prompt", bad)[0] == 400
+    image = {"media_type": "image/png", "data_url": f"data:image/png;base64,{PNG}", "filename": "a.png"}
+    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "look", "attachments": [image]})[0] == 200
+    wait(worker, lambda w: any(e["data"].get("type") == "done" for e in w.events))
+    assert not any(e["data"].get("type") == "error" for e in worker.events)
+    assert len(list(web.uploads.iterdir())) == 1

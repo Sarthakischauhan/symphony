@@ -81,7 +81,15 @@ export type StdioEvent =
   | { event: "reasoning_completed"; payload: Routed }
   | {
       event: "usage";
-      payload: Routed & { cumulative_tokens: number; estimated?: boolean };
+      payload: Routed & {
+        cumulative_tokens: number;
+        estimated?: boolean;
+        // Per model call; reasoning_tokens is absent from estimated usage.
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        reasoning_tokens?: number;
+        total_tokens?: number;
+      };
     }
   | {
       event: "context";
@@ -188,4 +196,11 @@ export type SlashCommand = {
   description: string;
   inputHint: string | null;
   options: { value: string; label: string; description: string }[];
+};
+// /api/info: the workspace and branch from the worker's ready frame.
+export type Workspace = {
+  path: string;
+  display: string;
+  name: string;
+  branch: string;
 };

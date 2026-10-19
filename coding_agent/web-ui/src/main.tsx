@@ -28,12 +28,16 @@ import {
   type Frame,
   type SessionHistory,
   type SessionSummary,
-  type SlashCommand,
+  type Workspace,
 } from "./frames";
 import { isDataPart, isToolPart } from "@sarchauhan/protocol";
 import { SessionSidebar, stored, type Session } from "./Sidebar";
 import type { Preferences } from "./Settings";
-import { Welcome, type Workspace } from "./Welcome";
+import { Welcome } from "./Welcome";
+import { ContextMeter } from "./ContextMeter";
+import { ProviderLogo } from "./ProviderLogo";
+import { ThreadPalette } from "./Palette";
+import { Folder, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   SidebarInset,
@@ -97,6 +101,23 @@ function ModelSync({ model }: { model: string }) {
   }, [model, registry]);
   return null;
 }
+// "openai:gpt-6.1" → provider "openai", name from the catalog label or the id.
+function modelParts(catalog: Catalog | null, model: string) {
+  const separator = model.indexOf(":");
+  const provider = separator > 0 ? model.slice(0, separator) : "";
+  const label = catalog?.providers
+    .flatMap((p) => p.models)
+    .find((m) => m.id === model)?.label;
+  return { provider, name: label || model.slice(separator + 1) };
+}
+// The host stages PNG, JPEG, GIF and WebP images for the stdio run frame.
+// chat-sdk feat/composer-polish reads attachmentAccept (picker filter, paste,
+// drop); the pinned SDK ignores it and the adapter still sends images only.
+const IMAGES_ONLY: { attachmentAccept: string } = {
+  attachmentAccept: "image/png,image/jpeg,image/gif,image/webp",
+};
+// A composer file part as the web host's prompt attachment (a data URL).
+type Attachment = { filename: string; media_type: string; data_url: string };
 const knows = (catalog: Catalog | null, model?: string) =>
   !!model &&
   !!catalog?.providers.some((p) => p.models.some((m) => m.id === model));
@@ -110,7 +131,6 @@ const activity = (state: State) => {
 
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]),
-    [commands, setCommands] = useState<SlashCommand[]>([]),
     [selected, setSelected] = useState(
       sessionStorage.getItem("symphony-session") || "",
     );
@@ -229,7 +249,12 @@ export function App() {
   }
   // Start, resume, or continue the selected session with one prompt. A model
   // picked in the composer switches the live worker through the protocol.
-  async function prompt(text: string, model?: string, effort?: string) {
+  async function prompt(
+    text: string,
+    model?: string,
+    effort?: string,
+    attachments: Attachment[] = [],
+  ) {
     const {
       selected: current,
       owned: live,
@@ -256,6 +281,8 @@ export function App() {
     await api(`sessions/${id}/prompt`, {
       prompt: text,
       ...(effort ? { reasoning_effort: effort } : {}),
+      // The host stages each image and passes its path on the stdio run frame.
+      ...(attachments.length ? { attachments } : {}),
     });
     refresh();
     return { id, baseline };
@@ -268,11 +295,19 @@ export function App() {
         const { message, signal, model } = input;
         // chat@0.0.1 passes the picked effort; adapter@0.0.1 types omit it.
         const { thinkingLevel } = input as { thinkingLevel?: string };
-        if (message.parts.some((part) => part.type === "file")) {
-          const failure = new Error("Attachments are not supported yet");
-          control.current.error(failure);
-          throw failure;
-        }
+        const attachments = message.parts.flatMap((part): Attachment[] => {
+          if (part.type !== "file" || !("mediaType" in part)) return [];
+          const { mediaType, url, filename } = part;
+          if (typeof mediaType !== "string") return [];
+          if (!mediaType.startsWith("image/") || typeof url !== "string") return [];
+          return [
+            {
+              filename: typeof filename === "string" && filename ? filename : "image",
+              media_type: mediaType,
+              data_url: url,
+            },
+          ];
+        });
         const text = message.parts
           .map((part) => (part.type === "text" ? part.text : ""))
           .join("\n")
@@ -285,6 +320,7 @@ export function App() {
             text,
             known ? model : undefined,
             known ? thinkingLevel : undefined,
+            attachments,
           );
         } catch (failure) {
           control.current.error(failure);
@@ -314,9 +350,6 @@ export function App() {
     api<Catalog>("models")
       .then(setCatalog)
       .catch(() => setCatalog(null));
-    api<SlashCommand[]>("commands")
-      .then(setCommands)
-      .catch(() => setCommands([]));
     if (selected) void open(selected);
     return () => {
       ++generation.current;
@@ -336,6 +369,7 @@ export function App() {
   const pending = Object.values(state.pending);
   const session = sessions.find((s) => s.session_id === selected);
   const locked = !!selected && !owned && !!session?.active;
+  const shown = modelParts(catalog, state.model);
   useEffect(() => {
     document.title = pending.length
       ? "Needs your input · Symphony"
@@ -357,41 +391,53 @@ export function App() {
           onRefresh={refresh}
           onSelect={(id) => void open(id)}
         />
+        <ThreadPalette sessions={sessions} onOpen={(id) => void open(id)} />
         <SidebarInset>
           <ThemeProvider defaultTheme="dark">
             <div className="chat-root workspace" data-theme="dark">
               <header className="topbar">
                 <SidebarTrigger aria-label="Open session navigation" />
                 <div className="topbar-title">
-                  <span className="eyebrow" title={workspace?.path}>
-                    {workspace
-                      ? [workspace.name, workspace.branch]
-                          .filter(Boolean)
-                          .join(" · ")
-                      : "Symphony"}
+                  <span className="topbar-place" title={workspace?.path}>
+                    {workspace ? (
+                      <>
+                        <span>
+                          <Folder aria-hidden="true" />
+                          {workspace.name}
+                        </span>
+                        {workspace.branch && (
+                          <span>
+                            <GitBranch aria-hidden="true" />
+                            {workspace.branch}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      "symphony"
+                    )}
                   </span>
                   <span className="title" title={selected || undefined}>
                     {session?.first_message ||
                       (selected ? "Untitled session" : "New session")}
                   </span>
                 </div>
-                {selected && (
+                {/* A live, connected session shows its context gauge; other
+                    states keep a short mono status. */}
+                {selected && !(owned && connected) && (
                   <span
                     className="status-badge"
-                    data-status={
-                      owned ? (connected ? "live" : "waiting") : "history"
-                    }
+                    data-status={owned ? "waiting" : "history"}
                   >
-                    {owned
-                      ? connected
-                        ? "Connected"
-                        : "Reconnecting…"
-                      : locked
-                        ? "Read only"
-                        : "History"}
+                    {owned ? "reconnecting…" : locked ? "read only" : "history"}
                   </span>
                 )}
-                {state.model && <span className="model">{state.model}</span>}
+                <ContextMeter context={state.context} usage={state.usage} />
+                {state.model && (
+                  <span className="model" title={state.model}>
+                    {shown.provider && <ProviderLogo provider={shown.provider} />}
+                    {shown.name}
+                  </span>
+                )}
                 {owned && state.busy && (
                   <Button
                     variant="outline"
@@ -442,12 +488,7 @@ export function App() {
               >
                 <div className="chat-messages-inner">
                   {!state.rows.length && (
-                    <Welcome
-                      workspace={workspace}
-                      model={state.model || catalog?.default}
-                      resuming={!!selected}
-                      commands={commands}
-                    />
+                    <Welcome />
                   )}
                   {state.rows.map((row) => (
                     <MessageRow
@@ -513,7 +554,7 @@ export function App() {
                   <ChatComposer
                     showModelSelector={!!catalog}
                     collapsedVariant="circle"
-                    showAttachments={false}
+                    {...IMAGES_ONLY}
                     inputLabel="Coding task"
                     placeholder={
                       selected

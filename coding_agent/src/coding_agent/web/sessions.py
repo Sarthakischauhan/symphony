@@ -284,7 +284,10 @@ def registry(catalog: JsonObject) -> JsonObject:
                                    "models": entries[provider]}
         entry: JsonObject = {"id": model_id, "label": text(item, "label")}
         limit = item.get("context_limit")
-        if isinstance(limit, int) and limit:
+        if isinstance(limit, int) and limit > 0:
+            # contextWindow drives the picker's "128K context window" line; older
+            # chat-sdk builds show the description. A null limit gets neither.
+            entry["contextWindow"] = limit
             entry["description"] = f"{limit // 1000}k context"
         levels = strings(item, "reasoning_levels")
         if levels:
