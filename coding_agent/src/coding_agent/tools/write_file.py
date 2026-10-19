@@ -25,7 +25,10 @@ class WriteFileTool(WorkspaceTool):
     name = "write_file"
     description = (
         "Create or overwrite a UTF-8 text file while preserving content exactly, "
-        "including indentation and final newlines. Relative paths start at the working directory."
+        "including indentation and final newlines. Relative paths start at the working directory. "
+        "Prefer patch for changing existing files. Create a file only when the task needs it. "
+        "Never create docs (*.md, README) or notes unless asked, and never write into build, "
+        "dist, vendor, or node_modules dirs."
     )
     args_model = WriteFileArgs
 

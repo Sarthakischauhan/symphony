@@ -72,7 +72,13 @@ class BashTool(WorkspaceTool):
         "Non-zero exits are returned as text (prefixed with exit=N), not as a tool failure. "
         "Timeouts include captured output. Output is capped to the last bytes, so filter or limit "
         "noisy output in the command itself. "
-        "Child processes are killed as a group according to the configured limits."
+        "Child processes are killed as a group according to the configured limits. "
+        "Git: commit only when the user asks. Before committing, run git status and git diff "
+        "--staged, and stage files by name, never git add -A or git add . "
+        "Never commit binaries, archives (*.tgz, *.zip, *.whl), build output (dist/, build/, "
+        "hashed bundles), node_modules or vendored packages, screenshots or images, or secrets. "
+        "If one shows up untracked, leave it out and tell the user. Do not edit .gitignore "
+        "unless asked. Never amend, force-push, reset --hard, or pass --no-verify unless asked."
     )
     args_model = BashArgs
 

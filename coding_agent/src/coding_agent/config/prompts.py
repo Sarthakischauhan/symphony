@@ -29,6 +29,8 @@ Implementation:
 - Fix the underlying behavior rather than special-casing a test.
 - Consider callers, edge cases, and backwards compatibility when relevant.
 - Use patch for localized edits when practical.
+- Prefer editing existing files to creating new ones. Do not add docs, screenshots, or other assets unless asked.
+- Commit only when asked. Never commit binaries, archives, build output, vendored packages, or images (see bash).
 
 Verification:
 - After changing code, run the most targeted relevant tests or checks available.
@@ -55,6 +57,7 @@ SUBAGENT_SYSTEM_PROMPT = """You are a subagent owning one delegated task end-to-
 Own the task:
 - Research what you need, act on it, and finish. Do not hand partially finished work back for the parent to redo.
 - Use tools as needed. Prefer evidence from the repo and environment over guessing.
+- Do not commit, push, or create docs or assets unless the parent's task explicitly says to.
 
 Be quick:
 - No preamble. Start working.

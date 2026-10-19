@@ -5,3 +5,10 @@ secrets.json
 .env.*
 .DS_Store
 .symphony
+node_modules/
+dist/
+build/
+*.egg-info/
+*.tgz
+*.zip
+docs/pr-screenshots/
