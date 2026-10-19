@@ -1,4 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Folder, GitBranch, Plus, RefreshCw, Search, Star } from "lucide-react";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInput,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import logo from "./assets/symphony-logo.svg";
+import type { Workspace } from "./Welcome";
 
 export type Session = {
   session_id: string;
@@ -9,11 +28,9 @@ export type Session = {
   owned: boolean;
 };
 type Props = {
-  mobile?: boolean;
+  workspace?: Workspace | null;
   sessions: Session[];
   selected: string;
-  open: boolean;
-  onToggle: () => void;
   onSelect: (id: string) => void;
   onCreate: () => void;
   onRefresh: () => void;
@@ -66,295 +83,169 @@ export function sessionGroups(
   }
   return [...groups].filter(([, items]) => items.length);
 }
-function age(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "Saved session"
+function meta(session: Session) {
+  if (session.active)
+    return session.owned ? "Active in Web" : "Active in TUI · read only";
+  const date = new Date(session.updated_at);
+  const day = Number.isNaN(date.getTime())
+    ? "Saved"
     : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${day} · ${session.message_count} ${session.message_count === 1 ? "message" : "messages"}`;
 }
-export function Sidebar({
-  mobile = false,
+export function SessionSidebar({
+  workspace,
   sessions,
   selected,
-  open,
-  onToggle,
   onSelect,
   onCreate,
   onRefresh,
 }: Props) {
+  const { isMobile, setOpenMobile } = useSidebar();
   const [query, setQuery] = useState("");
   const [pins, setPins] = useState<string[]>(() =>
     stored("symphony-pinned-sessions", []),
   );
-  const [width, setWidth] = useState<number>(() =>
-    Math.max(240, Math.min(400, stored("symphony-sidebar-width", 288))),
-  );
-  const search = useRef<HTMLInputElement>(null);
-  const panel = useRef<HTMLElement>(null);
-  const groups = sessionGroups(sessions, pins, query);
   useEffect(() => {
     localStorage.setItem("symphony-pinned-sessions", JSON.stringify(pins));
   }, [pins]);
-  useEffect(() => {
-    localStorage.setItem("symphony-sidebar-width", JSON.stringify(width));
-  }, [width]);
-  useEffect(() => {
-    const keys = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        if (!open) onToggle();
-        requestAnimationFrame(() => search.current?.focus());
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-        event.preventDefault();
-        onToggle();
-      }
-      if (event.key === "Escape" && open && window.innerWidth <= 760)
-        onToggle();
-      // Keep keyboard focus inside the mobile navigation drawer.
-      if (event.key === "Tab" && open && window.innerWidth <= 760) {
-        const controls = panel.current?.querySelectorAll<HTMLElement>(
-          "button:not([disabled]), input",
-        );
-        if (!controls?.length) return;
-        const first = controls[0],
-          last = controls[controls.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", keys);
-    return () => document.removeEventListener("keydown", keys);
-  }, [open, onToggle]);
-  useEffect(() => {
-    if (open && window.innerWidth <= 760) {
-      const previous = document.activeElement as HTMLElement | null;
-      search.current?.focus();
-      return () => previous?.focus();
-    }
-  }, [open]);
+  const groups = sessionGroups(sessions, pins, query);
   const pin = (id: string) =>
     setPins((current) =>
       current.includes(id)
         ? current.filter((value) => value !== id)
         : [...current, id],
     );
+  const close = () => isMobile && setOpenMobile(false);
   return (
-    <>
-      {open && (
-        <button
-          className="sidebar-backdrop"
-          aria-label="Close session navigation"
-          onClick={onToggle}
-        />
-      )}
-      <aside
-        id="session-navigation"
-        role={mobile && open ? "dialog" : undefined}
-        aria-modal={mobile && open ? true : undefined}
-        ref={panel}
-        className={`sidebar ${open ? "is-open" : "is-collapsed"}`}
-        aria-label="Session navigation"
-        style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
-      >
-        <div className="sidebar-brand">
-          <span className="brand-mark" aria-hidden="true">
-            S
-          </span>
-          <div className="sidebar-label">
-            <strong>Symphony</strong>
-            <span>YOUR CODING WORKSPACE</span>
-          </div>
-          <button
-            className="icon-button collapse-button"
-            onClick={onToggle}
-            aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-            title="Toggle sidebar (⌘/Ctrl B)"
+    <Sidebar aria-label="Session navigation">
+      <SidebarHeader>
+        <div className="brand">
+          <img className="brand-logo" src={logo} alt="Symphony" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-auto size-7"
+            onClick={onRefresh}
+            aria-label="Refresh sessions"
+            title="Refresh sessions"
           >
-            {open ? "‹" : "›"}
-          </button>
+            <RefreshCw />
+          </Button>
         </div>
-        <div className="sidebar-actions">
-          <button
-            className="new-session"
-            onClick={onCreate}
-            title="New session"
-          >
-            <span aria-hidden="true">＋</span>
-            <span className="sidebar-label">New session</span>
-          </button>
-        </div>
-        <div className="sidebar-content">
-          <label className="session-search">
-            <span aria-hidden="true">⌕</span>
-            <input
-              ref={search}
-              aria-label="Search sessions"
-              placeholder="Search sessions…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <kbd>⌘ K</kbd>
-          </label>
-          <div className="session-list-heading">
-            <span>
-              SESSIONS <span className="session-total">{sessions.length}</span>
-            </span>
-            <button
-              className="icon-button"
-              onClick={onRefresh}
-              aria-label="Refresh sessions"
-              title="Refresh sessions"
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className="new-session"
+              onClick={() => {
+                onCreate();
+                close();
+              }}
             >
-              ↻
-            </button>
-          </div>
-          <nav
-            className="session-list"
-            aria-label="Sessions"
-            onKeyDown={(event) => {
-              if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
-                return;
-              const buttons = Array.from(
-                event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                  ".session-select",
-                ),
-              );
-              const index = buttons.indexOf(
-                document.activeElement as HTMLButtonElement,
-              );
-              if (index < 0) return;
-              event.preventDefault();
-              buttons[
-                event.key === "Home"
-                  ? 0
-                  : event.key === "End"
-                    ? buttons.length - 1
-                    : Math.max(
-                        0,
-                        Math.min(
-                          buttons.length - 1,
-                          index + (event.key === "ArrowDown" ? 1 : -1),
-                        ),
-                      )
-              ]?.focus();
-            }}
-          >
-            {!groups.length && (
-              <div className="sidebar-empty">
-                <span aria-hidden="true">◇</span>
-                <strong>
-                  {query
-                    ? "No matching sessions"
-                    : "Your next idea starts here"}
-                </strong>
-                <p>
-                  {query
-                    ? "Try another title or session ID."
-                    : "Create a session to work with your code."}
-                </p>
-                {query && (
-                  <button onClick={() => setQuery("")}>Clear search</button>
-                )}
-              </div>
+              <Plus />
+              <span>New session</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+        <label className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 opacity-50" />
+          <SidebarInput
+            className="pl-8"
+            aria-label="Search sessions"
+            placeholder="Search sessions"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+      </SidebarHeader>
+      <SidebarContent>
+        {!groups.length && (
+          <div className="sidebar-empty">
+            <strong>
+              {query ? "No matching sessions" : "No sessions yet"}
+            </strong>
+            <p>
+              {query
+                ? "Try another title or session ID."
+                : "Start a session to work with your code."}
+            </p>
+            {query && (
+              <button className="pill" onClick={() => setQuery("")}>
+                Clear search
+              </button>
             )}
-            {groups.map(([name, items]) => (
-              <section className="session-group" key={name} aria-label={name}>
-                <h2>{name}</h2>
-                {items.map((session) => (
-                  <div
-                    className={`session-item ${session.session_id === selected ? "is-selected" : ""}`}
-                    key={session.session_id}
-                  >
-                    <button
-                      className="session-select"
+          </div>
+        )}
+        {groups.map(([name, items]) => (
+          <SidebarGroup key={name} role="region" aria-label={name}>
+            <SidebarGroupLabel>{name}</SidebarGroupLabel>
+            <SidebarMenu>
+              {items.map((session) => {
+                const pinned = pins.includes(session.session_id);
+                const title = session.first_message || "Untitled session";
+                return (
+                  <SidebarMenuItem key={session.session_id}>
+                    <SidebarMenuButton
+                      size="lg"
+                      isActive={session.session_id === selected}
                       aria-current={
                         session.session_id === selected ? "page" : undefined
                       }
-                      onClick={() => onSelect(session.session_id)}
-                      title={session.first_message || session.session_id}
+                      title={title}
+                      onClick={() => {
+                        onSelect(session.session_id);
+                        close();
+                      }}
                     >
                       <span
-                        className={`session-status ${session.active ? (session.owned ? "status-web" : "status-locked") : ""}`}
+                        className="session-status"
+                        data-status={
+                          session.active
+                            ? session.owned
+                              ? "web"
+                              : "locked"
+                            : undefined
+                        }
                         aria-hidden="true"
-                      >
-                        {session.active && !session.owned ? "▣" : "◇"}
-                      </span>
+                      />
                       <span className="session-copy">
-                        <span className="session-title">
-                          {session.first_message || "Untitled session"}
-                        </span>
-                        <span className="session-meta">
-                          <span>
-                            {session.active
-                              ? session.owned
-                                ? "Active in Web"
-                                : "Active in TUI · read only"
-                              : age(session.updated_at)}
-                          </span>
-                          <span>· {session.message_count} messages</span>
-                        </span>
+                        <span className="session-title">{title}</span>
+                        <span className="session-meta">{meta(session)}</span>
                       </span>
-                    </button>
-                    <button
-                      className={`pin-session ${pins.includes(session.session_id) ? "is-pinned" : ""}`}
-                      aria-label={`${pins.includes(session.session_id) ? "Unpin" : "Pin"} ${session.first_message || "session"}`}
-                      aria-pressed={pins.includes(session.session_id)}
+                    </SidebarMenuButton>
+                    <SidebarMenuAction
+                      showOnHover={!pinned}
+                      data-pinned={pinned || undefined}
+                      aria-label={`${pinned ? "Unpin" : "Pin"} ${title}`}
+                      aria-pressed={pinned}
+                      title={pinned ? "Unpin session" : "Pin session"}
                       onClick={() => pin(session.session_id)}
-                      title="Pin session"
                     >
-                      {pins.includes(session.session_id) ? "★" : "☆"}
-                    </button>
-                  </div>
-                ))}
-              </section>
-            ))}
-          </nav>
-          <footer className="sidebar-footer">
-            <span className="local-indicator" />
-            <div>
-              <strong>Local workspace</strong>
-              <small>Runs on your machine</small>
-            </div>
-            <span className="footer-lock" aria-label="Localhost protected">
-              ▣
+                      <Star />
+                    </SidebarMenuAction>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroup>
+        ))}
+      </SidebarContent>
+      <SidebarFooter>
+        {workspace && (
+          <div className="sidebar-workspace" title={workspace.path}>
+            <span>
+              <Folder aria-hidden="true" />
+              {workspace.display}
             </span>
-          </footer>
-        </div>
-        <div
-          className="sidebar-resizer"
-          role="separator"
-          aria-label="Resize sidebar"
-          aria-orientation="vertical"
-          aria-valuemin={240}
-          aria-valuemax={400}
-          aria-valuenow={width}
-          tabIndex={open ? 0 : -1}
-          onKeyDown={(event) => {
-            if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
-              event.preventDefault();
-              setWidth((w) =>
-                Math.max(
-                  240,
-                  Math.min(400, w + (event.key === "ArrowRight" ? 16 : -16)),
-                ),
-              );
-            }
-          }}
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            if (event.currentTarget.hasPointerCapture(event.pointerId))
-              setWidth(Math.max(240, Math.min(400, event.clientX)));
-          }}
-        />
-      </aside>
-    </>
+            {workspace.branch && (
+              <span>
+                <GitBranch aria-hidden="true" />
+                {workspace.branch}
+              </span>
+            )}
+          </div>
+        )}
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
   );
 }

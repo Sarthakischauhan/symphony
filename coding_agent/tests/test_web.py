@@ -142,6 +142,40 @@ def test_real_worker_stream_history_refresh_and_recovery(web):
     wait(web.sessions.workers[sid], lambda w: any(e["data"].get("type") == "done" for e in w.events))
 
 
+def test_workspace_info_and_model_catalog(web):
+    status, info = request(web, "/api/info")
+    assert status == 200
+    assert info["path"] == str(web.sessions.workspace) and info["name"] == web.sessions.workspace.name
+    status, catalog = request(web, "/api/models")
+    assert status == 200, catalog
+    # The chat SDK registry shape, built by a worker from the local provider.
+    assert catalog["default"] == "local:web-test"
+    assert catalog["defaultProviderId"] == "local"
+    local = next(p for p in catalog["providers"] if p["id"] == "local")
+    assert local["defaultModel"] == "local:web-test"
+    assert any(m["id"] == "local:web-test" for m in local["models"])
+
+
+def test_model_switch_restarts_idle_worker_and_effort_is_validated(web):
+    status, data = request(web, data={"model": "local:web-test"})
+    assert status == 200, data
+    sid = data["session_id"]
+    worker = web.sessions.workers[sid]
+    assert request(web, f"/api/sessions/{sid}")[1]["model"] == "local:web-test"
+    # The same model keeps the worker; another model restarts it.
+    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:web-test"})[0] == 200
+    assert web.sessions.workers[sid] is worker
+    assert request(web, f"/api/sessions/{sid}/resume", {"model": 7})[0] == 400
+    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "hi", "reasoning_effort": "huge"})[0] == 400
+    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "slow hi", "reasoning_effort": "low"})[0] == 200
+    with worker.condition:
+        assert worker.busy
+    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:other"})[0] == 409
+    wait(worker, lambda w: any(e["data"].get("type") == "done" for e in w.events))
+    assert request(web, f"/api/sessions/{sid}/resume", {"model": "local:other"})[0] == 200
+    assert web.sessions.workers[sid] is not worker and worker.process.poll() is not None
+
+
 def test_approval_artifact_and_cancellation(web):
     (web.sessions.workspace / "web-result.txt").write_text("Original content\n")
     status, data = request(web, data={})
@@ -218,16 +252,16 @@ def test_browser_refresh_streaming_and_approval(web):
         page.on("pageerror", lambda error: failures.append(str(error)))
         page.goto(f"{web.origin}/#{web.token}")
         # SDK layout tokens must not stack the main panel below the sidebar.
-        sidebar_box = page.locator("aside").bounding_box()
+        sidebar_box = page.locator('[data-slot="sidebar-container"]').bounding_box()
         main_box = page.locator("main").bounding_box()
         assert sidebar_box and main_box
         assert main_box["y"] == sidebar_box["y"] == 0
         assert main_box["x"] >= sidebar_box["x"] + sidebar_box["width"] - 1
-        page.get_by_role("button", name="New session").click()
-        expect(page.get_by_text("Connected", exact=True)).to_be_visible()
         (web.sessions.workspace / "web-result.txt").write_text("Original content\n")
+        # The chat SDK composer starts a session with its first prompt.
         page.get_by_label("Coding task").fill("write a file")
-        page.get_by_role("button", name="Send", exact=True).click()
+        page.get_by_role("button", name="Send message", exact=True).click()
+        expect(page.get_by_text("Connected", exact=True)).to_be_visible()
         # Overwriting the pre-existing file must require human confirmation.
         # The HTTP test checks structured approval correlation; interact with
         # the real question here using its published accessible controls.
@@ -244,7 +278,7 @@ def test_browser_refresh_streaming_and_approval(web):
         expect(page.get_by_text("Web task completed", exact=True)).to_be_visible()
         expect(page.get_by_text("Connected", exact=True)).to_be_visible()
         page.get_by_label("Coding task").fill("second turn")
-        page.get_by_role("button", name="Send", exact=True).click()
+        page.get_by_role("button", name="Send message", exact=True).click()
         expect(page.get_by_text("Web task completed", exact=True)).to_have_count(2, timeout=15000)
         page.get_by_role("button", name="Refresh sessions", exact=True).click()
         search = page.get_by_label("Search sessions")
@@ -254,11 +288,12 @@ def test_browser_refresh_streaming_and_approval(web):
         page.get_by_role("button", name="Pin write a file", exact=True).click()
         expect(page.get_by_role("region", name="Pinned")).to_be_visible()
         page.set_viewport_size({"width": 390, "height": 844})
-        page.keyboard.press("Escape")
         menu = page.get_by_role("button", name="Open session navigation", exact=True)
         menu.click()
-        expect(search).to_be_focused()
+        drawer = page.get_by_role("dialog")
+        expect(drawer.get_by_label("Search sessions")).to_be_visible()
         page.keyboard.press("Escape")
+        expect(drawer).to_have_count(0)
         expect(menu).to_be_focused()
         assert not failures
         browser.close()

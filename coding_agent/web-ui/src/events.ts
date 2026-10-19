@@ -1,21 +1,46 @@
+// Translate Symphony stdio frames and journals into @sarchauhan/chat messages.
+// Backend-specific mappings stay outside the published, backend-neutral SDK.
 export type Row = { id: string; role: string; parts: any[] };
 export type State = {
   rows: Row[];
   pending: Record<string, any>;
   busy: boolean;
   error: string;
+  model: string;
 };
 export const initial = (): State => ({
   rows: [],
   pending: {},
   busy: false,
   error: "",
+  model: "",
 });
-// Backend-specific mappings stay outside the published, backend-neutral SDK.
+const settle = (row: Row | undefined) =>
+  row?.parts.forEach((part) => {
+    if (part.type === "reasoning" || part.type === "text") part.state = "done";
+  });
+const dataPart = (row: Row, name: string, id?: string) =>
+  row.parts.find((x) => x.type === "data" && x.name === name && x.id === id);
+// Upsert a usage/context data part; the SDK renders it below the message.
+function meter(row: Row, name: string, update: (data: any) => void) {
+  let part = dataPart(row, name);
+  if (!part) {
+    part = { type: "data", name, data: {} };
+    row.parts.push(part);
+  }
+  update(part.data);
+}
+const subagents = (rows: Row[]) =>
+  rows
+    .flatMap((r) => r.parts)
+    .filter((x) => x.type === "data" && x.name === "subagent");
+
 export function reduce(state: State, frame: any, id: number): State {
   const s = structuredClone(state),
     p = frame.payload || {};
+  if (frame.type === "ready" && frame.model) s.model = frame.model;
   if (frame.type === "user") {
+    settle(s.rows.at(-1));
     s.rows.push({
       id: `u-${id}`,
       role: "user",
@@ -26,24 +51,23 @@ export function reduce(state: State, frame: any, id: number): State {
   if (frame.type === "input_requested") s.pending[frame.request_id] = frame;
   if (frame.type === "answered") delete s.pending[frame.request_id];
   if (frame.type === "done") {
+    settle(s.rows.at(-1));
     s.busy = false;
     s.pending = {};
   }
   if (frame.type === "error") s.error = frame.message;
   if (frame.type !== "event") return s;
   if (p.parent_id) {
-    const card = s.rows
-      .flatMap((r) => r.parts)
-      .find((x) => x.type === "web-subagent" && x.subagent.id === p.agent_id);
+    const card = subagents(s.rows).find((x) => x.data.id === p.agent_id);
     if (card) {
       const payload = { ...p };
       delete payload.parent_id;
       const child = reduce(
-        { ...initial(), rows: card.subagent.messages || [] },
+        { ...initial(), rows: card.data.messages || [] },
         { ...frame, payload },
         id,
       );
-      card.subagent.messages = child.rows;
+      card.data.messages = child.rows;
     }
     return s;
   }
@@ -53,12 +77,39 @@ export function reduce(state: State, frame: any, id: number): State {
     row = { id: `a-${id}`, role: "assistant", parts: [] };
     s.rows.push(row);
   }
+  if (frame.event === "reasoning_delta" && p.delta) {
+    const last = row.parts.at(-1);
+    if (last?.type === "reasoning" && last.state === "streaming")
+      last.text += p.delta;
+    else
+      row.parts.push({ type: "reasoning", text: p.delta, state: "streaming" });
+  }
+  if (frame.event === "reasoning_completed") settle(row);
   if (frame.event === "text_delta") {
     const last = row.parts.at(-1);
     if (last?.type === "text") last.text += p.delta;
-    else row.parts.push({ type: "text", text: p.delta });
+    else {
+      settle(row);
+      row.parts.push({ type: "text", text: p.delta, state: "streaming" });
+    }
   }
+  if (frame.event === "usage")
+    meter(row, "usage", (data) => {
+      data.input_tokens = (data.input_tokens || 0) + (p.prompt_tokens || 0);
+      data.output_tokens =
+        (data.output_tokens || 0) + (p.completion_tokens || 0);
+      if (p.reasoning_tokens)
+        data.reasoning_tokens =
+          (data.reasoning_tokens || 0) + p.reasoning_tokens;
+      data.total_tokens = p.cumulative_tokens;
+    });
+  if (frame.event === "context" && p.context_limit)
+    meter(row, "context", (data) => {
+      data.current_tokens = p.tokens_used || 0;
+      data.context_window = p.context_limit;
+    });
   if (frame.event?.startsWith("tool_execution_")) {
+    settle(row);
     let tool = row.parts.find(
       (x) => x.type === "tool" && x.toolCallId === p.tool_call_id,
     );
@@ -89,13 +140,13 @@ export function reduce(state: State, frame: any, id: number): State {
           : "output-available",
     });
   }
+  // A written file renders as the SDK artifact card through its tool output.
   if (frame.event === "tool_execution_completed" && p.status === "success") {
     const tool = row.parts.find(
       (x) => x.type === "tool" && x.toolCallId === p.tool_call_id,
     );
     if (tool?.toolName === "write_file")
-      row.parts.push({
-        type: "web-artifact",
+      tool.output = {
         artifact: {
           id: p.tool_call_id,
           filename: tool.input.path,
@@ -103,32 +154,32 @@ export function reduce(state: State, frame: any, id: number): State {
           status: "ready",
           content: tool.input.content,
         },
-      });
+      };
   }
   if (
     ["agent_spawned", "agent_completed", "agent_failed"].includes(frame.event)
   ) {
     const key = String(p.child_id);
-    let card = s.rows
-      .flatMap((r) => r.parts)
-      .find((x) => x.type === "web-subagent" && x.subagent.id === key);
+    let card = subagents(s.rows).find((x) => x.data.id === key);
     if (!card) {
       card = {
-        type: "web-subagent",
-        subagent: { id: key, title: p.label || "Subagent" },
+        type: "data",
+        name: "subagent",
+        id: key,
+        data: { id: key, title: p.label || "Subagent" },
       };
       row.parts.push(card);
     }
-    Object.assign(card.subagent, {
-      task: p.prompt || card.subagent.task,
+    Object.assign(card.data, {
+      task: p.prompt || card.data.task,
       state:
         frame.event === "agent_spawned"
           ? "running"
           : frame.event === "agent_completed"
             ? "completed"
             : "failed",
-      messages: card.subagent.messages?.length
-        ? card.subagent.messages
+      messages: card.data.messages?.length
+        ? card.data.messages
         : p.output_text
           ? [
               {
@@ -193,10 +244,27 @@ export function historical(data: any): State {
   return s;
 }
 
+// Symphony's search tool answers "N content matches" then "path:line:text"
+// lines (or bare paths in files mode); the SDK search view wants results.
+function searchResults(value: string) {
+  const [summary, ...lines] = value.split("\n");
+  if (!/^\d+ (content|files) matches/.test(summary)) return value;
+  return {
+    total: Number.parseInt(summary, 10),
+    results: lines.filter(Boolean).map((line) => {
+      const match = /^(.+?):(\d+):(.*)$/.exec(line);
+      return match
+        ? { path: match[1], line: Number(match[2]), text: match[3] }
+        : { path: line };
+    }),
+  };
+}
 // The SDK treats a plain patch result string as a candidate unified diff.
 // Symphony returns a status sentence; retain it as metadata so before/after
 // inputs can supply the actual diff instead of falling back to a generic tool.
 function widgetOutput(tool: any, value: any) {
+  if (tool.toolName === "search" && typeof value === "string")
+    return searchResults(value);
   if (
     tool.toolName === "patch" &&
     typeof value === "string" &&

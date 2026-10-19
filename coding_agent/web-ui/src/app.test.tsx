@@ -45,14 +45,16 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
     }),
   );
   render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: "New session" }));
+  // The SDK composer starts the session on the first prompt.
+  const input = await screen.findByLabelText("Coding task");
+  fireEvent.change(input, { target: { value: "Build a report" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
   await screen.findByText("Connected");
-  fireEvent.change(screen.getByLabelText("Coding task"), {
-    target: { value: "Build a report" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() =>
     expect(calls.some(([url]) => url.endsWith("/prompt"))).toBe(true),
+  );
+  expect(calls.findIndex(([url]) => url === "/api/sessions")).toBeLessThan(
+    calls.findIndex(([url]) => url.endsWith("/prompt")),
   );
   const frames = [
     { type: "user", text: "Build a report" },
@@ -91,6 +93,15 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
       event: "tool_execution_completed",
       payload: { tool_call_id: "w", status: "success" },
     },
+    {
+      type: "event",
+      event: "usage",
+      payload: {
+        prompt_tokens: 1200,
+        completion_tokens: 80,
+        cumulative_tokens: 1280,
+      },
+    },
   ];
   await act(async () => {
     frames.forEach((frame, i) =>
@@ -104,6 +115,11 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
   expect(screen.getByText("Allow writing?")).toBeTruthy();
   expect(screen.getByText("Research")).toBeTruthy();
   expect(screen.getAllByText("report.md").length).toBeGreaterThan(0);
+  expect(
+    screen.getByLabelText("Context and token usage").textContent,
+  ).toContain("total 1,280");
+  // While the run is live the SDK send button becomes the stop control.
+  expect(screen.getByRole("button", { name: "Stop response" })).toBeTruthy();
   fireEvent.click(screen.getByText("Allow once"));
   const confirm = screen.getByRole("button", {
     name: /confirm|submit|send answer/i,
@@ -122,4 +138,11 @@ it("loads history, streams a task, renders SDK tool/approval/artifact/subagent w
     source.onmessage({ lastEventId: "2", data: JSON.stringify(frames[1]) }),
   );
   expect(screen.getAllByText("Working on it")).toHaveLength(1);
+  await act(async () =>
+    source.onmessage({
+      lastEventId: String(frames.length + 1),
+      data: JSON.stringify({ type: "done", status: "completed" }),
+    }),
+  );
+  await screen.findByRole("button", { name: "Send message" });
 });

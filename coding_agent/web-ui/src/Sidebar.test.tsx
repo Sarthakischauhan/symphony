@@ -7,7 +7,9 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import { Sidebar, sessionGroups, type Session } from "./Sidebar";
+import { SessionSidebar, sessionGroups, type Session } from "./Sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 const sessions: Session[] = [
   {
     session_id: "a",
@@ -38,6 +40,21 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+const mount = (props: Partial<Parameters<typeof SessionSidebar>[0]> = {}) =>
+  render(
+    <TooltipProvider>
+      <SidebarProvider>
+        <SessionSidebar
+          sessions={sessions}
+          selected="a"
+          onSelect={vi.fn()}
+          onCreate={vi.fn()}
+          onRefresh={vi.fn()}
+          {...props}
+        />
+      </SidebarProvider>
+    </TooltipProvider>,
+  );
 it("groups pinned, active, recent and old sessions and searches IDs", () => {
   const groups = sessionGroups(
     sessions,
@@ -49,25 +66,14 @@ it("groups pinned, active, recent and old sessions and searches IDs", () => {
   expect(sessionGroups(sessions, [], "SECURITY")[0][1][0].session_id).toBe("b");
   expect(sessionGroups(sessions, [], "a")[0][1][0].session_id).toBe("a");
 });
-it("searches, pins persistently, indicates ownership and navigates with keyboard", () => {
-  const select = vi.fn();
-  render(
-    <Sidebar
-      sessions={sessions}
-      selected="a"
-      open
-      onToggle={vi.fn()}
-      onSelect={select}
-      onCreate={vi.fn()}
-      onRefresh={vi.fn()}
-    />,
-  );
+it("searches, pins persistently, indicates ownership and selects", () => {
+  const select = vi.fn(),
+    create = vi.fn(),
+    refresh = vi.fn();
+  mount({ onSelect: select, onCreate: create, onRefresh: refresh });
   expect(screen.getByText("Active in TUI · read only")).toBeTruthy();
   const first = screen.getByRole("button", { name: /^Add streaming retries/ });
   expect(first.getAttribute("aria-current")).toBe("page");
-  first.focus();
-  fireEvent.keyDown(first, { key: "ArrowDown" });
-  expect(document.activeElement).not.toBe(first);
   fireEvent.click(
     screen.getByRole("button", { name: "Pin Fix tool rendering" }),
   );
@@ -88,33 +94,16 @@ it("searches, pins persistently, indicates ownership and navigates with keyboard
     screen.getByRole("button", { name: /^Add streaming retries/ }),
   );
   expect(select).toHaveBeenCalledWith("a");
-  const splitter = screen.getByRole("separator", { name: "Resize sidebar" });
-  fireEvent.keyDown(splitter, { key: "ArrowRight" });
-  expect(splitter.getAttribute("aria-valuenow")).toBe("304");
+  fireEvent.click(screen.getByRole("button", { name: "New session" }));
+  expect(create).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+  expect(refresh).toHaveBeenCalled();
 });
-it("offers collapse and search shortcuts and mobile escape", () => {
-  const toggle = vi.fn();
-  render(
-    <Sidebar
-      sessions={sessions}
-      selected=""
-      open
-      onToggle={toggle}
-      onSelect={vi.fn()}
-      onCreate={vi.fn()}
-      onRefresh={vi.fn()}
-    />,
-  );
-  fireEvent.keyDown(document, { key: "b", ctrlKey: true });
-  expect(toggle).toHaveBeenCalledTimes(1);
-  Object.defineProperty(window, "innerWidth", {
-    value: 390,
-    configurable: true,
-  });
-  fireEvent.keyDown(document, { key: "Escape" });
-  expect(toggle).toHaveBeenCalledTimes(2);
-  Object.defineProperty(window, "innerWidth", {
-    value: 1024,
-    configurable: true,
-  });
+it("collapses with the shadcn keyboard shortcut", () => {
+  const { container } = mount();
+  const state = () =>
+    container.querySelector("[data-state]")?.getAttribute("data-state");
+  expect(state()).toBe("expanded");
+  fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+  expect(state()).toBe("collapsed");
 });

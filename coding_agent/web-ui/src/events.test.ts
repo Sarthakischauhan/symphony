@@ -83,7 +83,7 @@ describe("Symphony event adapter", () => {
       },
       4,
     );
-    expect(s.rows[0].parts.at(-1).artifact.content).toBe("# Done");
+    expect(s.rows[0].parts.at(-1).output.artifact.content).toBe("# Done");
   });
   it("routes child text into subagent views", () => {
     let s = reduce(
@@ -108,7 +108,7 @@ describe("Symphony event adapter", () => {
       },
       2,
     );
-    expect(s.rows[0].parts[0].subagent.messages[0].parts[0].text).toBe(
+    expect(s.rows[0].parts[0].data.messages[0].parts[0].text).toBe(
       "Child reply",
     );
     expect(s.rows[0].parts.some((p) => p.type === "text")).toBe(false);
@@ -162,4 +162,68 @@ it("preserves computed patch widgets after a Symphony status-string result", asy
   const widget = computeToolWidget(state.rows[0].parts[0]);
   expect(widget?.name).toBe("patch");
   expect(widget?.props.diff).toContain("+const cursor = lastEventId;");
+});
+
+describe("SDK message shape", () => {
+  it("streams reasoning, settles it, and meters usage and context", () => {
+    const frames = [
+      { type: "user", text: "Plan it" },
+      {
+        type: "event",
+        event: "reasoning_delta",
+        payload: { delta: "Consider" },
+      },
+      {
+        type: "event",
+        event: "reasoning_delta",
+        payload: { delta: " options" },
+      },
+      { type: "event", event: "text_delta", payload: { delta: "Done." } },
+      {
+        type: "event",
+        event: "usage",
+        payload: {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          cumulative_tokens: 110,
+        },
+      },
+      {
+        type: "event",
+        event: "usage",
+        payload: {
+          prompt_tokens: 200,
+          completion_tokens: 20,
+          cumulative_tokens: 330,
+        },
+      },
+      {
+        type: "event",
+        event: "context",
+        payload: { tokens_used: 200, context_limit: 1000 },
+      },
+      { type: "done", status: "completed" },
+    ];
+    const s = frames.reduce(
+      (state, frame, i) => reduce(state, frame, i + 1),
+      initial(),
+    );
+    const parts = s.rows[1].parts;
+    expect(parts[0]).toEqual({
+      type: "reasoning",
+      text: "Consider options",
+      state: "done",
+    });
+    expect(parts[1]).toEqual({ type: "text", text: "Done.", state: "done" });
+    expect(parts.find((p: any) => p.name === "usage").data).toEqual({
+      input_tokens: 300,
+      output_tokens: 30,
+      total_tokens: 330,
+    });
+    expect(parts.find((p: any) => p.name === "context").data).toEqual({
+      current_tokens: 200,
+      context_window: 1000,
+    });
+    expect(s.busy).toBe(false);
+  });
 });

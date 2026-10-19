@@ -7,8 +7,10 @@ import sys
 import threading
 import uuid
 from dataclasses import asdict
+from pathlib import Path
 
 from coding_agent.addons.persistence import JsonlPersistence, active_session_ids, sessions_dir
+from coding_agent.commands.catalog import EFFORTS
 
 
 class Worker:
@@ -20,6 +22,7 @@ class Worker:
         self.artifacts = {}
         self.tool_inputs = {}
         self.workspace = workspace
+        self.model = model or ""
         self.process = subprocess.Popen(
             [sys.executable, "-m", "coding_agent.web.worker", str(workspace), session_id, model or ""],
             stdin=subprocess.PIPE,
@@ -50,6 +53,8 @@ class Worker:
         with self.condition:
             self.events.append({"id": len(self.events) + 1, "data": data})
             payload = data.get("payload", {})
+            if data.get("type") == "ready" and data.get("model"):
+                self.model = data["model"]
             if data.get("event") == "tool_execution_started":
                 self.tool_inputs[payload.get("tool_call_id")] = payload
             if data.get("event") == "tool_execution_completed" and payload.get("status") == "success":
@@ -96,6 +101,33 @@ class Sessions:
         self.persistence = JsonlPersistence(sessions_dir(workspace, client="tui"))
         self.workers = {}
         self.lock = threading.RLock()
+        self.catalog = None
+
+    def info(self):
+        try:
+            branch = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=self.workspace,
+                capture_output=True, text=True, timeout=2, check=False,
+            ).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            branch = ""
+        home = Path.home()
+        display = f"~/{self.workspace.relative_to(home)}" if self.workspace.is_relative_to(home) else str(self.workspace)
+        return {"path": str(self.workspace), "display": display, "name": self.workspace.name, "branch": branch}
+
+    def models(self):
+        """The provider catalog in the chat SDK registry shape, built once by a worker."""
+        with self.lock:
+            if self.catalog is None:
+                result = subprocess.run(
+                    [sys.executable, "-m", "coding_agent.web.worker", "--models", str(self.workspace), self.model or ""],
+                    capture_output=True, text=True, timeout=60, check=False,
+                )
+                lines = result.stdout.strip().splitlines()
+                if result.returncode or not lines:
+                    raise RuntimeError("Could not load models; check provider configuration")
+                self.catalog = registry(json.loads(lines[-1]))
+            return self.catalog
 
     def listing(self):
         active = active_session_ids()
@@ -113,16 +145,22 @@ class Sessions:
             "children": asyncio.run(self.persistence.load_children(parent_session_id=session_id)),
         }
 
-    def resume(self, session_id=None):
+    def resume(self, session_id=None, model=None):
         with self.lock:
             session_id = session_id or str(uuid.uuid4())
             worker = self.workers.get(session_id)
             if worker and worker.process.poll() is None:
-                return session_id
+                if not model or model == worker.model:
+                    return session_id
+                # A model switch restarts the worker on the persisted session.
+                with worker.condition:
+                    if worker.busy:
+                        raise RuntimeError("Stop the running task before switching models")
+                worker.close()
             if session_id in active_session_ids():
                 raise RuntimeError("Session is owned by another live Symphony process")
             baseline = self.history(session_id)
-            worker = Worker(self.workspace, session_id, self.model)
+            worker = Worker(self.workspace, session_id, model or self.model)
             worker.baseline = baseline
             self.workers[session_id] = worker
             return session_id
@@ -130,3 +168,28 @@ class Sessions:
     def close(self):
         for worker in self.workers.values():
             worker.close()
+
+
+def registry(catalog):
+    """Group the stdio model catalog by provider for the chat SDK model picker."""
+    providers = {}
+    for item in catalog.get("models", []):
+        entry = providers.setdefault(
+            item["provider"], {"id": item["provider"], "label": item["provider"], "defaultModel": item["id"], "models": []}
+        )
+        levels = [level for level in item.get("reasoning_levels") or [] if level in EFFORTS]
+        model = {"id": item["id"], "label": item["label"]}
+        if item.get("context_limit"):
+            model["description"] = f"{item['context_limit'] // 1000}k context"
+        if levels:
+            model["thinkingLevels"] = levels
+        entry["models"].append(model)
+    default = catalog.get("default", "")
+    provider = default.partition(":")[0]
+    if provider in providers:
+        providers[provider]["defaultModel"] = default
+    return {
+        "defaultProviderId": provider if provider in providers else next(iter(providers), ""),
+        "providers": list(providers.values()),
+        "default": default,
+    }

@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from coding_agent.commands.catalog import EFFORTS
 from coding_agent.web.sessions import Sessions
 
 STATIC = Path(__file__).with_name("static")
@@ -78,6 +79,10 @@ class Handler(BaseHTTPRequestHandler):
             parts = path.strip("/").split("/")
             if path == "/api/sessions":
                 return self._json(self.server.sessions.listing())
+            if path == "/api/info":
+                return self._json(self.server.sessions.info())
+            if path == "/api/models":
+                return self._json(self.server.sessions.models())
             if len(parts) >= 3 and parts[:2] == ["api", "sessions"]:
                 session_id = str(uuid.UUID(parts[2]))
                 worker = self.server.sessions.workers.get(session_id)
@@ -118,13 +123,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "Not found"}, 404)
                 alive = worker is not None and worker.process.poll() is None
                 history = worker.baseline if alive else self.server.sessions.history(session_id)
-                return self._json({**history, "owned": alive})
+                return self._json({**history, "owned": alive, "model": worker.model if alive else ""})
             if path.startswith("/api/"):
                 return self._json({"error": "Not found"}, 404)
             asset = (STATIC / ("index.html" if path == "/" else path.lstrip("/"))).resolve()
             if not asset.is_relative_to(STATIC.resolve()) or not asset.is_file():
                 return self._json({"error": "Not found"}, 404)
-            types = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2"}
+            types = {
+                ".html": "text/html",
+                ".js": "text/javascript",
+                ".css": "text/css",
+                ".svg": "image/svg+xml",
+                ".woff2": "font/woff2",
+            }
             body = asset.read_bytes()
             self._headers(200, types.get(asset.suffix, "application/octet-stream"), len(body))
             self.wfile.write(body)
@@ -149,8 +160,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Expected JSON object")
             parts = urlsplit(self.path).path.strip("/").split("/")
             sessions = self.server.sessions
+            model = data.get("model")
+            if model is not None and (not isinstance(model, str) or not 0 < len(model) <= 200):
+                raise ValueError("Invalid model")
             if parts == ["api", "sessions"]:
-                return self._json({"session_id": sessions.resume()})
+                return self._json({"session_id": sessions.resume(model=model)})
             if len(parts) != 4 or parts[:2] != ["api", "sessions"]:
                 return self._json({"error": "Not found"}, 404)
             session_id = str(uuid.UUID(parts[2]))
@@ -158,13 +172,19 @@ class Handler(BaseHTTPRequestHandler):
                 known = {item["session_id"] for item in sessions.listing()} | sessions.workers.keys()
                 if session_id not in known:
                     raise ValueError("Unknown session")
-                return self._json({"session_id": sessions.resume(session_id)})
+                return self._json({"session_id": sessions.resume(session_id, model)})
             worker = sessions.workers.get(session_id)
             if worker is None:
                 raise RuntimeError("Resume session first")
             if parts[3] == "prompt":
                 if not isinstance(data.get("prompt"), str) or not data["prompt"].strip():
                     raise ValueError("A prompt is required")
+                command = {"type": "run", "prompt": data["prompt"]}
+                effort = data.get("reasoning_effort")
+                if effort is not None:
+                    if effort not in EFFORTS:
+                        raise ValueError("Unsupported reasoning effort")
+                    command["reasoning_effort"] = effort
                 # The worker protocol rejects overlapping turns. Serialize the
                 # command and busy check here so two tabs cannot race.
                 with worker.condition:
@@ -172,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise RuntimeError("Session is already running")
                     worker.busy = True
                     try:
-                        worker.command({"type": "run", "prompt": data["prompt"]})
+                        worker.command(command)
                     except Exception:
                         worker.busy = False
                         raise
