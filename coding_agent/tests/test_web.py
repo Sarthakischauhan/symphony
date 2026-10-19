@@ -101,6 +101,19 @@ def wait(worker, predicate):
         assert worker.condition.wait_for(lambda: predicate(worker), timeout=15), worker.events
 
 
+def test_client_disconnects_are_not_logged(web, capsys):
+    import socket
+    import struct
+
+    conn = socket.create_connection(("127.0.0.1", web.server_port))
+    conn.sendall(b"GET /api/sessions HTTP/1.1\r\n")
+    # SO_LINGER 0 makes close() send RST, like a browser dropping a socket.
+    conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    conn.close()
+    time.sleep(0.3)
+    assert "Traceback" not in capsys.readouterr().err
+
+
 def test_security_policy(web):
     assert request(web)[0] == 200
     for headers in [

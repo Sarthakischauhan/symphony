@@ -3,6 +3,7 @@
 import argparse
 import json
 import secrets
+import sys
 import threading
 import uuid
 import webbrowser
@@ -24,6 +25,13 @@ class Server(ThreadingHTTPServer):
         self.token = secrets.token_urlsafe(32)
         super().__init__(address, Handler)
         self.origin = f"http://127.0.0.1:{self.server_port}"
+
+    def handle_error(self, request, client_address):
+        # Browsers drop idle keep-alive connections (reloads, closed streams);
+        # http.server reads the next request line outside the handler's try.
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
 
     def server_close(self):
         self.sessions.close()
