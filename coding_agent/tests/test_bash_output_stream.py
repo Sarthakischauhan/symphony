@@ -6,6 +6,8 @@ import asyncio
 import time
 from pathlib import Path
 
+import pytest
+
 from core_harness import EventSink
 from core_harness.tools import current_tool_call_id
 
@@ -30,6 +32,7 @@ def _deltas(sink: EventSink) -> list[str]:
     return [event.payload["delta"] for event in sink.events if event.event_type == OUTPUT_EVENT]
 
 
+@pytest.mark.slow
 def test_multi_line_output_streams_in_order_and_result_is_unchanged(tmp_path: Path) -> None:
     tool = BashTool(tmp_path)
     sink = EventSink()
@@ -62,6 +65,7 @@ def test_nothing_is_emitted_without_a_sink_or_tool_call(tmp_path: Path) -> None:
     assert sink.events == []
 
 
+@pytest.mark.slow
 def test_timeout_streams_output_before_the_kill(tmp_path: Path) -> None:
     tool = BashTool(tmp_path)
     sink = EventSink()

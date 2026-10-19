@@ -375,7 +375,10 @@ def test_summary_speaks_without_a_mic_and_plays_on_response_done(monkeypatch):
                 self._step = 2
                 # No audio.done. Playback has to happen on this event alone.
                 return '{"type": "response.done"}'
-            await self.closed.wait()
+            # ``closed`` is a threading.Event: a blocking wait() here would
+            # freeze the socket loop, so close() could never stop the thread.
+            while not self.closed.is_set():
+                await asyncio.sleep(0.01)
             raise StopAsyncIteration
 
     sockets = []
@@ -405,6 +408,7 @@ def test_summary_speaks_without_a_mic_and_plays_on_response_done(monkeypatch):
     # The socket closing after response.done must not be what stops the sound.
     # close() is the user's cancel, and that one does stop playback.
     voice.close(timeout=2)
+    assert not _voice_threads()
 
 
 def test_transcript_delta_is_published_as_it_arrives(monkeypatch, fake_portaudio):

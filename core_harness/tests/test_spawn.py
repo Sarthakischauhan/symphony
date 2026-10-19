@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 from core_ai.types import Message, StreamEvent
 from core_harness import (
     ChildConfig,
@@ -552,60 +554,33 @@ def test_spawn_none_spawn_max_turns_leaves_child_uncapped() -> None:
     assert turns == [None]
 
 
-def test_spawn_honors_call_max_turns_when_no_cap() -> None:
+@pytest.mark.parametrize(
+    ("spawn_max_turns", "call_max_turns"),
+    [pytest.param(None, 3, id="no-cap"), pytest.param(10, 99, id="call-beats-cap")],
+)
+def test_spawn_call_max_turns_wins(
+    monkeypatch: pytest.MonkeyPatch, spawn_max_turns: int | None, call_max_turns: int
+) -> None:
     registry = ScriptedRegistry([_text_turn("ok")])
     harness = CoreHarness(
         registry=registry,  # type: ignore[arg-type]
         model_id="fake:test-model",
         system_prompt="parent",
-        config=HarnessConfig(spawn_max_turns=None),
+        config=HarnessConfig(spawn_max_turns=spawn_max_turns),
         agent_id="parent-agent",
         addons=[SubagentAddon()],
     )
     turns: list[int | None] = []
     orig_init = CoreHarness.__init__
 
-    def spy(self, *args: Any, **kwargs: Any) -> None:
+    def spy(self: CoreHarness, *args: Any, **kwargs: Any) -> None:
         orig_init(self, *args, **kwargs)
         turns.append(self.max_turns)
 
-    CoreHarness.__init__ = spy  # type: ignore[method-assign]
-    try:
-        result = asyncio.run(
-            harness.spawn("go", child_config=ChildConfig(max_turns=3))
-        )
-    finally:
-        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
+    monkeypatch.setattr(CoreHarness, "__init__", spy)
+    result = asyncio.run(harness.spawn("go", child_config=ChildConfig(max_turns=call_max_turns)))
     assert result.output_text == "ok"
-    assert turns == [3]
-
-
-def test_spawn_call_max_turns_beats_spawn_max_turns() -> None:
-    registry = ScriptedRegistry([_text_turn("ok")])
-    harness = CoreHarness(
-        registry=registry,  # type: ignore[arg-type]
-        model_id="fake:test-model",
-        system_prompt="parent",
-        config=HarnessConfig(spawn_max_turns=10),
-        agent_id="parent-agent",
-        addons=[SubagentAddon()],
-    )
-    turns: list[int | None] = []
-    orig_init = CoreHarness.__init__
-
-    def spy(self, *args: Any, **kwargs: Any) -> None:
-        orig_init(self, *args, **kwargs)
-        turns.append(self.max_turns)
-
-    CoreHarness.__init__ = spy  # type: ignore[method-assign]
-    try:
-        result = asyncio.run(
-            harness.spawn("go", child_config=ChildConfig(max_turns=99))
-        )
-    finally:
-        CoreHarness.__init__ = orig_init  # type: ignore[method-assign]
-    assert result.output_text == "ok"
-    assert turns == [99]
+    assert turns == [call_max_turns]
 
 
 def test_parallel_children_get_distinct_compaction_addons() -> None:

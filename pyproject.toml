@@ -12,7 +12,16 @@ workspace = { members = ["coding_agent", "core_harness", "core_ai", "core_server
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.15.0",
+]
+
+[tool.pytest.ini_options]
+# Root config so every package's tests share /conftest.py (hermetic HOME,
+# SYMPHONY_HOME, and provider env) whether run from here or a package dir.
+markers = [
+    "slow: over ~1s of wall time; CI runs it, the pre-commit hook skips it",
+    "browser: drives a real Chromium through Playwright; skipped when none is installed, run by the CI web job",
 ]
 
 [tool.ruff]

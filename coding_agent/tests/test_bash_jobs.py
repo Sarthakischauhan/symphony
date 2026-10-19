@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from core_ai.content import text_from_content
 from core_harness import EventSink
 
@@ -20,6 +22,7 @@ def _fake_harness() -> SimpleNamespace:
     return SimpleNamespace(agent_id="parent", session_id="s1", child_tasks={}, _child_results=[])
 
 
+@pytest.mark.slow
 def test_background_job_outlives_foreground_cap_and_wakes_the_loop_once(tmp_path: Path) -> None:
     command = "sleep 2; echo job-finished"
     registry = ScriptedRegistry({"build it": [[("bash", {"command": command, "background": True})]]})
@@ -102,6 +105,7 @@ def test_cancelling_the_watcher_kills_the_process_group(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+@pytest.mark.slow
 def test_background_timeout_uses_max_background_seconds(tmp_path: Path) -> None:
     jobs = BashJobs(tmp_path / "jobs", max_seconds=1)
     harness = _fake_harness()

@@ -17,39 +17,6 @@ from core_ai.providers.openrouter import (
 )
 from core_ai.types import Message, StreamEvent
 
-PROVIDER_ENV = (
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "XAI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "OPENROUTER_BASE_URL",
-    "OPENROUTER_MODEL",
-    "OPENROUTER_HTTP_REFERER",
-    "OPENROUTER_TITLE",
-    "AI_GATEWAY_API_KEY",
-    "VERCEL_AI_GATEWAY_API_KEY",
-    "AI_GATEWAY_BASE_URL",
-    "VERCEL_MODEL",
-    "AI_GATEWAY_MODEL",
-    "SYMPHONY_MODEL",
-    "OLLAMA_API_KEY",
-    "OLLAMA_BASE_URL",
-    "OLLAMA_HOST",
-    "OLLAMA_ENABLED",
-    "OLLAMA_MODEL",
-    "LOCAL_API_KEY",
-    "LOCAL_BASE_URL",
-    "LOCAL_MODEL",
-)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in PROVIDER_ENV:
-        monkeypatch.delenv(name, raising=False)
-
 
 def test_openrouter_chat_base_url_normalizes() -> None:
     assert openrouter_chat_base_url("") == OPENROUTER_DEFAULT_BASE_URL

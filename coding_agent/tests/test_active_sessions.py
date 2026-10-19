@@ -61,6 +61,8 @@ def test_tui_sessions_move_out_of_the_shared_directory(tmp_path, monkeypatch) ->
     home = tmp_path / "home"
     shared = home / ".symphony" / "sessions"
     monkeypatch.setattr(Path, "home", lambda: home)
+    # This covers the ~/.symphony fallback, so drop the hermetic SYMPHONY_HOME.
+    monkeypatch.delenv("SYMPHONY_HOME")
     from coding_agent.addons.persistence.jsonl import sessions_dir
 
     tagged = shared / "tui-chat"

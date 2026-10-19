@@ -353,6 +353,7 @@ def test_workspace_tools_strip_flattened_activity_aliases(tmp_path: Path) -> Non
     assert "no content matches" in result or "matches" in result
 
 
+@pytest.mark.slow
 def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
     tool = BashTool(tmp_path).as_harness_tool()
 
