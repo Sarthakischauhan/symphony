@@ -551,8 +551,8 @@ export function historical(data: SessionHistory): State {
 
 // Shape a successful result for the SDK widget. Search renders the
 // protocol's search_results (else the plain text); patch keeps its status
-// sentence as `message` so the before/after inputs supply the diff; ask_user
-// passes the answer explicitly.
+// sentence as `message` so the before/after inputs supply the diff; read_file
+// passes its text as `content`; ask_user passes the answer explicitly.
 function widgetOutput(
   tool: AgentToolPart,
   value: unknown,
@@ -562,6 +562,8 @@ function widgetOutput(
     return { results: hits, total: hits.length };
   if (tool.toolName === "patch" && typeof value === "string")
     return { message: value };
+  if (tool.toolName === "read_file" && typeof value === "string")
+    return { content: value };
   if (tool.toolName === "ask_user" && typeof value === "string")
     return { answer: value };
   return value;

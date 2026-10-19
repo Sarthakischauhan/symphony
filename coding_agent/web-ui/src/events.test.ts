@@ -611,3 +611,43 @@ describe("only the protocol's own fields", () => {
     expect(computeToolWidget(asked)?.props.answer).toBe("Yes");
   });
 });
+
+describe("read_file results", () => {
+  const text = "     1|export const a = 1;\n     2|export const b = 2;\n";
+  it("pass the protocol result as the read-file widget's content, live and from history", async () => {
+    const { computeToolWidget } = await import("@sarchauhan/chat");
+    const live = run([
+      event("tool_execution_started", {
+        tool_call_id: "r", tool_name: "read_file", arguments: { path: "src/a.ts" }, started_at: 1792317600,
+      }),
+      event("tool_execution_completed", {
+        tool_call_id: "r", tool_name: "read_file", status: "success", result: text, duration_ms: 7,
+        summary: { lines: 2, matches: null, added: null, removed: null, start_line: null },
+      }),
+    ]);
+    const part = partsOf(live, 0)[0];
+    // The timing facts sit beside the content, not over it.
+    expect(part.output).toMatchObject({ content: text, durationMs: 7 });
+    expect(part.output.output).toBeUndefined();
+    const widget = computeToolWidget(part);
+    expect(widget?.name).toBe("read-file");
+    expect(widget?.props).toMatchObject({ path: "src/a.ts", content: text });
+
+    const old = historical({
+      messages: [
+        { role: "user", content: "t" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: '{"path":"src/a.ts"}' } }],
+        },
+        { role: "tool", tool_call_id: "r", content: text },
+      ],
+      events: [],
+      children: [],
+    });
+    const read = partsOf(old, 1).find((p) => p.type === "tool");
+    expect(read.output).toEqual({ content: text });
+    expect(computeToolWidget(read)?.props.content).toBe(text);
+  });
+});
