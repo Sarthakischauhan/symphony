@@ -128,7 +128,7 @@ export function SessionSidebar({
     <Sidebar aria-label="Session navigation">
       <SidebarHeader>
         <div className="brand">
-          <span className="brand-logo">symphony</span>
+          <img className="brand-logo" src="/symphony-logo.svg" alt="Symphony" />
           <Button
             variant="ghost"
             size="icon"
