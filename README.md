@@ -74,7 +74,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-Use `uv run --package symphony-code symphony` (`uv run symphony` after `uv sync --all-packages`) from the checkout for day-to-day development rather than `uv tool install -e .` or `uv tool install .`: an editable tool install makes your global `symphony` whatever branch is checked out. A source checkout or a local (`file://`) install never self-updates; only a uv tool install of the PyPI release does. The test suite isolates HOME, the XDG and uv tool directories, and fails if it changes your real `symphony`, uv tool directory or `~/.symphony`.
+Use `uv run --package symphony-code symphony` (`uv run symphony` after `uv sync --all-packages`) from the checkout for day-to-day development rather than `uv tool install -e .` or `uv tool install .`: an editable tool install makes your global `symphony` whatever branch is checked out. A source checkout or a local (`file://`) install never self-updates; only a uv tool install of the PyPI release does. The test suite isolates HOME, the XDG and uv tool directories, and fails if it changes your real `symphony` executable, its uv tool entry or `~/.symphony/web/current`.
 
 See [AGENTS.md](AGENTS.md) for contributor workflow and [CHANGELOG.md](CHANGELOG.md) for release history.
 

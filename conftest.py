@@ -10,8 +10,8 @@ subprocesses inherit this env.
 The XDG and uv tool directories point into that tmp dir too, the startup
 update check is off, and ``apply_update`` fails the test that calls it, so no
 test can install over the developer's ``symphony``. As a backstop the session
-records the real ``symphony`` executable, uv tool directory and Symphony home
-before any test runs and fails if any of them changed.
+records the real ``symphony`` executable, its uv tool entry and the Symphony
+Web ``current`` link before any test runs and fails if any of them changed.
 """
 
 from __future__ import annotations
@@ -110,9 +110,10 @@ def _refuse_update(target: str) -> subprocess.CompletedProcess[str]:
     pytest.fail(f"a test tried to install symphony-code {target} for real")
 
 
-# The real install, recorded per path as (mtime_ns, size, symlink target).
-Stamp = tuple[int, int, str]
-INSTALL_BEFORE = pytest.StashKey[tuple[list[Path], dict[str, Stamp]]]()
+# One path of the real install: (inode, mtime_ns, size, symlink target), or
+# None when it does not exist. Only lstat and readlink; nothing is walked.
+Stamp = tuple[int, int, int, str] | None
+INSTALL_BEFORE = pytest.StashKey[dict[Path, Stamp]]()
 
 
 def _uv_tool_dir(*flags: str) -> Path | None:
@@ -126,51 +127,44 @@ def _uv_tool_dir(*flags: str) -> Path | None:
 
 
 def _stamp(path: Path) -> Stamp:
-    info = path.lstat()
-    return info.st_mtime_ns, info.st_size, os.readlink(path) if path.is_symlink() else ""
-
-
-def _snapshot(roots: list[Path]) -> dict[str, Stamp]:
-    stamps: dict[str, Stamp] = {}
-    for root in roots:
-        if not root.exists() and not root.is_symlink():
-            continue
-        stamps[str(root)] = _stamp(root)
-        if root.is_dir() and not root.is_symlink():
-            for directory, names, files in os.walk(root):
-                for name in (*names, *files):
-                    stamps[os.path.join(directory, name)] = _stamp(Path(directory, name))
-    return stamps
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    return info.st_ino, info.st_mtime_ns, info.st_size, os.readlink(path) if path.is_symlink() else ""
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """Record the real install before any test swaps HOME or the uv dirs."""
+    """Record the real install before any test swaps HOME or the uv dirs.
+
+    Exactly three paths: the ``symphony`` executable, the uv tool entry for
+    symphony-code, and the Symphony Web ``current`` link. A live Symphony
+    session writes elsewhere in ``~/.symphony``, which is not watched.
+    """
     if os.environ.get("PYTEST_XDIST_WORKER"):
         return  # The controlling process guards the whole run.
-    roots = [symphony_dir()]
-    tools = _uv_tool_dir()
-    if tools is not None:
-        roots.append(tools)
     bin_dir = _uv_tool_dir("--bin")
-    commands = [bin_dir / "symphony"] if bin_dir is not None else []
     on_path = shutil.which("symphony")
     # A `uv run` PATH finds the checkout's own .venv first; that is not the install.
-    if on_path and not Path(on_path).resolve().is_relative_to(REPO):
-        commands.append(Path(on_path))
-    roots += commands
-    session.stash[INSTALL_BEFORE] = (roots, _snapshot(roots))
+    if bin_dir is not None:
+        command = bin_dir / "symphony"
+    elif on_path and not Path(on_path).resolve().is_relative_to(REPO):
+        command = Path(on_path)
+    else:
+        command = Path.home() / ".local" / "bin" / "symphony"
+    tools = _uv_tool_dir() or Path.home() / ".local" / "share" / "uv" / "tools"
+    watched = [command, tools / updates.PACKAGE, symphony_dir() / "web" / "current"]
+    session.stash[INSTALL_BEFORE] = {path: _stamp(path) for path in watched}
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Fail the run if the real symphony, uv tool dir or Symphony home changed."""
+    """Fail the run if the real symphony, its uv tool entry or web/current changed."""
     if INSTALL_BEFORE not in session.stash:
         return
-    roots, before = session.stash[INSTALL_BEFORE]
-    after = _snapshot(roots)
-    changed = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+    before = session.stash[INSTALL_BEFORE]
+    changed = [str(path) for path, stamp in before.items() if _stamp(path) != stamp]
     if not changed:
         return
-    shown = "\n  ".join(changed[:20])
-    more = f"\n  ... and {len(changed) - 20} more" if len(changed) > 20 else ""
-    sys.stderr.write(f"\nThe test run changed the real Symphony install:\n  {shown}{more}\n")
+    shown = "\n  ".join(changed)
+    sys.stderr.write(f"\nThe test run changed the real Symphony install:\n  {shown}\n")
     session.exitstatus = pytest.ExitCode.TESTS_FAILED
