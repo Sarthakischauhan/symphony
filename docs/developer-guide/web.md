@@ -167,20 +167,20 @@ frontend against a mocked local API, rather than live provider responses.
 
 Welcome and session navigation:
 
-![Symphony Web welcome with searchable and pinned sessions](../assets/web/welcome-desktop.png)
+![Symphony Web welcome with searchable and pinned sessions](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/welcome-desktop.png?raw=true)
 
 Historical conversation and a computed patch diff:
 
-![Historical session with a patch widget](../assets/web/session-desktop.png)
+![Historical session with a patch widget](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/session-desktop.png?raw=true)
 
 Interactive overwrite approval:
 
-![Approval before overwriting an existing file](../assets/web/approval-desktop.png)
+![Approval before overwriting an existing file](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/approval-desktop.png?raw=true)
 
 Created artifact after completion and browser refresh:
 
-![Created file with preview and download controls](../assets/web/artifact-desktop.png)
+![Created file with preview and download controls](https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/artifact-desktop.png?raw=true)
 
 Mobile navigation:
 
-<img src="../assets/web/sidebar-mobile.png" alt="Mobile session navigation drawer" width="390" />
+<img src="https://github.com/Sarthakischauhan/symphony/blob/7e9123bf5250138cdccfeb6053c50445b4df6179/docs/assets/web/sidebar-mobile.png?raw=true" alt="Mobile session navigation drawer" width="390" />
