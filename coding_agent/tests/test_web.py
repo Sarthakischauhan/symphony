@@ -3,6 +3,8 @@
 import asyncio
 import http.client
 import json
+import os
+import signal
 import subprocess
 import sys
 import threading
@@ -181,7 +183,7 @@ def test_workspace_info_models_and_commands_come_from_the_worker(web):
 
     sp.run(["git", "init", "-q", "-b", "web-branch", str(web.sessions.workspace)], check=True)
     web.sessions.close()
-    web.sessions._control = None
+    web.sessions = Sessions(web.sessions.workspace, "local:web-test")
     status, info = request(web, "/api/info")
     assert status == 200, info
     # Workspace and branch arrive in the worker's ready frame.
@@ -371,10 +373,73 @@ def test_cli_opens_browser(monkeypatch, tmp_path, static):
     opened = []
     monkeypatch.setattr(server.webbrowser, "open", opened.append)
     monkeypatch.setattr(
-        server.threading, "Timer", lambda delay, callback, args: SimpleNamespace(start=lambda: callback(*args))
+        server.threading, "Timer", lambda delay, callback, args: SimpleNamespace(start=lambda: callback(*args), cancel=lambda: None)
     )
     monkeypatch.setattr(server.Server, "serve_forever", lambda self: None)
     monkeypatch.setattr(server, "resolve_static", lambda root: static)
     assert server.main(["--workspace", str(tmp_path)]) == 0
     assert len(opened) == 1 and opened[0].startswith("http://127.0.0.1:")
     assert len(opened[0].split("#")[1]) >= 32
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX terminal process-group signals")
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+def test_cli_shutdown_closes_workers_without_tracebacks(tmp_path, model, signum):
+    # Run the actual CLI lifecycle with a control and a session worker, then
+    # simulate Ctrl-C (the whole terminal group) or a process manager's SIGTERM.
+    script = """
+import sys
+from pathlib import Path
+from coding_agent.web import server
+from coding_agent.web.sessions import Sessions
+server.resolve_static = lambda root: Path(sys.argv[1])
+def warm(self):
+    self.control()
+    self.resume()
+    print('WORKERS_READY', flush=True)
+Sessions.warm = warm
+raise SystemExit(server.main(['--no-browser', '--workspace', sys.argv[1], '--model', 'local:web-test']))
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", script, str(tmp_path)],
+        start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        # Bound startup as well as shutdown, and keep stderr in communicate so
+        # the assertion catches tracebacks from inherited worker stderr too.
+        ready = threading.Event()
+
+        def read_startup():
+            for line in process.stdout:
+                if line.strip() == "WORKERS_READY":
+                    ready.set()
+                    return
+
+        reader = threading.Thread(target=read_startup, daemon=True)
+        reader.start()
+        assert ready.wait(20), "Web workers did not start"
+        reader.join(timeout=1)
+        if signum == signal.SIGINT:
+            os.killpg(process.pid, signum)
+        else:
+            process.send_signal(signum)
+        stdout, stderr = process.communicate(timeout=15)
+        assert process.returncode == 0, stderr
+        assert stdout.splitlines().count("Goodbye!") == 1
+        assert "Traceback" not in stderr
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+
+
+def test_closed_sessions_reject_new_workers(tmp_path):
+    from coding_agent.web.sessions import WorkerError
+
+    sessions = Sessions(tmp_path)
+    sessions.close()
+    sessions.close()
+    with pytest.raises(WorkerError, match="shutting down"):
+        sessions.control()
+    with pytest.raises(WorkerError, match="shutting down"):
+        sessions.resume()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import secrets
+import signal
 import socket
 import sys
 import threading
@@ -264,16 +265,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("127.0.0.1", args.port), Sessions(Path(args.workspace).expanduser().resolve(), args.model), static
     )
     print(f"Symphony Web listening on {server.origin}", flush=True)
-    server.sessions.warm()
-    # Capability stays in the URL fragment, never in the HTTP request or logs.
-    if not args.no_browser:
-        threading.Timer(0.2, webbrowser.open, args=[f"{server.origin}/#{server.token}"]).start()
-    else:
-        print(f"Open {server.origin}/#{server.token} in a trusted local browser", flush=True)
+
+    def terminate(signum: int, frame: object) -> None:
+        # shutdown() cannot run on the serve_forever thread: it would deadlock.
+        raise KeyboardInterrupt
+
+    previous_sigterm = signal.signal(signal.SIGTERM, terminate)
+    browser_timer = None
     try:
+        server.sessions.warm()
+        # Capability stays in the URL fragment, never in the HTTP request or logs.
+        if not args.no_browser:
+            browser_timer = threading.Timer(0.2, webbrowser.open, args=[f"{server.origin}/#{server.token}"])
+            browser_timer.start()
+        else:
+            print(f"Open {server.origin}/#{server.token} in a trusted local browser", flush=True)
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        print("Goodbye!", flush=True)
     finally:
-        server.server_close()
+        try:
+            if browser_timer is not None:
+                browser_timer.cancel()
+            server.server_close()
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
     return 0

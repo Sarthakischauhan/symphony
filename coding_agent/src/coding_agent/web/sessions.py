@@ -85,6 +85,9 @@ class Worker:
             command += ["--model", model]
         self.process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
+            # The host owns shutdown via interrupt + stdin EOF. Terminal Ctrl-C
+            # must not interrupt asyncio (or tools) in each worker independently.
+            start_new_session=True,
         )
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
@@ -182,10 +185,13 @@ class Sessions:
         self.baselines: dict[str, JsonObject] = {}
         self.lock = threading.RLock()
         self._control: Worker | None = None
+        self._closed = False
 
     def control(self) -> Worker:
         """An idle worker on a fresh, never-persisted session, for catalog reads."""
         with self.lock:
+            if self._closed:
+                raise WorkerError("Web server is shutting down")
             if self._control is None or not self._control.alive:
                 self._control = Worker(self.workspace, str(uuid.uuid4()), self.model)
             return self._control
@@ -240,6 +246,8 @@ class Sessions:
         ``model`` request, which the worker rejects during an active run.
         """
         with self.lock:
+            if self._closed:
+                raise WorkerError("Web server is shutting down")
             live = self.owned(session_id) if session_id else None
             if live is not None and session_id is not None:
                 if model and model != live.ready.model:
@@ -255,7 +263,12 @@ class Sessions:
             return sid
 
     def close(self) -> None:
-        for worker in [*self.workers.values(), *([self._control] if self._control else [])]:
+        # Warmup and resume hold the same lock while starting a worker. Wait for
+        # them before taking the snapshot so no process escapes cleanup.
+        with self.lock:
+            self._closed = True
+            workers = [*self.workers.values(), *([self._control] if self._control else [])]
+        for worker in workers:
             worker.close()
 
 
