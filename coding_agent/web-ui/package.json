@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "preinstall": "./scripts/fetch-chat-sdk.sh"
   },
   "dependencies": {
-    "@sarchauhan/chat": "file:vendor/sarchauhan-chat-0.1.0.tgz",
+    "@sarchauhan/chat": "file:.chat-sdk/chat",
     "class-variance-authority": "^0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "^1.59.0",
