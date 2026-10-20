@@ -124,7 +124,9 @@ const activity = (state: State) => {
     .at(-1)
     ?.parts.filter(isToolPart)
     .findLast((part) => part.state === "input-available");
-  return tool ? `Running ${tool.toolName}` : "Thinking";
+  return tool
+    ? { verb: "Running", target: tool.toolName }
+    : { verb: "Thinking", target: "" };
 };
 
 export function App() {
@@ -365,6 +367,7 @@ export function App() {
     if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [state, selected]);
   const pending = Object.values(state.pending);
+  const status = activity(state);
   const session = sessions.find((s) => s.session_id === selected);
   const locked = !!selected && !owned && !!session?.active;
   const shown = modelParts(catalog, state.model);
@@ -529,7 +532,14 @@ export function App() {
                     );
                   })}
                   {state.busy && !pending.length && (
-                    <LoadingState label={activity(state)} compact />
+                    <div className="run-status">
+                      <LoadingState label={status.verb} compact />
+                      {status.target && (
+                        <span className="run-status-target">
+                          {status.target}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

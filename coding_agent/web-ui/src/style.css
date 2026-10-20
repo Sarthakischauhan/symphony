@@ -992,18 +992,41 @@ label.settings-row {
   pointer-events: auto;
 }
 
-/* LoadingState label. The SDK owns the pixel grid; these colors restyle it. */
-.chat-loading-inline {
+/* Run status line, styled like a tool row: sans verb, mono target, dim
+   tabular-nums timer. The SDK's LoadingState supplies the pixel grid, verb
+   and timer; display: contents lets the app's target sit between them. */
+.run-status {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  min-height: 0;
-  gap: 0.75rem;
-  font-family: var(--sy-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  gap: 0.375rem;
+  min-height: 1.75rem;
+  font: 500 0.8125rem/1.25rem var(--chat-font-sans);
   color: var(--sy-mute);
+}
+.run-status > .chat-loading-inline {
+  display: contents;
+}
+.run-status .chat-pixel-grid {
+  order: 0;
+  margin-right: 0.125rem;
+}
+.run-status .chat-loading-label {
+  order: 1;
+  color: var(--sy-mute);
+}
+.run-status-target {
+  order: 2;
+  font: 400 0.75rem/1.25rem var(--chat-font-mono);
+  color: var(--sy-ink);
+}
+.run-status .chat-loading-timer {
+  order: 3;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.run-status .chat-loading-timer::before {
+  content: "· ";
 }
 .chat-pixel-grid > span:nth-child(1) { background: var(--sy-coral); }
 .chat-pixel-grid > span:nth-child(2) { background: var(--sy-orange); }
