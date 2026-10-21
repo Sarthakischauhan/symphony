@@ -41,45 +41,6 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message
 
 
-PROVIDER_ENV = (
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "XAI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "AI_GATEWAY_API_KEY",
-    "VERCEL_AI_GATEWAY_API_KEY",
-    "SYMPHONY_OPENAI_AUTH",
-    "SYMPHONY_ANTHROPIC_AUTH",
-    "SYMPHONY_GROK_AUTH",
-    "SYMPHONY_MODEL",
-    "OPENAI_MODEL",
-    "ANTHROPIC_MODEL",
-    "GEMINI_MODEL",
-    "GROK_MODEL",
-    "XAI_MODEL",
-    "OLLAMA_API_KEY",
-    "OLLAMA_BASE_URL",
-    "OLLAMA_HOST",
-    "OLLAMA_ENABLED",
-    "OLLAMA_MODEL",
-    "LOCAL_API_KEY",
-    "LOCAL_BASE_URL",
-    "LOCAL_MODEL",
-    "OPENAI_BASE_URL",
-    "ANTHROPIC_BASE_URL",
-    "GEMINI_BASE_URL",
-    "XAI_BASE_URL",
-)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in PROVIDER_ENV:
-        monkeypatch.delenv(name, raising=False)
-
-
 def _b64url(payload: dict) -> str:
     raw = json.dumps(payload, separators=(",", ":")).encode("ascii")
     import base64

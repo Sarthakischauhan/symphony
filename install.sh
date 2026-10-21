@@ -3,7 +3,10 @@
 #   curl -fsSL https://raw.githubusercontent.com/Sarthakischauhan/symphony/main/install.sh | sh
 #
 # Installs the `symphony` command (PyPI package `symphony-code`) as a uv tool,
-# pinned to the latest GitHub release. Re-running upgrades.
+# pinned to the latest GitHub release, then the matching Symphony Web assets
+# (release asset web-<version>.tar.gz, checked against its .sha256) into
+# ~/.symphony/web/<version>, switched in via the ~/.symphony/web/current
+# symlink. Re-running upgrades.
 #
 # Environment:
 #   SYMPHONY_VERSION  release to install, e.g. 0.0.1 or v0.0.1 (default: latest release)
@@ -131,8 +134,22 @@ do_install() {
     "$UV" tool install --force --python ">=3.11" "$PACKAGE==$version" ||
         err "uv tool install $PACKAGE==$version failed." \
             "Check that version $version exists on PyPI (https://pypi.org/project/$PACKAGE/) and your network is up."
+    install_web
     check_path
     say "done. Run '$COMMAND --version' to verify."
+}
+
+install_web() {
+    # The installed CLI does the download, checksum, extract and atomic switch,
+    # so install.sh and `symphony web --update` share one implementation.
+    bindir=$("$UV" tool dir --bin 2>/dev/null) || bindir="$HOME/.local/bin"
+    say "installing Symphony Web $version assets"
+    # Not fatal: the terminal UI works without them, and a release published
+    # before web assets existed has none. The previous assets stay active.
+    if ! "$bindir/$COMMAND" web --update --bundle-version "$version"; then
+        say "warning: Symphony Web $version assets were not installed; 'symphony web' needs them."
+        say "hint: check https://github.com/$REPO/releases/tag/v$version for web-$version.tar.gz, then run '$COMMAND web --update'."
+    fi
 }
 
 do_uninstall() {

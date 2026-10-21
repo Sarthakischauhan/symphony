@@ -1,0 +1,49 @@
+name: Publish Symphony Web assets
+
+# Builds coding_agent/web-ui and attaches web-<version>.tar.gz and its
+# .sha256 to the GitHub release. `symphony web --update` and install.sh
+# download these for the installed symphony-code version.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: coding_agent/web-ui/package-lock.json
+
+      - name: Build and test the frontend
+        working-directory: coding_agent/web-ui
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Package web-<version>.tar.gz and its checksum
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          asset="web-$version.tar.gz"
+          tar -C coding_agent/web-ui/dist -czf "$RUNNER_TEMP/$asset" .
+          (cd "$RUNNER_TEMP" && sha256sum "$asset" > "$asset.sha256")
+          echo "ASSET=$RUNNER_TEMP/$asset" >> "$GITHUB_ENV"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "$ASSET" "$ASSET.sha256" --clobber --repo "$GITHUB_REPOSITORY"

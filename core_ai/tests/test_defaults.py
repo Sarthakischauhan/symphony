@@ -14,42 +14,6 @@ from core_ai.providers.gemini import GeminiProvider
 from core_ai.providers.grok import GrokProvider
 from core_ai.providers.openai import OpenAIProvider
 
-PROVIDER_ENV = (
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "XAI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "OPENROUTER_BASE_URL",
-    "OPENROUTER_MODEL",
-    "AI_GATEWAY_API_KEY",
-    "VERCEL_AI_GATEWAY_API_KEY",
-    "AI_GATEWAY_BASE_URL",
-    "VERCEL_MODEL",
-    "AI_GATEWAY_MODEL",
-    "SYMPHONY_MODEL",
-    "OPENAI_MODEL",
-    "ANTHROPIC_MODEL",
-    "GEMINI_MODEL",
-    "GROK_MODEL",
-    "XAI_MODEL",
-    "OLLAMA_API_KEY",
-    "OLLAMA_BASE_URL",
-    "OLLAMA_HOST",
-    "OLLAMA_ENABLED",
-    "OLLAMA_MODEL",
-    "LOCAL_API_KEY",
-    "LOCAL_BASE_URL",
-    "LOCAL_MODEL",
-)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in PROVIDER_ENV:
-        monkeypatch.delenv(name, raising=False)
-
 
 def test_build_default_registry_registers_available_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")

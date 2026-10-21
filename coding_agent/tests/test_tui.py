@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import base64
 import io
 import json
@@ -109,39 +110,6 @@ from coding_agent.tui.transcript import (
     TranscriptScroll,
     UserMessage,
 )
-
-
-@pytest.fixture(autouse=True)
-def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "XAI_API_KEY",
-        "OPENROUTER_API_KEY",
-        "OPENROUTER_BASE_URL",
-        "OPENROUTER_MODEL",
-        "AI_GATEWAY_API_KEY",
-        "VERCEL_AI_GATEWAY_API_KEY",
-        "AI_GATEWAY_BASE_URL",
-        "VERCEL_MODEL",
-        "AI_GATEWAY_MODEL",
-        "OPENAI_BASE_URL",
-        "ANTHROPIC_BASE_URL",
-        "GEMINI_BASE_URL",
-        "XAI_BASE_URL",
-        "SYMPHONY_MODEL",
-        "OLLAMA_API_KEY",
-        "OLLAMA_BASE_URL",
-        "OLLAMA_HOST",
-        "OLLAMA_ENABLED",
-        "OLLAMA_MODEL",
-        "LOCAL_API_KEY",
-        "LOCAL_BASE_URL",
-        "LOCAL_MODEL",
-    ):
-        monkeypatch.delenv(name, raising=False)
 
 
 def _static_text(widget: Static) -> str:
@@ -1773,8 +1741,10 @@ def test_resume_options_use_existing_persistence_api() -> None:
 
 
 def test_resume_rows_keep_metadata_on_second_line() -> None:
+    # Relative to now, so the "66d ago" label does not drift with the calendar.
+    updated = (datetime.now(timezone.utc) - timedelta(days=66, hours=1)).isoformat()
     sessions = [
-        SessionOption(f"session-{index:04d}", "2026-08-12T16:00:00+00:00", "A" * 300, index)
+        SessionOption(f"session-{index:04d}", updated, "A" * 300, index)
         for index in range(1000)
     ]
     app = ResumeApp(sessions)
@@ -2758,6 +2728,7 @@ def test_at_file_selector_uses_existing_composer_menu(
     asyncio.run(_run())
 
 
+@pytest.mark.slow
 def test_file_selector_scrolls_to_keep_selection_visible(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -3071,6 +3042,7 @@ def test_reasoning_usage_without_summary_skips_reasoning_block(
     asyncio.run(_run())
 
 
+@pytest.mark.slow
 def test_slash_menu_and_commands(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

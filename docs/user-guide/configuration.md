@@ -25,7 +25,7 @@ The schema is validated and rejects unrecognized or invalid settings. Keep other
 
 ## Updates
 
-Before the TUI starts, an installed `symphony-code` release is compared with the latest release on PyPI. A source checkout is not replaced. When the versions differ, Symphony opens a screen with **Update now** and **Not now**. Set `updates.auto` to install the newer release without that screen:
+Before the TUI starts, an installed `symphony-code` release is compared with the latest release on PyPI. Only a uv tool install of the PyPI release (what `install.sh` or `uv tool install symphony-code` sets up, as `uv tool list` reports it) is ever upgraded, with `uv tool install --upgrade`. A run from a source checkout, a local `file://` install (editable or not), a git install, and a pip install are never replaced; upgrade a pip install with pip yourself. When the versions differ, Symphony opens a screen with **Update now** and **Not now**. Set `updates.auto` to install the newer release without that screen:
 
 ```json
 {

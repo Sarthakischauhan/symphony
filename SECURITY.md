@@ -23,3 +23,20 @@ Symphony runs model-directed actions using the permissions of the process runnin
 - Browser agent prompts may be included in event streams and traces. Never put credentials in a browser task. Password-like page fields are masked, but this does not make arbitrary website content trustworthy.
 
 See the [configuration guide](docs/user-guide/configuration.md) and [CLI reference](docs/reference/cli.md#symphony-run-headless-coding-run) for product behavior. Reports about ways to bypass trust controls are in scope and welcome.
+
+## Symphony Web
+
+`symphony web` binds to `127.0.0.1` and opens a browser with a random per-launch
+capability in the URL fragment. The server requires this capability for API
+reads and commands, validates Host and Origin, rejects cross-site Fetch Metadata,
+and accepts only JSON mutations. It grants no CORS access. Do not share the
+launch URL or forward this port to an untrusted network. These controls protect
+against websites trying to drive a local agent; local processes, extensions,
+and scripts with the capability retain the user's agent permissions.
+
+Web uses the same approval and deny rules as the coding agent. Active session
+registration takes a kernel lifetime lock shared by the TUI and Web workers;
+historical sessions owned by a live TUI are read-only in Web. Closing a browser
+tab does not cancel a run; use Cancel execution or stop the server. Downloads
+are limited to observed successful file writes within the selected workspace,
+served as attachments. See [the Web guide](docs/developer-guide/web.md).

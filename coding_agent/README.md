@@ -39,3 +39,9 @@ print(result.output_text)
 - [Package API guide](../docs/packages/symphony-code.md)
 
 **Safety:** tools run with the current user's permissions; approval prompts do not sandbox commands or restrict paths. Read the [security policy](../SECURITY.md) before use.
+
+### Browser interface
+
+Run `symphony web --workspace /path/to/project` to launch Symphony Web. Installed
+wheels include the React frontend; Node.js is not needed by end users. See the
+[Web guide](../docs/developer-guide/web.md) for development and security details.

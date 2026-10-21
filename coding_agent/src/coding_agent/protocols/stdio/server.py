@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 from collections.abc import Sequence
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from core_harness import Answer, Interrupt, UserInput
 
@@ -16,7 +16,13 @@ from coding_agent.commands.catalog import EFFORTS
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.protocols.stdio import commands as command_module
 from coding_agent.protocols.stdio.commands import load_state
-from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSION, StdioSink
+from coding_agent.protocols.stdio.requests import ready_frame, select_model, session_history, session_list
+from coding_agent.protocols.stdio.transport import PROTOCOL_VERSION, StdioSink
+
+if TYPE_CHECKING:
+    from coding_agent.agent import CodingAgent
+
+CLIENTS = ("zeron", "web")
 
 # Look these up on the package so tests can patch ``stdio.write_frame`` and
 # ``stdio.build_agent`` without reaching into the implementation modules.
@@ -67,31 +73,27 @@ async def serve(
     session_id: str | None,
     *,
     unattended: bool = False,
+    client: str = "zeron",
 ) -> int:
     stdio = _package()
     stdio.load_provider_env(workspace)
     sink = StdioSink()
     try:
-        agent = stdio.build_agent(
+        agent: CodingAgent = stdio.build_agent(
             workspace=workspace,
             model_id=model,
             session_id=session_id,
             sink=sink,
             config=ensure_spawn_settings(workspace, overrides={"unattended": True}) if unattended else None,
-            client="zeron",
+            client=client,
         )
         load_state(agent)
+        sink.fields.bind(agent)
     except Exception as exc:
         _package().write_frame({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         return 1
 
-    stdio.write_frame({
-        "type": "ready",
-        "session_id": agent.session_id,
-        "model": getattr(agent.harness, "model_id", model or ""),
-        "protocol_version": PROTOCOL_VERSION,
-        "capabilities": CAPABILITIES,
-    })
+    stdio.write_frame(ready_frame(agent, workspace, client))
     run: asyncio.Task[Any] | None = None
     while True:
         line = await asyncio.to_thread(sys.stdin.readline)
@@ -134,8 +136,35 @@ async def serve(
                 stdio.write_frame({
                     "type": "error", "request_id": request_id, "message": f"{type(exc).__name__}: {exc}",
                 })
+        elif kind in {"session/list", "session/history", "model"}:
+            request_id = _request_id(command, kind)
+            if request_id is None:
+                continue
+            try:
+                if kind == "session/list":
+                    stdio.write_frame(await session_list(agent, request_id))
+                elif kind == "session/history":
+                    target = command.get("session_id")
+                    if not isinstance(target, str) or not target:
+                        raise ValueError("session/history requires session_id")
+                    stdio.write_frame(await session_history(agent, request_id, target))
+                else:
+                    selected = command.get("model")
+                    if not isinstance(selected, str) or not selected:
+                        raise ValueError("model requires a model id")
+                    if run is not None and not run.done():
+                        raise RuntimeError("model cannot change during an active run")
+                    stdio.write_frame(select_model(agent, request_id, selected))
+            except (ValueError, RuntimeError, OSError) as exc:
+                stdio.write_frame({
+                    "type": "error", "request_id": request_id, "message": f"{type(exc).__name__}: {exc}",
+                })
         elif kind == "answer":
-            agent.harness.submit(Answer(str(command.get("request_id") or ""), str(command.get("value", ""))))
+            answer_id = str(command.get("request_id") or "")
+            if not agent.harness.submit(Answer(answer_id, str(command.get("value", "")))):
+                stdio.write_frame({
+                    "type": "error", "request_id": answer_id, "message": "answer rejected: no question is waiting on that id",
+                })
         elif kind == "interrupt":
             # A slash command runs outside the harness; cancel its task instead.
             if run is not None and not run.done() and not agent.harness.submit(Interrupt()):
@@ -157,6 +186,8 @@ async def serve(
                 continue
             effort = command.get("reasoning_effort")
             run = asyncio.create_task(_run_turn(agent, prompt, paths, effort if isinstance(effort, str) else None))
+        elif kind == "run":
+            stdio.write_frame({"type": "error", "message": "run rejected: a run is already active"})
         else:
             stdio.write_frame({"type": "error", "message": f"invalid command: {kind}"})
 
@@ -167,6 +198,7 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--model")
     parser.add_argument("--session-id")
     parser.add_argument("--unattended", action="store_true", help="Auto-approve tools subject to Symphony deny rules")
+    parser.add_argument("--client", choices=CLIENTS, default="zeron", help="Host product that owns the sessions")
     args = parser.parse_args(argv)
     # Libraries may print diagnostics; stdout belongs exclusively to JSONL.
     sys.stdout = sys.stderr
@@ -175,6 +207,7 @@ def main(argv: Sequence[str]) -> int:
         args.model,
         args.session_id,
         unattended=args.unattended,
+        client=args.client,
     ))
 
 

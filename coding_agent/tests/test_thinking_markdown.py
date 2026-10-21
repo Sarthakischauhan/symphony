@@ -186,6 +186,7 @@ def test_unclosed_markers_never_raise_at_any_cut() -> None:
         assert len(_plain(rendered, width=60).splitlines()) <= source[:end].count("\n") * 2 + 2
 
 
+@pytest.mark.slow
 def test_thought_body_updates_in_place_across_chunks(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

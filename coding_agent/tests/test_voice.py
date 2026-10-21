@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -24,13 +26,21 @@ class ScriptedCapture:
     def __init__(self, audio: bytes = b"wav") -> None:
         self.audio = audio
         self.calls = 0
-        self.started = __import__("threading").Event()
-        self.gate = __import__("threading").Event()
+        self.started = threading.Event()
+        self.gate = threading.Event()
+        self.stopped = threading.Event()
 
-    def listen(self) -> bytes:
+    def listen(self) -> bytes | None:
         self.calls += 1
         self.started.set()
-        self.gate.wait(timeout=2)
+        # Like MicrophoneCapture: close() ends a pending listen with None, so
+        # app shutdown does not sit out the 2 s gate timeout.
+        deadline = time.monotonic() + 2
+        while not self.gate.wait(0.01):
+            if self.stopped.is_set():
+                return None
+            if time.monotonic() >= deadline:
+                break
         self.gate.clear()
         return self.audio
 
@@ -39,6 +49,7 @@ class ScriptedCapture:
 
     def close(self) -> None:
         self.closed = True
+        self.stopped.set()
 
 
 class ScriptedTranscriber:

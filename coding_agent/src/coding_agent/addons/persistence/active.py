@@ -7,6 +7,7 @@ removes it on a clean exit. A file whose process is gone is stale and ignored.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -16,7 +17,9 @@ from typing import Any
 
 def active_dir() -> Path:
     """Directory that holds one registry file per live Symphony process."""
-    target = (Path.home() / ".symphony" / "active").expanduser()
+    from coding_agent.config import symphony_dir
+
+    target = symphony_dir() / "active"
     target.mkdir(parents=True, exist_ok=True)
     return target
 
@@ -47,6 +50,32 @@ class ActiveSession:
         }
 
 
+# Advisory lifetime locks coordinate all local hosts, including the TUI. Registry
+# files alone have a check-then-write race. The kernel releases locks on crashes.
+_owned_lock = None
+_owned_session = None
+
+
+def _claim(session_id: str) -> None:
+    global _owned_lock, _owned_session
+    import fcntl
+
+    if _owned_session == session_id:
+        return
+    digest = hashlib.sha256(session_id.encode()).hexdigest()
+    handle = (active_dir() / f"{digest}.lock").open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if any(item.session_id == session_id and item.pid != os.getpid() for item in list_active()):
+            raise RuntimeError("Session is owned by another live Symphony process")
+    except (OSError, RuntimeError) as exc:
+        handle.close()
+        raise RuntimeError("Session is owned by another live Symphony process") from exc
+    if _owned_lock is not None:
+        _owned_lock.close()
+    _owned_lock, _owned_session = handle, session_id
+
+
 def register_active(
     session_id: str,
     *,
@@ -57,6 +86,8 @@ def register_active(
     pid: int | None = None,
 ) -> ActiveSession:
     """Record that this process owns ``session_id``. Replaces any prior record."""
+    if pid is None or pid == os.getpid():
+        _claim(session_id)
     record = ActiveSession(
         session_id=session_id,
         pid=os.getpid() if pid is None else pid,
@@ -74,6 +105,11 @@ def register_active(
 
 def release_active(pid: int | None = None) -> None:
     """Drop this process's registry file. Missing files are fine."""
+    global _owned_lock, _owned_session
+    if pid is None or pid == os.getpid():
+        if _owned_lock is not None:
+            _owned_lock.close()
+        _owned_lock = _owned_session = None
     path = _path(os.getpid() if pid is None else pid)
     try:
         path.unlink()

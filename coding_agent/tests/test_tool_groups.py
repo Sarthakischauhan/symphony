@@ -401,11 +401,11 @@ def test_bash_tail_joins_partial_lines_and_keeps_the_newest() -> None:
             card.set_running({"command": "pytest -q"})
             card.append_output("one\ntw")
             card.append_output("o\nthree")
-            assert card._live_tail() == ["one", "two", "three"]
+            assert [line for _stream, line in card._live_tail()] == ["one", "two", "three"]
 
             for line in range(LIVE_OUTPUT_TAIL_LINES + 3):
                 card.append_output(f"line {line}\n")
-            assert card._live_tail() == [
+            assert [line for _stream, line in card._live_tail()] == [
                 f"line {line}" for line in range(3, LIVE_OUTPUT_TAIL_LINES + 3)
             ]
 

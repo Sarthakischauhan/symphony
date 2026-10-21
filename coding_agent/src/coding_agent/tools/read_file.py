@@ -9,6 +9,7 @@ from pydantic import Field
 from coding_agent.config import ReadFileConfig
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 from core_ai.content import image_part_from_bytes, sniff_image_media_type
+from core_harness.tools import current_tool_call_id
 
 DEFAULT_READ_FILE_CONFIG = ReadFileConfig()
 
@@ -58,6 +59,10 @@ class ReadFileTool(WorkspaceTool):
         config: ReadFileConfig = DEFAULT_READ_FILE_CONFIG,
     ) -> None:
         self.config = config
+        # The file line each numbered text read starts at (its ``offset``),
+        # keyed by tool_call_id. EventFields reads it for the protocol
+        # summary's ``start_line``, the way it reads ``PatchTool.start_lines``.
+        self.start_lines: dict[str, int] = {}
         super().__init__(workspace, parallel=True)
 
     def run(
@@ -144,6 +149,9 @@ class ReadFileTool(WorkspaceTool):
             return f"error: failed to read {path}: {exc}"
 
         text = numbered_text(lines, offset)
+        call_id = current_tool_call_id.get()
+        if call_id and lines:
+            self.start_lines[call_id] = offset
         if truncated:
             text += (
                 f"\n<output truncated at {bytes_read} bytes; "

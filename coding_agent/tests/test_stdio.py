@@ -80,7 +80,7 @@ def test_model_list_request_includes_provider_and_context(monkeypatch):
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
     monkeypatch.setattr(core_ai, "default_model_id", lambda _registry: "openai:gpt-test")
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         registry=Registry(), session_id="session-test",
         harness=SimpleNamespace(model_id="openai:gpt-test"),
     ))
@@ -104,7 +104,7 @@ def test_command_catalog_is_the_tui_catalog(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
         user_addons=no_user_addons(),
     ))
@@ -122,7 +122,7 @@ def test_slash_command_does_not_call_the_model(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         session_id="session-test", harness=SimpleNamespace(model_id="openai:gpt-test"),
         user_addons=no_user_addons(),
         run=lambda *_args: (_ for _ in ()).throw(AssertionError("model was called")),
@@ -169,7 +169,7 @@ def test_command_attachments_are_rejected_without_inference(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **kwargs: SimpleNamespace(tools=[], 
         session_id="session-test", harness=SimpleNamespace(model_id="test"),
         user_addons=no_user_addons(),
         run=lambda *args: (_ for _ in ()).throw(AssertionError("model called")),
@@ -206,7 +206,7 @@ def test_answer_and_steer_commands_become_harness_ops(monkeypatch):
     frames = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
-    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(stdio, "build_agent", lambda **_kwargs: SimpleNamespace(tools=[], 
         session_id="session-test",
         harness=SimpleNamespace(model_id="test", submit=lambda op: ops.append(op) or False),
     ))
@@ -218,7 +218,7 @@ def test_answer_and_steer_commands_become_harness_ops(monkeypatch):
     assert asyncio.run(stdio.serve(Path("."), None, None)) == 0
     assert ops == [Answer("q-1", "Deny"), UserInput("use metric units")]
     assert [frame["message"] for frame in frames if frame["type"] == "error"] == [
-        "steer requires an active run", "prompt is required",
+        "answer rejected: no question is waiting on that id", "steer requires an active run", "prompt is required",
     ]
 
 
@@ -228,3 +228,202 @@ def test_removed_plan_commands_are_unknown(command):
     agent = SimpleNamespace(user_addons=SimpleNamespace(run_command=AsyncMock(return_value=None)))
     with pytest.raises(ValueError, match="Unknown command"):
         asyncio.run(commands.execute(agent, command))
+
+
+def _serve(monkeypatch, agent, lines, workspace=Path("."), client="zeron"):
+    agent.tools = vars(agent).get("tools", [])  # serve binds widget fields to the agent's tools
+    frames = []
+    seen = {}
+    monkeypatch.setattr(stdio, "write_frame", frames.append)
+    monkeypatch.setattr(stdio, "load_provider_env", lambda _workspace: None)
+    monkeypatch.setattr(stdio, "build_agent", lambda **kwargs: seen.update(kwargs) or agent)
+    monkeypatch.setattr(stdio.sys, "stdin", io.StringIO("".join(json.dumps(line) + "\n" for line in lines)))
+    assert asyncio.run(stdio.serve(workspace, None, None, client=client)) == 0
+    return frames, seen
+
+
+def test_ready_carries_workspace_branch_and_client(monkeypatch, tmp_path):
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", "-b", "feature/web", str(tmp_path)], check=True)
+    agent = SimpleNamespace(session_id="s-1", harness=SimpleNamespace(model_id="openai:gpt-test"))
+    frames, seen = _serve(monkeypatch, agent, [], workspace=tmp_path, client="web")
+    ready = frames[0]
+    assert ready["type"] == "ready" and ready["model"] == "openai:gpt-test"
+    assert ready["workspace"] == str(tmp_path) and ready["branch"] == "feature/web"
+    assert ready["client"] == "web" and seen["client"] == "web"
+
+
+def test_cli_client_flag_reaches_serve(monkeypatch):
+    from coding_agent.protocols.stdio import server
+
+    calls = []
+
+    async def fake_serve(workspace, model, session_id, *, unattended=False, client="zeron"):
+        calls.append((session_id, client))
+        return 0
+
+    monkeypatch.setattr(server, "serve", fake_serve)
+    monkeypatch.setattr(server.sys, "stdout", server.sys.stdout)
+    assert server.main(["--session-id", "abc", "--client", "web"]) == 0
+    assert calls == [("abc", "web")]
+    with pytest.raises(SystemExit):
+        server.main(["--client", "tui"])
+
+
+def _web_store(tmp_path):
+    from coding_agent.addons.persistence import JsonlPersistence
+    from core_ai.types import Message
+
+    store = JsonlPersistence(tmp_path / "sessions")
+    store.client = "web"
+    asyncio.run(store.save_conversation(session_id="web-1", messages=[Message(role="user", content="Web task")]))
+    asyncio.run(store.append_event(event_type="usage", payload={"session_id": "web-1", "cumulative_tokens": 42}))
+    other = JsonlPersistence(tmp_path / "sessions")
+    other.client = "zeron"
+    asyncio.run(other.save_conversation(session_id="zeron-1", messages=[Message(role="user", content="Zeron chat")]))
+    return store
+
+
+def test_session_list_and_history_frames(monkeypatch, tmp_path):
+    store = _web_store(tmp_path)
+    agent = SimpleNamespace(session_id="live", persistence=store, harness=SimpleNamespace(model_id="m"))
+    frames, _ = _serve(monkeypatch, agent, [
+        {"type": "session/list", "request_id": "list-1"},
+        {"type": "session/history", "request_id": "hist-1", "session_id": "web-1"},
+        {"type": "session/history", "request_id": "hist-2", "session_id": "../escape"},
+        {"type": "session/list"},
+    ])
+    listing = frames[1]
+    assert listing["type"] == "sessions" and listing["request_id"] == "list-1"
+    # Only this client's sessions; Zeron chats in the shared store stay hidden.
+    assert [item["session_id"] for item in listing["sessions"]] == ["web-1"]
+    assert listing["sessions"][0]["first_message"] == "Web task"
+    assert listing["sessions"][0]["active"] is False
+    history = frames[2]
+    assert history["type"] == "session_history" and history["request_id"] == "hist-1"
+    assert history["messages"][0]["content"] == "Web task"
+    assert any(kind == "usage" and payload["cumulative_tokens"] == 42 for kind, payload in history["events"])
+    assert history["children"] == []
+    assert frames[3]["type"] == "error" and frames[3]["request_id"] == "hist-2"
+    assert frames[4] == {"type": "error", "message": "session/list requires request_id"}
+
+
+def test_model_command_switches_the_live_harness(monkeypatch, tmp_path):
+    from coding_agent.protocols.stdio import requests
+
+    class Registry:
+        def namespaces(self):
+            return ("openai",)
+
+        def models(self):
+            return [
+                ModelInfo(id="gpt-a", provider="openai", api="responses", context_limit=128000),
+                ModelInfo(id="gpt-b", provider="openai", api="responses", context_limit=64000),
+            ]
+
+    saved = []
+    monkeypatch.setattr(requests, "ensure_spawn_settings", lambda workspace, **kwargs: saved.append(kwargs) or "cfg")
+    learning = SimpleNamespace(model_id="openai:gpt-a")
+    agent = SimpleNamespace(
+        session_id="live", registry=Registry(), workspace=tmp_path, config=None, learning_loop=learning,
+        harness=SimpleNamespace(model_id="openai:gpt-a"),
+    )
+    frames, _ = _serve(monkeypatch, agent, [
+        {"type": "model", "request_id": "m-1", "model": "openai:gpt-b"},
+        {"type": "model", "request_id": "m-2", "model": "openai:missing"},
+    ])
+    assert frames[1] == {"type": "model_selected", "request_id": "m-1", "model": "openai:gpt-b", "context_limit": 64000}
+    assert agent.harness.model_id == learning.model_id == "openai:gpt-b"
+    assert saved[0]["overrides"] == {"last_model": "openai:gpt-b"} and agent.config == "cfg"
+    assert frames[2]["type"] == "error" and frames[2]["request_id"] == "m-2"
+
+
+def test_overlapping_run_is_rejected(monkeypatch):
+    started = asyncio.Event()
+
+    async def slow_run(_content):
+        started.set()
+        await asyncio.sleep(0.2)
+
+    agent = SimpleNamespace(
+        session_id="live", harness=SimpleNamespace(model_id="m", submit=lambda op: False),
+        user_addons=no_user_addons(), run=slow_run,
+    )
+    frames, _ = _serve(monkeypatch, agent, [
+        {"type": "run", "prompt": "first"},
+        {"type": "run", "prompt": "second"},
+        {"type": "model", "request_id": "m-1", "model": "x"},
+    ])
+    errors = [frame for frame in frames if frame["type"] == "error"]
+    assert errors[0]["message"] == "run rejected: a run is already active"
+    assert "active run" in errors[1]["message"] and errors[1]["request_id"] == "m-1"
+
+
+def test_tool_execution_started_frame_carries_started_at(monkeypatch):
+    """Capture the real stdout bytes of a harness tool call through StdioSink."""
+    import time
+    from typing import Any
+
+    from collections.abc import AsyncGenerator
+    from typing import Optional
+
+    from core_ai.registry import ModelRegistry
+    from core_ai.types import Message, StreamEvent
+    from core_harness import CoreHarness, HarnessConfig, Tool
+
+    class Scripted(ModelRegistry):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def stream(
+            self,
+            model_id: str,
+            messages: list[Message],
+            tools: list[dict[str, Any]] = [],
+            max_output_tokens: Optional[int] = None,
+            reasoning_effort: Optional[str] = None,
+            extra_headers: Optional[dict[str, str]] = None,
+        ) -> AsyncGenerator[StreamEvent, None]:
+            del model_id, messages, tools, max_output_tokens, reasoning_effort, extra_headers
+            self.calls += 1
+            if self.calls == 1:
+                yield StreamEvent(type="toolcall_start", content_index=0, tool_call_id="call-1", tool_name="echo")
+                yield StreamEvent(type="toolcall_delta", content_index=0, delta='{"text": "hi"}')
+            else:
+                yield StreamEvent(type="text_delta", delta="ok")
+            yield StreamEvent(type="usage", prompt_tokens=1, completion_tokens=1, total_tokens=2)
+            yield StreamEvent(type="done")
+
+    def echo(text: str = "") -> str:
+        return f"echo:{text}"
+
+    wire: list[str] = []
+
+    class Stdout:
+        def write(self, value: str) -> None:
+            wire.append(value)
+
+        def flush(self) -> None:
+            pass
+
+    monkeypatch.setattr(stdio.sys, "__stdout__", Stdout())
+    harness = CoreHarness(
+        registry=Scripted(),
+        model_id="fake:stdio",
+        system_prompt="test",
+        config=HarnessConfig(max_turns=3),
+        tools=[Tool(echo)],
+        sink=stdio.StdioSink(),
+    )
+    before = time.time()
+    asyncio.run(harness.run("go"))
+    frames = [json.loads(line) for line in "".join(wire).splitlines()]
+    started = [f for f in frames if f.get("event") == "tool_execution_started"]
+    assert len(started) == 1
+    payload = started[0]["payload"]
+    # Epoch seconds (a float), stamped by the harness tool loop.
+    assert isinstance(payload["started_at"], float)
+    assert before <= payload["started_at"] <= time.time()
+    assert payload["call_id"] == "call-1"

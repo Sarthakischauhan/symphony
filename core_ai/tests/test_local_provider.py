@@ -12,32 +12,6 @@ from core_ai.providers.defaults import build_default_registry, default_model_id
 from core_ai.providers.local import LocalProvider, discover_local_models, local_chat_base_url
 from core_ai.types import Message, StreamEvent
 
-LOCAL_PROVIDER_ENV = (
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "XAI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "AI_GATEWAY_API_KEY",
-    "VERCEL_AI_GATEWAY_API_KEY",
-    "SYMPHONY_MODEL",
-    "OLLAMA_API_KEY",
-    "OLLAMA_BASE_URL",
-    "OLLAMA_HOST",
-    "OLLAMA_ENABLED",
-    "OLLAMA_MODEL",
-    "LOCAL_API_KEY",
-    "LOCAL_BASE_URL",
-    "LOCAL_MODEL",
-)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in LOCAL_PROVIDER_ENV:
-        monkeypatch.delenv(name, raising=False)
-
 
 def test_local_chat_base_url_requires_a_value() -> None:
     assert local_chat_base_url("") == ""

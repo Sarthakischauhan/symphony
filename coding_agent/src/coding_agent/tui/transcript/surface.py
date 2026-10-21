@@ -30,6 +30,8 @@ from coding_agent.tui.transcript.process import (
 )
 
 if TYPE_CHECKING:
+    from coding_agent.tools.bash import Stream
+    from coding_agent.tui.tools.calls import ToolOutcome
     # tools.* imports transcript.messages, so the runtime imports stay local.
     from coding_agent.tui.tools.calls import ToolCallWidget
     from coding_agent.tui.tools.snapshots import ToolCallSnapshot, ToolCallSummary
@@ -246,6 +248,7 @@ class TranscriptSurface:
         raw_arguments: str = "",
         status: str = "preparing",
         result: Any = None,
+        outcome: "ToolOutcome | None" = None,
     ) -> None:
         tool = self._tools.get(call_id)
         if tool is None:
@@ -255,7 +258,7 @@ class TranscriptSurface:
         if status == "running":
             tool.set_running(arguments)
         elif status in {"done", "failed"}:
-            tool.set_result(result)
+            tool.set_result(result, outcome)
             if status == "failed":
                 tool.status = "failed"
                 tool.refresh_content()
@@ -270,13 +273,13 @@ class TranscriptSurface:
             # per finished call (and the GC work that comes with it).
             del self._tools[call_id]
 
-    def append_tool_output(self, call_id: str, chunk: str) -> None:
+    def append_tool_output(self, call_id: str, chunk: str, stream: "Stream" = "stdout") -> None:
         """Feed a streamed output chunk to its Bash card, in place."""
         from coding_agent.tui.tools.calls import BashToolWidget
 
         tool = self._tools.get(call_id)
         if isinstance(tool, BashToolWidget):
-            tool.append_output(chunk)
+            tool.append_output(chunk, stream)
 
     def add_notice(self, text: str, tone: str = "info") -> None:
         notice = Notice(text, tone)

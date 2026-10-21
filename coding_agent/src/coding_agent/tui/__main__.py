@@ -74,6 +74,10 @@ def main() -> None:
             value = "unknown"
         print(f"symphony {value}")
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "web":
+        from coding_agent.web.server import main as web_main
+
+        raise SystemExit(web_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "stdio":
         from coding_agent.protocols.stdio.server import main as stdio_main
 
