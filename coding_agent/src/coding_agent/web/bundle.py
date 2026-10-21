@@ -37,6 +37,8 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
+from coding_agent.tls import https_context
+
 RELEASES = "https://github.com/Sarthakischauhan/symphony/releases/download"
 TIMEOUT_SECONDS = 60.0
 CURRENT = "current"
@@ -68,7 +70,10 @@ def asset_url(version: str, *, base: str | None = None) -> str:
 def download(url: str, dest: Path) -> None:
     """Stream one URL to a file; any network error leaves only the partial temp file."""
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as response, dest.open("wb") as out:
+        with (
+            urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS, context=https_context()) as response,
+            dest.open("wb") as out,
+        ):
             shutil.copyfileobj(response, out)
     except OSError as exc:
         raise BundleError(f"download failed: {url}: {exc}") from exc

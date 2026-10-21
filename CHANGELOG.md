@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- The startup update check ignored the `updates` block in
+  `~/.symphony/config.json`: `"enabled": false` still checked and `"auto": true`
+  still asked. Both settings now apply.
+- The PyPI update check and the Symphony Web bundle download verify TLS with
+  certifi's CA bundle as well as the system defaults. On uv-managed Pythons
+  (the `install.sh` install on macOS) they failed with
+  `CERTIFICATE_VERIFY_FAILED`, so no update was ever offered and
+  `symphony web` could not fetch its assets.
+
 ## 0.0.2 — 2026-10-21
 
 `symphony-code` only; `symphony-core` and `symphony-harness` stay at 0.0.1.
