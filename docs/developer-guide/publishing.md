@@ -39,6 +39,8 @@ A pending publisher does not reserve the project name. PyPI creates the project 
 
 Bump package versions in `core_ai/pyproject.toml`, `core_harness/pyproject.toml`, and/or `coding_agent/pyproject.toml` as appropriate, keep dependency constraints consistent, update the changelog, pass CI, and publish a GitHub Release. PyPI versions are immutable.
 
+Release tags follow `symphony-code`: the tag must be `v<symphony-code version>` or the `symphony-code` job fails. `symphony-core` and `symphony-harness` publish only when the tag also equals their own version; otherwise their jobs skip, so an unchanged package can stay on its earlier version. The same release triggers `publish-web.yml`, which attaches `web-<version>.tar.gz` for `symphony web`.
+
 The package-specific publisher workflows are [`.github/workflows/publish-core.yml`](../../.github/workflows/publish-core.yml), [`.github/workflows/publish-harness.yml`](../../.github/workflows/publish-harness.yml), and [`.github/workflows/publish-code.yml`](../../.github/workflows/publish-code.yml). The unprivileged `.github/workflows/publish.yml` builds all release distributions for inspection but does not upload them. CI mirrors the package build commands. A prepared version number is not evidence that a distribution has been published.
 
 }

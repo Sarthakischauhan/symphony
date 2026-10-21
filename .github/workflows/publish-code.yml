@@ -27,9 +27,10 @@ jobs:
           enable-cache: true
 
       - name: Verify release tag
+        # Every release ships symphony-code, so the tag must name its version.
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: test "$RELEASE_TAG" = "v0.0.1"
+        run: test "$RELEASE_TAG" = "v$(sed -n 's/^version = "\(.*\)"$/\1/p' coding_agent/pyproject.toml)"
 
       - name: Build symphony-code
         run: uv build --package symphony-code -o dist

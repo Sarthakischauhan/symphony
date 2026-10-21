@@ -26,15 +26,26 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
 
-      - name: Verify release tag
+      - name: Check release tag
+        # A release publishes symphony-harness only when its tag names this package's
+        # version; otherwise the package is unchanged and the job skips.
+        id: tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: test "$RELEASE_TAG" = "v0.0.1"
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' core_harness/pyproject.toml)
+          if [ "$RELEASE_TAG" = "v$version" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "symphony-harness is $version; $RELEASE_TAG does not release it."
+          fi
 
       - name: Build symphony-harness
+        if: steps.tag.outputs.publish == 'true'
         run: uv build --package symphony-harness -o dist
 
       - name: Publish symphony-harness
+        if: steps.tag.outputs.publish == 'true'
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist/

@@ -1,6 +1,6 @@
 [project]
 name = "symphony-code"
-version = "0.0.1"
+version = "0.0.2"
 description = "Symphony coding agent: workspace tools, JSONL sessions, and a Textual TUI on top of symphony-harness (import as coding_agent; run as `symphony`)"
 readme = "README.md"
 license = "MIT"
