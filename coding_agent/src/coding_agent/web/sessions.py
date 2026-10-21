@@ -240,8 +240,8 @@ class Sessions:
                 "children": reply.get("children", [])}
 
     def artifacts(self, session_id: str) -> JsonObject:
-        """The session's artifact manifests (the stdio ``artifacts/list`` reply)."""
-        reply = self.control().request("artifacts/list", session_id=session_id)
+        """The session's artifact manifests (the stdio ``artifacts_list`` reply)."""
+        reply = self.control().request("artifacts_list", session_id=session_id)
         return {"artifacts": objects(reply, "artifacts")}
 
     def resume(self, session_id: str | None = None, model: str | None = None) -> str:

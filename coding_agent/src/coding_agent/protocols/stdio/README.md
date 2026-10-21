@@ -44,8 +44,8 @@ same `request_id`, or an `error` frame with it.
 | `{"type":"session/list"}` | `sessions`: this client's parent sessions, newest first, each with `session_id`, `updated_at`, `message_count`, `first_message`, `client`, `active` | `sessions` |
 | `{"type":"session/history","session_id":"..."}` | `session_history`: `session_id`, `messages` (the transcript; assistant `tool_calls` are `{id, type: "function", function: {name, arguments}}` with `arguments` a JSON string), `events` (`[event, payload]` journal pairs) and `children` | `sessions` |
 | `{"type":"model","model":"provider:model"}` | `model_selected`: `model`, `context_limit`; an error during an active run | `model_switch` |
-| `{"type":"artifacts/list","session_id":"..."}` | `artifacts`: `session_id`, `artifacts` (manifests in creation order); `session_id` defaults to this worker's session | `artifacts` |
-| `{"type":"artifacts/get","session_id":"...","artifact_id":"..."}` | `artifact`: `session_id`, `artifact` (the manifest), `path` (absolute path of the entry file), `files` (the latest version's files, relative to its folder) | `artifacts` |
+| `{"type":"artifacts_list","session_id":"..."}` | `artifacts`: `session_id`, `artifacts` (manifests in creation order); `session_id` defaults to this worker's session | `artifacts` |
+| `{"type":"artifacts_get","session_id":"...","artifact_id":"..."}` | `artifact`: `session_id`, `artifact` (the manifest), `path` (absolute path of the entry file), `files` (the latest version's files, relative to its folder) | `artifacts` |
 
 ## Subagents
 
@@ -151,6 +151,12 @@ Capture (the `artifacts` add-on, after each successful tool call):
   keeps that whole folder (a website with its assets), and writing any file
   inside that folder versions the site again; any other `.html` is a
   single-file artifact.
+- Not auto-captured: `package.json`, `package-lock.json`,
+  `npm-shrinkwrap.json`, `tsconfig*.json`, `*.config.json`, lockfiles
+  (`*.lock`, `*.lockb`, `*-lock.json`, `*-lock.yaml`, `*.lock.json`), anything
+  under `node_modules`, `.git`, `dist` or `build`, and a `patch` to an html or
+  json file that git tracks (`git ls-files --error-unmatch` in the file's
+  repository) unless it is part of a website folder.
 - `save_artifact` with `path`, `kind` (one of the four; anything else is
   rejected) and an optional `title`, for files the agent did not write with
   the tools above, such as a command's output or a website folder.
@@ -162,8 +168,8 @@ nothing. Otherwise the parent session's harness emits, in the ordinary
 
 | Event | Payload |
 | --- | --- |
-| `artifact/created` | the manifest plus `path`, the absolute path of the entry file (`version` is 1) |
-| `artifact/updated` | the same, for a new version of an existing artifact |
+| `artifact_created` | the manifest plus `path`, the absolute path of the entry file (`version` is 1) |
+| `artifact_updated` | the same, for a new version of an existing artifact |
 
 The event payloads also carry the usual stamped keys (`run_id`,
 `session_id`, `seq`, `ts`, `agent_id`, `parent_id`). Artifacts produced by a

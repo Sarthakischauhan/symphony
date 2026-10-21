@@ -143,7 +143,7 @@ async def serve(
                 stdio.write_frame({
                     "type": "error", "request_id": request_id, "message": f"{type(exc).__name__}: {exc}",
                 })
-        elif kind in {"artifacts/list", "artifacts/get"}:
+        elif kind in {"artifacts_list", "artifacts_get"}:
             request_id = _request_id(command, kind)
             if request_id is None:
                 continue
@@ -151,12 +151,12 @@ async def serve(
                 target = command.get("session_id", agent.session_id)
                 if not isinstance(target, str) or not target:
                     raise ValueError(f"{kind} session_id must be a non-empty string")
-                if kind == "artifacts/list":
+                if kind == "artifacts_list":
                     stdio.write_frame(artifact_list(agent, request_id, target))
                 else:
                     artifact = command.get("artifact_id")
                     if not isinstance(artifact, str) or not artifact:
-                        raise ValueError("artifacts/get requires artifact_id")
+                        raise ValueError("artifacts_get requires artifact_id")
                     stdio.write_frame(artifact_get(agent, request_id, target, artifact))
             except (ValueError, KeyError, OSError) as exc:
                 stdio.write_frame({

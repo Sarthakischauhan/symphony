@@ -158,6 +158,7 @@ def test_resumed_child_card_opens_child_transcript(monkeypatch, tmp_path: Path):
     async def run():
         async with app.run_test(size=(100, 30)) as pilot:
             app._agent = SimpleNamespace(
+                artifacts=None,
                 persistence=Persistence(),
                 session_id="parent-session",
                 harness=SimpleNamespace(model_id="fake", state=SimpleNamespace(context_limit=lambda _: 10000)),

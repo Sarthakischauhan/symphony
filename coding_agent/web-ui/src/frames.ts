@@ -142,7 +142,7 @@ export type StdioEvent =
     }
   | { event: "question_asked"; payload: Routed & { request_id: string } }
   | {
-      event: "artifact/created" | "artifact/updated";
+      event: "artifact_created" | "artifact_updated";
       payload: Routed & ArtifactManifest & { path: string };
     };
 export type EventFrame = { type: "event" } & StdioEvent;
@@ -174,8 +174,8 @@ const EVENTS = new Set<string>([
   "agent_completed",
   "agent_failed",
   "question_asked",
-  "artifact/created",
-  "artifact/updated",
+  "artifact_created",
+  "artifact_updated",
 ]);
 
 /** Narrow one decoded SSE payload to a frame this client renders. */

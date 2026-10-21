@@ -5,12 +5,14 @@
 - ``write_file``, ``patch`` and ``generate_image`` capture the written path
   when its suffix is html, csv, json or an image (see ``capture``). A file
   inside a website folder (one below the workspace with ``index.html``)
-  versions that whole site instead.
+  versions that whole site instead. Manifests, configs, lockfiles and
+  anything under node_modules, .git, dist or build are skipped (``noise``),
+  as is a patch to an html or json file git tracks outside a website folder.
 - ``save_artifact`` captures its path with the kind and title it was given.
 - Any other tool except ``read_file`` captures the inline images it returned.
 
 Each stored version is emitted through the session's harness as
-``artifact/created`` or ``artifact/updated`` (the manifest plus the absolute
+``artifact_created`` or ``artifact_updated`` (the manifest plus the absolute
 ``path`` of its entry file), so it is journaled and reaches every host.
 Unchanged content stores and emits nothing. Subagents inherit the add-on and
 store into the parent session.
@@ -37,12 +39,15 @@ from coding_agent.addons.artifacts.capture import (
     snapshot_site,
 )
 from coding_agent.addons.artifacts.kinds import ArtifactKind, kind_of
+from coding_agent.addons.artifacts.noise import git_tracked, is_noise
 from coding_agent.addons.artifacts.store import ArtifactStore, Saved
 
-ARTIFACT_CREATED = "artifact/created"
-ARTIFACT_UPDATED = "artifact/updated"
+ARTIFACT_CREATED = "artifact_created"
+ARTIFACT_UPDATED = "artifact_updated"
 PATH_TOOLS = frozenset({"write_file", "patch", "generate_image"})
 SAVE_TOOL = "save_artifact"
+PATCH_TOOL = "patch"
+TRACKED_SOURCE_KINDS = frozenset({ArtifactKind.HTML, ArtifactKind.JSON})
 # Reading an image shows an existing file; it produces nothing.
 READ_TOOLS = frozenset({"read_file"})
 
@@ -95,6 +100,11 @@ class ArtifactsAddon(Addon):
         del parent_harness
         return ArtifactsAddon(self.store, self.workspace, self.owner)
 
+    @staticmethod
+    def tracked_edit(tool_name: str, kind: ArtifactKind, path: Path) -> bool:
+        """A patch to a git-tracked html or json file edits source, not output."""
+        return tool_name == PATCH_TOOL and kind in TRACKED_SOURCE_KINDS and git_tracked(path)
+
     def snapshots(self, tool_call: ToolCall, result: ToolResult) -> Iterator[Snapshot]:
         arguments: Mapping[str, Any] = tool_call.arguments
         raw = arguments.get("path")
@@ -106,10 +116,13 @@ class ArtifactsAddon(Addon):
             )
         elif tool_call.name in PATH_TOOLS and isinstance(raw, str):
             path = resolve(self.workspace, raw)
+            if is_noise(path, self.workspace):
+                return
             site = site_of(path, self.workspace)
+            kind = kind_of(path)
             if site is not None:
                 yield snapshot_site(site, self.workspace)
-            elif kind_of(path) is not None:
+            elif kind is not None and not self.tracked_edit(tool_call.name, kind, path):
                 yield snapshot_path(path, self.workspace)
         elif tool_call.name not in READ_TOOLS and not isinstance(result.content, str):
             for index, part in enumerate(normalize_content(result.content)):
@@ -125,7 +138,9 @@ class ArtifactsAddon(Addon):
             return
         session_id = owner.session_id
         try:
-            for captured in self.snapshots(tool_call, result):
+            # Reading files and asking git happen off the event loop.
+            captures = await asyncio.to_thread(lambda: list(self.snapshots(tool_call, result)))
+            for captured in captures:
                 saved = await asyncio.to_thread(self.store.save, session_id, captured, tool_call.id)
                 if saved is not None:
                     event, body = artifact_frame(self.store, session_id, saved)
