@@ -103,9 +103,14 @@ def latest_version(
 ) -> str | None:
     """Return the newest PyPI version, or None when PyPI cannot be reached."""
     request = urllib.request.Request(PYPI_URL, headers={"Accept": "application/json"})
-    open_url = opener or urllib.request.urlopen
+    if opener is None:
+        from coding_agent.tls import https_context
+
+        def opener(request: urllib.request.Request, *, timeout: float) -> object:
+            return urllib.request.urlopen(request, timeout=timeout, context=https_context())
+
     try:
-        with open_url(request, timeout=timeout) as response:
+        with opener(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeError, ValueError):
         return None
@@ -189,7 +194,7 @@ def run_startup_update_check(*, unattended: bool = False) -> str:
     config = ensure_spawn_settings(symphony_dir())
     if unattended and not config.updates.auto:
         return "continue"
-    return startup_update_check(config.updates.model_dump()).action
+    return startup_update_check({"updates": config.updates.model_dump()}).action
 
 
 def startup_update_check(

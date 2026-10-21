@@ -1277,9 +1277,10 @@ requires-dist = [
 
 [[package]]
 name = "symphony-code"
-version = "0.0.2"
+version = "0.0.3"
 source = { editable = "coding_agent" }
 dependencies = [
+    { name = "certifi" },
     { name = "pillow" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1304,6 +1305,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2024.2.2" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=3.0.0" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
