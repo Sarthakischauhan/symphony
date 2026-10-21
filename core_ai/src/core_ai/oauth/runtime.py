@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-from core_ai.oauth.anthropic import OAUTH_BETA
+from core_ai.oauth.anthropic import INFERENCE_BASE_URL, OAUTH_BETA
 from core_ai.oauth.openai_codex import CODEX_BASE_URL, codex_request_headers
 from core_ai.oauth.store import load_token, load_valid_token, refresh_stored_token, save_token
 from core_ai.oauth.types import OAuthToken
@@ -75,6 +75,7 @@ def _runtime_from_token(provider_id: str, token: OAuthToken) -> OAuthRuntime | N
         return OAuthRuntime(
             token=token,
             api_key=token.access_token,
+            base_url=INFERENCE_BASE_URL,
             extra_headers={"anthropic-beta": OAUTH_BETA},
             use_bearer=True,
         )
