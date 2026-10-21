@@ -37,7 +37,8 @@ import type { Preferences } from "./Settings";
 import { Welcome } from "./Welcome";
 import { ContextMeter } from "./ContextMeter";
 import { ThreadPalette } from "./Palette";
-import { Folder, GitBranch } from "lucide-react";
+import { Folder, GitBranch, Layers } from "lucide-react";
+import { ArtifactsPanel } from "./artifacts/Panel";
 import { Button } from "@/components/ui/button";
 import {
   SidebarInset,
@@ -139,6 +140,9 @@ export function App() {
     [connected, setConnected] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null),
     [catalog, setCatalog] = useState<Catalog | null>(null);
+  // Artifact events bump the revision; the panel refetches its listing.
+  const [artifactsOpen, setArtifactsOpen] = useState(false),
+    [artifactRevision, setArtifactRevision] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("symphony-sidebar-open") !== "false",
   );
@@ -226,6 +230,10 @@ export function App() {
           const frame = parseFrame(JSON.parse(e.data));
           if (!frame) return;
           enqueue(frame, seq);
+          if (frame.type === "event" && frame.event.startsWith("artifact/")) {
+            setArtifactRevision((n) => n + 1);
+            if (frame.event === "artifact/created") setArtifactsOpen(true);
+          }
           if (
             frame.type === "done" ||
             (frame.type === "event" && frame.event === "run_started")
@@ -439,6 +447,18 @@ export function App() {
                     {shown.name}
                   </span>
                 )}
+                {selected && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="pill"
+                    aria-pressed={artifactsOpen}
+                    onClick={() => setArtifactsOpen(!artifactsOpen)}
+                  >
+                    <Layers aria-hidden="true" />
+                    Artifacts
+                  </Button>
+                )}
                 {owned && state.busy && (
                   <Button
                     variant="outline"
@@ -543,6 +563,13 @@ export function App() {
                   )}
                 </div>
               </div>
+              {selected && artifactsOpen && (
+                <ArtifactsPanel
+                  sessionId={selected}
+                  revision={artifactRevision}
+                  onClose={() => setArtifactsOpen(false)}
+                />
+              )}
               <div className="chat-composer">
                 {locked && (
                   <p className="composer-note">

@@ -16,7 +16,14 @@ from coding_agent.commands.catalog import EFFORTS
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.protocols.stdio import commands as command_module
 from coding_agent.protocols.stdio.commands import load_state
-from coding_agent.protocols.stdio.requests import ready_frame, select_model, session_history, session_list
+from coding_agent.protocols.stdio.requests import (
+    artifact_get,
+    artifact_list,
+    ready_frame,
+    select_model,
+    session_history,
+    session_list,
+)
 from coding_agent.protocols.stdio.transport import PROTOCOL_VERSION, StdioSink
 
 if TYPE_CHECKING:
@@ -133,6 +140,25 @@ async def serve(
                     "protocol_version": PROTOCOL_VERSION,
                 })
             except Exception as exc:
+                stdio.write_frame({
+                    "type": "error", "request_id": request_id, "message": f"{type(exc).__name__}: {exc}",
+                })
+        elif kind in {"artifacts/list", "artifacts/get"}:
+            request_id = _request_id(command, kind)
+            if request_id is None:
+                continue
+            try:
+                target = command.get("session_id", agent.session_id)
+                if not isinstance(target, str) or not target:
+                    raise ValueError(f"{kind} session_id must be a non-empty string")
+                if kind == "artifacts/list":
+                    stdio.write_frame(artifact_list(agent, request_id, target))
+                else:
+                    artifact = command.get("artifact_id")
+                    if not isinstance(artifact, str) or not artifact:
+                        raise ValueError("artifacts/get requires artifact_id")
+                    stdio.write_frame(artifact_get(agent, request_id, target, artifact))
+            except (ValueError, KeyError, OSError) as exc:
                 stdio.write_frame({
                     "type": "error", "request_id": request_id, "message": f"{type(exc).__name__}: {exc}",
                 })

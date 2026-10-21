@@ -239,6 +239,11 @@ class Sessions:
         return {"messages": reply.get("messages", []), "events": reply.get("events", []),
                 "children": reply.get("children", [])}
 
+    def artifacts(self, session_id: str) -> JsonObject:
+        """The session's artifact manifests (the stdio ``artifacts/list`` reply)."""
+        reply = self.control().request("artifacts/list", session_id=session_id)
+        return {"artifacts": objects(reply, "artifacts")}
+
     def resume(self, session_id: str | None = None, model: str | None = None) -> str:
         """Open a worker on ``session_id`` (a new session when omitted).
 
