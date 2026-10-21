@@ -19,7 +19,7 @@ def detach(run_argv: list[str], workspace: Path) -> int:
     root = JsonlPersistence(sessions_dir(workspace)).session_dir(session_id)
     root.mkdir(parents=True, exist_ok=True)
     log_path = root / "run.log"
-    command = [sys.executable, "-m", "coding_agent.tui", "run", *run_argv, "--session-id", session_id]
+    command = [sys.executable, "-m", "coding_agent.cli", "run", *run_argv, "--session-id", session_id]
     with log_path.open("ab") as log:
         proc = subprocess.Popen(
             command, start_new_session=True, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT

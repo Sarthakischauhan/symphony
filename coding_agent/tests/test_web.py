@@ -302,7 +302,7 @@ def test_historical_web_sessions_come_from_session_frames(web):
 
 
 def test_cli_web_dispatch(monkeypatch):
-    from coding_agent.tui.__main__ import main
+    from coding_agent.cli import main
 
     calls = []
     monkeypatch.setattr(sys, "argv", ["symphony", "web", "--no-browser"])
@@ -401,7 +401,7 @@ def test_cli_opens_browser(monkeypatch, tmp_path, static):
         server.threading, "Timer", lambda delay, callback, args: SimpleNamespace(start=lambda: callback(*args), cancel=lambda: None)
     )
     monkeypatch.setattr(server.Server, "serve_forever", lambda self: None)
-    monkeypatch.setattr(server, "resolve_static", lambda root: static)
+    monkeypatch.setattr(server, "resolve_static", lambda root, **_: static)
     assert server.main(["--workspace", str(tmp_path)]) == 0
     assert len(opened) == 1 and opened[0].startswith("http://127.0.0.1:")
     assert len(opened[0].split("#")[1]) >= 32
@@ -418,7 +418,7 @@ import sys
 from pathlib import Path
 from coding_agent.web import server
 from coding_agent.web.sessions import Sessions
-server.resolve_static = lambda root: Path(sys.argv[1])
+server.resolve_static = lambda root, **_: Path(sys.argv[1])
 def warm(self):
     self.control()
     self.resume()

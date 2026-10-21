@@ -8,7 +8,8 @@ This document describes the current implementation in `coding_agent/src/coding_a
 
 ```mermaid
 flowchart TD
-    CLI["symphony / symphony-code / coding-agent-tui / python -m coding_agent.tui"] --> MAIN["tui.__main__.main()"]
+    CLI["symphony / symphony-code / coding-agent-tui"] --> ENTRY["coding_agent.cli.main()<br/>routes web/stdio/acp/bench/run without importing the TUI"]
+    ENTRY --> MAIN["tui.__main__.main()"]
     MAIN --> RESUME{"--resume?"}
     RESUME -- Yes --> PICK["Load JSONL session options<br/>ResumeApp selects session"]
     RESUME -- No --> RUN
@@ -279,6 +280,7 @@ lifecycle hook.
 
 ```text
 symphony (also symphony-code, coding-agent-tui)
+  → coding_agent.cli.main()  (no subcommand)
   → coding_agent.tui.__main__.main()
   → optional ResumeApp
   → run_tui()

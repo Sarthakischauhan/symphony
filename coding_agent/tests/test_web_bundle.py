@@ -14,6 +14,7 @@ import pytest
 from coding_agent.web import server
 from coding_agent.web.bundle import (
     INSTALL_HINT,
+    PINNED,
     BundleError,
     asset_url,
     install,
@@ -141,9 +142,10 @@ def test_rollback_swaps_current_and_previous(tmp_path: Path) -> None:
     assert rollback(tmp_path) == "0.0.1"
     assert (tmp_path / "current" / "index.html").read_text() == "one"
     assert os.readlink(tmp_path / "previous") == "0.0.2"
-    # Rolling back again returns to the newer bundle; nothing was pruned.
+    # Rolling back again returns to the newer bundle; nothing was pruned and
+    # the choice stays pinned.
     assert rollback(tmp_path) == "0.0.2"
-    assert entries(tmp_path) == {"0.0.1", "0.0.2", "current", "previous"}
+    assert entries(tmp_path) == {"0.0.1", "0.0.2", "current", "previous", PINNED}
 
 
 # server path resolution
@@ -183,7 +185,7 @@ def test_server_without_bundle_or_source_names_the_update_command(
     with pytest.raises(BundleError, match="symphony web --update"):
         resolve_static(tmp_path / "web", tmp_path / "web-ui", build=False)
     monkeypatch.setenv("SYMPHONY_HOME", str(tmp_path / "home"))
-    monkeypatch.setattr(server, "resolve_static", lambda root: resolve_static(root, tmp_path / "missing"))
+    monkeypatch.setattr(server, "resolve_static", lambda root, **_: resolve_static(root, tmp_path / "missing"))
     assert server.main(["--no-browser"]) == 1
     assert INSTALL_HINT in capsys.readouterr().err
 
@@ -196,12 +198,80 @@ def test_cli_update_and_rollback(
     releases.publish("0.0.2", bundle("two"))
     monkeypatch.setenv("SYMPHONY_HOME", str(tmp_path))
 
-    def fetching(version: str, root: Path) -> Path:
-        return install(version, root, fetch=releases.fetch)
+    def fetching(version: str, root: Path, *, pin: bool = False) -> Path:
+        return install(version, root, fetch=releases.fetch, pin=pin)
 
     monkeypatch.setattr(server, "install", fetching)
+    monkeypatch.setattr(server, "installed_version", lambda: "0.0.2")
+    web = tmp_path / "web"
+    # A release other than the installed one is pinned; the installed one is not.
     assert server.main(["--update", "--bundle-version", "0.0.1"]) == 0
-    assert server.main(["--update", "--bundle-version", "0.0.2"]) == 0
+    assert (web / PINNED).read_text().strip() == "0.0.1"
+    assert server.main(["--update"]) == 0
+    assert os.readlink(web / "current") == "0.0.2" and not (web / PINNED).exists()
     assert server.main(["--rollback"]) == 0
     assert "rolled back to 0.0.1" in capsys.readouterr().out
-    assert os.readlink(tmp_path / "web" / "current") == "0.0.1"
+    assert os.readlink(web / "current") == "0.0.1" and (web / PINNED).is_file()
+    # Without an installed release (source checkout, local wheel) nothing syncs, so nothing pins.
+    monkeypatch.setattr(server, "installed_version", lambda: None)
+    assert server.main(["--update", "--bundle-version", "0.0.1"]) == 0
+    assert not (web / PINNED).exists()
+
+
+# serving the installed release's bundle
+
+
+def test_clean_start_installs_the_installed_release(tmp_path: Path) -> None:
+    releases = Releases()
+    releases.publish("0.0.1", bundle("one"))
+    root = tmp_path / "web"
+    served = resolve_static(root, tmp_path / "missing", version="0.0.1", fetch=releases.fetch)
+    assert served == (root / "0.0.1").resolve()
+    assert (served / "index.html").read_text() == "one"
+    # Already on the installed release: nothing is fetched.
+    releases.fetched.clear()
+    assert resolve_static(root, tmp_path / "missing", version="0.0.1", fetch=releases.fetch) == served
+    assert releases.fetched == []
+
+
+def test_start_after_a_package_upgrade_switches_and_keeps_the_previous(tmp_path: Path) -> None:
+    releases = Releases()
+    for version in ("0.0.1", "0.0.2"):
+        releases.publish(version, bundle(version))
+    install("0.0.1", tmp_path, fetch=releases.fetch)
+    served = resolve_static(tmp_path, tmp_path / "missing", version="0.0.2", fetch=releases.fetch)
+    assert served == (tmp_path / "0.0.2").resolve()
+    assert os.readlink(tmp_path / "previous") == "0.0.1"
+    assert entries(tmp_path) == {"0.0.1", "0.0.2", "current", "previous"}
+
+
+def test_rollback_is_pinned_until_the_next_install(tmp_path: Path) -> None:
+    releases = Releases()
+    for version in ("0.0.1", "0.0.2"):
+        releases.publish(version, bundle(version))
+    install("0.0.1", tmp_path, fetch=releases.fetch)
+    install("0.0.2", tmp_path, fetch=releases.fetch)
+    assert not (tmp_path / PINNED).exists()
+    rollback(tmp_path)
+    releases.fetched.clear()
+    served = resolve_static(tmp_path, tmp_path / "missing", version="0.0.2", fetch=releases.fetch)
+    assert served == (tmp_path / "0.0.1").resolve() and releases.fetched == []
+    install("0.0.2", tmp_path, fetch=releases.fetch)
+    assert not (tmp_path / PINNED).exists()
+    assert os.readlink(tmp_path / "current") == "0.0.2"
+
+
+def test_failed_sync_serves_the_installed_bundle_but_a_clean_start_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    releases = Releases()
+    releases.publish("0.0.1", bundle("one"))
+    root = tmp_path / "web"
+    install("0.0.1", root, fetch=releases.fetch)
+    served = resolve_static(root, tmp_path / "missing", version="0.0.2", fetch=releases.fetch)
+    assert served == (root / "0.0.1").resolve()
+    assert "serving 0.0.1 instead" in capsys.readouterr().err
+    assert entries(root) == {"0.0.1", "current"}
+    with pytest.raises(BundleError, match="download failed") as failure:
+        resolve_static(tmp_path / "clean", tmp_path / "missing", version="0.0.2", fetch=releases.fetch)
+    assert INSTALL_HINT in str(failure.value)

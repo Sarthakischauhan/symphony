@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `symphony web` serves the web bundle for the installed `symphony-code`
+  release. A first run, or a run after `uv tool upgrade`, downloads and
+  switches to the matching `web-<version>.tar.gz` before starting; the old
+  bundle stays as `previous`. If the download fails, an installed bundle is
+  still served. `symphony web --rollback` now pins its choice
+  (`~/.symphony/web/pinned`) until the next `symphony web --update`.
+- The `symphony` command routes `web`, `stdio`, `acp`, `bench` and `run`
+  without importing the TUI or Textual.
+
 - Stdio protocol 3 (`widget_fields` capability): tool events carry `call_id`,
   `parent_call_id`, output `stream`, and completion `exit_code` and `summary`;
   approvals carry `target`, `detail` and `bytes`; a derived

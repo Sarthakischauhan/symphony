@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
 from pathlib import Path
 
 from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
@@ -65,35 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] in {"--version", "-V"}:
-        from importlib.metadata import PackageNotFoundError, version
-
-        try:
-            value = version("symphony-code")
-        except PackageNotFoundError:
-            value = "unknown"
-        print(f"symphony {value}")
-        return
-    if len(sys.argv) > 1 and sys.argv[1] == "web":
-        from coding_agent.web.server import main as web_main
-
-        raise SystemExit(web_main(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "stdio":
-        from coding_agent.protocols.stdio.server import main as stdio_main
-
-        raise SystemExit(stdio_main(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "acp":
-        from coding_agent.protocols.acp.server import main as acp_main
-
-        raise SystemExit(acp_main(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "bench":
-        from coding_agent.bench.cli import main as bench_main
-
-        raise SystemExit(bench_main(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "run":
-        from coding_agent.run.cli import main as run_main
-
-        raise SystemExit(run_main(sys.argv[2:]))
+    """Run the terminal UI. Subcommands are routed by :mod:`coding_agent.cli`."""
     parser = build_parser()
     args = parser.parse_args()
     from coding_agent.updates import run_startup_update_check
@@ -127,4 +98,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # `python -m coding_agent.tui <subcommand>` still routes like `symphony`.
+    from coding_agent.cli import main as cli_main
+
+    cli_main()

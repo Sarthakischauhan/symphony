@@ -113,10 +113,23 @@ Built assets are not committed or shipped in the wheel. Each release's
 download the asset for the installed `symphony-code`, verify the SHA-256, extract
 it in a temp dir under `~/.symphony/web/`, rename it to `~/.symphony/web/<version>/`,
 and swap the `current` symlink by rename (the old target becomes `previous`). Only
-`current` and `previous` are kept. `symphony web --rollback` swaps them back.
-`symphony web` serves `~/.symphony/web/current`; in a source checkout without an
-installed bundle it serves `coding_agent/web-ui/dist`, running `npm ci`/`npm run
-build` first if needed. Otherwise it exits and names `symphony web --update`.
+`current` and `previous` are kept.
+
+`symphony web` serves the bundle for the installed `symphony-code` release. If
+`~/.symphony/web/current` is missing or points at another release (a first run,
+or a package upgraded with `uv tool upgrade`), it installs the matching bundle
+the same way before starting, and the old one becomes `previous`. If that
+download fails, an existing `current` is still served with a warning; with
+nothing installed it exits and names `symphony web --update`. A source checkout
+or a local (`file://`) install has no release to match: it serves `current` if
+present, else `coding_agent/web-ui/dist`, running `npm ci`/`npm run build` first
+if needed.
+
+`symphony web --rollback` swaps `current` and `previous` and writes
+`~/.symphony/web/pinned`, as does `--update --bundle-version X` for a release
+other than the installed one. While pinned, startup does not switch bundles; the
+next `--update` for the installed release (or `install.sh`, or a self-update)
+removes the pin.
 The browser integration test uses Playwright Chromium (system `chromium` when
 available, otherwise `uv run playwright install chromium`); Chromium's sandbox
 must be supported on the test host.

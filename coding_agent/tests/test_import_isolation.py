@@ -1,7 +1,8 @@
 """Headless layers must not load the Textual TUI.
 
-The stdio server and the voice add-on run without a terminal UI (Zeron hosts
-the server; the add-on is a harness hook). Each check runs in a fresh
+The stdio server, Symphony Web and the voice add-on run without a terminal UI
+(Zeron hosts the server; the add-on is a harness hook), and the ``symphony``
+entry point must reach them without importing the TUI first. Each check runs in a fresh
 interpreter, because this test process has usually imported the TUI already.
 """
 
@@ -16,6 +17,9 @@ import pytest
 HEADLESS_MODULES = (
     "coding_agent.protocols.stdio.server",
     "coding_agent.protocols.stdio.commands",
+    "coding_agent.web.server",
+    "coding_agent.web.worker",
+    "coding_agent.cli",
     "coding_agent.addons.voice.addon",
     "coding_agent.addons.voice.speak",
     "coding_agent.addons.voice.stream",
@@ -55,6 +59,26 @@ def test_stdio_server_and_voice_addon_together_leave_textual_unloaded() -> None:
         [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, check=True
     )
     assert done.stdout.strip() == "False"
+
+
+@pytest.mark.parametrize("command", ["web", "stdio", "acp", "bench", "run"])
+def test_symphony_subcommands_do_not_load_textual_or_the_tui(command: str) -> None:
+    # Parsing --help imports the subcommand's module and exits before any work.
+    script = (
+        "import sys\n"
+        "from coding_agent.cli import main\n"
+        f"sys.argv = ['symphony', {command!r}, '--help']\n"
+        "try:\n"
+        "    main()\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        "print(','.join(sorted(name for name in sys.modules\n"
+        "    if name == 'textual' or name.startswith(('textual.', 'coding_agent.tui')))), file=sys.stderr)\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, check=True
+    )
+    assert done.stderr.strip() == ""
 
 
 def test_old_import_paths_hand_back_the_moved_objects() -> None:
