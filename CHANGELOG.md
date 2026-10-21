@@ -1,7 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.0.2 — 2026-10-21
 
+`symphony-code` only; `symphony-core` and `symphony-harness` stay at 0.0.1.
+
+- Symphony Web: `symphony web [--workspace PATH] [--model PROVIDER:MODEL]
+  [--port PORT] [--no-browser]` runs the coding agent in a local browser UI.
+  A standard-library HTTP server on `127.0.0.1` drives one stdio worker per
+  session, shares the TUI's session storage and locks, and applies the same
+  providers, tools, approvals and deny rules. Requests need a per-launch
+  capability token kept in the URL fragment. The frontend is not in the wheel:
+  each GitHub release carries `web-<version>.tar.gz` and its `.sha256`, which
+  `install.sh`, the self-update, and `symphony web --update` install under
+  `~/.symphony/web/`. See the [Web guide](docs/developer-guide/web.md).
 - `symphony web` serves the web bundle for the installed `symphony-code`
   release. A first run, or a run after `uv tool upgrade`, downloads and
   switches to the matching `web-<version>.tar.gz` before starting; the old
@@ -10,7 +21,6 @@
   (`~/.symphony/web/pinned`) until the next `symphony web --update`.
 - The `symphony` command routes `web`, `stdio`, `acp`, `bench` and `run`
   without importing the TUI or Textual.
-
 - Stdio protocol 3 (`widget_fields` capability): tool events carry `call_id`,
   `parent_call_id`, output `stream`, and completion `exit_code` and `summary`;
   approvals carry `target`, `detail` and `bytes`; a derived
@@ -18,6 +28,8 @@
   stderr separately, and a non-zero exit is now a tool error. The TUI uses these
   fields and falls back to the old derivation for old sessions. The session
   journal stores the same fields, so reloads and `session/history` keep them.
+
+## 0.0.1 — 2026-10-18
 
 - Removed plan mode, its entry/exit tools, mode controls, saved-plan commands,
   and plan approval/build UI. There is no replacement planning gate; normal
