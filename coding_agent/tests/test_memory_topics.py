@@ -97,6 +97,26 @@ def test_legacy_files_are_never_read_and_lessons_still_work(tmp_path):
     assert store.search('compatibility') == []
 
 
+def test_system_ancestor_symlinks_are_allowed(tmp_path, monkeypatch):
+    # /var is a symlink on macOS. Temporary homes there must still be usable,
+    # while a symlink at the configured home or memory root remains rejected.
+    home = tmp_path / "real-home"
+    home.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(home, target_is_directory=True)
+    monkeypatch.setenv("HOME", str(linked_parent / "home"))
+    monkeypatch.delenv("SYMPHONY_HOME", raising=False)
+    store = LearningStore(tmp_path / "workspace")
+    store.record_observation("Use pytest for regression tests", topic="testing")
+    store.consolidate()
+    assert "pytest" in store.get_topic("testing")
+    linked_home = tmp_path / "linked-home"
+    linked_home.symlink_to(home, target_is_directory=True)
+    monkeypatch.setenv("HOME", str(linked_home))
+    with pytest.raises(ValueError, match="unsafe memory root"):
+        LearningStore(tmp_path / "workspace")
+
+
 def test_symlink_topics_rejected_and_query_sanitized(tmp_path):
     store = make_store(tmp_path)
     outside = tmp_path / 'outside.json'

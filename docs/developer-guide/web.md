@@ -70,8 +70,8 @@ your user permissions; the browser UI does not add a filesystem sandbox.
 ## Frontend and wheel pipeline
 
 `coding_agent/web-ui` is a React/Vite application. All chat UI comes from
-`@sarchauhan/chat` (the `feat/tool-widgets-direction-b` build, which is ahead of
-the published `0.0.1`): the composer (`ChatComposer` inside
+the published `@sarchauhan/chat@0.0.2` package with
+`@sarchauhan/protocol@0.0.3` and `@sarchauhan/adapter@0.0.1`: the composer (`ChatComposer` inside
 `ChatContextProvider`), message rendering (`MessageContent`, `MessageUsage`),
 `LoadingState`, the model picker, and the read, patch, search, terminal,
 artifact, and subagent widgets. The session sidebar is the shadcn/ui `Sidebar`
@@ -121,12 +121,13 @@ The browser integration test uses Playwright Chromium (system `chromium` when
 available, otherwise `uv run playwright install chromium`); Chromium's sandbox
 must be supported on the test host.
 
-The published Chat package currently imports six helpers missing from its
-published protocol dependency. `src/protocol-compat.ts` supplies backend-neutral
-artifact/subagent envelopes and parsers plus usage/context parsers via a Vite
-alias, re-exporting the installed protocol. The explicit protocol override and
-lockfile make this reproducible. Remove this bridge when a compatible SDK is
-published; do not patch `node_modules` or publish a fork as part of this feature.
+The frontend installs the published chat, protocol, and adapter packages directly
+from npm, pinned in `package.json` and `package-lock.json`. Protocol `0.0.3`
+supplies the artifact/subagent and usage/context helpers that were missing in
+protocol `0.0.1` and `0.0.2`. Chat `0.0.2` depends on adapter `0.0.1`. No Git
+checkout/build install hook or Vite compatibility alias is needed. SDK upgrades
+take effect when this frontend is rebuilt and its web release asset is published;
+existing installed bundles do not change merely because a new SDK package is published.
 
 HTTP/worker tests run a local OpenAI-compatible model stub through the real agent,
 so no provider keys or live model requests are required. They cover history,

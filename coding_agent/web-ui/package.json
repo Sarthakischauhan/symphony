@@ -5,13 +5,12 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run",
-    "preinstall": "./scripts/fetch-chat-sdk.sh"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@sarchauhan/adapter": "file:.chat-sdk/adapter",
-    "@sarchauhan/chat": "file:.chat-sdk/chat",
-    "@sarchauhan/protocol": "file:.chat-sdk/protocol",
+    "@sarchauhan/adapter": "0.0.1",
+    "@sarchauhan/chat": "0.0.2",
+    "@sarchauhan/protocol": "0.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "^1.59.0",

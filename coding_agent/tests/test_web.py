@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -197,7 +198,10 @@ def test_workspace_info_models_and_commands_come_from_the_worker(web):
     status, catalog = request(web, "/api/models")
     assert status == 200, catalog
     # The chat SDK registry shape, built from the worker's model/list reply.
-    assert catalog["defaultProviderId"] == "local"
+    # Unqualified LOCAL_MODEL resolves to the first configured provider, so the
+    # catalog default follows the developer shell. The worker's own model does not.
+    assert isinstance(catalog["defaultProviderId"], str) and catalog["defaultProviderId"]
+    assert catalog["default"]
     local = next(p for p in catalog["providers"] if p["id"] == "local")
     assert any(m["id"] == "local:web-test" for m in local["models"])
     # contextWindow is the frame's context_limit, only when it is a positive int.
@@ -315,7 +319,13 @@ def test_browser_refresh_streaming_and_approval(web):
     from playwright.sync_api import sync_playwright, expect
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=shutil.which("chromium"), chromium_sandbox=True)
+        chromium = shutil.which("chromium") or shutil.which("chromium-browser")
+        if chromium is None:
+            chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+            chromium = str(chrome) if chrome.is_file() else None
+        if chromium is None:
+            pytest.skip("chromium or Google Chrome is required for the browser test")
+        browser = playwright.chromium.launch(executable_path=chromium, chromium_sandbox=True)
         page = browser.new_page()
         failures = []
         page.on("pageerror", lambda error: failures.append(str(error)))
