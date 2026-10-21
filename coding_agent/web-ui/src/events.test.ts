@@ -9,6 +9,7 @@ import {
   type State,
 } from "./events";
 import { parseFrame } from "./frames";
+import { parseArtifact, parseSubagent, parseUsage } from "@sarchauhan/protocol";
 
 // Frames arrive as JSON; parse them the way the SSE handler does.
 const apply = (state: State, raw: unknown, id: number) => {
@@ -168,6 +169,31 @@ describe("Symphony event adapter", () => {
     ]);
     expect(partsOf(s, 0)[0].data.messages[0].parts[0].text).toBe("Child reply");
     expect(partsOf(s, 0).some((p) => p.type === "text")).toBe(false);
+  });
+  it("validates published protocol envelopes", () => {
+    expect(parseArtifact(null)).toBeNull();
+    expect(parseArtifact({ id: "a", filename: "a.txt" })).toBeNull();
+    expect(parseSubagent({ id: "x", title: "x", state: "bogus" })).toBeNull();
+    expect(
+      parseSubagent({ id: "x", title: "x", state: "running" })?.state,
+    ).toBe("running");
+    expect(
+      parseArtifact({
+        id: "a",
+        filename: "a.txt",
+        mediaType: "text/plain",
+        content: "<script>bad</script>",
+      })?.content,
+    ).toContain("<script>");
+    expect(
+      parseArtifact({ id: "a", filename: "a.txt", mediaType: "text/plain", status: "bogus" })?.status,
+    ).toBe("ready");
+    expect(parseUsage({ total_tokens: 5, input_tokens: "x" })).toEqual({
+      input_tokens: undefined,
+      output_tokens: undefined,
+      reasoning_tokens: undefined,
+      total_tokens: 5,
+    });
   });
   it("rebuilds history from the session_history reply", () => {
     const s = historical({

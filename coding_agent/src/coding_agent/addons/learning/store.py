@@ -97,8 +97,12 @@ class LearningStore:
         self._lock_depth = 0
         for root in self.roots.values():
             # Validate every ancestor, including a supplied global root.
+            # macOS system directories such as /var may themselves be symlinks;
+            # those are outside the configured home and are not attacker-created
+            # memory roots. Reject the root and every ancestor at or below home.
+            home = Path.home().absolute()
             for parent in (root, *root.parents):
-                if parent.is_symlink():
+                if parent.is_symlink() and (parent == root or parent == home or home in parent.parents):
                     raise ValueError("unsafe memory root")
             for relative in ("topics", "observations/_inbox", "observations/archive", "jobs"):
                 safe_path(root, relative).mkdir(parents=True, exist_ok=True)
