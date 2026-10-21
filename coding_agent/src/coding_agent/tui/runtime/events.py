@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import re
 import time
+from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
+from coding_agent.addons.artifacts import ARTIFACT_CREATED, ARTIFACT_UPDATED
 from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
@@ -149,6 +151,8 @@ class TranscriptView(Protocol):
 
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
+    def add_artifact(self, title: str, detail: str, path: Path) -> None: ...
+
     def add_update(self, text: str, hint: str = "") -> None: ...
 
     def add_run_summary(
@@ -249,7 +253,9 @@ class EventPresenter:
             if event_type != "run_started":
                 self.flush_stream_paints()
         handler = getattr(self, f"_on_{event_type}", None)
-        if handler is None:
+        if event_type in {ARTIFACT_CREATED, ARTIFACT_UPDATED}:
+            self._on_artifact(event_type, payload)
+        elif handler is None:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
@@ -258,6 +264,16 @@ class EventPresenter:
         after = self._chrome_snapshot()
         if after != before:
             self.refresh_chrome()
+
+    def _on_artifact(self, event_type: str, payload: Mapping[str, Any]) -> None:
+        """``Artifact: <title>`` with its kind, version and entry path."""
+        path, title = payload.get("path"), payload.get("title")
+        if not isinstance(path, str) or not isinstance(title, str):
+            return
+        detail = f"{payload.get('kind')} · v{payload.get('version')}"
+        if event_type == ARTIFACT_UPDATED:
+            detail += " · updated"
+        self.view.add_artifact(title, detail, Path(path))
 
     def flush_stream_to_log(self) -> None:
         """Paint any buffered stream text, then close the live assistant widget."""

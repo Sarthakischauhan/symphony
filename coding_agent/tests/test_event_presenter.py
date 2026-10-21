@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping, Optional
 
 import pytest
@@ -22,6 +23,7 @@ class RecordingView:
         self.reasoning: list[tuple[str, bool]] = []
         self.finished_reasoning = 0
         self.tools: list[tuple[str, str]] = []
+        self.artifacts: list[tuple[str, str, Path]] = []
         self.tool_updates: list[str] = []
         self.tool_output: list[tuple[str, str]] = []
         self.outcomes: list[tuple[str, Any]] = []
@@ -96,6 +98,9 @@ class RecordingView:
     def add_update(self, text: str, hint: str = "") -> None:
         del hint
         self.updates.append(text)
+
+    def add_artifact(self, title: str, detail: str, path: Path) -> None:
+        self.artifacts.append((title, detail, path))
 
     def add_run_summary(
         self,
@@ -664,3 +669,15 @@ def test_stale_structural_flush_tick_does_not_drain_next_interval() -> None:
     assert view.tool_output == [("tool", "first")]
     scheduled[1]()
     assert view.tool_output == [("tool", "first"), ("tool", "second")]
+
+
+def test_artifact_events_add_an_artifact_row() -> None:
+    presenter, view, _ = _presenter()
+    manifest = {"kind": "csv", "version": 1, "title": "data.csv", "path": "/tmp/a/v1/data.csv"}
+    presenter.handle("artifact/created", manifest)
+    presenter.handle("artifact/updated", {**manifest, "version": 2, "path": "/tmp/a/v2/data.csv"})
+    presenter.handle("artifact/created", {"title": "no path"})
+    assert view.artifacts == [
+        ("data.csv", "csv · v1", Path("/tmp/a/v1/data.csv")),
+        ("data.csv", "csv · v2 · updated", Path("/tmp/a/v2/data.csv")),
+    ]

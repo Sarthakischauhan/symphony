@@ -43,6 +43,7 @@ from coding_agent.config import (
     ensure_spawn_settings,
     resolve_coding_agent_config,
 )
+from coding_agent.addons.artifacts import ArtifactsAddon, ArtifactStore
 from coding_agent.addons.evaluation import JEV_SYSTEM_SEGMENT
 from coding_agent.addons.learning import LearningLoop, LearningStore
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
@@ -217,6 +218,13 @@ class CodingAgent:
             self.workspace, self.sink, approvals=self.config.approvals, unattended=self.unattended
         )
         addons.append(self.approval)
+        # Artifacts live beside the session's transcript, so only a JSONL store keeps them.
+        self.artifacts: Optional[ArtifactsAddon] = (
+            ArtifactsAddon(ArtifactStore(self.persistence.root), self.workspace)
+            if isinstance(self.persistence, JsonlPersistence) else None
+        )
+        if self.artifacts is not None:
+            addons.append(self.artifacts)
         if self.config.skills.enabled:
             addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
         self.harness = CoreHarness(
@@ -309,7 +317,8 @@ class CodingAgent:
             should_inject=self.config.learning.enabled,
         ))
         gate = self.approval.fork_for_child(parent)
-        return addons + ([gate] if gate is not None else [])
+        artifacts = self.artifacts.fork_for_child(parent) if self.artifacts is not None else None
+        return addons + [addon for addon in (gate, artifacts) if addon is not None]
 
     async def run(
         self,

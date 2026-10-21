@@ -20,10 +20,10 @@ def _write(frame: Mapping[str, Any]) -> None:
 
     stdio.write_frame(frame)
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 CAPABILITIES = [
     "runs", "resume", "interrupt", "input", "steer", "models", "images", "subagents", "commands",
-    "sessions", "model_switch", "widget_fields",
+    "sessions", "model_switch", "widget_fields", "artifacts",
 ]
 # Approval fields lifted from the question's metadata onto input_requested.
 APPROVAL_FIELDS = ("target", "detail", "bytes")

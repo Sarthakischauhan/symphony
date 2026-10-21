@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.addons.persistence import register_active, release_active
+from coding_agent.addons.artifacts import ArtifactStore, snapshot_path
+from coding_agent.addons.persistence import register_active, release_active, sessions_dir
 from coding_agent.web.bundle import resolve_static
 from coding_agent.web.server import Server, stage_attachments
 from coding_agent.web.sessions import Sessions, registry
@@ -49,7 +50,10 @@ def model(monkeypatch):
                             "type": "function",
                             "function": {
                                 "name": "write_file",
-                                "arguments": json.dumps({"path": "web-result.txt", "content": "Web works\n"}),
+                                "arguments": json.dumps(
+                                    {"path": "table.csv", "content": "a,b\n1,2\n"} if "csv" in str(prompt)
+                                    else {"path": "web-result.txt", "content": "Web works\n"}
+                                ),
                             },
                         }
                     ]
@@ -519,3 +523,65 @@ def test_model_registry_takes_the_provider_from_the_model_rows() -> None:
     assert gateway["models"] == [{"id": "gw:vendor/model", "label": "Model", "contextWindow": 128000}]
     assert local["models"] == [{"id": "local:small", "label": "Small"}]
 
+
+
+def artifact_request(web, path, headers=None):
+    conn = http.client.HTTPConnection("127.0.0.1", web.server_port, timeout=10)
+    conn.request("GET", path, headers=headers or {})
+    response = conn.getresponse()
+    body = response.read()
+    conn.close()
+    return response.status, response.headers, body
+
+
+def test_artifact_files_are_sandboxed_and_cannot_traverse(tmp_path, static):
+    server = Server(("127.0.0.1", 0), Sessions(tmp_path), static)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        site = tmp_path / "site"
+        site.mkdir()
+        (site / "index.html").write_text("<script>document.title='x'</script>")
+        (site / "app.css").write_text("body{}")
+        sid = str(uuid.uuid4())
+        saved = ArtifactStore(sessions_dir(tmp_path, client="web")).save(sid, snapshot_path(site, tmp_path), "c1")
+        assert saved is not None
+        base = f"/artifacts/{server.artifact_token}/{sid}/{saved.manifest.id}"
+
+        status, headers, body = artifact_request(server, f"{base}/v1/index.html", {"Sec-Fetch-Site": "cross-site"})
+        assert status == 200 and body.startswith(b"<script>")
+        assert headers["Content-Type"] == "text/html"
+        policy = headers["Content-Security-Policy"]
+        assert policy.startswith("sandbox allow-scripts;") and "allow-same-origin" not in policy
+        assert f"frame-ancestors {server.origin}" in policy and "connect-src 'none'" in policy
+        assert artifact_request(server, f"{base}/v1/app.css")[1]["Content-Type"] == "text/css"
+
+        (tmp_path / "secret.txt").write_text("secret")
+        for path in [
+            f"{base}/v1/../../../../../secret.txt",
+            f"{base}/v1/%2e%2e/%2e%2e/manifest.json/../../x",
+            f"{base}/v1",
+            f"/artifacts/{server.artifact_token}/{sid}/..%2f..%2f/v1/index.html",
+        ]:
+            assert artifact_request(server, path)[0] in {400, 403, 404}, path
+        assert artifact_request(server, f"/artifacts/{server.token}/{sid}/{saved.manifest.id}/v1/index.html")[0] == 403
+        assert artifact_request(server, f"{base}/v1/index.html", {"Host": "evil.example"})[0] == 403
+        assert artifact_request(server, f"/artifacts/{server.artifact_token}/not-a-uuid/x/v1/a")[0] == 400
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.slow
+def test_session_artifacts_come_from_the_worker(web):
+    status, created = request(web, "/api/sessions", {})
+    sid = created["session_id"]
+    assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "write a csv"})[0] == 200
+    worker = web.sessions.workers[sid]
+    wait(worker, lambda w: any(e["data"].get("event") == "artifact/created" for e in w.events))
+    status, listed = request(web, f"/api/sessions/{sid}/artifacts")
+    assert status == 200 and listed["base"] == f"/artifacts/{web.artifact_token}/{sid}"
+    [artifact] = listed["artifacts"]
+    assert (artifact["kind"], artifact["title"], artifact["entry"]) == ("csv", "table.csv", "v1/table.csv")
+    status, _, body = artifact_request(web, f"{listed['base']}/{artifact['id']}/{artifact['entry']}")
+    assert status == 200 and body == b"a,b\n1,2\n"
+    assert request(web, f"/api/sessions/{sid}/artifacts", headers={"X-Symphony-Token": "bad"})[0] == 403

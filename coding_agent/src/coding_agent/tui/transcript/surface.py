@@ -9,6 +9,7 @@ Textual's scroll anchor on ``#transcript``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from textual import events
@@ -16,6 +17,7 @@ from textual.containers import VerticalScroll
 from textual.geometry import Offset
 from textual.widget import Widget
 
+from coding_agent.tui.transcript.artifact import ArtifactRow
 from coding_agent.tui.transcript.messages import (
     AssistantMessage,
     Notice,
@@ -287,6 +289,10 @@ class TranscriptSurface:
             self._mount_process_item(notice)
         else:
             self._mount_transcript(notice)
+
+    def add_artifact(self, title: str, detail: str, path: Path) -> None:
+        # In the transcript, not the run's work, so collapsing the run keeps it visible.
+        self._mount_transcript(ArtifactRow(title, detail, path))
 
     def add_run_summary(
         self,
