@@ -9,12 +9,19 @@ installed under ``<symphony dir>/web``::
       0.0.1/
       current -> 0.0.2
       previous -> 0.0.1
+      pinned          present after --rollback; stops the startup sync
 
 A download is staged in a hidden temp dir inside ``web/`` (same filesystem),
 checked against the published SHA-256, extracted there, and moved into place
 with a rename. ``current`` and ``previous`` are symlinks replaced with
 ``os.replace``, so a reader always sees either the old or the new target.
 Only the bundles named by ``current`` and ``previous`` are kept.
+
+``symphony web`` serves the bundle for the installed ``symphony-code``: when
+``current`` is missing or names another release, it installs the matching one
+before starting. A rollback, or an ``--update`` to a release other than the
+installed one, writes ``pinned`` so that choice survives restarts; the next
+plain install removes it.
 """
 
 from __future__ import annotations
@@ -23,6 +30,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 import urllib.request
 import uuid
@@ -33,6 +41,7 @@ RELEASES = "https://github.com/Sarthakischauhan/symphony/releases/download"
 TIMEOUT_SECONDS = 60.0
 CURRENT = "current"
 PREVIOUS = "previous"
+PINNED = "pinned"
 DIGEST = ".sha256"
 INSTALL_HINT = "Run `symphony web --update` (or re-run install.sh) to install the Symphony Web assets."
 # A source checkout keeps the frontend next to the Python package.
@@ -65,9 +74,13 @@ def download(url: str, dest: Path) -> None:
         raise BundleError(f"download failed: {url}: {exc}") from exc
 
 
-def install(version: str, root: Path, *, fetch: Fetch = download) -> Path:
-    """Install one release's bundle and make it current. Returns its directory."""
-    if not version or "/" in version or version.startswith(".") or version in {CURRENT, PREVIOUS}:
+def install(version: str, root: Path, *, fetch: Fetch = download, pin: bool = False) -> Path:
+    """Install one release's bundle and make it current. Returns its directory.
+
+    ``pin`` keeps it current across restarts even though it is not the
+    installed release; otherwise any earlier pin is removed.
+    """
+    if not version or "/" in version or version.startswith(".") or version in {CURRENT, PREVIOUS, PINNED}:
         raise BundleError(f"invalid version: {version!r}")
     root.mkdir(parents=True, exist_ok=True)
     _clean_staging(root)
@@ -79,7 +92,7 @@ def install(version: str, root: Path, *, fetch: Fetch = download) -> Path:
         expected = _expected_digest(stage / "checksum")
         target = root / version
         if (target / DIGEST).is_file() and (target / DIGEST).read_text().strip() == expected:
-            return switch(root, version)
+            return _activate(root, version, pin)
         archive = stage / "web.tar.gz"
         fetch(url, archive)
         actual = hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -97,7 +110,16 @@ def install(version: str, root: Path, *, fetch: Fetch = download) -> Path:
         extracted.rename(target)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
-    return switch(root, version)
+    return _activate(root, version, pin)
+
+
+def _activate(root: Path, version: str, pin: bool) -> Path:
+    target = switch(root, version)
+    if pin:
+        (root / PINNED).write_text(version + "\n")
+    else:
+        (root / PINNED).unlink(missing_ok=True)
+    return target
 
 
 def switch(root: Path, version: str) -> Path:
@@ -115,17 +137,45 @@ def switch(root: Path, version: str) -> Path:
 
 
 def rollback(root: Path) -> str:
-    """Swap ``current`` and ``previous``. Returns the version now current."""
+    """Swap ``current`` and ``previous`` and pin the result. Returns the version now current."""
     previous = _link_target(root / PREVIOUS)
     if previous is None or not (root / previous / "index.html").is_file():
         raise BundleError(f"no previous Symphony Web bundle to roll back to in {root}")
-    switch(root, previous)
+    _activate(root, previous, pin=True)
     return previous
 
 
-def resolve_static(root: Path, source: Path = SOURCE, *, build: bool = True) -> Path:
-    """Return the directory to serve: the installed bundle, else a source build."""
+def resolve_static(
+    root: Path,
+    source: Path = SOURCE,
+    *,
+    version: str | None = None,
+    build: bool = True,
+    fetch: Fetch = download,
+) -> Path:
+    """Return the directory to serve: the installed bundle, else a source build.
+
+    ``version`` is the installed ``symphony-code`` release (None in a source
+    checkout). Unless the bundle is pinned, a missing or different ``current``
+    is replaced by that release's bundle first. If that install fails, an
+    already installed bundle is still served, with a warning.
+    """
     current = root / CURRENT
+    installed = (current / "index.html").is_file()
+    pinned = installed and (root / PINNED).is_file()
+    if version is not None and not pinned and (not installed or _link_target(current) != version):
+        print(f"Installing Symphony Web {version} assets into {root}", flush=True)
+        try:
+            install(version, root, fetch=fetch)
+        except BundleError as exc:
+            if not installed:
+                raise BundleError(f"{exc}. {INSTALL_HINT}") from exc
+            print(
+                f"symphony web: warning: Symphony Web {version} was not installed ({exc}); "
+                f"serving {_link_target(current)} instead",
+                file=sys.stderr,
+                flush=True,
+            )
     if (current / "index.html").is_file():
         return current.resolve()
     if (source / "package.json").is_file():
@@ -206,6 +256,7 @@ def _clean_staging(root: Path) -> None:
 __all__ = [
     "BundleError",
     "INSTALL_HINT",
+    "PINNED",
     "asset_url",
     "bundle_root",
     "download",

@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from coding_agent.updates import installed_version
 from coding_agent.web.bundle import BundleError, bundle_root, install, resolve_static, rollback
 from coding_agent.web.sessions import JsonObject, Sessions, Worker, WorkerError
 
@@ -312,19 +313,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--bundle-version", help="Release to install with --update (default: installed symphony-code)")
     args = parser.parse_args(argv)
     root = bundle_root()
+    release = installed_version()
     try:
         if args.update:
-            from coding_agent.updates import installed_version
-
-            version = args.bundle_version or installed_version()
+            version = args.bundle_version or release
             if version is None:
                 parser.error("cannot tell the installed symphony-code release; pass --bundle-version")
-            print(f"Symphony Web {version} installed in {install(version, root)}", flush=True)
+            # A release other than the installed one is pinned, or the next start would replace it.
+            target = install(version, root, pin=release is not None and version != release)
+            print(f"Symphony Web {version} installed in {target}", flush=True)
             return 0
         if args.rollback:
-            print(f"Symphony Web rolled back to {rollback(root)}", flush=True)
+            version = rollback(root)
+            print(f"Symphony Web rolled back to {version}; it stays until `symphony web --update`", flush=True)
             return 0
-        static = resolve_static(root)
+        static = resolve_static(root, version=release)
     except BundleError as exc:
         print(f"symphony web: error: {exc}", file=sys.stderr, flush=True)
         return 1
