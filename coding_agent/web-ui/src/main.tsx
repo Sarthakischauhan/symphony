@@ -230,9 +230,9 @@ export function App() {
           const frame = parseFrame(JSON.parse(e.data));
           if (!frame) return;
           enqueue(frame, seq);
-          if (frame.type === "event" && frame.event.startsWith("artifact/")) {
+          if (frame.type === "event" && frame.event.startsWith("artifact_")) {
             setArtifactRevision((n) => n + 1);
-            if (frame.event === "artifact/created") setArtifactsOpen(true);
+            if (frame.event === "artifact_created") setArtifactsOpen(true);
           }
           if (
             frame.type === "done" ||

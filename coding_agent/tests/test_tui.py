@@ -1034,6 +1034,7 @@ def test_history_hides_compaction_summary() -> None:
             pass
 
     agent = SimpleNamespace(
+        artifacts=None,
         persistence=Persistence(),
         session_id="session",
         harness=SimpleNamespace(
@@ -1092,6 +1093,7 @@ def test_history_uses_compacted_projection_for_context_metrics() -> None:
             pass
 
     agent = SimpleNamespace(
+        artifacts=None,
         persistence=Persistence(),
         session_id="session",
         harness=SimpleNamespace(
@@ -1150,6 +1152,7 @@ def test_history_resume_folds_tools_into_explored() -> None:
             pass
 
     agent = SimpleNamespace(
+        artifacts=None,
         persistence=Persistence(),
         session_id="session",
         harness=SimpleNamespace(
@@ -1234,6 +1237,7 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
             pass
 
     agent = SimpleNamespace(
+        artifacts=None,
         persistence=Persistence(),
         session_id="session",
         harness=SimpleNamespace(
@@ -1345,6 +1349,7 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
             pass
 
     agent = SimpleNamespace(
+        artifacts=None,
         persistence=Persistence(),
         session_id="session",
         harness=SimpleNamespace(
@@ -1456,6 +1461,7 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
             pass
 
     agent = SimpleNamespace(
+        artifacts=None,
         persistence=Persistence(),
         session_id="session",
         harness=SimpleNamespace(
@@ -1524,6 +1530,7 @@ def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
             pass
 
     agent = SimpleNamespace(
+        artifacts=None,
         persistence=Persistence(),
         session_id="session",
         harness=SimpleNamespace(

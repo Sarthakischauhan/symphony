@@ -577,7 +577,7 @@ def test_session_artifacts_come_from_the_worker(web):
     sid = created["session_id"]
     assert request(web, f"/api/sessions/{sid}/prompt", {"prompt": "write a csv"})[0] == 200
     worker = web.sessions.workers[sid]
-    wait(worker, lambda w: any(e["data"].get("event") == "artifact/created" for e in w.events))
+    wait(worker, lambda w: any(e["data"].get("event") == "artifact_created" for e in w.events))
     status, listed = request(web, f"/api/sessions/{sid}/artifacts")
     assert status == 200 and listed["base"] == f"/artifacts/{web.artifact_token}/{sid}"
     [artifact] = listed["artifacts"]

@@ -674,10 +674,29 @@ def test_stale_structural_flush_tick_does_not_drain_next_interval() -> None:
 def test_artifact_events_add_an_artifact_row() -> None:
     presenter, view, _ = _presenter()
     manifest = {"kind": "csv", "version": 1, "title": "data.csv", "path": "/tmp/a/v1/data.csv"}
-    presenter.handle("artifact/created", manifest)
-    presenter.handle("artifact/updated", {**manifest, "version": 2, "path": "/tmp/a/v2/data.csv"})
-    presenter.handle("artifact/created", {"title": "no path"})
+    presenter.handle("artifact_created", manifest)
+    presenter.handle("artifact_updated", {**manifest, "version": 2, "path": "/tmp/a/v2/data.csv"})
+    presenter.handle("artifact_created", {"title": "no path"})
     assert view.artifacts == [
         ("data.csv", "csv · v1", Path("/tmp/a/v1/data.csv")),
         ("data.csv", "csv · v2 · updated", Path("/tmp/a/v2/data.csv")),
     ]
+
+
+@pytest.mark.parametrize(
+    ("payload", "text"),
+    [
+        ({"kind": "approval", "tool": "bash", "decision": "allow", "rule": "unattended"},
+         "auto-approved bash · unattended"),
+        ({"kind": "approval", "tool": "bash", "decision": "deny", "rule": "rm -rf *"},
+         "auto-denied bash · rule rm -rf *"),
+        ({"kind": "ask_user", "question": "Which color?"}, "auto-skipped question · unattended · Which color?"),
+        ({"kind": "approval", "tool": "patch"}, "auto decision · patch"),
+        ({}, "auto decision · tool"),
+    ],
+)
+def test_auto_decision_is_one_typed_line(payload: dict[str, Any], text: str) -> None:
+    presenter, view, _ = _presenter()
+    presenter.handle("auto_decision", {**payload, "run_id": "r", "session_id": "s", "seq": 3})
+    assert view.notices == [text]
+    assert "{" not in view.notices[0]

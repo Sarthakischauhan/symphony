@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import struct
+import subprocess
 import zlib
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from coding_agent.addons.artifacts import (
     snapshot_path,
 )
 from coding_agent.addons.artifacts.addon import site_of
+from coding_agent.addons.artifacts.noise import git_tracked, is_noise
 from coding_agent.addons.artifacts.capture import snapshot_image_part
 from coding_agent.addons.artifacts.kinds import kind_of
 from coding_agent.addons.artifacts.store import content_digest
@@ -30,6 +32,7 @@ from coding_agent.agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LangfuseConfig, LearningConfig
 from coding_agent.protocols.stdio.requests import artifact_get, artifact_list
 from coding_agent.tools.save_artifact import SaveArtifactArgs, SaveArtifactTool
+from coding_agent.tui.screens.history import load_session_history
 from coding_agent.tui.transcript import artifact as artifact_row
 
 from scripted_registry import ScriptedRegistry
@@ -264,14 +267,14 @@ def test_agent_run_emits_created_then_updated_and_serves_stdio(tmp_path: Path) -
     asyncio.run(agent.run("build"))
 
     events = [(event.event_type, dict(event.payload)) for event in sink.events
-              if event.event_type.startswith("artifact/")]
+              if event.event_type.startswith("artifact_")]
     assert [(name, body["title"], body["version"]) for name, body in events] == [
-        ("artifact/created", "site", 1),
+        ("artifact_created", "site", 1),
         # Its stylesheet versions the whole site.
-        ("artifact/updated", "site", 2),
-        ("artifact/created", "data.csv", 1),
-        ("artifact/updated", "data.csv", 2),
-        ("artifact/created", "Result", 1),
+        ("artifact_updated", "site", 2),
+        ("artifact_created", "data.csv", 1),
+        ("artifact_updated", "data.csv", 2),
+        ("artifact_created", "Result", 1),
     ]
     site = events[0][1]
     assert Path(site["path"]).read_text() == "<h1>v1</h1>" and site["entry"] == "v1/index.html"
@@ -323,3 +326,117 @@ def test_tui_artifact_row_opens_the_entry(tmp_path: Path, monkeypatch: pytest.Mo
     click = Click()
     row.on_click(click)
     assert opened == [entry.as_uri()] and click.stopped
+
+
+# Noise
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "package.json", "web/package-lock.json", "npm-shrinkwrap.json", "tsconfig.json", "tsconfig.node.json",
+        "app/tsconfig.build.json", "eslint.config.json", "renovate.config.json", "deno.lock.json",
+        "x/composer-lock.json", "node_modules/pkg/data.json", "a/node_modules/b/index.html",
+        ".git/info/x.json", "dist/index.html", "web/dist/report.csv", "build/chart.png", "pkg/build/out.json",
+    ],
+)
+def test_noise_files_are_not_auto_captured(tmp_path: Path, relative: str) -> None:
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}" if path.suffix == ".json" else "a\n")
+    assert is_noise(path, tmp_path)
+    addon = ArtifactsAddon(ArtifactStore(tmp_path / "sessions"), tmp_path)
+    call = ToolCall(id="w", name="write_file", arguments={"path": relative})
+    assert list(addon.snapshots(call, ToolResult(status="success", content="ok"))) == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb", "composer.lock", "Cargo.lock", "poetry.lock",
+     "uv.lock", "Gemfile.lock", "Pipfile.lock", "flake.lock"],
+)
+def test_lockfiles_are_noise(tmp_path: Path, name: str) -> None:
+    assert is_noise(tmp_path / name, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "relative", ["report.json", "data/rows.csv", "site/index.html", "builder/chart.png", "distance.json", "config.json"],
+)
+def test_outputs_are_not_noise(tmp_path: Path, relative: str) -> None:
+    assert not is_noise(tmp_path / relative, tmp_path)
+
+
+def test_noise_can_still_be_saved_explicitly(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text('{"name": "x"}')
+    addon = ArtifactsAddon(ArtifactStore(tmp_path / "sessions"), tmp_path)
+    call = ToolCall(id="s", name="save_artifact", arguments={"path": "package.json", "kind": "json"})
+    assert [c.source for c in addon.snapshots(call, ToolResult(status="success", content="ok"))] == ["package.json"]
+
+
+def git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def test_patched_tracked_html_and_json_are_source_edits(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "site").mkdir(parents=True)
+    git(repo, "init", "-q")
+    for name, body in {"page.html": "<p>x</p>", "data.json": "{}", "rows.csv": "a\n",
+                       "site/index.html": "<p>s</p>", "fresh.json": "{}"}.items():
+        (repo / name).write_text(body)
+    git(repo, "add", "page.html", "data.json", "rows.csv", "site/index.html")
+    assert git_tracked(repo / "page.html") and not git_tracked(repo / "fresh.json")
+    assert not git_tracked(tmp_path / "outside.json")
+    addon = ArtifactsAddon(ArtifactStore(tmp_path / "sessions"), repo)
+
+    def captured(tool: str, path: str) -> list[str]:
+        call = ToolCall(id="p", name=tool, arguments={"path": path})
+        return [c.source for c in addon.snapshots(call, ToolResult(status="success", content="ok"))]
+
+    # Patching tracked html or json edits source; csv, untracked files, sites and writes still count.
+    assert captured("patch", "page.html") == []
+    assert captured("patch", "data.json") == []
+    assert captured("patch", "rows.csv") == ["rows.csv"]
+    assert captured("patch", "fresh.json") == ["fresh.json"]
+    assert captured("patch", "site/index.html") == ["site"]
+    assert captured("write_file", "page.html") == ["page.html"]
+    save = ToolCall(id="s", name="save_artifact", arguments={"path": "page.html", "kind": "html"})
+    assert [c.source for c in addon.snapshots(save, ToolResult(status="success", content="ok"))] == ["page.html"]
+
+
+def test_resumed_tui_session_shows_its_artifact_rows(tmp_path: Path) -> None:
+    script = [[("write_file", {"path": "data.csv", "content": "a\n1\n"})],
+              [("write_file", {"path": "data.csv", "content": "a\n2\n"}),
+               ("write_file", {"path": "notes.json", "content": "{}"})]]
+    config = CodingAgentConfig(
+        learning=LearningConfig(enabled=False), langfuse=LangfuseConfig(enabled=False), unattended=True
+    )
+    first = CodingAgent(registry=ScriptedRegistry({"go": script}), model_id="fake:test-model",
+                        workspace=tmp_path, config=config)
+    asyncio.run(first.run("go"))
+    resumed = CodingAgent(registry=ScriptedRegistry({}), model_id="fake:test-model", workspace=tmp_path,
+                          config=config, session_id=first.session_id)
+
+    class View:
+        def __init__(self) -> None:
+            self.rows: list[tuple[str, str, Path]] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            del text, tone
+
+        def mount_transcript(self, widget: object) -> None:
+            del widget
+
+        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+            del tokens_used, context_limit
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+        def add_artifact(self, title: str, detail: str, path: Path) -> None:
+            self.rows.append((title, detail, path))
+
+    view = View()
+    asyncio.run(load_session_history(resumed, view))
+    assert [(title, detail) for title, detail, _ in view.rows] == [("data.csv", "csv · v2"), ("notes.json", "json · v1")]
+    assert view.rows[0][2].read_text() == "a\n2\n"

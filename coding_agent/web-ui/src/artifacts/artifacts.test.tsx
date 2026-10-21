@@ -147,9 +147,9 @@ it("accepts artifact events", () => {
     path: "/home/u/.symphony/x",
   };
   expect(
-    parseFrame({ type: "event", event: "artifact/created", payload }),
+    parseFrame({ type: "event", event: "artifact_created", payload }),
   ).not.toBeNull();
   expect(
-    parseFrame({ type: "event", event: "artifact/updated", payload }),
+    parseFrame({ type: "event", event: "artifact_updated", payload }),
   ).not.toBeNull();
 });

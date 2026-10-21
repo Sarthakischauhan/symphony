@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
-from coding_agent.addons.artifacts import ARTIFACT_CREATED, ARTIFACT_UPDATED
 from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
@@ -18,6 +17,7 @@ from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.calls import ToolOutcome
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.partial_args import string_field
+from coding_agent.tui.transcript.decision import decision_text
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
@@ -253,9 +253,7 @@ class EventPresenter:
             if event_type != "run_started":
                 self.flush_stream_paints()
         handler = getattr(self, f"_on_{event_type}", None)
-        if event_type in {ARTIFACT_CREATED, ARTIFACT_UPDATED}:
-            self._on_artifact(event_type, payload)
-        elif handler is None:
+        if handler is None:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
@@ -265,15 +263,24 @@ class EventPresenter:
         if after != before:
             self.refresh_chrome()
 
-    def _on_artifact(self, event_type: str, payload: Mapping[str, Any]) -> None:
+    def _on_artifact_created(self, payload: Mapping[str, Any]) -> None:
+        self.show_artifact(payload, updated=False)
+
+    def _on_artifact_updated(self, payload: Mapping[str, Any]) -> None:
+        self.show_artifact(payload, updated=True)
+
+    def show_artifact(self, payload: Mapping[str, Any], *, updated: bool) -> None:
         """``Artifact: <title>`` with its kind, version and entry path."""
         path, title = payload.get("path"), payload.get("title")
         if not isinstance(path, str) or not isinstance(title, str):
             return
         detail = f"{payload.get('kind')} · v{payload.get('version')}"
-        if event_type == ARTIFACT_UPDATED:
+        if updated:
             detail += " · updated"
         self.view.add_artifact(title, detail, Path(path))
+
+    def _on_auto_decision(self, payload: Mapping[str, Any]) -> None:
+        self.view.add_notice(decision_text(payload))
 
     def flush_stream_to_log(self) -> None:
         """Paint any buffered stream text, then close the live assistant widget."""
