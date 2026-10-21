@@ -302,7 +302,7 @@ def test_historical_web_sessions_come_from_session_frames(web):
 
 
 def test_cli_web_dispatch(monkeypatch):
-    from coding_agent.tui.__main__ import main
+    from coding_agent.cli import main
 
     calls = []
     monkeypatch.setattr(sys, "argv", ["symphony", "web", "--no-browser"])

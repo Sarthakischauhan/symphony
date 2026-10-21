@@ -31,9 +31,9 @@ Source = "https://github.com/Sarthakischauhan/symphony/tree/main/coding_agent"
 [project.scripts]
 # `symphony` is the primary command; the other two are aliases kept for
 # compatibility and all resolve to the same entry point.
-symphony = "coding_agent.tui.__main__:main"
-symphony-code = "coding_agent.tui.__main__:main"
-coding-agent-tui = "coding_agent.tui.__main__:main"
+symphony = "coding_agent.cli:main"
+symphony-code = "coding_agent.cli:main"
+coding-agent-tui = "coding_agent.cli:main"
 
 [tool.uv.sources]
 symphony-core = { workspace = true }
