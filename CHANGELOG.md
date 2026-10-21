@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.0.3 — 2026-10-21
+
+Fix release for `symphony-code`; `symphony-core` and `symphony-harness` stay at
+0.0.1. Installs of 0.0.1 and 0.0.2 cannot update themselves to it: run
+`install.sh` again, or `uv tool install --force symphony-code==0.0.3` followed
+by `symphony web --update`, once.
 
 - The startup update check ignored the `updates` block in
   `~/.symphony/config.json`: `"enabled": false` still checked and `"auto": true`
