@@ -150,7 +150,7 @@ def test_stdio_frames_carry_widget_fields(monkeypatch: pytest.MonkeyPatch) -> No
     frames: list[Mapping[str, Any]] = []
     monkeypatch.setattr(stdio, "write_frame", frames.append)
     sink = StdioSink()
-    assert PROTOCOL_VERSION == 3 and "widget_fields" in CAPABILITIES
+    assert PROTOCOL_VERSION >= 3 and "widget_fields" in CAPABILITIES
 
     async def run() -> None:
         await sink.deliver("agent_spawned", {"child_id": "kid", "tool_call_id": "spawn-1"})

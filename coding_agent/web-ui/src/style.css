@@ -1088,3 +1088,209 @@ label.settings-row {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+
+/* Artifacts: a right-hand panel under the top bar with the session's list and
+   a preview of the picked artifact. */
+.workspace.chat-root {
+  position: relative;
+}
+.artifacts-panel {
+  position: absolute;
+  top: 3.5rem;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: min(46rem, 58%);
+  background: var(--sy-canvas);
+  border-left: 1px solid var(--sy-hairline);
+  color: var(--sy-body);
+}
+.chat-root .artifacts-panel button {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  cursor: pointer;
+}
+.artifacts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  font-family: var(--sy-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sy-mute);
+}
+.artifacts-head button {
+  color: var(--sy-mute);
+}
+.artifacts-head svg {
+  width: 1rem;
+  height: 1rem;
+}
+.artifacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  max-height: 35%;
+  overflow: auto;
+  padding: 0 0.5rem 0.5rem;
+  border-bottom: 1px solid var(--sy-hairline);
+}
+.artifacts-list button {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border-radius: calc(var(--radius) - 2px);
+  text-align: left;
+  color: var(--sy-body);
+}
+.chat-root .artifacts-list button:hover,
+.chat-root .artifacts-list button[aria-current="true"] {
+  background: var(--sy-raise);
+  color: var(--sy-ink);
+}
+.artifacts-list svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: var(--sy-mute);
+}
+.artifact-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-meta {
+  font-family: var(--sy-mono);
+  font-size: 0.6875rem;
+  color: var(--sy-mute);
+}
+.artifact-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 1rem;
+}
+.artifact-open {
+  align-self: flex-end;
+  font-family: var(--sy-mono);
+  font-size: 0.6875rem;
+  color: var(--sy-mute);
+}
+.artifact-open:hover {
+  color: var(--sy-ink);
+}
+.artifact-empty,
+.artifact-error {
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--sy-mute);
+}
+.artifact-error {
+  color: var(--sy-coral);
+}
+.html-frame {
+  flex: 1;
+  width: 100%;
+  border: 1px solid var(--sy-hairline);
+  border-radius: var(--radius);
+  background: #fff;
+}
+.csv-scroll {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--sy-hairline);
+  border-radius: var(--radius);
+}
+.csv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--sy-mono);
+  font-size: 0.75rem;
+}
+.csv-table th,
+.csv-table td {
+  padding: 0.375rem 0.75rem;
+  border-bottom: 1px solid var(--sy-hairline);
+  text-align: left;
+  white-space: nowrap;
+}
+.csv-table th {
+  position: sticky;
+  top: 0;
+  background: var(--sy-soft);
+  color: var(--sy-ink);
+  font-weight: 600;
+}
+.json-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--sy-hairline);
+  border-radius: var(--radius);
+  font-family: var(--sy-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.json-children {
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--sy-hairline);
+  margin-left: 0.25rem;
+}
+.json-toggle {
+  color: var(--sy-body);
+  text-align: left;
+}
+.json-key {
+  color: var(--sy-sky);
+}
+.json-string {
+  color: var(--sy-green);
+}
+.json-number,
+.json-boolean {
+  color: var(--sy-orange);
+}
+.json-null,
+.json-count {
+  color: var(--sy-mute);
+}
+.json-count {
+  margin-left: 0.375rem;
+}
+.chat-root .artifacts-panel .image-viewer {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--sy-hairline);
+  border-radius: var(--radius);
+  background: repeating-conic-gradient(var(--sy-soft) 0 25%, var(--sy-canvas) 0 50%) 0 0 / 16px 16px;
+  cursor: zoom-in;
+}
+.image-viewer img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.image-viewer[data-actual="true"] {
+  align-items: flex-start;
+  justify-content: flex-start;
+  cursor: zoom-out;
+}
+.image-viewer[data-actual="true"] img {
+  max-width: none;
+  max-height: none;
+}

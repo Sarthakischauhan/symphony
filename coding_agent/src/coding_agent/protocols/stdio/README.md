@@ -5,10 +5,10 @@ hosts. The coding agent owns execution and persisted checkpoints. A host owns
 its composer queue and submits a single prompt per active turn.
 
 The `ready` frame carries `session_id`, `model`, `workspace`, `branch`,
-`client`, `protocol_version` (currently `3`) and `capabilities`. Protocol 2
+`client`, `protocol_version` (currently `4`) and `capabilities`. Protocol 2
 advertised `runs`, `resume`, `interrupt`, `input`, `steer`, `models`, `images`,
 `subagents`, and `commands`; protocol 3 adds `sessions`, `model_switch` and
-`widget_fields`. A host sends `run`, `answer`, `interrupt`, or `steer`
+`widget_fields`; protocol 4 adds `artifacts`. A host sends `run`, `answer`, `interrupt`, or `steer`
 commands, or a request with a `request_id` (below), and reads `event`,
 `input_requested`, `error`, `done`, and reply frames. `answer`, `interrupt`,
 and `steer` are passed to `CoreHarness.submit` as `Answer`, `Interrupt`, and
@@ -44,6 +44,8 @@ same `request_id`, or an `error` frame with it.
 | `{"type":"session/list"}` | `sessions`: this client's parent sessions, newest first, each with `session_id`, `updated_at`, `message_count`, `first_message`, `client`, `active` | `sessions` |
 | `{"type":"session/history","session_id":"..."}` | `session_history`: `session_id`, `messages` (the transcript; assistant `tool_calls` are `{id, type: "function", function: {name, arguments}}` with `arguments` a JSON string), `events` (`[event, payload]` journal pairs) and `children` | `sessions` |
 | `{"type":"model","model":"provider:model"}` | `model_selected`: `model`, `context_limit`; an error during an active run | `model_switch` |
+| `{"type":"artifacts_list","session_id":"..."}` | `artifacts`: `session_id`, `artifacts` (manifests in creation order); `session_id` defaults to this worker's session | `artifacts` |
+| `{"type":"artifacts_get","session_id":"...","artifact_id":"..."}` | `artifact`: `session_id`, `artifact` (the manifest), `path` (absolute path of the entry file), `files` (the latest version's files, relative to its folder) | `artifacts` |
 
 ## Subagents
 
@@ -107,3 +109,68 @@ and `null` for top-level events.
   tools a stamped emit).
 - Sessions recorded before protocol 3 lack these fields. Clients render those
   calls without the facts; they do not derive them from `result` text.
+
+## Protocol 4: artifacts
+
+`ready` reports `"protocol_version": 4` and the `artifacts` capability. Every
+protocol 3 frame is unchanged. Symphony keeps the html, csv, json and image
+files a run produces as versioned session artifacts, under
+`$SYMPHONY_HOME/sessions/<session_id>/artifacts/` (TUI sessions:
+`$SYMPHONY_HOME/tui/sessions/<session_id>/artifacts/`):
+
+```
+artifacts/index.json                    {"artifacts": [manifest, ...]}
+artifacts/<artifact_id>/manifest.json   the latest version's manifest
+artifacts/<artifact_id>/v<N>/...        the files of version N
+```
+
+Files are written to a temporary name and renamed, so readers never see a
+partial version.
+
+A manifest has:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | 16 hex characters, derived from `kind` and `source`, so rewriting a file versions one artifact |
+| `kind` | `"html"`, `"csv"`, `"json"` or `"image"` |
+| `title` | Display name: the `save_artifact` title, else the file or folder name |
+| `created_at`, `updated_at` | ISO 8601 UTC times of the first and the latest version |
+| `version` | Latest version number, from 1 |
+| `tool_call_id` | The call that produced the latest version |
+| `source` | The workspace path it came from (relative inside the workspace), or `<tool_call_id>#image-<n>` for an image a tool returned inline |
+| `entry` | The file to open, relative to the artifact folder, e.g. `v2/index.html` |
+| `mime` | The entry's media type: `text/html`, `text/csv`, `application/json`, or `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/svg+xml` |
+| `sha256` | The entry file's sha256; for a website folder, the sha256 of its sorted `path\0sha256\n` file list |
+| `size` | Bytes in the version (all files of a website) |
+
+Capture (the `artifacts` add-on, after each successful tool call):
+
+- `write_file`, `patch` and `generate_image` writing `.html`, `.csv`,
+  `.json`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif` or `.svg`. CSV must be
+  UTF-8 and JSON must parse. `index.html` in a folder below the workspace
+  keeps that whole folder (a website with its assets), and writing any file
+  inside that folder versions the site again; any other `.html` is a
+  single-file artifact.
+- Not auto-captured: `package.json`, `package-lock.json`,
+  `npm-shrinkwrap.json`, `tsconfig*.json`, `*.config.json`, lockfiles
+  (`*.lock`, `*.lockb`, `*-lock.json`, `*-lock.yaml`, `*.lock.json`), anything
+  under `node_modules`, `.git`, `dist` or `build`, and a `patch` to an html or
+  json file that git tracks (`git ls-files --error-unmatch` in the file's
+  repository) unless it is part of a website folder.
+- `save_artifact` with `path`, `kind` (one of the four; anything else is
+  rejected) and an optional `title`, for files the agent did not write with
+  the tools above, such as a command's output or a website folder.
+- An image another tool returns inline (not `read_file`).
+
+Content whose sha256 matches the latest version stores nothing and emits
+nothing. Otherwise the parent session's harness emits, in the ordinary
+`event` envelope and the journal:
+
+| Event | Payload |
+| --- | --- |
+| `artifact_created` | the manifest plus `path`, the absolute path of the entry file (`version` is 1) |
+| `artifact_updated` | the same, for a new version of an existing artifact |
+
+The event payloads also carry the usual stamped keys (`run_id`,
+`session_id`, `seq`, `ts`, `agent_id`, `parent_id`). Artifacts produced by a
+subagent are stored in, and emitted by, the parent session.

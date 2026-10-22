@@ -2,7 +2,7 @@
 
 Run an AI coding agent in your terminal, or import the coding-agent API from the Symphony workspace. Package import name: `coding_agent`.
 
-**Availability:** version 0.0.1 is on PyPI.
+**Availability:** version 0.0.3 is on PyPI. Version 0.0.4, including session artifacts and security updates, is being prepared.
 
 ```sh
 python -m pip install symphony-code

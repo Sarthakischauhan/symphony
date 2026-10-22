@@ -18,6 +18,7 @@ TOOL_LABELS = {
     "generate_image": ("Image", "└"),
     "patch": ("Update", "±"),
     "read_file": ("Read", "└"),
+    "save_artifact": ("Save Artifact", "◆"),
 }
 
 
@@ -37,7 +38,7 @@ def tool_detail(
         return str(args.get("query") or args.get("pattern") or compact_json(args))
     if tool_name == "patch":
         return patch_path(args, raw_arguments)
-    if tool_name in {"write_file", "generate_image", "read_file"}:
+    if tool_name in {"write_file", "generate_image", "read_file", "save_artifact"}:
         path = str(args.get("path") or "")
         if path:
             return path

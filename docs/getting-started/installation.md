@@ -1,6 +1,6 @@
 # Install Symphony
 
-Python 3.11 or newer is required. Version **0.0.1** of these three packages is published on PyPI:
+Python 3.11 or newer is required. `symphony-core` and `symphony-harness` **0.0.1**, and `symphony-code` **0.0.3**, are published on PyPI:
 
 | PyPI package | Import | What it is |
 | --- | --- | --- |
@@ -62,4 +62,4 @@ uv sync
 uv run --package symphony-code symphony --workspace /path/to/project
 ```
 
-The current directory is the default workspace. Check the checkout with `uv run pytest`. The published 0.0.1 packages match the `v0.0.1` release; `main` can contain newer changes that are not on PyPI yet.
+The current directory is the default workspace. Check the checkout with `uv run pytest`. The published packages match their corresponding releases; `main` can contain newer changes that are not on PyPI yet.

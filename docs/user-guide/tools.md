@@ -13,6 +13,7 @@ Symphony Code gives the model a set of tools for working in the selected workspa
 | `web_search` | Look up documentation and other pages on the web |
 | `bash` | Run a shell command |
 | `generate_image` | Create an image asset |
+| `save_artifact` | Keep an html, csv, json or image file (or a website folder) as a session artifact |
 | `ask_user` | Request human input when the interface supports it |
 | `spawn_agent` | Delegate a bounded task to a child agent |
 
@@ -23,6 +24,14 @@ The exact tool schemas and options are defined in the coding-agent source and ma
 Relative paths use the chosen workspace as their base, but absolute paths and `~` paths are allowed. Bash runs with the permissions of the Symphony process. The workspace setting is **not a path jail**. Do not ask Symphony to inspect secrets or run a command you would not run yourself.
 
 Interactive approval prompts can ask before selected operations. A harness used outside Symphony Code does not automatically provide those prompts. Read the [security policy](../../SECURITY.md) before using unattended runs or untrusted workspaces.
+
+## Artifacts
+
+The html, csv, json and image files (`.html`, `.csv`, `.json`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`) that the agent writes with `write_file`, `patch` or `generate_image` are kept as **artifacts** of the session, in `~/.symphony/sessions/<session>/artifacts/` (TUI sessions: `~/.symphony/tui/sessions/...`; `SYMPHONY_HOME` moves both). A folder below the workspace with an `index.html` is kept as one website, with its stylesheets, scripts and images. Each change that alters the content adds a version (`v1`, `v2`, ...); rewriting identical content adds nothing. Project plumbing is skipped: package manifests, `tsconfig*.json` and `*.config.json`, lockfiles, anything under `node_modules`, `.git`, `dist` or `build`, and patches to html or json files your git repository already tracks (outside a website folder). Files made another way, such as a command's output, are kept with `save_artifact`, which takes the path, the kind (`html`, `csv`, `json` or `image`) and an optional title.
+
+- **TUI:** each new artifact or version adds an `Artifact: <title>` row with its path. Click it to open the file with your system's default app.
+- **Symphony Web:** the **Artifacts** button lists the session's artifacts and previews them: a website in a sandboxed frame (its scripts run, but cannot reach Symphony or your session), a CSV as a table, JSON as a collapsible tree and images in a viewer.
+- **stdio hosts:** see `artifact_created`, `artifact_updated`, `artifacts_list` and `artifacts_get` in the [stdio protocol](../../coding_agent/src/coding_agent/protocols/stdio/README.md).
 
 ## Web search
 

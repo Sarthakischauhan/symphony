@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from coding_agent.addons.artifacts.store import ArtifactStore
 from coding_agent.addons.persistence import JsonlPersistence, active_session_ids
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.protocols.stdio.transport import CAPABILITIES, PROTOCOL_VERSION
@@ -90,6 +91,37 @@ async def session_history(agent: CodingAgent, request_id: str, session_id: str) 
     }
 
 
+def _artifacts(agent: CodingAgent) -> ArtifactStore:
+    if agent.artifacts is None:
+        raise ValueError("this session store does not keep artifacts")
+    return agent.artifacts.store
+
+
+def artifact_list(agent: CodingAgent, request_id: str, session_id: str) -> Frame:
+    """Every artifact's latest manifest, in creation order."""
+    return {
+        "type": "artifacts",
+        "request_id": request_id,
+        "session_id": session_id,
+        "artifacts": [manifest.to_json() for manifest in _artifacts(agent).manifests(session_id)],
+    }
+
+
+def artifact_get(agent: CodingAgent, request_id: str, session_id: str, artifact_id: str) -> Frame:
+    """One artifact's manifest, its folder on disk and its latest version's files."""
+    store = _artifacts(agent)
+    manifest = store.get(session_id, artifact_id)
+    folder = store.folder(session_id, artifact_id)
+    return {
+        "type": "artifact",
+        "request_id": request_id,
+        "session_id": session_id,
+        "artifact": manifest.to_json(),
+        "path": str(folder / manifest.entry),
+        "files": store.files(session_id, manifest),
+    }
+
+
 def select_model(agent: CodingAgent, request_id: str, selected: str) -> Frame:
     """Switch the live harness to ``selected``, as the TUI model picker does."""
     namespaces = agent.registry.namespaces()
@@ -109,4 +141,4 @@ def select_model(agent: CodingAgent, request_id: str, selected: str) -> Frame:
     }
 
 
-__all__ = ["git_branch", "model_id", "ready_frame", "select_model", "session_history", "session_list"]
+__all__ = ["artifact_get", "artifact_list", "git_branch", "model_id", "ready_frame", "select_model", "session_history", "session_list"]
