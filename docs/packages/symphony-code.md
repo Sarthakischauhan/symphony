@@ -2,7 +2,7 @@
 
 The ready-to-run coding product built on `symphony-harness`. It combines workspace tools, approval prompts, persistent sessions, and a Textual terminal UI. The Python import is `coding_agent`; the TUI command is `symphony`.
 
-**Availability:** published on PyPI as version 0.0.1. Install with `pip install symphony-code`, then run `symphony`. That install includes `symphony-core` and `symphony-harness`. See [Install Symphony](../getting-started/installation.md).
+**Availability:** published on PyPI as version 0.0.3; version 0.0.4 is in preparation. Install with `pip install symphony-code`, then run `symphony`. That install includes `symphony-core` and `symphony-harness`. See [Install Symphony](../getting-started/installation.md).
 
 ## Run a task
 

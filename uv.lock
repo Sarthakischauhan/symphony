@@ -1277,7 +1277,7 @@ requires-dist = [
 
 [[package]]
 name = "symphony-code"
-version = "0.0.3"
+version = "0.0.4"
 source = { editable = "coding_agent" }
 dependencies = [
     { name = "certifi" },

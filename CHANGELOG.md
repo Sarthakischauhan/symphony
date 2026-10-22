@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.4 — 2026-10-22
+
+`symphony-code` only; `symphony-core` and `symphony-harness` stay at 0.0.1.
+
+- Session artifacts: capture, version, and display HTML, CSV, JSON, and image outputs in the TUI and Symphony Web, with sandboxed previews.
+- Security: use patched Node.js 22.23.4 in CI and web publishing; update certifi to 2026.10.19.
+
 ## 0.0.3 — 2026-10-21
 
 Fix release for `symphony-code`; `symphony-core` and `symphony-harness` stay at
