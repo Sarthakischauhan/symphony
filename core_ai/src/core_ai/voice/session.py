@@ -1,9 +1,9 @@
 """A provider-neutral realtime voice session.
 
-A session carries two streams. ``events()`` is the audio side a voice front end consumes:
-speech boundaries, what the user said, and the assistant's audio. ``response()`` is the model
-side: the text and tool calls of one assistant response, which ``VoiceModelCall`` turns into
-``StreamEvent``s so a harness run can own the turn.
+The contract is PCM audio in and out plus typed events. ``events()`` yields speech boundaries,
+what the user said, and the assistant's audio; ``response()`` yields the text and tool calls of
+one assistant response. The caller owns turns and history: it decides when to respond, runs
+tools, and replays prior history into the session.
 """
 
 from abc import ABC, abstractmethod

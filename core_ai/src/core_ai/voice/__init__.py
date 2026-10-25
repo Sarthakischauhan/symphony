@@ -1,7 +1,7 @@
 """Voice model calls: realtime (WebSocket), and per provider TTS and STT.
 
 This package only talks to voice models: PCM audio in and out plus typed model events.
-Tools, history and turn orchestration live with the caller (core_harness, the host app).
+Tools, history and turn orchestration live with the caller.
 """
 
 from core_ai.voice.catalog import VOICE_MODELS
