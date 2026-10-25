@@ -20,8 +20,7 @@ from core_harness.voice_turns import (
     VoiceLink,
     VoiceModelCall,
     VoiceSessionNotOpen,
-    voice_links,
-    voice_model_call,
+    VoiceTurns,
 )
 
 MODEL = "grok:grok-voice-latest"
@@ -50,6 +49,9 @@ class ScriptedVoice(VoiceSession):
     async def add_message(self, role: Literal["user", "assistant"], text: str) -> None:
         self.sent.append(f"{role}:{text}")
 
+    async def add_tool_call(self, call_id: str, name: str, arguments: str) -> None:
+        self.sent.append(f"call:{call_id}:{name}:{arguments}")
+
     async def add_tool_result(self, call_id: str, output: str) -> None:
         self.sent.append(f"tool:{call_id}:{output}")
 
@@ -74,19 +76,21 @@ class ScriptedVoice(VoiceSession):
         return None
 
 
-def _collect(link: VoiceLink, messages: list[Message], tools: list[dict[str, Any]] = []) -> list[Any]:
+def _collect(link: VoiceLink, messages: list[Message], tools: tuple[dict[str, Any], ...] = ()) -> list[Any]:
     async def run() -> list[Any]:
-        return [e async for e in VoiceModelCall(link).stream(MODEL, messages, tools)]
+        return [e async for e in VoiceModelCall(link).stream(MODEL, messages, list(tools))]
 
     return asyncio.run(run())
 
 
 def test_heard_turn_is_not_resent_and_response_maps_to_stream_events() -> None:
-    session = ScriptedVoice([[TextDelta("Sunny "), ToolCall("c1", "get_weather", '{"city":"Paris"}'), ResponseDone(3, 4)]])
+    session = ScriptedVoice(
+        [[TextDelta("Sunny "), ToolCall("c1", "get_weather", '{"city":"Paris"}'), ResponseDone(3, 4)]]
+    )
     link = VoiceLink(MODEL, session, synced=True, heard=["weather in paris"])
     messages = [Message(role="system", content="be brief"), Message(role="user", content="weather in paris")]
 
-    events = _collect(link, messages, [{"name": "get_weather"}])
+    events = _collect(link, messages, ({"name": "get_weather"},))
 
     assert session.sent == []
     assert link.heard == []
@@ -118,39 +122,60 @@ def test_failed_response_raises() -> None:
         _collect(link, [Message(role="user", content="hi")])
 
 
-def test_voice_model_call_only_for_the_open_links_model() -> None:
-    link = voice_links.open("s1", MODEL, ScriptedVoice([]))
-    try:
-        assert voice_model_call("grok:grok-4.6", "s1") is None
-        assert voice_model_call(MODEL, "s1") is not None
-        with pytest.raises(VoiceSessionNotOpen):
-            voice_model_call(MODEL, "nobody")
-    finally:
-        voice_links.close("s1", link)
-    assert voice_links.get("s1") is None
+def test_replay_on_a_fresh_session_keeps_tool_turns() -> None:
+    session = ScriptedVoice([[ResponseDone()]])
+    link = VoiceLink(MODEL, session)
+    call = {"id": "c1", "type": "function", "function": {"name": "get_weather", "arguments": '{"city":"Paris"}'}}
+    messages = [
+        Message(role="user", content="weather in Paris?"),
+        Message(role="assistant", content="Checking.", tool_calls=[call]),
+        Message(role="tool", content="18C in Paris", tool_call_id="c1"),
+        Message(role="assistant", content="It is 18C."),
+        Message(role="user", content="and tomorrow?"),
+    ]
+
+    _collect(link, messages)
+
+    assert session.sent == [
+        "user:weather in Paris?",
+        "assistant:Checking.",
+        'call:c1:get_weather:{"city":"Paris"}',
+        "tool:c1:18C in Paris",
+        "assistant:It is 18C.",
+        "user:and tomorrow?",
+        "respond",
+    ]
 
 
-def test_realtime_model_runs_through_the_open_voice_link() -> None:
+def _harness(model_id: str, addon: VoiceTurns) -> CoreHarness:
+    return CoreHarness(
+        registry=ModelRegistry(),
+        model_id=model_id,
+        system_prompt="Be brief.",
+        config=HarnessConfig(max_turns=4),
+        tools=[Tool(get_weather)],
+        addons=[addon],
+    )
+
+
+def test_voice_model_without_an_open_session_raises_a_typed_error() -> None:
+    with pytest.raises(VoiceSessionNotOpen):
+        asyncio.run(_harness(MODEL, VoiceTurns(None)).run("hi", session_id="s1"))
+    other = VoiceLink("grok:grok-voice-3.0", ScriptedVoice([]))
+    with pytest.raises(VoiceSessionNotOpen):
+        asyncio.run(_harness(MODEL, VoiceTurns(other)).run("hi", session_id="s1"))
+
+
+def test_realtime_model_runs_through_the_runs_voice_link() -> None:
     session = ScriptedVoice(
         [
             [ToolCall("c1", "get_weather", '{"city": "Paris"}'), ResponseDone()],
             [TextDelta("It is 18C in Paris."), ResponseDone()],
         ]
     )
-    link = voice_links.open("voice-1", MODEL, session)
-    link.synced = True
-    link.heard.append("weather in Paris?")
-    harness = CoreHarness(
-        registry=ModelRegistry(),
-        model_id=MODEL,
-        system_prompt="Be brief.",
-        config=HarnessConfig(max_turns=4),
-        tools=[Tool(get_weather)],
-    )
-    try:
-        result = asyncio.run(harness.run("weather in Paris?", session_id="voice-1"))
-    finally:
-        voice_links.close("voice-1", link)
+    link = VoiceLink(MODEL, session, synced=True, heard=["weather in Paris?"])
+
+    result = asyncio.run(_harness(MODEL, VoiceTurns(link)).run("weather in Paris?", session_id="voice-1"))
 
     assert result.output_text == "It is 18C in Paris."
     assert session.sent == ["tool:c1:18C in Paris", "respond"]

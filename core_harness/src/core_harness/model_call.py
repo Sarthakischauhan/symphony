@@ -13,7 +13,7 @@ class ModelCall(Protocol):
         self,
         model_id: str,
         messages: List[Message],
-        tools: List[Dict[str, Any]] = [],
+        tools: List[Dict[str, Any]] = ...,
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
         extra_headers: Optional[Dict[str, str]] = None,

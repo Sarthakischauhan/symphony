@@ -55,8 +55,8 @@ class CoreHarness:
     ) -> None:
         self.config = resolve_harness_config(config)
         self.registry = registry
-        # Streams each model turn; None picks the registry, or the open voice session of a
-        # realtime model (core_harness.voice_turns).
+        # Streams each model turn; None streams from the registry. Addons may set it (the
+        # VoiceTurns addon routes voice models to the run's voice session).
         self.model_call = model_call
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort

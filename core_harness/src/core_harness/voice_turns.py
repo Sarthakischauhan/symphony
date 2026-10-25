@@ -11,7 +11,12 @@ from typing import Any, Dict, List, Optional
 
 from core_ai.content import text_from_content
 from core_ai.types import Message, StreamEvent
+from core_ai.models.registry import ModelCatalog
 from core_ai.voice import ResponseDone, TextDelta, ToolCall, VoiceSession, voice_catalog
+from pydantic import BaseModel
+
+from core_harness.addons.addon import Addon
+from core_harness.model_call import ModelCall
 
 
 @dataclass(eq=False)
@@ -29,7 +34,8 @@ class VoiceLink:
 
 
 class VoiceLinks:
-    """Open voice links by harness session id."""
+    """Open voice links by harness session id. The host owns one and hands each run its link
+    through ``VoiceTurns``; there is no process-wide registry."""
 
     def __init__(self) -> None:
         self._links: Dict[str, VoiceLink] = {}
@@ -47,19 +53,29 @@ class VoiceLinks:
         return self._links.get(session_id)
 
 
-voice_links = VoiceLinks()
-
-
 class VoiceSessionNotOpen(LookupError):
-    """A realtime model was run for a session with no open voice connection."""
+    """A realtime model was run for a session with no open voice connection to it."""
+
+
+class _ToolCallFunction(BaseModel):
+    name: str
+    arguments: str = "{}"
+
+
+class _HistoryToolCall(BaseModel):
+    """One entry of ``Message.tool_calls`` (the OpenAI-style shape the harness records)."""
+
+    id: str
+    function: _ToolCallFunction
 
 
 class VoiceModelCall:
     """Sends only what the voice session has not seen, then maps its response to StreamEvents.
 
     Speech the session already heard (and, with server VAD, already answered) is not sent again.
-    The first call on a fresh session replays the earlier text turns so the harness history stays
-    the source of truth across reconnects and model swaps.
+    The first call on a fresh session replays the earlier history (text, tool calls and their
+    results) so the harness history, already compacted by the turn's ``maybe_compact_turn``
+    hook as for any model, stays the source of truth across reconnects and model swaps.
     """
 
     def __init__(self, link: VoiceLink) -> None:
@@ -70,13 +86,13 @@ class VoiceModelCall:
         self,
         model_id: str,
         messages: List[Message],
-        tools: List[Dict[str, Any]] = [],
+        tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         del model_id, max_output_tokens, reasoning_effort, extra_headers
-        await self._configure(messages, tools)
+        await self._configure(messages, tools or [])
         await self._send_turn(messages)
         index = 0
         async for event in self.session.response():
@@ -103,15 +119,9 @@ class VoiceModelCall:
                     yield _usage_event(event)
                 yield StreamEvent(type="done")
 
-    async def _configure(
-        self, messages: List[Message], tools: List[Dict[str, Any]]
-    ) -> None:
-        instructions = "\n\n".join(
-            text_from_content(m.content) for m in messages if m.role == "system"
-        )
-        config = replace(
-            self.session.config, instructions=instructions, tools=tuple(tools)
-        )
+    async def _configure(self, messages: List[Message], tools: List[Dict[str, Any]]) -> None:
+        instructions = "\n\n".join(text_from_content(m.content) for m in messages if m.role == "system")
+        config = replace(self.session.config, instructions=instructions, tools=tuple(tools))
         if config != self.session.config:
             await self.session.update(config)
 
@@ -125,9 +135,7 @@ class VoiceModelCall:
             link.synced = True
         if new and new[0].role == "tool":
             for message in new:
-                await self.session.add_tool_result(
-                    str(message.tool_call_id), text_from_content(message.content)
-                )
+                await self.session.add_tool_result(str(message.tool_call_id), text_from_content(message.content))
         elif new:
             text = text_from_content(new[0].content)
             if text in link.heard:
@@ -140,8 +148,14 @@ class VoiceModelCall:
 
     async def _replay(self, message: Message) -> None:
         text = text_from_content(message.content)
+        if message.role == "tool":
+            await self.session.add_tool_result(str(message.tool_call_id), text)
+            return
         if message.role in ("user", "assistant") and text:
             await self.session.add_message(message.role, text)
+        for call in message.tool_calls or []:
+            parsed = _HistoryToolCall.model_validate(call)
+            await self.session.add_tool_call(parsed.id, parsed.function.name, parsed.function.arguments)
 
 
 def _trailing_turn(conversation: List[Message]) -> List[Message]:
@@ -167,18 +181,45 @@ def _usage_event(done: ResponseDone) -> StreamEvent:
     )
 
 
-def voice_model_call(
-    model_id: str, session_id: Optional[str]
-) -> Optional[VoiceModelCall]:
-    """The model call for a run on an open voice link; None when the run's model is not the
-    link's (the registry streams it)."""
-    link = voice_links.get(session_id) if session_id else None
-    if link is not None and link.model_id == model_id:
-        return VoiceModelCall(link)
-    provider, _, name = model_id.partition(":")
-    if voice_catalog.get(provider, name) is not None:
-        raise VoiceSessionNotOpen(
-            f"{model_id} is a voice model: open a voice link for session "
-            f"{session_id!r} (voice_links.open) before running it"
-        )
-    return None
+class VoiceRouter:
+    """The harness model call while ``VoiceTurns`` is attached: voice models stream from the
+    run's open link, every other model from ``text`` (so a mid-session model switch works both
+    ways on the same harness)."""
+
+    def __init__(self, text: ModelCall, link: Optional[VoiceLink], catalog: ModelCatalog) -> None:
+        self.text = text
+        self.link = link
+        self.catalog = catalog
+
+    def stream(
+        self,
+        model_id: str,
+        messages: List[Message],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        provider, _, name = model_id.partition(":")
+        if self.catalog.get(provider, name) is None:
+            return self.text.stream(model_id, messages, tools or [], max_output_tokens, reasoning_effort, extra_headers)
+        if self.link is None or self.link.model_id != model_id:
+            raise VoiceSessionNotOpen(f"{model_id} is a voice model and this run has no open voice session for it")
+        return VoiceModelCall(self.link).stream(model_id, messages, tools)
+
+
+class VoiceTurns(Addon):
+    """Routes a run's voice-model turns to its voice link by setting the harness model call.
+
+    The host builds one per run (e.g. a core_server ``addon_factories`` entry) with that run's
+    link, or None when the session has no voice connection open.
+    """
+
+    name = "voice_turns"
+
+    def __init__(self, link: Optional[VoiceLink], catalog: ModelCatalog = voice_catalog) -> None:
+        self.link = link
+        self.catalog = catalog
+
+    def attach(self, harness: Any) -> None:
+        harness.model_call = VoiceRouter(harness.model_call or harness.registry, self.link, self.catalog)

@@ -47,8 +47,9 @@ from core_harness.voice_turns import (
     VoiceLink,
     VoiceLinks,
     VoiceModelCall,
+    VoiceRouter,
     VoiceSessionNotOpen,
-    voice_links,
+    VoiceTurns,
 )
 
 __all__ = [
@@ -56,8 +57,9 @@ __all__ = [
     "VoiceLink",
     "VoiceLinks",
     "VoiceModelCall",
+    "VoiceRouter",
     "VoiceSessionNotOpen",
-    "voice_links",
+    "VoiceTurns",
     "Answer",
     "Addon",
     "Checkpoint",

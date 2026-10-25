@@ -36,7 +36,7 @@ This example deliberately exposes a read-only tool. `CoreHarness` runs the tools
 ## Core concepts
 
 - **Tools:** wrap sync or async Python callables with `Tool`; their annotations and docstrings define model-facing inputs. An optional `category` (for example `"search"`) lets a host enable tools in groups.
-- **Model calls:** each turn streams from the registry; for a voice model with an open link (`core_harness.voice_links.open(session_id, model_id, session)`) it streams through that session instead (`VoiceModelCall`), sending only what the session has not heard and replaying history into a fresh one. Pass `model_call=` to `CoreHarness` to supply your own.
+- **Model calls:** each turn streams from `harness.model_call`, or the registry when it is None. Attach `VoiceTurns(link)` (with core_server, an `addon_factories` entry that looks up the run's link in a host-owned `VoiceLinks`) to stream voice models through the run's open session (`VoiceModelCall`): it sends only what the session has not heard and, on a fresh session, replays the compacted history including tool calls and results. A voice model with no open link raises `VoiceSessionNotOpen`. Pass `model_call=` to `CoreHarness` to supply your own.
 - **Runs:** `await harness.run(...)` returns a `HarnessResult`; supply conversation and session state when building a continuing application.
 - **Events:** an `EventSink` publishes ordered lifecycle, model, tool, and context events.
 - **Add-ons:** attach behavior at run, turn, and tool lifecycle hooks; the harness itself stays independent of product features.
