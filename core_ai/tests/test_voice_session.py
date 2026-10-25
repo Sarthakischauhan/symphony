@@ -43,11 +43,11 @@ def test_voice_catalog_lists_grok_realtime_models_with_voices() -> None:
     assert "audio" in model.input_modalities and "audio" in model.output_modalities
 
 
-def test_voice_registry_lists_models_of_registered_providers() -> None:
+def test_voice_registry_lists_its_catalog_and_opens_registered_providers_only() -> None:
     registry = VoiceRegistry()
-    assert registry.models() == ()
-    registry.register("grok", GrokRealtime("key"))
     assert {m.id for m in registry.models()} == {"grok-voice-3.0", "grok-voice-latest"}
+    registry.register("grok", GrokRealtime("key"))
+    assert registry.namespaces() == ("grok",)
     registry.unregister("grok")
     assert registry.namespaces() == ()
     with pytest.raises(KeyError):

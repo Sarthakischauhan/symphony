@@ -40,8 +40,8 @@ class VoiceRegistry:
         return tuple(self._providers)
 
     def models(self) -> tuple[ModelInfo, ...]:
-        """Catalog models whose provider namespace is registered."""
-        return tuple(m for m in self.catalog.list() if m.provider in self._providers)
+        """Every voice model in the catalog, registered provider or not (as ``ModelRegistry``)."""
+        return self.catalog.list()
 
     async def open(
         self,
