@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from core_ai.types import Message, StreamEvent
+from core_ai.voice.session import FrameObserver, VoiceConfig, VoiceSession
 
 
 class BaseProvider(ABC):
@@ -33,4 +34,16 @@ class BaseProvider(ABC):
         del model_name, prompt, output_format
         raise NotImplementedError(
             f"{type(self).__name__} does not support image generation"
+        )
+
+    async def open_voice(
+        self,
+        model_name: str,
+        config: VoiceConfig,
+        observer: Optional[FrameObserver] = None,
+    ) -> VoiceSession:
+        """Open a realtime voice session. Providers without realtime models keep this default."""
+        del model_name, config, observer
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support realtime voice"
         )

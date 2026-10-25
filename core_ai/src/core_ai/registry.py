@@ -3,6 +3,8 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from core_ai.models import ModelInfo, list_models, register_model, unregister_model
 from core_ai.providers.base import BaseProvider
 from core_ai.types import Message, StreamEvent
+from core_ai.voice.session import FrameObserver, VoiceConfig, VoiceSession
+from core_ai.voice.sessions import voice_sessions
 
 _IMAGE_MODELS = {
     "openai": "gpt-image-1",
@@ -39,15 +41,7 @@ class ModelRegistry:
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
 
-        if ":" not in model_id:
-            raise ValueError("model_id must be in format 'provider:model_name'")
-
-        provider_name, model_name = model_id.split(":", 1)
-
-        if provider_name not in self._providers:
-            raise KeyError(f"Provider '{provider_name}' not registered.")
-
-
+        provider_name, model_name = self._split(model_id)
         provider = self._providers[provider_name]
 
         stream_options: Dict[str, Any] = {"max_output_tokens": max_output_tokens}
@@ -62,6 +56,27 @@ class ModelRegistry:
             **stream_options,
         ):
             yield event
+
+    async def open_voice(
+        self,
+        model_id: str,
+        config: VoiceConfig,
+        *,
+        session_id: Optional[str] = None,
+        observer: Optional[FrameObserver] = None,
+    ) -> VoiceSession:
+        """Open a realtime session. With ``session_id``, runs for that session speak through it."""
+        provider_name, model_name = self._split(model_id)
+        session = await self._providers[provider_name].open_voice(
+            model_name, config, observer
+        )
+        if session_id is not None:
+            voice_sessions.register(session_id, session)
+        return session
+
+    async def close_voice(self, session_id: str, session: VoiceSession) -> None:
+        voice_sessions.unregister(session_id, session)
+        await session.aclose()
 
     async def generate_image(
         self,
@@ -95,3 +110,11 @@ class ModelRegistry:
         raise RuntimeError(
             f"image generation requires an OpenAI or Gemini provider ({detail})"
         )
+
+    def _split(self, model_id: str) -> tuple[str, str]:
+        if ":" not in model_id:
+            raise ValueError("model_id must be in format 'provider:model_name'")
+        provider_name, model_name = model_id.split(":", 1)
+        if provider_name not in self._providers:
+            raise KeyError(f"Provider '{provider_name}' not registered.")
+        return provider_name, model_name

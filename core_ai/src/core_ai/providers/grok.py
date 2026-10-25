@@ -3,8 +3,10 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 
 from core_ai.models import get_model
+from core_ai.providers.grok_voice import GrokVoiceSession
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message, StreamEvent
+from core_ai.voice.session import FrameObserver, VoiceConfig, VoiceSession
 
 
 class GrokProvider(OpenAIProvider):
@@ -45,6 +47,22 @@ class GrokProvider(OpenAIProvider):
             headers,
         ):
             yield event
+
+    async def open_voice(
+        self,
+        model_name: str,
+        config: VoiceConfig,
+        observer: Optional[FrameObserver] = None,
+    ) -> VoiceSession:
+        return await GrokVoiceSession.open(
+            self.realtime_url, self.api_key, model_name, config, observer
+        )
+
+    @property
+    def realtime_url(self) -> str:
+        """``wss://…/realtime`` on the same host as the REST base URL."""
+        scheme, rest = self.base_url.split("://", 1)
+        return f"{'wss' if scheme == 'https' else 'ws'}://{rest}/realtime"
 
     @staticmethod
     def _uses_chat_completions(model_name: str) -> bool:

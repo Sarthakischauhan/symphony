@@ -25,4 +25,8 @@ A provider is registered when its credentials are available; local providers are
 
 The catalog is a checked-in snapshot. Normal builds do not refresh it or require a network connection. Maintainer refresh instructions live with [`core_ai`](../../core_ai/README.md).
 
+## Realtime voice models
+
+Realtime models (`api="realtime"`, today `grok:grok-voice-3.0` and `grok:grok-voice-latest`) list their voices, audio formats and `reasoning_efforts` on `ModelInfo`. Open one with `ModelRegistry.open_voice(model_id, VoiceConfig(voice=...), session_id=...)`: the returned `VoiceSession` carries audio both ways, and while it is open a harness run for the same `session_id` streams its model turns through it (`core_ai.voice_model_call`), so tools, history and the final message stay with the harness. Close it with `ModelRegistry.close_voice`.
+
 To add tools and a model-driven run loop, continue to [symphony-harness](./symphony-harness.md).

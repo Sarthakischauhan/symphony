@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
+from core_ai.voice import voice_model_call
 
 from core_harness.addons.subagent.background import wait_for_child_result
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
@@ -122,6 +123,8 @@ async def run_session(
         max_parallel_tool_calls=harness.config.max_parallel_tool_calls,
         notify_addons=harness.notify_addons,
         session_id=active_session,
+        model_call=harness.model_call
+        or voice_model_call(harness.model_id, active_session),
     )
 
     try:

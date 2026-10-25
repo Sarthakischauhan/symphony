@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Type, TypeVar,
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
+from core_ai.voice import ModelCall
 
 from core_harness.addons import Addon
 from core_harness.addons.persistence import Checkpoint, NullPersistence
@@ -50,9 +51,13 @@ class CoreHarness:
         agent_id: Optional[str] = None,
         parent_id: Optional[str] = None,
         spawn_depth: int = 0,
+        model_call: Optional[ModelCall] = None,
     ) -> None:
         self.config = resolve_harness_config(config)
         self.registry = registry
+        # Streams each model turn; None picks the registry, or the open voice session of a
+        # realtime model (core_ai.voice_model_call).
+        self.model_call = model_call
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort
         self.system_prompt = system_prompt

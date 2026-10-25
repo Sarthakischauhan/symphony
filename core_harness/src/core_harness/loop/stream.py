@@ -231,7 +231,7 @@ async def iter_provider_events(
         stream_options["reasoning_effort"] = runner.reasoning_effort
     if getattr(runner, "session_id", None) and str(runner.model_id).startswith("grok:"):
         stream_options["extra_headers"] = {"x-grok-conv-id": runner.session_id}
-    agen = runner.registry.stream(
+    agen = runner.model_call.stream(
         runner.model_id,
         messages,
         runner.tool_schemas,

@@ -13,7 +13,15 @@ from core_ai.content import (
     to_openai_chat_content,
     to_openai_responses_content,
 )
-from core_ai.models import ModelAPI, ModelCatalog, ModelInfo, get_model, list_models
+from core_ai.models import (
+    AudioFormat,
+    ModelAPI,
+    ModelCatalog,
+    ModelInfo,
+    VoiceInfo,
+    get_model,
+    list_models,
+)
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.catalog import (
@@ -35,9 +43,27 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.providers.openrouter import OpenRouterProvider
 from core_ai.providers.vercel import VercelProvider
 from core_ai.registry import ModelRegistry
+from core_ai.providers.grok_voice import GrokVoiceSession
+from core_ai.voice import (
+    ModelCall,
+    VoiceConfig,
+    VoiceModelCall,
+    VoiceSession,
+    VoiceSessionNotOpen,
+    voice_model_call,
+)
 from core_ai.types import Message, StreamEvent
 
 __all__ = [
+    "voice_model_call",
+    "VoiceSessionNotOpen",
+    "VoiceSession",
+    "VoiceModelCall",
+    "VoiceInfo",
+    "VoiceConfig",
+    "ModelCall",
+    "GrokVoiceSession",
+    "AudioFormat",
     "AnthropicProvider",
     "BaseProvider",
     "Content",
