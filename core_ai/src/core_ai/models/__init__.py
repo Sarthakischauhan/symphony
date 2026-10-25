@@ -13,13 +13,11 @@ from core_ai.models.types import (
     ModelInfo,
     VoiceInfo,
 )
-from core_ai.models.voice import VOICE_MODELS
 
 __all__ = [
     "AudioEncoding",
     "AudioFormat",
     "Modality",
-    "VOICE_MODELS",
     "VoiceInfo",
     "ModelAPI",
     "ModelCatalog",

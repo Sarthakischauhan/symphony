@@ -43,26 +43,10 @@ from core_ai.providers.openai import OpenAIProvider
 from core_ai.providers.openrouter import OpenRouterProvider
 from core_ai.providers.vercel import VercelProvider
 from core_ai.registry import ModelRegistry
-from core_ai.providers.grok_voice import GrokVoiceSession
-from core_ai.voice import (
-    ModelCall,
-    VoiceConfig,
-    VoiceModelCall,
-    VoiceSession,
-    VoiceSessionNotOpen,
-    voice_model_call,
-)
 from core_ai.types import Message, StreamEvent
 
 __all__ = [
-    "voice_model_call",
-    "VoiceSessionNotOpen",
-    "VoiceSession",
-    "VoiceModelCall",
     "VoiceInfo",
-    "VoiceConfig",
-    "ModelCall",
-    "GrokVoiceSession",
     "AudioFormat",
     "AnthropicProvider",
     "BaseProvider",

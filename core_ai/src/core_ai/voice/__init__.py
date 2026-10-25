@@ -1,9 +1,12 @@
-from core_ai.voice.call import (
-    ModelCall,
-    VoiceModelCall,
-    VoiceSessionNotOpen,
-    voice_model_call,
-)
+"""Voice model calls: realtime (WebSocket), and per provider TTS and STT.
+
+This package only talks to voice models: PCM audio in and out plus typed model events.
+Tools, history and turn orchestration live with the caller (core_harness, the host app).
+"""
+
+from core_ai.voice.catalog import VOICE_MODELS, voice_catalog
+from core_ai.voice.grok import GrokRealtime, GrokVoiceSession
+from core_ai.voice.registry import VoiceProvider, VoiceRegistry
 from core_ai.voice.session import (
     AudioDelta,
     FrameDirection,
@@ -20,16 +23,15 @@ from core_ai.voice.session import (
     VoiceConfig,
     VoiceError,
     VoiceEvent,
-    VoiceHistory,
     VoiceSession,
 )
-from core_ai.voice.sessions import VoiceSessions, voice_sessions
 
 __all__ = [
     "AudioDelta",
     "FrameDirection",
     "FrameObserver",
-    "ModelCall",
+    "GrokRealtime",
+    "GrokVoiceSession",
     "ResponseDone",
     "ResponseEvent",
     "SpeechStarted",
@@ -38,15 +40,13 @@ __all__ = [
     "ToolCall",
     "TurnDetection",
     "UserTranscript",
+    "VOICE_MODELS",
     "VoiceClosed",
     "VoiceConfig",
     "VoiceError",
     "VoiceEvent",
-    "VoiceHistory",
-    "VoiceModelCall",
+    "VoiceProvider",
+    "VoiceRegistry",
     "VoiceSession",
-    "VoiceSessionNotOpen",
-    "VoiceSessions",
-    "voice_model_call",
-    "voice_sessions",
+    "voice_catalog",
 ]

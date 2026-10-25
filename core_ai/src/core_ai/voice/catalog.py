@@ -1,9 +1,11 @@
-"""Realtime voice models. Hand-written: the generated catalog only covers text models.
+"""Voice models, kept out of the default text catalog. Hand-written: the generated
+catalog only covers text models.
 
 Voices and traits follow the xAI voice docs
 (https://docs.x.ai/developers/model-capabilities/audio/voice-agent#available-voices).
 """
 
+from core_ai.models.registry import ModelCatalog
 from core_ai.models.types import AudioFormat, ModelInfo, ThinkingLevelMap, VoiceInfo
 
 GROK_VOICES: tuple[VoiceInfo, ...] = (
@@ -68,3 +70,5 @@ VOICE_MODELS: tuple[ModelInfo, ...] = (
     _grok_voice_model("grok-voice-3.0"),
     _grok_voice_model("grok-voice-latest"),
 )
+
+voice_catalog = ModelCatalog(VOICE_MODELS)

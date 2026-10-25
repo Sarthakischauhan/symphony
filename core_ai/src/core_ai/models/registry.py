@@ -2,7 +2,6 @@ from collections.abc import Iterable
 
 from core_ai.models.generated import ALL_MODELS
 from core_ai.models.types import ModelInfo
-from core_ai.models.voice import VOICE_MODELS
 
 
 def context_limits() -> dict[str, int]:
@@ -35,7 +34,7 @@ class ModelCatalog:
         return tuple(sorted(models, key=lambda model: (model.provider, model.id)))
 
 
-model_catalog = ModelCatalog((*ALL_MODELS, *VOICE_MODELS))
+model_catalog = ModelCatalog(ALL_MODELS)
 
 
 def register_model(model: ModelInfo) -> None:

@@ -1,14 +1,18 @@
 import asyncio
 import json
-from collections.abc import AsyncIterator
-from typing import Any, Literal, Union
+import logging
+from typing import Any, Union
 
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
-from core_ai import GrokProvider, Message, ModelRegistry, get_model, list_models
+from core_ai import list_models
+from core_ai.models.generated import ALL_MODELS
+from core_ai.models.registry import model_catalog
 from core_ai.voice import (
+    VOICE_MODELS,
     AudioDelta,
+    GrokRealtime,
     ResponseDone,
     ResponseEvent,
     TextDelta,
@@ -16,206 +20,195 @@ from core_ai.voice import (
     UserTranscript,
     VoiceConfig,
     VoiceEvent,
-    VoiceHistory,
-    VoiceModelCall,
+    VoiceRegistry,
     VoiceSession,
-    VoiceSessionNotOpen,
-    voice_model_call,
+    voice_catalog,
 )
 
 
-def test_catalog_lists_grok_realtime_models_with_voices() -> None:
-    realtime = [m for m in list_models("grok") if m.api == "realtime"]
+def test_default_model_lists_have_no_realtime_models() -> None:
+    assert all(m.api != "realtime" for m in ALL_MODELS)
+    assert all(m.api != "realtime" for m in list_models())
+    assert all(m.api != "realtime" for m in model_catalog.list())
 
-    assert {m.id for m in realtime} == {"grok-voice-3.0", "grok-voice-latest"}
-    model = get_model("grok", "grok-voice-latest")
-    assert model is not None
+
+def test_voice_catalog_lists_grok_realtime_models_with_voices() -> None:
+    assert voice_catalog.list() == tuple(sorted(VOICE_MODELS, key=lambda m: (m.provider, m.id)))
+    assert {m.id for m in voice_catalog.list("grok")} == {"grok-voice-3.0", "grok-voice-latest"}
+    model = voice_catalog.get("grok", "grok-voice-latest")
+    assert model is not None and model.api == "realtime"
     assert len(model.voices) == 28
     assert model.default_voice == "eve"
     assert model.reasoning_efforts == ("none", "high")
     assert "audio" in model.input_modalities and "audio" in model.output_modalities
 
 
-class FakeSession(VoiceSession):
-    """Records what a model call sends and replays one scripted response."""
-
-    def __init__(self, script: list[ResponseEvent], turn_detection: Literal["server_vad", "manual"] = "server_vad"):
-        self.model_id = "grok-voice-latest"
-        self.config = VoiceConfig(voice="eve", turn_detection=turn_detection)
-        self.history = VoiceHistory()
-        self.sent: list[tuple[str, ...]] = []
-        self.script = script
-
-    async def send_audio(self, audio: bytes) -> None:
-        self.sent.append(("audio",))
-
-    async def add_message(self, role: Literal["user", "assistant"], text: str) -> None:
-        self.sent.append(("message", role, text))
-
-    async def add_tool_result(self, call_id: str, output: str) -> None:
-        self.sent.append(("tool_result", call_id, output))
-
-    async def respond(self) -> None:
-        self.sent.append(("respond",))
-
-    async def cancel(self) -> None:
-        self.sent.append(("cancel",))
-
-    async def update(self, config: VoiceConfig) -> None:
-        self.config = config
-        self.sent.append(("update", config.instructions))
-
-    async def events(self) -> AsyncIterator[VoiceEvent]:
-        return
-        yield
-
-    async def response(self) -> AsyncIterator[ResponseEvent]:
-        for event in self.script:
-            yield event
-
-    async def aclose(self) -> None:
-        return None
-
-
-def _collect(call: VoiceModelCall, messages: list[Message], tools: list[dict[str, Any]] = []) -> list[Any]:
-    async def run() -> list[Any]:
-        return [e async for e in call.stream("grok:grok-voice-latest", messages, tools)]
-
-    return asyncio.run(run())
-
-
-def test_heard_turn_is_not_resent_and_response_maps_to_stream_events() -> None:
-    session = FakeSession([TextDelta("Sunny "), ToolCall("c1", "get_weather", '{"city":"Paris"}'), ResponseDone(3, 4)])
-    session.history.synced = True
-    session.history.heard.append("weather in paris")
-    messages = [Message(role="system", content="be brief"), Message(role="user", content="weather in paris")]
-
-    events = _collect(VoiceModelCall(session), messages, [{"name": "get_weather"}])
-
-    assert session.sent == [("update", "be brief")]
-    assert session.config.tools == ({"name": "get_weather"},)
-    assert [e.type for e in events] == ["text_delta", "toolcall_start", "toolcall_arguments", "usage", "done"]
-    assert events[1].tool_call_id == "c1" and events[2].delta == '{"city":"Paris"}'
-    assert events[3].total_tokens == 7
-
-
-def test_typed_turn_seeds_history_once_then_asks_for_a_response() -> None:
-    session = FakeSession([ResponseDone()])
-    messages = [
-        Message(role="user", content="hi"),
-        Message(role="assistant", content="hello"),
-        Message(role="user", content="tapped: Paris"),
-    ]
-
-    _collect(VoiceModelCall(session), messages)
-
-    assert session.sent == [
-        ("message", "user", "hi"),
-        ("message", "assistant", "hello"),
-        ("message", "user", "tapped: Paris"),
-        ("respond",),
-    ]
-    assert session.history.synced
-
-
-def test_tool_results_go_back_as_outputs() -> None:
-    session = FakeSession([TextDelta("done"), ResponseDone()])
-    session.history.synced = True
-    messages = [
-        Message(role="user", content="weather"),
-        Message(role="assistant", content="", tool_calls=[{"id": "c1"}]),
-        Message(role="tool", content="18C", tool_call_id="c1"),
-    ]
-
-    _collect(VoiceModelCall(session), messages)
-
-    assert session.sent == [("tool_result", "c1", "18C"), ("respond",)]
-
-
-def test_failed_response_raises() -> None:
-    session = FakeSession([ResponseDone(error="rate limited")])
-    session.history.synced = True
-    with pytest.raises(RuntimeError, match="rate limited"):
-        _collect(VoiceModelCall(session), [Message(role="user", content="hi")])
-
-
-def test_voice_model_call_only_for_realtime_models_with_an_open_session() -> None:
-    assert voice_model_call("grok:grok-4.6", "s1") is None
-    with pytest.raises(VoiceSessionNotOpen):
-        voice_model_call("grok:grok-voice-latest", "nobody")
+def test_voice_registry_lists_models_of_registered_providers() -> None:
+    registry = VoiceRegistry()
+    assert registry.models() == ()
+    registry.register("grok", GrokRealtime("key"))
+    assert {m.id for m in registry.models()} == {"grok-voice-3.0", "grok-voice-latest"}
+    registry.unregister("grok")
+    assert registry.namespaces() == ()
+    with pytest.raises(KeyError):
+        asyncio.run(registry.open("grok:grok-voice-latest", VoiceConfig(voice="eve")))
 
 
 Frame = Union[str, bytes]
-
-
-async def _fake_xai(connection: ServerConnection, received: list[dict[str, Any]], script: list[Frame]) -> None:
-    for frame in script:
-        await connection.send(frame)
-    async for message in connection:
-        if isinstance(message, str):
-            received.append(json.loads(message))
-            if received[-1]["type"] == "response.cancel":
-                # Audio of the cancelled response still in flight, then the next response's audio.
-                await connection.send(b"\x09")
-                await connection.send(_event({"type": "response.created", "response": {"id": "r3"}}))
-                await connection.send(b"\x03")
 
 
 def _event(payload: dict[str, Any]) -> str:
     return json.dumps(payload)
 
 
+def _created(response_id: str) -> str:
+    return _event({"type": "response.created", "response": {"id": response_id}})
+
+
+def _text(response_id: str, text: str) -> str:
+    return _event({"type": "response.output_audio_transcript.delta", "response_id": response_id, "delta": text})
+
+
+def _done(response_id: str) -> str:
+    return _event({"type": "response.done", "response": {"id": response_id, "status": "completed"}})
+
+
+async def _with_fake_xai(
+    on_message: dict[str, list[Frame]],
+    opening: list[Frame],
+    received: list[dict[str, Any]],
+    body: Any,
+    config: VoiceConfig = VoiceConfig(voice="eve"),
+    observed: list[str] | None = None,
+) -> Any:
+    """Serve a fake xAI realtime socket: ``opening`` on connect, then the frames keyed by each
+    client event type as it arrives."""
+
+    async def handler(connection: ServerConnection) -> None:
+        for frame in opening:
+            await connection.send(frame)
+        async for message in connection:
+            if isinstance(message, str):
+                received.append(json.loads(message))
+                for frame in on_message.get(received[-1]["type"], []):
+                    await connection.send(frame)
+
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        registry = VoiceRegistry()
+        registry.register("grok", GrokRealtime("key", base_url=f"http://127.0.0.1:{port}/v1"))
+        frames: list[str] = []
+        session = await registry.open("grok:grok-voice-latest", config, observer=lambda d, f: frames.append(d))
+        try:
+            return await body(session)
+        finally:
+            await session.aclose()
+            if observed is not None:
+                observed.extend(frames)
+
+
 def test_grok_voice_session_over_the_wire() -> None:
     received: list[dict[str, Any]] = []
-    script: list[Frame] = [
+    opening: list[Frame] = [
         _event({"type": "conversation.item.input_audio_transcription.completed", "transcript": " hi there "}),
-        _event({"type": "response.created", "response": {"id": "r1"}}),
+        _event({"type": "input_audio_buffer.speech_stopped"}),
+        _created("r1"),
         b"\x01\x02",
-        _event({"type": "response.output_audio_transcript.delta", "response_id": "r1", "delta": "Hey"}),
+        _text("r1", "Hey"),
         _event({"type": "response.function_call_arguments.done", "response_id": "r1", "call_id": "c1",
                 "name": "get_weather", "arguments": "{}"}),
         _event({"type": "response.output_item.done", "response_id": "r1",
                 "item": {"type": "function_call", "call_id": "c1", "name": "get_weather", "arguments": "{}"}}),
         _event({"type": "response.done", "response": {"id": "r1", "status": "completed",
                                                        "usage": {"input_tokens": 5, "output_tokens": 2}}}),
-        _event({"type": "response.created", "response": {"id": "r2"}}),
-        _event({"type": "response.output_audio_transcript.delta", "response_id": "r2", "delta": "stale"}),
     ]
+    # Audio of the cancelled response still in flight, then the next response's audio.
+    on_message: dict[str, list[Frame]] = {"response.create": [_created("r2")],
+                                          "response.cancel": [b"\x09", _done("r2"), b"\x03"]}
 
-    async def run() -> tuple[list[VoiceEvent], list[ResponseEvent], VoiceSession]:
-        async with serve(lambda c: _fake_xai(c, received, script), "127.0.0.1", 0) as server:
-            port = server.sockets[0].getsockname()[1]
-            registry = ModelRegistry()
-            registry.register("grok", GrokProvider("key", base_url=f"http://127.0.0.1:{port}/v1"))
-            frames: list[str] = []
-            config = VoiceConfig(voice="ara", tools=({"name": "get_weather", "parameters": {}},))
-            session = await registry.open_voice(
-                "grok:grok-voice-latest", config, session_id="s1", observer=lambda d, f: frames.append(d)
-            )
-            assert voice_model_call("grok:grok-voice-latest", "s1") is not None
-            events = session.events()
-            seen = [await anext(events), await anext(events)]
-            first = [e async for e in session.response()]
-            await asyncio.sleep(0.05)
-            await session.cancel()
-            await session.cancel()
-            seen.append(await anext(events))
-            await session.add_tool_result("c1", "sunny")
-            await asyncio.sleep(0.05)
-            await registry.close_voice("s1", session)
-            assert "received" in frames and "sent" in frames
-            return seen, first, session
+    async def body(session: VoiceSession) -> tuple[list[VoiceEvent], list[ResponseEvent]]:
+        events = session.events()
+        seen = [await anext(events), await anext(events), await anext(events)]
+        first = [e async for e in session.response()]
+        await session.respond()
+        await asyncio.sleep(0.05)
+        await session.cancel()
+        await session.cancel()
+        seen.append(await anext(events))
+        await session.add_tool_result("c1", "sunny")
+        await asyncio.sleep(0.05)
+        return seen, first
 
-    seen, first, session = asyncio.run(run())
+    config = VoiceConfig(voice="ara", tools=({"name": "get_weather", "parameters": {}},))
+    observed: list[str] = []
+    seen, first = asyncio.run(_with_fake_xai(on_message, opening, received, body, config, observed))
 
-    assert seen == [UserTranscript("hi there"), AudioDelta(b"\x01\x02"), AudioDelta(b"\x03")]
-    assert session.history.heard == ["hi there"]
+    assert "received" in observed and "sent" in observed
+
+    assert [type(e).__name__ for e in seen[:2]] == ["UserTranscript", "SpeechStopped"]
+    assert seen[0] == UserTranscript("hi there")
+    assert seen[2:] == [AudioDelta(b"\x01\x02"), AudioDelta(b"\x03")]
     assert first == [TextDelta("Hey"), ToolCall("c1", "get_weather", "{}"), ResponseDone(5, 2)]
     update = received[0]
     assert update["type"] == "session.update"
     assert update["session"]["voice"] == "ara"
     assert update["session"]["tools"] == [{"type": "function", "name": "get_weather", "parameters": {}}]
     assert update["session"]["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": 24000}
-    assert [e["type"] for e in received[1:]] == ["response.cancel", "conversation.item.create"]
-    with pytest.raises(VoiceSessionNotOpen):
-        voice_model_call("grok:grok-voice-latest", "s1")
+    assert [e["type"] for e in received[1:]] == ["response.create", "response.cancel", "conversation.item.create"]
+
+
+def test_unrequested_response_is_dropped(caplog: pytest.LogCaptureFixture) -> None:
+    received: list[dict[str, Any]] = []
+    # The server starts r0 on its own (no response.create, no committed speech).
+    opening: list[Frame] = [_created("r0"), b"\x07", _text("r0", "unprompted"), _done("r0")]
+    on_message: dict[str, list[Frame]] = {"response.create": [_created("r1"), _text("r1", "asked"), _done("r1")]}
+
+    async def body(session: VoiceSession) -> list[ResponseEvent]:
+        await asyncio.sleep(0.05)
+        await session.respond()
+        return [e async for e in session.response()]
+
+    with caplog.at_level(logging.DEBUG, logger="core_ai.voice.grok.realtime"):
+        events = asyncio.run(_with_fake_xai(on_message, opening, received, body))
+
+    assert events == [TextDelta("asked"), ResponseDone()]
+    assert "dropping unrequested voice response r0" in caplog.text
+
+
+def test_each_requested_response_reaches_its_own_request() -> None:
+    received: list[dict[str, Any]] = []
+    # Speech committed under server VAD requests r1; the explicit response.create requests r2.
+    # A spontaneous r9 arrives between them and belongs to neither.
+    opening: list[Frame] = [
+        _event({"type": "input_audio_buffer.speech_stopped"}),
+        _created("r1"), _text("r1", "for speech"), _done("r1"),
+        _created("r9"), _text("r9", "stray"), _done("r9"),
+    ]
+    on_message: dict[str, list[Frame]] = {"response.create": [_created("r2"), _text("r2", "for typed"), _done("r2")]}
+
+    async def body(session: VoiceSession) -> tuple[list[ResponseEvent], list[ResponseEvent]]:
+        spoken = [e async for e in session.response()]
+        await asyncio.sleep(0.05)
+        await session.respond()
+        typed = [e async for e in session.response()]
+        return spoken, typed
+
+    spoken, typed = asyncio.run(_with_fake_xai(on_message, opening, received, body))
+
+    assert spoken == [TextDelta("for speech"), ResponseDone()]
+    assert typed == [TextDelta("for typed"), ResponseDone()]
+
+
+def test_closed_connection_ends_a_waiting_response() -> None:
+    async def body(session: VoiceSession) -> list[ResponseEvent]:
+        await session.respond()
+        waiting = asyncio.ensure_future(_collect(session))
+        await asyncio.sleep(0.05)
+        await session.aclose()
+        return await waiting
+
+    async def _collect(session: VoiceSession) -> list[ResponseEvent]:
+        return [e async for e in session.response()]
+
+    events = asyncio.run(_with_fake_xai({}, [], [], body))
+    assert events == [ResponseDone(error="the voice connection closed")]

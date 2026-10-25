@@ -12,7 +12,7 @@ from core_harness.models import TurnResult, UsageTotals
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
-from core_ai.voice import ModelCall
+from core_harness.model_call import ModelCall
 from core_harness.context import (
     COMPACTED_CONTEXT_MARK,
     HarnessState,

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
-from core_ai.voice import voice_model_call
+from core_harness.voice_turns import voice_model_call
 
 from core_harness.addons.subagent.background import wait_for_child_result
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded

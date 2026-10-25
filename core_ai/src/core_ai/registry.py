@@ -4,8 +4,6 @@ from core_ai.models import ModelInfo, list_models, register_model, unregister_mo
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.grok import GROK_IMAGE_MODEL
 from core_ai.types import Message, StreamEvent
-from core_ai.voice.session import FrameObserver, VoiceConfig, VoiceSession
-from core_ai.voice.sessions import voice_sessions
 
 _IMAGE_MODELS = {
     "openai": "gpt-image-1",
@@ -61,27 +59,6 @@ class ModelRegistry:
             **stream_options,
         ):
             yield event
-
-    async def open_voice(
-        self,
-        model_id: str,
-        config: VoiceConfig,
-        *,
-        session_id: Optional[str] = None,
-        observer: Optional[FrameObserver] = None,
-    ) -> VoiceSession:
-        """Open a realtime session. With ``session_id``, runs for that session speak through it."""
-        provider_name, model_name = self._split(model_id)
-        session = await self._providers[provider_name].open_voice(
-            model_name, config, observer
-        )
-        if session_id is not None:
-            voice_sessions.register(session_id, session)
-        return session
-
-    async def close_voice(self, session_id: str, session: VoiceSession) -> None:
-        voice_sessions.unregister(session_id, session)
-        await session.aclose()
 
     async def generate_image(
         self,

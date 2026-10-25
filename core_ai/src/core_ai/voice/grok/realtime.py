@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from core_ai.models.types import AudioFormat
+from core_ai.voice.registry import VoiceProvider
 from core_ai.voice.session import (
     AudioDelta,
     FrameObserver,
@@ -29,7 +30,6 @@ from core_ai.voice.session import (
     VoiceConfig,
     VoiceError,
     VoiceEvent,
-    VoiceHistory,
     VoiceSession,
 )
 
@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from websockets.asyncio.client import ClientConnection
 
 log = logging.getLogger(__name__)
+
+_CLOSED = "the voice connection closed"
 
 _AUDIO_TYPES: dict[str, str] = {
     "pcm16": "audio/pcm",
@@ -194,7 +196,38 @@ def session_payload(config: VoiceConfig) -> dict[str, Any]:
     return session
 
 
+def realtime_url(base_url: str) -> str:
+    """``wss://…/realtime`` on the same host as an xAI REST base URL."""
+    scheme, rest = base_url.split("://", 1)
+    return f"{'wss' if scheme == 'https' else 'ws'}://{rest}/realtime"
+
+
+class GrokRealtime(VoiceProvider):
+    """xAI's realtime voice models, on the key and base URL of an xAI account."""
+
+    def __init__(self, api_key: str, base_url: str = "https://api.x.ai/v1") -> None:
+        self.api_key = api_key
+        self.base_url = base_url
+
+    async def open(
+        self,
+        model_name: str,
+        config: VoiceConfig,
+        observer: Optional[FrameObserver] = None,
+    ) -> VoiceSession:
+        return await GrokVoiceSession.open(
+            realtime_url(self.base_url), self.api_key, model_name, config, observer
+        )
+
+
 class GrokVoiceSession(VoiceSession):
+    """One xAI realtime connection.
+
+    Responses are correlated by id: each ``response.create`` (and, with server VAD, each
+    committed utterance) is one request, and the next ``response.created`` answers it. A
+    response nobody requested is dropped, so ``response()`` only ever yields requested ones.
+    """
+
     def __init__(
         self,
         connection: "ClientConnection",
@@ -205,12 +238,11 @@ class GrokVoiceSession(VoiceSession):
         self.connection = connection
         self.model_id = model_id
         self.config = config
-        self.history = VoiceHistory()
         self.observer = observer
         self._events: asyncio.Queue[VoiceEvent] = asyncio.Queue()
-        self._responses: asyncio.Queue[tuple[Optional[str], ResponseEvent]] = (
-            asyncio.Queue()
-        )
+        self._requests = 0
+        self._accepted: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        self._buffers: dict[str, asyncio.Queue[ResponseEvent]] = {}
         self._current: Optional[str] = None
         self._dropped: set[str] = set()
         self._calls: set[str] = set()
@@ -263,6 +295,7 @@ class GrokVoiceSession(VoiceSession):
         )
 
     async def respond(self) -> None:
+        self._requests += 1
         await self._send({"type": "response.create"})
 
     async def cancel(self) -> None:
@@ -286,12 +319,23 @@ class GrokVoiceSession(VoiceSession):
 
     async def response(self) -> AsyncIterator[ResponseEvent]:
         while True:
-            response_id, event = await self._responses.get()
-            if response_id is not None and response_id in self._dropped:
-                continue
-            yield event
-            if isinstance(event, ResponseDone):
+            response_id = await self._accepted.get()
+            if response_id is None:
+                self._accepted.put_nowait(None)
+                yield ResponseDone(error=_CLOSED)
                 return
+            if response_id in self._dropped:
+                self._buffers.pop(response_id, None)  # cancelled before anyone read it
+                continue
+            queue = self._buffers[response_id]
+            try:
+                while True:
+                    event = await queue.get()
+                    yield event
+                    if isinstance(event, ResponseDone):
+                        return
+            finally:
+                self._buffers.pop(response_id, None)
 
     async def aclose(self) -> None:
         await self.connection.close()
@@ -321,9 +365,9 @@ class GrokVoiceSession(VoiceSession):
         except ConnectionClosed as exc:
             log.info("voice connection closed: %s", exc)
         finally:
-            self._responses.put_nowait(
-                (None, ResponseDone(error="the voice connection closed"))
-            )
+            for queue in self._buffers.values():
+                queue.put_nowait(ResponseDone(error=_CLOSED))
+            self._accepted.put_nowait(None)
             self._events.put_nowait(VoiceClosed())
 
     def _handle(self, frame: str) -> None:
@@ -338,13 +382,15 @@ class GrokVoiceSession(VoiceSession):
         if isinstance(event, _SpeechStarted):
             self._events.put_nowait(SpeechStarted())
         elif isinstance(event, _SpeechStopped):
+            if self.config.turn_detection == "server_vad":
+                self._requests += 1  # the server answers committed speech on its own
             self._events.put_nowait(SpeechStopped())
         elif isinstance(event, _TranscriptionCompleted):
-            self._heard(event.transcript.strip())
+            self._events.put_nowait(UserTranscript(event.transcript.strip()))
         elif isinstance(event, _ResponseCreated):
-            self._current = event.response.id
+            self._created(event.response.id)
         elif isinstance(event, _TranscriptDelta):
-            self._responses.put_nowait((event.response_id, TextDelta(event.delta)))
+            self._respond(event.response_id, TextDelta(event.delta))
         elif isinstance(event, _AudioDelta):
             self._audio(event.response_id, base64.b64decode(event.delta))
         elif isinstance(event, _FunctionCallDone):
@@ -358,10 +404,25 @@ class GrokVoiceSession(VoiceSession):
         else:
             self._events.put_nowait(VoiceError(event.error.message))
 
-    def _heard(self, text: str) -> None:
-        if text:
-            self.history.heard.append(text)
-        self._events.put_nowait(UserTranscript(text))
+    def _created(self, response_id: str) -> None:
+        self._current = response_id
+        if self._requests == 0:
+            log.debug("dropping unrequested voice response %s", response_id)
+            self._dropped.add(response_id)
+            return
+        self._requests -= 1
+        self._buffers[response_id] = asyncio.Queue()
+        self._accepted.put_nowait(response_id)
+
+    def _respond(self, response_id: Optional[str], event: ResponseEvent) -> None:
+        """Route a response event to its requested response; others are dropped."""
+        response_id = response_id or self._current
+        queue = self._buffers.get(response_id) if response_id is not None else None
+        if queue is None:
+            return
+        if response_id in self._dropped and not isinstance(event, ResponseDone):
+            return
+        queue.put_nowait(event)
 
     def _audio(self, response_id: Optional[str], audio: bytes) -> None:
         if response_id is None or response_id not in self._dropped:
@@ -374,7 +435,7 @@ class GrokVoiceSession(VoiceSession):
         if call_id in self._calls:
             return
         self._calls.add(call_id)
-        self._responses.put_nowait((response_id, ToolCall(call_id, name, arguments)))
+        self._respond(response_id, ToolCall(call_id, name, arguments))
 
     def _done(self, response: _DoneResponse) -> None:
         if response.id == self._current:
@@ -382,14 +443,11 @@ class GrokVoiceSession(VoiceSession):
         usage = response.usage or _Usage()
         failed = response.status == "failed"
         reason = response.status_details.reason if response.status_details else None
-        self._responses.put_nowait(
-            (
-                response.id,
-                ResponseDone(
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    error=(reason or "failed") if failed else None,
-                ),
-            )
+        self._respond(
+            response.id,
+            ResponseDone(
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                error=(reason or "failed") if failed else None,
+            ),
         )
-

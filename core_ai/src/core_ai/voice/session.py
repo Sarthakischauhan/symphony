@@ -8,7 +8,7 @@ side: the text and tool calls of one assistant response, which ``VoiceModelCall`
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal, Optional, Union
 
 from core_ai.models.types import AudioFormat
@@ -91,20 +91,14 @@ class ResponseDone:
 ResponseEvent = Union[TextDelta, ToolCall, ResponseDone]
 
 
-@dataclass(slots=True)
-class VoiceHistory:
-    """What the session has already been told, so a model call only sends what is new."""
-
-    synced: bool = False
-    heard: list[str] = field(default_factory=list)
-
-
 class VoiceSession(ABC):
-    """One live realtime connection. Close it with ``aclose`` (or ``ModelRegistry.close_voice``)."""
+    """One live realtime connection: PCM audio in and out, plus typed model events.
+
+    Close it with ``aclose``. Conversation history and turn ownership belong to the caller.
+    """
 
     model_id: str
     config: VoiceConfig
-    history: VoiceHistory
 
     @abstractmethod
     async def send_audio(self, audio: bytes) -> None:
@@ -120,7 +114,11 @@ class VoiceSession(ABC):
 
     @abstractmethod
     async def respond(self) -> None:
-        """Ask the model for a response to the conversation so far."""
+        """Ask the model for a response to the conversation so far.
+
+        Only requested responses reach ``response()``: one asked for here, or, with server VAD,
+        one the server starts for committed speech. Any other response is dropped.
+        """
 
     @abstractmethod
     async def cancel(self) -> None:
@@ -136,7 +134,7 @@ class VoiceSession(ABC):
 
     @abstractmethod
     def response(self) -> AsyncIterator[ResponseEvent]:
-        """The next response's events, ending with its ``ResponseDone``."""
+        """The next requested response's events, ending with its ``ResponseDone``."""
 
     @abstractmethod
     async def aclose(self) -> None:
