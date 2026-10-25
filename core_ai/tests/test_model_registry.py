@@ -48,13 +48,3 @@ def test_openai_provider_uses_registered_model_api() -> None:
 def test_openai_provider_keeps_unknown_model_fallback() -> None:
     assert OpenAIProvider._uses_chat_completions("o4-future") is True
     assert OpenAIProvider._uses_chat_completions("gpt-future") is False
-
-
-def test_registry_unregisters_a_provider_namespace() -> None:
-    from core_ai.registry import ModelRegistry
-
-    registry = ModelRegistry()
-    registry.register("openai", OpenAIProvider(api_key="test"))
-    registry.unregister("openai")
-    registry.unregister("openai")
-    assert registry.namespaces() == ()

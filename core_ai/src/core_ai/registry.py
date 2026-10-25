@@ -2,25 +2,20 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from core_ai.models import ModelInfo, list_models, register_model, unregister_model
 from core_ai.providers.base import BaseProvider
-from core_ai.providers.grok import GROK_IMAGE_MODEL
 from core_ai.types import Message, StreamEvent
 
 _IMAGE_MODELS = {
     "openai": "gpt-image-1",
     "gemini": "gemini-3.7-flash",
-    "grok": GROK_IMAGE_MODEL,
 }
 
 
 class ModelRegistry:
-    def __init__(self) -> None:
+    def __init__(self):
         self._providers: Dict[str, BaseProvider] = {}
 
     def register(self, namespace: str, provider: BaseProvider):
         self._providers[namespace] = provider
-
-    def unregister(self, namespace: str) -> None:
-        self._providers.pop(namespace, None)
 
     def namespaces(self) -> tuple[str, ...]:
         return tuple(self._providers)
@@ -44,7 +39,15 @@ class ModelRegistry:
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
 
-        provider_name, model_name = self._split(model_id)
+        if ":" not in model_id:
+            raise ValueError("model_id must be in format 'provider:model_name'")
+
+        provider_name, model_name = model_id.split(":", 1)
+
+        if provider_name not in self._providers:
+            raise KeyError(f"Provider '{provider_name}' not registered.")
+
+
         provider = self._providers[provider_name]
 
         stream_options: Dict[str, Any] = {"max_output_tokens": max_output_tokens}
@@ -90,13 +93,5 @@ class ModelRegistry:
                 errors.append(str(exc))
         detail = errors[0] if errors else "no image-capable provider is registered"
         raise RuntimeError(
-            f"image generation requires an OpenAI, Gemini or Grok provider ({detail})"
+            f"image generation requires an OpenAI or Gemini provider ({detail})"
         )
-
-    def _split(self, model_id: str) -> tuple[str, str]:
-        if ":" not in model_id:
-            raise ValueError("model_id must be in format 'provider:model_name'")
-        provider_name, model_name = model_id.split(":", 1)
-        if provider_name not in self._providers:
-            raise KeyError(f"Provider '{provider_name}' not registered.")
-        return provider_name, model_name

@@ -318,8 +318,21 @@ class OpenAIProvider(BaseProvider):
         prompt: str,
         output_format: str = "png",
     ) -> tuple[bytes, str]:
-        request, media_type = self.image_request(model_name, output_format)
-        body: Dict[str, Any] = {**request, "prompt": prompt}
+        model = (
+            model_name
+            if model_name.startswith(("gpt-image", "dall-e"))
+            else "gpt-image-1"
+        )
+        body: Dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "size": "1024x1024",
+        }
+        if model.startswith("gpt-image"):
+            body["output_format"] = output_format
+        else:
+            body["response_format"] = "b64_json"
         async with httpx.AsyncClient(transport=self.transport, timeout=120.0) as client:
             response = await client.post(
                 f"{self.base_url}/images/generations",
@@ -338,6 +351,7 @@ class OpenAIProvider(BaseProvider):
             raise RuntimeError("provider returned no image data")
         item = data[0] if isinstance(data[0], dict) else {}
         encoded = item.get("b64_json")
+        media_type = _FORMAT_MEDIA.get(output_format, "image/png")
         if encoded:
             return base64.b64decode(encoded), media_type
         url = str(item.get("url") or "")
@@ -348,20 +362,6 @@ class OpenAIProvider(BaseProvider):
             if downloaded.status_code >= 400:
                 raise RuntimeError(_http_error(downloaded))
             return downloaded.content, media_type
-
-    def image_request(self, model_name: str, output_format: str) -> tuple[Dict[str, Any], str]:
-        """The Images API body (all but the prompt) and the media type of the image it returns."""
-        model = (
-            model_name
-            if model_name.startswith(("gpt-image", "dall-e"))
-            else "gpt-image-1"
-        )
-        body: Dict[str, Any] = {"model": model, "n": 1, "size": "1024x1024"}
-        if model.startswith("gpt-image"):
-            body["output_format"] = output_format
-        else:
-            body["response_format"] = "b64_json"
-        return body, _FORMAT_MEDIA.get(output_format, "image/png")
 
     @property
     def _headers(self) -> Dict[str, str]:

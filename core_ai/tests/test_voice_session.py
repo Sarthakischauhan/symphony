@@ -6,12 +6,10 @@ from typing import Any, Union
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
-from core_ai import list_models
-from core_ai.models.generated import ALL_MODELS
-from core_ai.models.registry import model_catalog
 from core_ai.voice import (
     VOICE_MODELS,
     AudioDelta,
+    AudioFormat,
     GrokRealtime,
     MissingVoiceContextLimit,
     ResponseDone,
@@ -23,25 +21,16 @@ from core_ai.voice import (
     VoiceEvent,
     VoiceRegistry,
     VoiceSession,
-    voice_catalog,
 )
 
 
-def test_default_model_lists_have_no_realtime_models() -> None:
-    assert all(m.api != "realtime" for m in ALL_MODELS)
-    assert all(m.api != "realtime" for m in list_models())
-    assert all(m.api != "realtime" for m in model_catalog.list())
-
-
-def test_voice_catalog_lists_grok_realtime_models_with_voices() -> None:
-    assert voice_catalog.list() == tuple(sorted(VOICE_MODELS, key=lambda m: (m.provider, m.id)))
-    assert {m.id for m in voice_catalog.list("grok")} == {"grok-voice-3.0", "grok-voice-latest"}
-    model = voice_catalog.get("grok", "grok-voice-latest")
-    assert model is not None and model.api == "realtime"
+def test_voice_models_list_grok_realtime_models_with_voices() -> None:
+    assert {m.id for m in VOICE_MODELS} == {"grok-voice-3.0", "grok-voice-latest"}
+    model = next(m for m in VOICE_MODELS if m.id == "grok-voice-latest")
     assert len(model.voices) == 28
     assert model.default_voice == "eve"
     assert model.reasoning_efforts == ("none", "high")
-    assert "audio" in model.input_modalities and "audio" in model.output_modalities
+    assert AudioFormat("pcm16", 24000) in model.audio_input
 
 
 LIMITS = {"grok:grok-voice-3.0": 32_000, "grok:grok-voice-latest": 32_000}
@@ -51,12 +40,15 @@ def test_voice_registry_requires_a_context_limit_for_every_model() -> None:
     with pytest.raises(MissingVoiceContextLimit) as raised:
         VoiceRegistry({"grok:grok-voice-latest": 32_000})
     assert raised.value.model_ids == ["grok:grok-voice-3.0"]
-    assert VoiceRegistry(LIMITS).context_limits() == LIMITS
+    registry = VoiceRegistry(LIMITS)
+    assert {m.full_id: m.context_limit for m in registry.models()} == LIMITS
+    latest = registry.get("grok:grok-voice-latest")
+    assert latest is not None and latest.spec.default_voice == "eve"
 
 
 def test_voice_registry_lists_its_catalog_and_opens_registered_providers_only() -> None:
     registry = VoiceRegistry(LIMITS)
-    assert {m.id for m in registry.models()} == {"grok-voice-3.0", "grok-voice-latest"}
+    assert {m.spec.id for m in registry.models()} == {"grok-voice-3.0", "grok-voice-latest"}
     registry.register("grok", GrokRealtime("key"))
     assert registry.namespaces() == ("grok",)
     registry.unregister("grok")

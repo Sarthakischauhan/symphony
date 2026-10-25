@@ -5,20 +5,9 @@ from core_ai.models.registry import (
     register_model,
     unregister_model,
 )
-from core_ai.models.types import (
-    AudioEncoding,
-    AudioFormat,
-    Modality,
-    ModelAPI,
-    ModelInfo,
-    VoiceInfo,
-)
+from core_ai.models.types import ModelAPI, ModelInfo
 
 __all__ = [
-    "AudioEncoding",
-    "AudioFormat",
-    "Modality",
-    "VoiceInfo",
     "ModelAPI",
     "ModelCatalog",
     "ModelInfo",

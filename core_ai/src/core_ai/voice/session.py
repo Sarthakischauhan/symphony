@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Optional, Union
 
-from core_ai.models.types import AudioFormat
+from core_ai.voice.types import AudioFormat
 
 TurnDetection = Literal["server_vad", "manual"]
 FrameDirection = Literal["sent", "received"]

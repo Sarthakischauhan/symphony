@@ -13,15 +13,7 @@ from core_ai.content import (
     to_openai_chat_content,
     to_openai_responses_content,
 )
-from core_ai.models import (
-    AudioFormat,
-    ModelAPI,
-    ModelCatalog,
-    ModelInfo,
-    VoiceInfo,
-    get_model,
-    list_models,
-)
+from core_ai.models import ModelAPI, ModelCatalog, ModelInfo, get_model, list_models
 from core_ai.providers.anthropic import AnthropicProvider
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.catalog import (
@@ -46,8 +38,6 @@ from core_ai.registry import ModelRegistry
 from core_ai.types import Message, StreamEvent
 
 __all__ = [
-    "VoiceInfo",
-    "AudioFormat",
     "AnthropicProvider",
     "BaseProvider",
     "Content",

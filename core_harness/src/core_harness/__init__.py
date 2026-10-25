@@ -41,25 +41,9 @@ from core_harness.models import (
     ToolResult,
     UsageTotals,
 )
-from core_harness.model_call import ModelCall
 from core_harness.tools import Tool
-from core_harness.voice_turns import (
-    VoiceLink,
-    VoiceLinks,
-    VoiceModelCall,
-    VoiceRouter,
-    VoiceSessionNotOpen,
-    VoiceTurns,
-)
 
 __all__ = [
-    "ModelCall",
-    "VoiceLink",
-    "VoiceLinks",
-    "VoiceModelCall",
-    "VoiceRouter",
-    "VoiceSessionNotOpen",
-    "VoiceTurns",
     "Answer",
     "Addon",
     "Checkpoint",

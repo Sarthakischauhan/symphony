@@ -614,27 +614,3 @@ def test_registry_falls_back_from_anthropic_to_openai_image_gen() -> None:
     payload, media_type = asyncio.run(run())
     assert media_type == "image/png"
     assert payload == __import__("base64").b64decode(png)
-
-
-def test_grok_generate_image_asks_xai_for_base64_jpeg() -> None:
-    from core_ai.providers.grok import GrokProvider
-    from core_ai.registry import ModelRegistry
-
-    captured: list[dict[str, object]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(json.loads(request.content))
-        return httpx.Response(200, json={"data": [{"b64_json": "/9j/4A=="}]})
-
-    registry = ModelRegistry()
-    registry.register("grok", GrokProvider(api_key="test", transport=httpx.MockTransport(handler)))
-
-    async def run() -> tuple[bytes, str]:
-        return await registry.generate_image("a fox", model_id="grok:grok-voice-latest")
-
-    payload, media_type = asyncio.run(run())
-    assert captured == [
-        {"model": "grok-imagine-image-2.0", "n": 1, "response_format": "b64_json", "prompt": "a fox"}
-    ]
-    assert media_type == "image/jpeg"
-    assert payload == __import__("base64").b64decode("/9j/4A==")

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from core_ai.models.types import AudioFormat
+from core_ai.voice.types import AudioFormat
 from core_ai.voice.session import VoiceConfig
 
 _AUDIO_TYPES: dict[str, str] = {

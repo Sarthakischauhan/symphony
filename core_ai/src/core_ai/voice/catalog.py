@@ -5,8 +5,7 @@ Voices and traits follow the xAI voice docs
 (https://docs.x.ai/developers/model-capabilities/audio/voice-agent#available-voices).
 """
 
-from core_ai.models.registry import ModelCatalog
-from core_ai.models.types import AudioFormat, ModelInfo, ThinkingLevelMap, VoiceInfo
+from core_ai.voice.types import AudioFormat, VoiceInfo, VoiceModelSpec
 
 GROK_VOICES: tuple[VoiceInfo, ...] = (
     VoiceInfo("eve", "Eve", ("energetic", "upbeat", "British accent")),
@@ -47,28 +46,20 @@ GROK_VOICE_AUDIO: tuple[AudioFormat, ...] = (
     AudioFormat("pcma", 8000),
 )
 
-GROK_VOICE_EFFORTS: ThinkingLevelMap = (("off", "none"), ("high", "high"))
 
-
-def _grok_voice_model(model_id: str) -> ModelInfo:
-    return ModelInfo(
+def _grok_voice_model(model_id: str) -> VoiceModelSpec:
+    return VoiceModelSpec(
         id=model_id,
         provider="grok",
-        api="realtime",
-        reasoning=True,
-        thinking_level_map=GROK_VOICE_EFFORTS,
-        input_modalities=("text", "audio"),
-        output_modalities=("text", "audio"),
-        audio_input=GROK_VOICE_AUDIO,
-        audio_output=GROK_VOICE_AUDIO,
         voices=GROK_VOICES,
         default_voice="eve",
+        audio_input=GROK_VOICE_AUDIO,
+        audio_output=GROK_VOICE_AUDIO,
+        reasoning_efforts=("none", "high"),
     )
 
 
-VOICE_MODELS: tuple[ModelInfo, ...] = (
+VOICE_MODELS: tuple[VoiceModelSpec, ...] = (
     _grok_voice_model("grok-voice-3.0"),
     _grok_voice_model("grok-voice-latest"),
 )
-
-voice_catalog = ModelCatalog(VOICE_MODELS)

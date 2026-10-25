@@ -4,9 +4,10 @@ This package only talks to voice models: PCM audio in and out plus typed model e
 Tools, history and turn orchestration live with the caller (core_harness, the host app).
 """
 
-from core_ai.voice.catalog import VOICE_MODELS, voice_catalog
+from core_ai.voice.catalog import VOICE_MODELS
 from core_ai.voice.grok import GrokRealtime, GrokVoiceSession
 from core_ai.voice.registry import MissingVoiceContextLimit, VoiceProvider, VoiceRegistry
+from core_ai.voice.types import AudioEncoding, AudioFormat, VoiceInfo, VoiceModel, VoiceModelSpec
 from core_ai.voice.session import (
     AudioDelta,
     FrameDirection,
@@ -27,6 +28,11 @@ from core_ai.voice.session import (
 )
 
 __all__ = [
+    "AudioEncoding",
+    "AudioFormat",
+    "VoiceInfo",
+    "VoiceModel",
+    "VoiceModelSpec",
     "AudioDelta",
     "FrameDirection",
     "FrameObserver",
@@ -49,5 +55,4 @@ __all__ = [
     "VoiceProvider",
     "VoiceRegistry",
     "VoiceSession",
-    "voice_catalog",
 ]

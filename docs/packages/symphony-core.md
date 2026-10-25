@@ -25,8 +25,4 @@ A provider is registered when its credentials are available; local providers are
 
 The catalog is a checked-in snapshot. Normal builds do not refresh it or require a network connection. Maintainer refresh instructions live with [`core_ai`](../../core_ai/README.md).
 
-## Realtime voice models
-
-Voice models live in `core_ai.voice`, apart from the text catalog: `ALL_MODELS`, `list_models()` and `model_catalog` hold no `api="realtime"` model. `core_ai.voice.voice_catalog` lists them (today `grok:grok-voice-3.0` and `grok:grok-voice-latest`) with their voices, audio formats and `reasoning_efforts`. Build a `VoiceRegistry(context_limits)` with a token limit for every catalog model (xAI publishes no context window for its realtime models, so it is required config and a missing one raises `MissingVoiceContextLimit`), optionally on your own `ModelCatalog`, register a provider (`registry.register("grok", GrokRealtime(api_key))`), and `await registry.open(model_id, VoiceConfig(voice=...))` returns a `VoiceSession`: PCM audio both ways, typed events, and `response()` for each response the caller requested (`respond()`, matched by the `request_id` xAI echoes in response metadata, or the server-VAD answer to the utterance that just ended, until the next `speech_started`). Responses nobody requested are dropped. `add_tool_call`/`add_tool_result` seed tool turns for history replay. The package holds no tools, history or turn logic; per-provider modules sit under `core_ai.voice.<provider>` (`grok/realtime.py`, `events.py`, `payload.py`, `responses.py`; TTS and STT clients go beside it).
-
 To add tools and a model-driven run loop, continue to [symphony-harness](./symphony-harness.md).

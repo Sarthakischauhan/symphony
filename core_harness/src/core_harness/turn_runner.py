@@ -12,7 +12,6 @@ from core_harness.models import TurnResult, UsageTotals
 from core_ai.content import text_from_content
 from core_ai.registry import ModelRegistry
 from core_ai.types import Message
-from core_harness.model_call import ModelCall
 from core_harness.context import (
     COMPACTED_CONTEXT_MARK,
     HarnessState,
@@ -82,10 +81,8 @@ class TurnRunner:
         max_parallel_tool_calls: int = 1,
         notify_addons: Optional[Callable[..., Awaitable[Any]]] = None,
         session_id: Optional[str] = None,
-        model_call: Optional[ModelCall] = None,
     ) -> None:
         self.registry = registry
-        self.model_call: ModelCall = model_call or registry
         self.model_id = model_id
         self.reasoning_effort = reasoning_effort
         self.tool_schemas = tool_schemas

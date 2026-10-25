@@ -122,7 +122,6 @@ async def run_session(
         max_parallel_tool_calls=harness.config.max_parallel_tool_calls,
         notify_addons=harness.notify_addons,
         session_id=active_session,
-        model_call=harness.model_call,
     )
 
     try:
