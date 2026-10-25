@@ -11,7 +11,6 @@ from core_ai.voice import (
     AudioDelta,
     AudioFormat,
     GrokRealtime,
-    MissingVoiceContextLimit,
     ResponseDone,
     ResponseEvent,
     TextDelta,
@@ -33,21 +32,22 @@ def test_voice_models_list_grok_realtime_models_with_voices() -> None:
     assert AudioFormat("pcm16", 24000) in model.audio_input
 
 
-LIMITS = {"grok:grok-voice-3.0": 32_000, "grok:grok-voice-latest": 32_000}
-
-
-def test_voice_registry_requires_a_context_limit_for_every_model() -> None:
-    with pytest.raises(MissingVoiceContextLimit) as raised:
-        VoiceRegistry({"grok:grok-voice-latest": 32_000})
-    assert raised.value.model_ids == ["grok:grok-voice-3.0"]
-    registry = VoiceRegistry(LIMITS)
-    assert {m.full_id: m.context_limit for m in registry.models()} == LIMITS
+def test_voice_registry_leaves_unknown_context_limits_unset() -> None:
+    assert {m.full_id: m.context_limit for m in VoiceRegistry().models()} == {
+        "grok:grok-voice-3.0": None,
+        "grok:grok-voice-latest": None,
+    }
+    registry = VoiceRegistry(context_limits={"grok:grok-voice-latest": 1_000})
+    assert {m.full_id: m.context_limit for m in registry.models()} == {
+        "grok:grok-voice-3.0": None,
+        "grok:grok-voice-latest": 1_000,
+    }
     latest = registry.get("grok:grok-voice-latest")
     assert latest is not None and latest.spec.default_voice == "eve"
 
 
 def test_voice_registry_lists_its_catalog_and_opens_registered_providers_only() -> None:
-    registry = VoiceRegistry(LIMITS)
+    registry = VoiceRegistry()
     assert {m.spec.id for m in registry.models()} == {"grok-voice-3.0", "grok-voice-latest"}
     registry.register("grok", GrokRealtime("key"))
     assert registry.namespaces() == ("grok",)
@@ -109,7 +109,7 @@ async def _with_fake_xai(
 
     async with serve(handler, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
-        registry = VoiceRegistry(LIMITS)
+        registry = VoiceRegistry()
         registry.register("grok", GrokRealtime("key", base_url=f"http://127.0.0.1:{port}/v1"))
         frames: list[str] = []
         session = await registry.open("grok:grok-voice-latest", config, observer=lambda d, f: frames.append(d))

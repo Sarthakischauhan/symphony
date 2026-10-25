@@ -5,7 +5,7 @@ and live only in this package's catalog.
 """
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 AudioEncoding = Literal["pcm16", "pcmu", "pcma"]
 
@@ -43,11 +43,11 @@ class VoiceModelSpec:
 
 @dataclass(frozen=True, slots=True)
 class VoiceModel:
-    """A voice model as a ``VoiceRegistry`` serves it: its spec plus the required, configured
-    context window in tokens."""
+    """A voice model as a ``VoiceRegistry`` serves it: its spec plus its context window in
+    tokens, or None when unknown."""
 
     spec: VoiceModelSpec
-    context_limit: int
+    context_limit: Optional[int] = None
 
     @property
     def full_id(self) -> str:

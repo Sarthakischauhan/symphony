@@ -22,33 +22,22 @@ class VoiceProvider(ABC):
         """Connect to ``model_name`` and apply ``config``."""
 
 
-class MissingVoiceContextLimit(ValueError):
-    """A voice model has no configured context window."""
-
-    def __init__(self, model_ids: list[str]) -> None:
-        self.model_ids = model_ids
-        super().__init__(
-            "no context_limit configured for voice model(s) "
-            + ", ".join(model_ids)
-            + "; xAI does not publish one, so the host must set it per model"
-        )
-
-
 class VoiceRegistry:
     """Voice providers by namespace and the voice models they serve (``specs``, by default
     ``VOICE_MODELS``), apart from the text ``ModelRegistry``.
 
-    ``context_limits`` (tokens, by ``namespace:model`` id) is required for every model: xAI
-    documents no context window for its realtime models (the models list,
-    https://docs.x.ai/developers/models, gives text models a ``maxPromptLength`` and voice
-    models none), so the host configures one rather than this package guessing.
+    ``context_limits`` (tokens, by ``namespace:model`` id) holds only known windows; a model
+    without one has ``context_limit=None``. xAI documents no context window for its realtime
+    models (https://docs.x.ai/developers/models lists none), so none is assumed here.
     """
 
-    def __init__(self, context_limits: Mapping[str, int], specs: tuple[VoiceModelSpec, ...] = VOICE_MODELS) -> None:
-        missing = [spec.full_id for spec in specs if spec.full_id not in context_limits]
-        if missing:
-            raise MissingVoiceContextLimit(missing)
-        self._models = tuple(VoiceModel(spec, context_limits[spec.full_id]) for spec in specs)
+    def __init__(
+        self,
+        specs: tuple[VoiceModelSpec, ...] = VOICE_MODELS,
+        context_limits: Optional[Mapping[str, int]] = None,
+    ) -> None:
+        known = context_limits or {}
+        self._models = tuple(VoiceModel(spec, known.get(spec.full_id)) for spec in specs)
         self._providers: dict[str, VoiceProvider] = {}
 
     def register(self, namespace: str, provider: VoiceProvider) -> None:

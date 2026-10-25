@@ -6,7 +6,7 @@ Tools, history and turn orchestration live with the caller.
 
 from core_ai.voice.catalog import VOICE_MODELS
 from core_ai.voice.grok import GrokRealtime, GrokVoiceSession
-from core_ai.voice.registry import MissingVoiceContextLimit, VoiceProvider, VoiceRegistry
+from core_ai.voice.registry import VoiceProvider, VoiceRegistry
 from core_ai.voice.types import AudioEncoding, AudioFormat, VoiceInfo, VoiceModel, VoiceModelSpec
 from core_ai.voice.session import (
     AudioDelta,
@@ -38,7 +38,6 @@ __all__ = [
     "FrameObserver",
     "GrokRealtime",
     "GrokVoiceSession",
-    "MissingVoiceContextLimit",
     "ResponseDone",
     "ResponseEvent",
     "SpeechStarted",
