@@ -266,10 +266,11 @@ class GrokVoiceSession(VoiceSession):
         await self._send({"type": "response.create"})
 
     async def cancel(self) -> None:
-        if self._current is None:
+        # The cancelled id stays current until the next response.created, so binary audio
+        # frames (which carry no response id) still in flight are dropped with it.
+        if self._current is None or self._current in self._dropped:
             return
         self._dropped.add(self._current)
-        self._current = None
         await self._send({"type": "response.cancel"})
 
     async def update(self, config: VoiceConfig) -> None:

@@ -9,6 +9,9 @@ from core_ai.types import Message, StreamEvent
 from core_ai.voice.session import FrameObserver, VoiceConfig, VoiceSession
 
 
+GROK_IMAGE_MODEL = "grok-imagine-image-2.0"
+
+
 class GrokProvider(OpenAIProvider):
     """xAI Grok via the OpenAI-compatible Chat Completions API."""
 
@@ -47,6 +50,12 @@ class GrokProvider(OpenAIProvider):
             headers,
         ):
             yield event
+
+    def image_request(self, model_name: str, output_format: str) -> tuple[Dict[str, Any], str]:
+        # xAI's Images API takes no size or output format and always returns JPEG.
+        del output_format
+        model = model_name if model_name.startswith("grok-imagine") else GROK_IMAGE_MODEL
+        return {"model": model, "n": 1, "response_format": "b64_json"}, "image/jpeg"
 
     async def open_voice(
         self,

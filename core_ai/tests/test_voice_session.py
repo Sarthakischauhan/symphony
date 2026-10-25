@@ -154,6 +154,11 @@ async def _fake_xai(connection: ServerConnection, received: list[dict[str, Any]]
     async for message in connection:
         if isinstance(message, str):
             received.append(json.loads(message))
+            if received[-1]["type"] == "response.cancel":
+                # Audio of the cancelled response still in flight, then the next response's audio.
+                await connection.send(b"\x09")
+                await connection.send(_event({"type": "response.created", "response": {"id": "r3"}}))
+                await connection.send(b"\x03")
 
 
 def _event(payload: dict[str, Any]) -> str:
@@ -193,6 +198,8 @@ def test_grok_voice_session_over_the_wire() -> None:
             first = [e async for e in session.response()]
             await asyncio.sleep(0.05)
             await session.cancel()
+            await session.cancel()
+            seen.append(await anext(events))
             await session.add_tool_result("c1", "sunny")
             await asyncio.sleep(0.05)
             await registry.close_voice("s1", session)
@@ -201,7 +208,7 @@ def test_grok_voice_session_over_the_wire() -> None:
 
     seen, first, session = asyncio.run(run())
 
-    assert seen == [UserTranscript("hi there"), AudioDelta(b"\x01\x02")]
+    assert seen == [UserTranscript("hi there"), AudioDelta(b"\x01\x02"), AudioDelta(b"\x03")]
     assert session.history.heard == ["hi there"]
     assert first == [TextDelta("Hey"), ToolCall("c1", "get_weather", "{}"), ResponseDone(5, 2)]
     update = received[0]
