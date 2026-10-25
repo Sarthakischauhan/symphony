@@ -15,7 +15,7 @@ _IMAGE_MODELS = {
 
 
 class ModelRegistry:
-    def __init__(self):
+    def __init__(self) -> None:
         self._providers: Dict[str, BaseProvider] = {}
 
     def register(self, namespace: str, provider: BaseProvider):
