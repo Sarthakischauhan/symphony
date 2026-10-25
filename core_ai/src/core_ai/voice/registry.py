@@ -1,6 +1,7 @@
 """Voice providers by namespace, opened by ``namespace:model`` id against a voice catalog."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import Optional
 
 from core_ai.models.registry import ModelCatalog
@@ -22,13 +23,39 @@ class VoiceProvider(ABC):
         """Connect to ``model_name`` and apply ``config``."""
 
 
+class MissingVoiceContextLimit(ValueError):
+    """A voice model in the catalog has no configured context window."""
+
+    def __init__(self, model_ids: list[str]) -> None:
+        self.model_ids = model_ids
+        super().__init__(
+            "no context_limit configured for voice model(s) "
+            + ", ".join(model_ids)
+            + "; xAI does not publish one, so the host must set it per model"
+        )
+
+
 class VoiceRegistry:
     """The voice counterpart of ``ModelRegistry``; its models come from ``catalog``, not the
-    default text catalog."""
+    default text catalog.
 
-    def __init__(self, catalog: ModelCatalog = voice_catalog) -> None:
+    ``context_limits`` (tokens, by ``namespace:model`` id) is required for every catalog model:
+    xAI documents no context window for its realtime models (the models list,
+    https://docs.x.ai/developers/models, gives text models a ``maxPromptLength`` and voice
+    models none), so the host configures one rather than this package guessing.
+    """
+
+    def __init__(self, context_limits: Mapping[str, int], catalog: ModelCatalog = voice_catalog) -> None:
+        missing = [model.full_id for model in catalog.list() if model.full_id not in context_limits]
+        if missing:
+            raise MissingVoiceContextLimit(missing)
         self.catalog = catalog
+        self._context_limits = {model.full_id: context_limits[model.full_id] for model in catalog.list()}
         self._providers: dict[str, VoiceProvider] = {}
+
+    def context_limits(self) -> dict[str, int]:
+        """The configured context window of every catalog model, by full id."""
+        return dict(self._context_limits)
 
     def register(self, namespace: str, provider: VoiceProvider) -> None:
         self._providers[namespace] = provider

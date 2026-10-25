@@ -13,6 +13,7 @@ from core_ai.voice import (
     VOICE_MODELS,
     AudioDelta,
     GrokRealtime,
+    MissingVoiceContextLimit,
     ResponseDone,
     ResponseEvent,
     TextDelta,
@@ -43,8 +44,18 @@ def test_voice_catalog_lists_grok_realtime_models_with_voices() -> None:
     assert "audio" in model.input_modalities and "audio" in model.output_modalities
 
 
+LIMITS = {"grok:grok-voice-3.0": 32_000, "grok:grok-voice-latest": 32_000}
+
+
+def test_voice_registry_requires_a_context_limit_for_every_model() -> None:
+    with pytest.raises(MissingVoiceContextLimit) as raised:
+        VoiceRegistry({"grok:grok-voice-latest": 32_000})
+    assert raised.value.model_ids == ["grok:grok-voice-3.0"]
+    assert VoiceRegistry(LIMITS).context_limits() == LIMITS
+
+
 def test_voice_registry_lists_its_catalog_and_opens_registered_providers_only() -> None:
-    registry = VoiceRegistry()
+    registry = VoiceRegistry(LIMITS)
     assert {m.id for m in registry.models()} == {"grok-voice-3.0", "grok-voice-latest"}
     registry.register("grok", GrokRealtime("key"))
     assert registry.namespaces() == ("grok",)
@@ -73,6 +84,16 @@ def _done(response_id: str) -> str:
     return _event({"type": "response.done", "response": {"id": response_id, "status": "completed"}})
 
 
+def _echo(frame: Frame, metadata: Any) -> Frame:
+    """xAI echoes ``response.create`` metadata on the ``response.created`` it starts."""
+    if isinstance(frame, str) and metadata is not None:
+        event = json.loads(frame)
+        if event["type"] == "response.created":
+            event["response"]["metadata"] = metadata
+            return json.dumps(event)
+    return frame
+
+
 async def _with_fake_xai(
     on_message: dict[str, list[Frame]],
     opening: list[Frame],
@@ -90,12 +111,13 @@ async def _with_fake_xai(
         async for message in connection:
             if isinstance(message, str):
                 received.append(json.loads(message))
+                metadata = received[-1].get("response", {}).get("metadata")
                 for frame in on_message.get(received[-1]["type"], []):
-                    await connection.send(frame)
+                    await connection.send(_echo(frame, metadata))
 
     async with serve(handler, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
-        registry = VoiceRegistry()
+        registry = VoiceRegistry(LIMITS)
         registry.register("grok", GrokRealtime("key", base_url=f"http://127.0.0.1:{port}/v1"))
         frames: list[str] = []
         session = await registry.open("grok:grok-voice-latest", config, observer=lambda d, f: frames.append(d))
@@ -115,16 +137,34 @@ def test_grok_voice_session_over_the_wire() -> None:
         _created("r1"),
         b"\x01\x02",
         _text("r1", "Hey"),
-        _event({"type": "response.function_call_arguments.done", "response_id": "r1", "call_id": "c1",
-                "name": "get_weather", "arguments": "{}"}),
-        _event({"type": "response.output_item.done", "response_id": "r1",
-                "item": {"type": "function_call", "call_id": "c1", "name": "get_weather", "arguments": "{}"}}),
-        _event({"type": "response.done", "response": {"id": "r1", "status": "completed",
-                                                       "usage": {"input_tokens": 5, "output_tokens": 2}}}),
+        _event(
+            {
+                "type": "response.function_call_arguments.done",
+                "response_id": "r1",
+                "call_id": "c1",
+                "name": "get_weather",
+                "arguments": "{}",
+            }
+        ),
+        _event(
+            {
+                "type": "response.output_item.done",
+                "response_id": "r1",
+                "item": {"type": "function_call", "call_id": "c1", "name": "get_weather", "arguments": "{}"},
+            }
+        ),
+        _event(
+            {
+                "type": "response.done",
+                "response": {"id": "r1", "status": "completed", "usage": {"input_tokens": 5, "output_tokens": 2}},
+            }
+        ),
     ]
     # Audio of the cancelled response still in flight, then the next response's audio.
-    on_message: dict[str, list[Frame]] = {"response.create": [_created("r2")],
-                                          "response.cancel": [b"\x09", _done("r2"), b"\x03"]}
+    on_message: dict[str, list[Frame]] = {
+        "response.create": [_created("r2")],
+        "response.cancel": [b"\x09", _done("r2"), b"\x03"],
+    }
 
     async def body(session: VoiceSession) -> tuple[list[VoiceEvent], list[ResponseEvent]]:
         events = session.events()
@@ -168,7 +208,7 @@ def test_unrequested_response_is_dropped(caplog: pytest.LogCaptureFixture) -> No
         await session.respond()
         return [e async for e in session.response()]
 
-    with caplog.at_level(logging.DEBUG, logger="core_ai.voice.grok.realtime"):
+    with caplog.at_level(logging.DEBUG, logger="core_ai.voice.grok.responses"):
         events = asyncio.run(_with_fake_xai(on_message, opening, received, body))
 
     assert events == [TextDelta("asked"), ResponseDone()]
@@ -181,8 +221,12 @@ def test_each_requested_response_reaches_its_own_request() -> None:
     # A spontaneous r9 arrives between them and belongs to neither.
     opening: list[Frame] = [
         _event({"type": "input_audio_buffer.speech_stopped"}),
-        _created("r1"), _text("r1", "for speech"), _done("r1"),
-        _created("r9"), _text("r9", "stray"), _done("r9"),
+        _created("r1"),
+        _text("r1", "for speech"),
+        _done("r1"),
+        _created("r9"),
+        _text("r9", "stray"),
+        _done("r9"),
     ]
     on_message: dict[str, list[Frame]] = {"response.create": [_created("r2"), _text("r2", "for typed"), _done("r2")]}
 
@@ -197,6 +241,48 @@ def test_each_requested_response_reaches_its_own_request() -> None:
 
     assert spoken == [TextDelta("for speech"), ResponseDone()]
     assert typed == [TextDelta("for typed"), ResponseDone()]
+
+
+def test_an_utterance_the_server_never_answers_leaves_nothing_pending() -> None:
+    # Server VAD ends an utterance but never answers it; the next speech_started (the protocol's
+    # start of a new utterance) closes it, so a later server-started r8 (null metadata) is not
+    # taken for the typed request, which xAI answers as r2 with the echoed request_id.
+    received: list[dict[str, Any]] = []
+    opening: list[Frame] = [
+        _event({"type": "input_audio_buffer.speech_started"}),
+        _event({"type": "input_audio_buffer.speech_stopped"}),
+        _event({"type": "input_audio_buffer.speech_started"}),
+        _created("r8"),
+        _text("r8", "stray"),
+        _done("r8"),
+    ]
+    on_message: dict[str, list[Frame]] = {"response.create": [_created("r2"), _text("r2", "for typed"), _done("r2")]}
+
+    async def body(session: VoiceSession) -> list[ResponseEvent]:
+        await asyncio.sleep(0.05)
+        await session.respond()
+        return [e async for e in session.response()]
+
+    typed = asyncio.run(_with_fake_xai(on_message, opening, received, body))
+
+    assert typed == [TextDelta("for typed"), ResponseDone()]
+    assert received[-1] == {"type": "response.create", "response": {"metadata": {"request_id": "req-1"}}}
+
+
+def test_history_replay_seeds_tool_calls_and_their_outputs() -> None:
+    received: list[dict[str, Any]] = []
+
+    async def body(session: VoiceSession) -> None:
+        await session.add_tool_call("c1", "get_weather", '{"city":"SF"}')
+        await session.add_tool_result("c1", "sunny")
+        await asyncio.sleep(0.05)
+
+    asyncio.run(_with_fake_xai({}, [], received, body))
+
+    assert [e["item"] for e in received[1:]] == [
+        {"type": "function_call", "call_id": "c1", "name": "get_weather", "arguments": '{"city":"SF"}'},
+        {"type": "function_call_output", "call_id": "c1", "output": "sunny"},
+    ]
 
 
 def test_closed_connection_ends_a_waiting_response() -> None:

@@ -61,9 +61,7 @@ class VoiceClosed:
     type: Literal["closed"] = "closed"
 
 
-VoiceEvent = Union[
-    SpeechStarted, SpeechStopped, UserTranscript, AudioDelta, VoiceError, VoiceClosed
-]
+VoiceEvent = Union[SpeechStarted, SpeechStopped, UserTranscript, AudioDelta, VoiceError, VoiceClosed]
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +105,10 @@ class VoiceSession(ABC):
     @abstractmethod
     async def add_message(self, role: Literal["user", "assistant"], text: str) -> None:
         """Add a text message to the conversation without asking for a response."""
+
+    @abstractmethod
+    async def add_tool_call(self, call_id: str, name: str, arguments: str) -> None:
+        """Seed a tool call the assistant made earlier (history replay), without a response."""
 
     @abstractmethod
     async def add_tool_result(self, call_id: str, output: str) -> None:
