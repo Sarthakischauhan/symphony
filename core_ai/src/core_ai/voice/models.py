@@ -1,11 +1,25 @@
 """Pick a voice model from the generated catalog and open a realtime session on it."""
 
+from collections.abc import Awaitable, Callable
 from typing import Optional
 
 from core_ai.voice.catalog import VOICE_MODELS
+from core_ai.voice.gemini import GEMINI_LIVE_URL, open_gemini_live
 from core_ai.voice.grok import XAI_BASE_URL, open_grok_realtime
+from core_ai.voice.openai import OPENAI_BASE_URL, open_openai_realtime
 from core_ai.voice.session import FrameObserver, VoiceConfig, VoiceSession
 from core_ai.voice.types import VoiceModelSpec
+from core_ai.voice.vercel import AI_GATEWAY_BASE_URL, open_vercel_realtime
+
+RealtimeOpener = Callable[[str, str, VoiceConfig, Optional[FrameObserver], str], Awaitable[VoiceSession]]
+
+# Catalog provider -> (realtime client, its default API base URL).
+REALTIME_CLIENTS: dict[str, tuple[RealtimeOpener, str]] = {
+    "grok": (open_grok_realtime, XAI_BASE_URL),
+    "openai": (open_openai_realtime, OPENAI_BASE_URL),
+    "gemini": (open_gemini_live, GEMINI_LIVE_URL),
+    "vercel": (open_vercel_realtime, AI_GATEWAY_BASE_URL),
+}
 
 
 def voice_model(model_id: str) -> Optional[VoiceModelSpec]:
@@ -18,9 +32,12 @@ async def open_voice_session(
     config: VoiceConfig,
     api_key: str,
     observer: Optional[FrameObserver] = None,
-    base_url: str = XAI_BASE_URL,
+    base_url: Optional[str] = None,
 ) -> VoiceSession:
-    """Open ``model`` with its provider's ``api_key`` (and API ``base_url``) and apply ``config``."""
-    if model.provider != "grok":
+    """Open ``model`` with its provider's ``api_key`` and apply ``config``; ``base_url``
+    overrides the provider's default API (or, for Gemini, Live WebSocket) URL."""
+    client = REALTIME_CLIENTS.get(model.provider)
+    if client is None:
         raise ValueError(f"no realtime client for voice provider {model.provider!r}")
-    return await open_grok_realtime(api_key, model.id, config, observer, base_url)
+    opener, default_url = client
+    return await opener(api_key, model.id, config, observer, base_url or default_url)

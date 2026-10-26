@@ -1,11 +1,12 @@
-"""The xAI realtime server events this client reads, as typed models.
+"""Server events of the OpenAI-style realtime protocol, as typed models.
 
-Names and fields follow the Voice API reference,
-https://docs.x.ai/developers/rest-api-reference/inference/voice (server events): deltas,
-function calls and output items carry ``response_id``; ``response.created`` and
+xAI and OpenAI share these names and fields: the xAI Voice API reference,
+https://docs.x.ai/developers/rest-api-reference/inference/voice (server events), and
+OpenAI's published spec, https://github.com/openai/openai-openapi (``RealtimeServerEvent*``).
+Deltas, function calls and output items carry ``response_id``; ``response.created`` and
 ``response.done`` carry the response object, whose ``metadata`` echoes what the client sent
 with ``response.create`` and is null for responses the server starts itself (server VAD).
-Binary audio frames are raw PCM with no envelope (binary transport,
+xAI's binary audio frames are raw PCM with no envelope (binary transport,
 https://docs.x.ai/developers/model-capabilities/audio/voice-agent), so they belong to the
 response in progress.
 """

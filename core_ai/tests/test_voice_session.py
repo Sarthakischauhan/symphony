@@ -25,7 +25,8 @@ from core_ai.voice import (
 
 
 def test_voice_models_list_grok_realtime_models_with_voices() -> None:
-    assert [m.id for m in VOICE_MODELS] == ["grok-voice-latest", "grok-voice-3.0", "grok-voice-2.0"]
+    grok = [m.id for m in VOICE_MODELS if m.provider == "grok"]
+    assert grok == ["grok-voice-latest", "grok-voice-3.0", "grok-voice-2.0"]
     model = next(m for m in VOICE_MODELS if m.id == "grok-voice-latest")
     assert len(model.voices) == 28
     assert model.default_voice == "eve"
@@ -37,12 +38,13 @@ def test_voice_model_looks_up_the_catalog_by_full_id() -> None:
     latest = voice_model("grok:grok-voice-latest")
     assert latest is not None and latest.default_voice == "eve"
     assert voice_model("grok-voice-latest") is None
-    assert voice_model("openai:gpt-realtime") is None
+    assert voice_model("openai:gpt-realtime") is not None
+    assert voice_model("xai:grok-voice-latest") is None
 
 
 def test_open_voice_session_needs_a_provider_with_a_realtime_client() -> None:
-    model = replace(VOICE_MODELS[0], provider="openai")
-    with pytest.raises(ValueError, match="openai"):
+    model = replace(VOICE_MODELS[0], provider="nowhere")
+    with pytest.raises(ValueError, match="nowhere"):
         asyncio.run(open_voice_session(model, VoiceConfig(voice="eve"), api_key="key"))
 
 
@@ -191,7 +193,7 @@ def test_unrequested_response_is_dropped(caplog: pytest.LogCaptureFixture) -> No
         await session.respond()
         return [e async for e in session.response()]
 
-    with caplog.at_level(logging.DEBUG, logger="core_ai.voice.grok.responses"):
+    with caplog.at_level(logging.DEBUG, logger="core_ai.voice.responses"):
         events = asyncio.run(_with_fake_xai(on_message, opening, received, body))
 
     assert events == [TextDelta("asked"), ResponseDone()]

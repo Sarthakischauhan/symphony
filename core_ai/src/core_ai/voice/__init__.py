@@ -1,13 +1,18 @@
 """Voice model calls: realtime (WebSocket), and per provider TTS and STT.
 
+Providers: ``grok`` (xAI), ``openai``, ``gemini`` (Gemini Live) and ``vercel`` (AI Gateway).
+
 This package only talks to voice models: PCM audio in and out plus typed model events.
 Tools, history and turn orchestration live with the caller.
 """
 
 from core_ai.voice.catalog import VOICE_MODELS
+from core_ai.voice.gemini import GeminiVoiceSession
 from core_ai.voice.grok import GrokVoiceSession
 from core_ai.voice.models import open_voice_session, voice_model
+from core_ai.voice.openai import OpenAIVoiceSession
 from core_ai.voice.types import AudioEncoding, AudioFormat, VoiceInfo, VoiceModelSpec
+from core_ai.voice.vercel import VercelVoiceSession
 from core_ai.voice.session import (
     AudioDelta,
     FrameDirection,
@@ -35,7 +40,9 @@ __all__ = [
     "AudioDelta",
     "FrameDirection",
     "FrameObserver",
+    "GeminiVoiceSession",
     "GrokVoiceSession",
+    "OpenAIVoiceSession",
     "ResponseDone",
     "ResponseEvent",
     "SpeechStarted",
@@ -50,6 +57,7 @@ __all__ = [
     "VoiceError",
     "VoiceEvent",
     "VoiceSession",
+    "VercelVoiceSession",
     "open_voice_session",
     "voice_model",
 ]

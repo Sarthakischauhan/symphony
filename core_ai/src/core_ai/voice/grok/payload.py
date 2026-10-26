@@ -1,4 +1,4 @@
-"""Client payloads: the ``session`` of a ``session.update`` and the realtime URL."""
+"""The xAI ``session`` of a ``session.update``."""
 
 from typing import Any
 
@@ -32,9 +32,3 @@ def session_payload(config: VoiceConfig) -> dict[str, Any]:
     if config.reasoning_effort is not None:
         session["reasoning"] = {"effort": config.reasoning_effort}
     return session
-
-
-def realtime_url(base_url: str) -> str:
-    """``wss://…/realtime`` on the same host as an xAI REST base URL."""
-    scheme, rest = base_url.split("://", 1)
-    return f"{'wss' if scheme == 'https' else 'ws'}://{rest}/realtime"

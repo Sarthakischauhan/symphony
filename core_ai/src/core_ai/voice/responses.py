@@ -1,9 +1,11 @@
 """Which responses on a realtime connection were asked for, and where their events go.
 
-Correlation is protocol-level only (no turns, no history): ``request()`` names a
-``response.create`` with a ``request_id`` the server echoes in ``response.created``'s
-metadata; with server VAD the utterance ``speech_stopped`` ended is answered by a response
-with null metadata until the next ``speech_started`` begins a new utterance. That
+Shared by every provider client. Correlation is protocol-level only (no turns, no history):
+``request()`` names a requested response. Protocols that echo it (xAI, OpenAI: the
+``request_id`` in ``response.created`` metadata) pass it to ``created``; protocols that don't
+(AI Gateway, Gemini Live) pass ``oldest_request()``, since responses start in request order.
+With server VAD the utterance ``speech_stopped`` ended is answered by a server-started response
+until the next ``speech_started`` begins a new utterance. That
 ``speech_started`` is the protocol's end of an unanswered utterance, so a turn the server
 never answers leaves nothing pending. Anything else is dropped.
 """
@@ -14,7 +16,6 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Optional
 
-from core_ai.voice.grok.events import CreatedResponse, RequestMetadata
 from core_ai.voice.session import ResponseDone, ResponseEvent
 
 log = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ class ResponseRouter:
 
     def __init__(self) -> None:
         self._ids = itertools.count(1)
-        self._requested: set[str] = set()
+        self._requested: dict[str, None] = {}
         self._utterance_open = False
         self._accepted: asyncio.Queue[Optional[str]] = asyncio.Queue()
         self._buffers: dict[str, asyncio.Queue[ResponseEvent]] = {}
@@ -37,7 +38,7 @@ class ResponseRouter:
     def request(self) -> str:
         """A new ``request_id`` for the metadata of a ``response.create``."""
         request_id = f"req-{next(self._ids)}"
-        self._requested.add(request_id)
+        self._requested[request_id] = None
         return request_id
 
     def utterance_started(self) -> None:
@@ -46,20 +47,25 @@ class ResponseRouter:
     def utterance_ended(self, server_answers: bool) -> None:
         self._utterance_open = server_answers
 
-    def created(self, response: CreatedResponse) -> None:
-        self.current = response.id
-        if not self._claim(response.metadata):
-            log.debug("dropping unrequested voice response %s", response.id)
-            self._dropped.add(response.id)
-            return
-        self._buffers[response.id] = asyncio.Queue()
-        self._accepted.put_nowait(response.id)
+    def oldest_request(self) -> Optional[str]:
+        """The longest-waiting unanswered request, for protocols that echo no request id."""
+        return next(iter(self._requested), None)
 
-    def _claim(self, metadata: Optional[RequestMetadata]) -> bool:
-        if metadata is not None and metadata.request_id in self._requested:
-            self._requested.discard(metadata.request_id)
+    def created(self, response_id: str, request_id: Optional[str], server_started: bool) -> None:
+        """A response began: ``request_id`` it answers, or ``server_started`` by server VAD."""
+        self.current = response_id
+        if not self._claim(request_id, server_started):
+            log.debug("dropping unrequested voice response %s", response_id)
+            self._dropped.add(response_id)
+            return
+        self._buffers[response_id] = asyncio.Queue()
+        self._accepted.put_nowait(response_id)
+
+    def _claim(self, request_id: Optional[str], server_started: bool) -> bool:
+        if request_id is not None and request_id in self._requested:
+            del self._requested[request_id]
             return True
-        if metadata is None and self._utterance_open:
+        if server_started and self._utterance_open:
             self._utterance_open = False
             return True
         return False
