@@ -5,23 +5,24 @@ This is a maintainer command, not part of installing the package:
 
     uv run python scripts/generate_voice_models.py
 
-It rewrites ``src/core_ai/voice/catalog.py`` from each provider's published
-sources; commit the result.
+It rewrites ``src/core_ai/voice/catalog.py`` from each provider's published sources and
+records, on every entry, the source of its model id, voices, efforts and audio formats.
+Nothing is carried over from the previous catalog and nothing is filled in by hand: a value
+no source publishes is left out.
 
-- grok: xAI's realtime API spec (models, reasoning efforts, audio formats; no
-  credentials) and, when ``XAI_API_KEY`` is set, the built-in voices of
-  ``GET /v1/tts/voices``. Without a key the snapshot voices are kept.
-- openai: OpenAI's published OpenAPI spec (``RealtimeSessionCreateRequestGA``:
-  model ids, built-in voices, default voice, audio formats; no credentials).
-- vercel: AI Gateway's public ``GET /v1/models`` (no credentials): realtime
-  models tagged ``websocket-realtime``, the ones its realtime WebSocket serves.
-- gemini: Live models need an API key to list (``GET /v1beta/models``, those
-  supporting ``bidiGenerateContent``), so they are read only when
-  ``GEMINI_API_KEY`` is set; without it the snapshot's Gemini models are kept.
-  No API publishes Gemini's voices, so Gemini models carry none.
+- grok: xAI's realtime API spec (models, efforts, audio formats, the session example's
+  voice) and, with ``XAI_API_KEY``, the built-in voices of ``GET /v1/tts/voices``.
+- openai: OpenAI's OpenAPI spec (models, voices, default voice, audio formats) and
+  models.dev (reasoning efforts).
+- gemini: Live models from models.dev and, with ``GEMINI_API_KEY``, ``GET /v1beta/models``;
+  efforts from models.dev; voices from the speech-generation guide's prebuilt voice table
+  (which the Live guide says native-audio models use) and, with ``GEMINI_API_KEY``, the
+  prebuilt voices of ``GET /v1beta/voices``; audio formats from the Live guide.
+- vercel: AI Gateway's public ``GET /v1/models`` (realtime WebSocket models and their
+  efforts); voices and audio formats are the upstream provider's, which the gateway passes
+  through. Efforts are kept only where the gateway documents how to send them.
 
-If a public source is unreachable the whole snapshot is kept unless
-``CORE_AI_GENERATE_STRICT=1`` is set. ``CORE_AI_VOICE_SPEC=0`` skips the network.
+A source that needs a missing key is skipped with a log line. Any other failure raises.
 """
 
 from __future__ import annotations
@@ -29,60 +30,91 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 OUTPUT = Path(__file__).resolve().parents[1] / "src/core_ai/voice/catalog.py"
-REALTIME_SPEC_URL = "https://docs.x.ai/voice-realtime.ws.json"
-XAI_BASE_URL = "https://api.x.ai/v1"
+XAI_SPEC_URL = "https://docs.x.ai/voice-realtime.ws.json"
+XAI_VOICES_URL = "https://api.x.ai/v1/tts/voices"
 OPENAI_SPEC_URL = "https://raw.githubusercontent.com/openai/openai-openapi/main/openapi.json"
+MODELS_DEV_URL = "https://models.dev/api.json"
 GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models"
+GATEWAY_REALTIME_DOC_URL = "https://vercel.com/docs/ai-gateway/capabilities/realtime"
 GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_VOICES_URL = "https://generativelanguage.googleapis.com/v1beta/voices"
+GEMINI_TTS_DOC_URL = "https://ai.google.dev/gemini-api/docs/speech-generation.md.txt"
+GEMINI_LIVE_DOC_URL = "https://ai.google.dev/gemini-api/docs/live-guide.md.txt"
 
-# Wire format types core_ai's grok realtime client implements (see
-# core_ai/voice/grok/payload.py); `audio/opus` is published but not implemented.
+# Wire format types core_ai's realtime clients implement; `audio/opus` is published but not
+# implemented.
 ENCODINGS = {"audio/pcm": "pcm16", "audio/pcmu": "pcmu", "audio/pcma": "pcma"}
-# The spec documents `rate` as PCM only; G.711 (pcmu/pcma) is 8 kHz.
+# Neither spec gives G.711 (pcmu/pcma) a rate: G.711 itself is defined at 8 kHz.
 G711_RATE = 8000
-EFFORT_ORDER = ("none", "minimal", "low", "medium", "high")
-EXISTING_VOICE_RE = re.compile(r'VoiceInfo\("([^"]+)", "([^"]+)"')
-EXISTING_GEMINI_RE = re.compile(r'id="([^"]+)",\n        provider="gemini"')
+EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh")
 # OpenAI's realtime model enum also lists dated snapshots, beta-era previews and non-realtime
 # audio models; the catalog keeps the GA realtime aliases.
 OPENAI_SNAPSHOT_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
-# The tag AI Gateway puts on models its realtime WebSocket serves
-# (https://vercel.com/docs/ai-gateway/capabilities/realtime).
+# The tag AI Gateway puts on models its realtime WebSocket serves (GATEWAY_REALTIME_DOC_URL).
 GATEWAY_REALTIME_TAG = "websocket-realtime"
-# Live audio is PCM16; input may be any rate (16 kHz native, resampled otherwise) and output is
-# always 24 kHz (https://ai.google.dev/gemini-api/docs/live-api/capabilities).
-GEMINI_AUDIO_INPUT = (("pcm16", 16000), ("pcm16", 24000))
-GEMINI_AUDIO_OUTPUT = (("pcm16", 24000),)
+# Gateway owners whose reasoning effort the realtime docs say how to send
+# (``providerOptions.google.thinkingConfig.thinkingLevel``); see core_ai/voice/vercel/payload.py.
+GATEWAY_EFFORT_OWNERS = ("google",)
+# Catalog provider for each gateway owner, whose voices and audio formats the gateway passes on.
+GATEWAY_UPSTREAM = {"openai": "openai", "google": "gemini", "spacexai": "grok"}
+GEMINI_VOICE_RE = re.compile(r"\*\*(\w+)\*\* -- \*([^*]+)\*")
+GEMINI_OUTPUT_RATE_RE = re.compile(r"output always uses a sample rate of (\d+)kHz")
+GEMINI_INPUT_RATE_RE = re.compile(r"Input audio\s+is natively (\d+)kHz")
+
+Voice = tuple[str, str, tuple[str, ...]]
+Audio = tuple[tuple[str, int], ...]
+
+
+def log(message: str) -> None:
+    print(f"generate_voice_models: {message}")
+
+
+@dataclass(frozen=True)
+class Sourced:
+    """Values and the URL they were read from."""
+
+    values: tuple
+    source: str
+
+
+@dataclass(frozen=True)
+class Family:
+    """A provider's shared voices and audio formats, with their sources."""
+
+    voices: Sourced
+    default_voice: str
+    audio_input: Sourced
+    audio_output: Sourced
+
+
+@dataclass(frozen=True)
+class Entry:
+    id: str
+    provider: str
+    family: str
+    model_source: str
+    efforts: Sourced = field(default_factory=lambda: Sourced((), ""))
+
+
+@dataclass(frozen=True)
+class VoiceCatalog:
+    families: dict[str, Family]
+    entries: tuple[Entry, ...]
+
+
+# --- xAI ---------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class RealtimeSpec:
     models: tuple[str, ...]
     efforts: tuple[str, ...]
-    audio: tuple[tuple[str, int], ...]
+    audio: Audio
     example_voice: str
-
-
-@dataclass(frozen=True)
-class OpenAISpec:
-    models: tuple[str, ...]
-    voices: tuple[str, ...]
-    default_voice: str
-    audio: tuple[tuple[str, int], ...]
-
-
-@dataclass(frozen=True)
-class VoiceCatalog:
-    spec: RealtimeSpec
-    voices: tuple[tuple[str, str], ...]
-    openai: OpenAISpec | None = None
-    # AI Gateway model ids (``owner/model``).
-    gateway: tuple[str, ...] = ()
-    gemini: tuple[str, ...] = ()
 
 
 def session_schema(payload: dict) -> dict:
@@ -94,7 +126,7 @@ def session_schema(payload: dict) -> dict:
     raise ValueError("realtime spec has no session.update message")
 
 
-def audio_formats(fmt: dict) -> tuple[tuple[str, int], ...]:
+def audio_formats(fmt: dict) -> Audio:
     """Implemented (encoding, sample rate) pairs, 24 kHz PCM (the default) first."""
     rates = fmt["properties"]["rate"]["enum"]
     default = 24000
@@ -118,52 +150,40 @@ def parse_realtime_spec(payload: dict) -> RealtimeSpec:
         raise ValueError("input and output audio formats differ; the catalog needs both")
     return RealtimeSpec(
         models=tuple(properties["model"]["enum"]),
-        efforts=tuple(sorted(efforts, key=EFFORT_ORDER.index)),
+        efforts=ordered_efforts(efforts),
         audio=input_audio,
         example_voice=session["example"]["voice"],
     )
 
 
-def fetch_realtime_spec(url: str = REALTIME_SPEC_URL) -> RealtimeSpec:
-    import httpx
-
-    response = httpx.get(url, headers={"User-Agent": "core-ai-voice-catalog/1.0"}, timeout=30.0)
-    response.raise_for_status()
-    return parse_realtime_spec(response.json())
-
-
-def fetch_voices(api_key: str, base_url: str = XAI_BASE_URL) -> tuple[tuple[str, str], ...]:
-    """Built-in voices as (voice_id, name), from `GET /v1/tts/voices`."""
-    import httpx
-
-    response = httpx.get(
-        f"{base_url.rstrip('/')}/tts/voices",
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=30.0,
-    )
-    response.raise_for_status()
-    voices = tuple((voice["voice_id"], voice["name"]) for voice in response.json()["voices"])
+def parse_xai_voices(payload: dict) -> tuple[Voice, ...]:
+    voices = tuple((voice["voice_id"], voice["name"], ()) for voice in payload["voices"])
     if not voices:
-        raise RuntimeError("/v1/tts/voices returned no voices")
+        raise ValueError("/v1/tts/voices returned no voices")
     return voices
 
 
-def read_existing_voices(path: Path = OUTPUT) -> tuple[tuple[str, str], ...]:
-    """The snapshot's ``GROK_VOICES``."""
-    if not path.exists():
-        return ()
-    text = path.read_text()
-    start = text.find("GROK_VOICES: tuple")
-    block = text[start : text.index("\n)\n", start)] if start >= 0 else ""
-    return tuple(EXISTING_VOICE_RE.findall(block))
+def grok_family(spec: RealtimeSpec, voices: tuple[Voice, ...] | None) -> Family:
+    """Without ``/v1/tts/voices`` the only published voice is the spec's session example."""
+    default = spec.example_voice.lower()
+    listed = (
+        Sourced(voices, XAI_VOICES_URL)
+        if voices is not None
+        else Sourced(((default, spec.example_voice, ()),), f"{XAI_SPEC_URL} (session.update example)")
+    )
+    audio = Sourced(spec.audio, XAI_SPEC_URL)
+    return Family(listed, default, audio, audio)
 
 
-def read_existing_gemini_models(path: Path = OUTPUT) -> tuple[str, ...]:
-    return tuple(EXISTING_GEMINI_RE.findall(path.read_text())) if path.exists() else ()
+# --- OpenAI ------------------------------------------------------------------------------
 
 
-def _schemas(payload: dict) -> dict:
-    return payload["components"]["schemas"]
+@dataclass(frozen=True)
+class OpenAISpec:
+    models: tuple[str, ...]
+    voices: tuple[str, ...]
+    default_voice: str
+    audio: Audio
 
 
 def _resolve(schemas: dict, node: dict) -> dict:
@@ -184,7 +204,7 @@ def _enum_of(schemas: dict, node: dict) -> list[str]:
     return node.get("enum", [])
 
 
-def openai_audio_formats(schemas: dict, node: dict) -> tuple[tuple[str, int], ...]:
+def openai_audio_formats(schemas: dict, node: dict) -> Audio:
     found: list[tuple[str, int]] = []
     for option in _resolve(schemas, node)["anyOf"]:
         properties = option["properties"]
@@ -197,7 +217,7 @@ def openai_audio_formats(schemas: dict, node: dict) -> tuple[tuple[str, int], ..
 
 
 def parse_openai_spec(payload: dict) -> OpenAISpec:
-    schemas = _schemas(payload)
+    schemas = payload["components"]["schemas"]
     session = schemas["RealtimeSessionCreateRequestGA"]["properties"]
     models = tuple(
         model
@@ -217,12 +237,85 @@ def parse_openai_spec(payload: dict) -> OpenAISpec:
     )
 
 
-def parse_gateway_models(payload: dict) -> tuple[str, ...]:
-    return tuple(
-        model["id"]
+def openai_family(spec: OpenAISpec) -> Family:
+    audio = Sourced(spec.audio, OPENAI_SPEC_URL)
+    voices = tuple((voice, voice.title(), ()) for voice in spec.voices)
+    return Family(Sourced(voices, OPENAI_SPEC_URL), spec.default_voice, audio, audio)
+
+
+# --- models.dev and AI Gateway -------------------------------------------------------------
+
+
+def ordered_efforts(values: list[str]) -> tuple[str, ...]:
+    return tuple(sorted(values, key=EFFORT_ORDER.index))
+
+
+def published_efforts(model: dict) -> tuple[str, ...]:
+    """The ``effort`` values of a models.dev or gateway ``reasoning_options`` list."""
+    for option in model.get("reasoning_options") or ():
+        if option["type"] == "effort":
+            return ordered_efforts(option["values"])
+    return ()
+
+
+def parse_models_dev(payload: dict, provider: str) -> dict[str, tuple[str, ...]]:
+    """A models.dev provider's realtime models -> their efforts."""
+    return {
+        model_id: published_efforts(model)
+        for model_id, model in payload[provider]["models"].items()
+        if model.get("type") == "realtime"
+    }
+
+
+def parse_gateway_models(payload: dict) -> dict[str, tuple[str, ...]]:
+    """Gateway realtime WebSocket models -> their published efforts."""
+    return {
+        model["id"]: published_efforts(model)
         for model in payload["data"]
-        if model.get("type") == "realtime" and GATEWAY_REALTIME_TAG in model.get("tags", ())
-    )
+        if model.get("type") == "realtime" and GATEWAY_REALTIME_TAG in (model.get("tags") or ())
+    }
+
+
+def gateway_entries(models: dict[str, tuple[str, ...]], families: dict[str, Family]) -> tuple[Entry, ...]:
+    entries: list[Entry] = []
+    for model_id, efforts in models.items():
+        owner = model_id.split("/", 1)[0]
+        upstream = GATEWAY_UPSTREAM.get(owner)
+        if upstream is None:
+            log(f"skipping gateway model {model_id}: no catalog provider supplies {owner!r} voices")
+            continue
+        if efforts and owner not in GATEWAY_EFFORT_OWNERS:
+            log(f"{model_id}: gateway publishes efforts {efforts} but documents no realtime field to send them")
+            efforts = ()
+        sourced = Sourced(efforts, GATEWAY_MODELS_URL if efforts else "")
+        entries.append(Entry(model_id, "vercel", upstream, GATEWAY_MODELS_URL, sourced))
+    return tuple(entries)
+
+
+# --- Gemini ------------------------------------------------------------------------------
+
+
+def parse_gemini_voice_table(text: str) -> tuple[Voice, ...]:
+    """The speech-generation guide's ``### Prebuilt voices`` table: (name, name, (trait,))."""
+    start = text.index("### Prebuilt voices")
+    table = text[start : text.index("\n### ", start + 1)]
+    voices = tuple((name, name, (trait,)) for name, trait in GEMINI_VOICE_RE.findall(table))
+    if not voices:
+        raise ValueError("speech-generation guide has no prebuilt voices")
+    return voices
+
+
+def parse_gemini_voices(payload: dict) -> tuple[Voice, ...]:
+    """Prebuilt voices of ``GET /v1beta/voices``."""
+    return tuple((voice["id"], voice["displayName"], ()) for voice in payload.get("voices", ()))
+
+
+def parse_gemini_audio(text: str) -> tuple[Audio, Audio]:
+    """(input, output) PCM16 rates from the Live guide's audio formats section."""
+    output = int(GEMINI_OUTPUT_RATE_RE.search(text)[1]) * 1000
+    native = int(GEMINI_INPUT_RATE_RE.search(text)[1]) * 1000
+    inputs = tuple(("pcm16", rate) for rate in dict.fromkeys((native, output)))
+    return inputs, (("pcm16", output),)
 
 
 def parse_gemini_models(payload: dict) -> tuple[str, ...]:
@@ -233,7 +326,16 @@ def parse_gemini_models(payload: dict) -> tuple[str, ...]:
     )
 
 
-def _get_json(url: str, headers: dict[str, str] | None = None, params: dict[str, str] | None = None) -> dict:
+def gemini_family(voices: Sourced, live_doc: str) -> Family:
+    inputs, outputs = parse_gemini_audio(live_doc)
+    # Google publishes no default voice; leave it to the caller's choice from the list.
+    return Family(voices, "", Sourced(inputs, GEMINI_LIVE_DOC_URL), Sourced(outputs, GEMINI_LIVE_DOC_URL))
+
+
+# --- fetching ------------------------------------------------------------------------------
+
+
+def _get(url: str, headers: dict[str, str] | None = None, params: dict[str, str] | None = None):
     import httpx
 
     response = httpx.get(
@@ -244,182 +346,166 @@ def _get_json(url: str, headers: dict[str, str] | None = None, params: dict[str,
         follow_redirects=True,
     )
     response.raise_for_status()
-    return response.json()
+    return response
 
 
-def fetch_openai_spec(url: str = OPENAI_SPEC_URL) -> OpenAISpec:
-    return parse_openai_spec(_get_json(url))
+def get_json(url: str, headers: dict[str, str] | None = None, params: dict[str, str] | None = None) -> dict:
+    return _get(url, headers, params).json()
 
 
-def fetch_gateway_models(url: str = GATEWAY_MODELS_URL) -> tuple[str, ...]:
-    return parse_gateway_models(_get_json(url))
+def get_text(url: str) -> str:
+    return _get(url).text
 
 
-def fetch_gemini_models(api_key: str, url: str = GEMINI_MODELS_URL) -> tuple[str, ...]:
-    models: list[str] = []
-    params = {"pageSize": "1000"}
+def get_gemini_pages(url: str, api_key: str, params: dict[str, str]) -> list[dict]:
+    pages: list[dict] = []
+    query = dict(params)
     while True:
-        page = _get_json(url, headers={"x-goog-api-key": api_key}, params=params)
-        models.extend(parse_gemini_models(page))
+        page = get_json(url, headers={"x-goog-api-key": api_key}, params=query)
+        pages.append(page)
         token = page.get("nextPageToken")
         if not token:
-            return tuple(models)
-        params = {"pageSize": "1000", "pageToken": token}
+            return pages
+        query["pageToken"] = token
 
 
-def default_voice(spec: RealtimeSpec, voices: tuple[tuple[str, str], ...]) -> str:
-    """The voice the spec's own session example uses (`Eve`), as a catalog id."""
-    wanted = spec.example_voice.lower()
-    return next(voice_id for voice_id, label in voices if wanted in (voice_id.lower(), label.lower()))
+def keyed(name: str, what: str) -> str | None:
+    key = os.environ.get(name)
+    if not key:
+        log(f"{name} is not set: skipping {what}")
+    return key
+
+
+def collect_catalog() -> VoiceCatalog:
+    spec = parse_realtime_spec(get_json(XAI_SPEC_URL))
+    xai_key = keyed("XAI_API_KEY", f"{XAI_VOICES_URL} (grok voices beyond the spec's example)")
+    xai_voices = (
+        parse_xai_voices(get_json(XAI_VOICES_URL, headers={"Authorization": f"Bearer {xai_key}"})) if xai_key else None
+    )
+    openai = parse_openai_spec(get_json(OPENAI_SPEC_URL))
+    models_dev = get_json(MODELS_DEV_URL)
+    gemini_key = keyed("GEMINI_API_KEY", f"{GEMINI_MODELS_URL} and {GEMINI_VOICES_URL}")
+    gemini_voices = Sourced(parse_gemini_voice_table(get_text(GEMINI_TTS_DOC_URL)), GEMINI_TTS_DOC_URL)
+    gemini_models = {model_id: MODELS_DEV_URL for model_id in parse_models_dev(models_dev, "google")}
+    if gemini_key:
+        pages = get_gemini_pages(GEMINI_VOICES_URL, gemini_key, {"type": "prebuilt", "pageSize": "1000"})
+        gemini_voices = Sourced(tuple(v for page in pages for v in parse_gemini_voices(page)), GEMINI_VOICES_URL)
+        for page in get_gemini_pages(GEMINI_MODELS_URL, gemini_key, {"pageSize": "1000"}):
+            gemini_models.update(dict.fromkeys(parse_gemini_models(page), GEMINI_MODELS_URL))
+    families = {
+        "grok": grok_family(spec, xai_voices),
+        "openai": openai_family(openai),
+        "gemini": gemini_family(gemini_voices, get_text(GEMINI_LIVE_DOC_URL)),
+    }
+    return VoiceCatalog(
+        families,
+        provider_entries(
+            spec, openai, parse_models_dev(models_dev, "openai"), parse_models_dev(models_dev, "google"), gemini_models
+        )
+        + gateway_entries(parse_gateway_models(get_json(GATEWAY_MODELS_URL)), families),
+    )
+
+
+def provider_entries(
+    spec: RealtimeSpec,
+    openai: OpenAISpec,
+    openai_efforts: dict[str, tuple[str, ...]],
+    gemini_efforts: dict[str, tuple[str, ...]],
+    gemini_models: dict[str, str],
+) -> tuple[Entry, ...]:
+    """Direct-provider entries, each with the source of its id and efforts."""
+    grok = tuple(Entry(m, "grok", "grok", XAI_SPEC_URL, Sourced(spec.efforts, XAI_SPEC_URL)) for m in spec.models)
+    return (
+        grok
+        + tuple(
+            Entry(m, "openai", "openai", OPENAI_SPEC_URL, models_dev_efforts(openai_efforts, m)) for m in openai.models
+        )
+        + tuple(
+            Entry(m, "gemini", "gemini", src, models_dev_efforts(gemini_efforts, m)) for m, src in gemini_models.items()
+        )
+    )
+
+
+def models_dev_efforts(efforts: dict[str, tuple[str, ...]], model_id: str) -> Sourced:
+    values = efforts.get(model_id, ())
+    return Sourced(values, MODELS_DEV_URL if values else "")
+
+
+# --- rendering -----------------------------------------------------------------------------
 
 
 def quoted(values: tuple[str, ...]) -> str:
     return "(" + ", ".join(json.dumps(v) for v in values) + ("," if len(values) == 1 else "") + ")"
 
 
-@dataclass(frozen=True)
-class ModelFamily:
-    """How a catalog entry refers to its provider's shared voices and audio formats."""
+def family_lines(name: str, family: Family) -> list[str]:
+    prefix = name.upper()
+    return [
+        f"# {family.voices.source}",
+        f"{prefix}_VOICES: tuple[VoiceInfo, ...] = (",
+        *(
+            f"    VoiceInfo({json.dumps(voice_id)}, {json.dumps(label)}, {quoted(traits)}),"
+            for voice_id, label, traits in family.voices.values
+        ),
+        ")",
+        f"# {family.audio_input.source}",
+        f"{prefix}_AUDIO_INPUT: tuple[AudioFormat, ...] = (",
+        *(f"    AudioFormat({json.dumps(e)}, {rate})," for e, rate in family.audio_input.values),
+        ")",
+        f"{prefix}_AUDIO_OUTPUT: tuple[AudioFormat, ...] = (",
+        *(f"    AudioFormat({json.dumps(e)}, {rate})," for e, rate in family.audio_output.values),
+        ")",
+        "",
+    ]
 
-    voices: str
-    default_voice: str
-    audio_input: str
-    audio_output: str
 
-
-def model_lines(model_id: str, provider: str, family: ModelFamily, efforts: tuple[str, ...]) -> tuple[str, ...]:
+def entry_lines(entry: Entry, family: Family) -> tuple[str, ...]:
+    prefix = entry.family.upper()
     return (
         "    VoiceModelSpec(",
-        f"        id={json.dumps(model_id)},",
-        f"        provider={json.dumps(provider)},",
-        f"        voices={family.voices},",
+        f"        id={json.dumps(entry.id)},",
+        f"        provider={json.dumps(entry.provider)},",
+        f"        voices={prefix}_VOICES,",
         f"        default_voice={json.dumps(family.default_voice)},",
-        f"        audio_input={family.audio_input},",
-        f"        audio_output={family.audio_output},",
-        f"        reasoning_efforts={quoted(efforts)},",
+        f"        audio_input={prefix}_AUDIO_INPUT,",
+        f"        audio_output={prefix}_AUDIO_OUTPUT,",
+        f"        reasoning_efforts={quoted(entry.efforts.values)},",
+        "        sources=VoiceSources(",
+        f"            model={json.dumps(entry.model_source)},",
+        f"            voices={json.dumps(family.voices.source)},",
+        f"            reasoning_efforts={json.dumps(entry.efforts.source)},",
+        f"            audio={json.dumps(family.audio_input.source)},",
+        "        ),",
         "    ),",
     )
 
 
-def audio_lines(name: str, formats: tuple[tuple[str, int], ...]) -> list[str]:
-    return [
-        f"{name}: tuple[AudioFormat, ...] = (",
-        *(f"    AudioFormat({json.dumps(encoding)}, {rate})," for encoding, rate in formats),
-        ")",
-        "",
-    ]
-
-
-def voice_lines(name: str, voices: tuple[tuple[str, str], ...]) -> list[str]:
-    return [
-        f"{name}: tuple[VoiceInfo, ...] = (",
-        *(f"    VoiceInfo({json.dumps(voice_id)}, {json.dumps(label)})," for voice_id, label in voices),
-        ")",
-        "",
-    ]
-
-
-def families(catalog: VoiceCatalog) -> dict[str, ModelFamily]:
-    """Catalog provider (and AI Gateway owner) -> its voices and formats."""
-    grok = ModelFamily(
-        "GROK_VOICES", default_voice(catalog.spec, catalog.voices), "GROK_VOICE_AUDIO", "GROK_VOICE_AUDIO"
-    )
-    found = {
-        "grok": grok,
-        "spacexai": grok,
-        "gemini": ModelFamily("()", "", "GEMINI_VOICE_AUDIO_INPUT", "GEMINI_VOICE_AUDIO_OUTPUT"),
-    }
-    found["google"] = found["gemini"]
-    if catalog.openai is not None:
-        found["openai"] = ModelFamily(
-            "OPENAI_VOICES", catalog.openai.default_voice, "OPENAI_VOICE_AUDIO", "OPENAI_VOICE_AUDIO"
-        )
-    return found
-
-
-def gateway_models(catalog: VoiceCatalog) -> tuple[tuple[str, ModelFamily], ...]:
-    """Gateway models whose upstream provider's voices and formats the catalog has.
-
-    The gateway passes voice and audio format through to that provider. Reasoning effort has
-    no field in the normalized session config, so gateway entries list none.
-    """
-    known = families(catalog)
-    return tuple(
-        (model_id, known[model_id.split("/", 1)[0]])
-        for model_id in catalog.gateway
-        if model_id.split("/", 1)[0] in known
-    )
-
-
 def render(catalog: VoiceCatalog) -> str:
-    spec = catalog.spec
-    known = families(catalog)
     lines = [
         "# Generated by scripts/generate_voice_models.py. Do not edit by hand.",
-        '"""Realtime voice models, by provider:',
+        '"""Realtime voice models; each entry\'s ``sources`` names where every value was read."""',
         "",
-        f"- grok: xAI's realtime API spec ({REALTIME_SPEC_URL}) and ``GET /v1/tts/voices``.",
-        f"- openai: OpenAI's OpenAPI spec ({OPENAI_SPEC_URL}).",
-        f"- vercel: AI Gateway's realtime WebSocket models ({GATEWAY_MODELS_URL}).",
-        f"- gemini: Live models from ``{GEMINI_MODELS_URL}`` (needs an API key; none publish voices).",
-        '"""',
+        "from core_ai.voice.types import AudioFormat, VoiceInfo, VoiceModelSpec, VoiceSources",
         "",
-        "from core_ai.voice.types import AudioFormat, VoiceInfo, VoiceModelSpec",
-        "",
-        *voice_lines("GROK_VOICES", catalog.voices),
-        *audio_lines("GROK_VOICE_AUDIO", spec.audio),
     ]
-    if catalog.openai is not None:
-        lines.extend(voice_lines("OPENAI_VOICES", tuple((voice, voice.title()) for voice in catalog.openai.voices)))
-        lines.extend(audio_lines("OPENAI_VOICE_AUDIO", catalog.openai.audio))
-    lines.extend(audio_lines("GEMINI_VOICE_AUDIO_INPUT", GEMINI_AUDIO_INPUT))
-    lines.extend(audio_lines("GEMINI_VOICE_AUDIO_OUTPUT", GEMINI_AUDIO_OUTPUT))
+    for name, family in catalog.families.items():
+        lines.extend(family_lines(name, family))
     lines.append("VOICE_MODELS: tuple[VoiceModelSpec, ...] = (")
-    for model_id in spec.models:
-        lines.extend(model_lines(model_id, "grok", known["grok"], spec.efforts))
-    for model_id in catalog.openai.models if catalog.openai is not None else ():
-        lines.extend(model_lines(model_id, "openai", known["openai"], ()))
-    for model_id in catalog.gemini:
-        lines.extend(model_lines(model_id, "gemini", known["gemini"], ()))
-    for model_id, family in gateway_models(catalog):
-        lines.extend(model_lines(model_id, "vercel", family, ()))
+    for entry in catalog.entries:
+        lines.extend(entry_lines(entry, catalog.families[entry.family]))
     lines.extend((")", ""))
     return "\n".join(lines)
 
 
-def collect_catalog(*, strict: bool = False, output: Path = OUTPUT) -> VoiceCatalog | None:
-    """The catalog to write, or None to keep the existing snapshot."""
-    if os.environ.get("CORE_AI_VOICE_SPEC", "1") == "0":
-        return None
-    try:
-        spec = fetch_realtime_spec(os.environ.get("CORE_AI_VOICE_SPEC_URL", REALTIME_SPEC_URL))
-        openai = fetch_openai_spec(os.environ.get("CORE_AI_OPENAI_SPEC_URL", OPENAI_SPEC_URL))
-        gateway = fetch_gateway_models(os.environ.get("CORE_AI_GATEWAY_MODELS_URL", GATEWAY_MODELS_URL))
-    except Exception:
-        if strict:
-            raise
-        return None
-    api_key = os.environ.get("XAI_API_KEY")
-    if api_key:
-        voices = fetch_voices(api_key, os.environ.get("XAI_BASE_URL", XAI_BASE_URL))
-    else:
-        voices = read_existing_voices(output)
-        if not voices:
-            raise RuntimeError("no snapshot voices to keep; set XAI_API_KEY to read /v1/tts/voices")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    gemini = fetch_gemini_models(gemini_key) if gemini_key else read_existing_gemini_models(output)
-    return VoiceCatalog(spec, voices, openai, gateway, gemini)
-
-
-def generate(*, strict: bool = False, output: Path = OUTPUT) -> Path:
-    catalog = collect_catalog(strict=strict, output=output)
-    if catalog is None:
-        print(f"kept the existing snapshot at {output}")
-        return output
+def generate(output: Path = OUTPUT) -> Path:
+    catalog = collect_catalog()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(render(catalog))
-    count = sum(1 for line in output.read_text().splitlines() if line == "    VoiceModelSpec(")
-    print(f"wrote {count} voice models to {output}")
+    for provider in dict.fromkeys(entry.provider for entry in catalog.entries):
+        entries = [entry for entry in catalog.entries if entry.provider == provider]
+        voices = {len(catalog.families[entry.family].voices.values) for entry in entries}
+        log(f"{provider}: {len(entries)} models, voices per model {sorted(voices)}")
+    log(f"wrote {len(catalog.entries)} voice models to {output}")
     return output
 
 
@@ -432,7 +518,7 @@ def main() -> None:
         pass
     else:
         load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-    generate(strict=os.environ.get("CORE_AI_GENERATE_STRICT") == "1")
+    generate()
 
 
 if __name__ == "__main__":

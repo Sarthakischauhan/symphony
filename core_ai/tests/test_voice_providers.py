@@ -210,12 +210,24 @@ def test_gateway_urls_and_session_config() -> None:
         "wss://ai-gateway.vercel.sh/v4/ai/realtime-model?ai-model-id=openai%2Fgpt-realtime-2"
     )
     assert client_secret_url(base) == "https://ai-gateway.vercel.sh/v1/realtime/client-secrets"
-    config = session_config(CONFIG)
+    config = session_config(CONFIG, "openai/gpt-realtime-2")
+    assert "providerOptions" not in config
     assert config["voice"] == "marin"
     assert config["inputAudioFormat"] == {"type": "audio/pcm", "rate": 24000}
     assert config["turnDetection"] == {"type": "server-vad"}
     assert config["tools"] == [{"type": "function", **TOOL}]
-    assert session_config(VoiceConfig(voice="", turn_detection="manual"))["turnDetection"] is None
+    assert (
+        session_config(VoiceConfig(voice="", turn_detection="manual"), "openai/gpt-realtime-2")["turnDetection"] is None
+    )
+
+
+def test_gateway_sends_google_effort_as_thinking_level() -> None:
+    thinking = VoiceConfig(voice="Kore", reasoning_effort="low")
+    assert session_config(thinking, "google/gemini-3.8-live")["providerOptions"] == {
+        "google": {"thinkingConfig": {"thinkingLevel": "LOW"}}
+    }
+    with pytest.raises(ValueError, match="no realtime reasoning effort option"):
+        session_config(thinking, "openai/gpt-realtime-2")
 
 
 def test_gateway_realtime_over_the_wire(monkeypatch: pytest.MonkeyPatch) -> None:

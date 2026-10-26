@@ -28,7 +28,8 @@ def test_voice_models_list_grok_realtime_models_with_voices() -> None:
     grok = [m.id for m in VOICE_MODELS if m.provider == "grok"]
     assert grok == ["grok-voice-latest", "grok-voice-3.0", "grok-voice-2.0"]
     model = next(m for m in VOICE_MODELS if m.id == "grok-voice-latest")
-    assert len(model.voices) == 28
+    # Without XAI_API_KEY the generator lists only the spec's example voice.
+    assert [v.id for v in model.voices] == ["eve"]
     assert model.default_voice == "eve"
     assert model.reasoning_efforts == ("none", "high")
     assert AudioFormat("pcm16", 24000) in model.audio_input

@@ -32,8 +32,17 @@ def _tool(tool: dict[str, Any]) -> dict[str, Any]:
     return {"type": "function", **tool}
 
 
-def session_config(config: VoiceConfig) -> dict[str, Any]:
-    """The ``config`` of a normalized ``session-update`` for this config."""
+def provider_options(model_id: str, effort: str) -> dict[str, Any]:
+    """``providerOptions`` carrying ``effort``: the realtime docs document only Google's
+    ``thinkingConfig.thinkingLevel`` (https://vercel.com/docs/ai-gateway/capabilities/realtime)."""
+    owner = model_id.split("/", 1)[0]
+    if owner != "google":
+        raise ValueError(f"AI Gateway documents no realtime reasoning effort option for {model_id}")
+    return {"google": {"thinkingConfig": {"thinkingLevel": effort.upper()}}}
+
+
+def session_config(config: VoiceConfig, model_id: str) -> dict[str, Any]:
+    """The ``config`` of a normalized ``session-update`` for this config and model."""
     session: dict[str, Any] = {
         "instructions": config.instructions,
         "outputModalities": ["audio"],
@@ -46,6 +55,8 @@ def session_config(config: VoiceConfig) -> dict[str, Any]:
     }
     if config.voice:
         session["voice"] = config.voice
+    if config.reasoning_effort is not None:
+        session["providerOptions"] = provider_options(model_id, config.reasoning_effort)
     return session
 
 

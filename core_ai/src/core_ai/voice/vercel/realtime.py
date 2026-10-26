@@ -104,7 +104,7 @@ async def open_vercel_realtime(
         max_size=None,
     )
     session = VercelVoiceSession(connection, model_name, config, observer)
-    await session._send({"type": "session-update", "config": session_config(config)})
+    await session._send({"type": "session-update", "config": session_config(config, model_name)})
     session.start()
     return session
 
@@ -159,7 +159,7 @@ class VercelVoiceSession(VoiceSession):
 
     async def update(self, config: VoiceConfig) -> None:
         self.config = config
-        await self._send({"type": "session-update", "config": session_config(config)})
+        await self._send({"type": "session-update", "config": session_config(config, self.model_id)})
 
     async def events(self) -> AsyncIterator[VoiceEvent]:
         while True:

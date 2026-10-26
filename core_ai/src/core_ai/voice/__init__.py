@@ -11,7 +11,7 @@ from core_ai.voice.gemini import GeminiVoiceSession
 from core_ai.voice.grok import GrokVoiceSession
 from core_ai.voice.models import open_voice_session, voice_model
 from core_ai.voice.openai import OpenAIVoiceSession
-from core_ai.voice.types import AudioEncoding, AudioFormat, VoiceInfo, VoiceModelSpec
+from core_ai.voice.types import AudioEncoding, AudioFormat, VoiceInfo, VoiceModelSpec, VoiceSources
 from core_ai.voice.vercel import VercelVoiceSession
 from core_ai.voice.session import (
     AudioDelta,
@@ -37,6 +37,7 @@ __all__ = [
     "AudioFormat",
     "VoiceInfo",
     "VoiceModelSpec",
+    "VoiceSources",
     "AudioDelta",
     "FrameDirection",
     "FrameObserver",

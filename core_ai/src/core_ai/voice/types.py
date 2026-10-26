@@ -20,13 +20,23 @@ class AudioFormat:
 class VoiceInfo:
     id: str
     label: str
-    # Descriptive traits; xAI's voice API publishes none, so the generated catalog has none.
+    # Descriptive traits, where the source publishes them (Gemini's voice table does).
     traits: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
+class VoiceSources:
+    """Where a catalog entry's values were read; empty when no source publishes that value."""
+
+    model: str
+    voices: str
+    reasoning_efforts: str
+    audio: str
+
+
+@dataclass(frozen=True, slots=True)
 class VoiceModelSpec:
-    """What a provider publishes about a voice model (no context window: xAI documents none)."""
+    """What a provider publishes about a voice model (no context window: no voice source documents one)."""
 
     id: str
     provider: str
@@ -36,6 +46,7 @@ class VoiceModelSpec:
     audio_output: tuple[AudioFormat, ...]
     # Provider-native reasoning effort values, lowest first.
     reasoning_efforts: tuple[str, ...] = ()
+    sources: VoiceSources | None = None
 
     @property
     def full_id(self) -> str:
