@@ -5,9 +5,9 @@ Tools, history and turn orchestration live with the caller.
 """
 
 from core_ai.voice.catalog import VOICE_MODELS
-from core_ai.voice.grok import GrokRealtime, GrokVoiceSession
-from core_ai.voice.registry import VoiceProvider, VoiceRegistry
-from core_ai.voice.types import AudioEncoding, AudioFormat, VoiceInfo, VoiceModel, VoiceModelSpec
+from core_ai.voice.grok import GrokVoiceSession
+from core_ai.voice.models import open_voice_session, voice_model
+from core_ai.voice.types import AudioEncoding, AudioFormat, VoiceInfo, VoiceModelSpec
 from core_ai.voice.session import (
     AudioDelta,
     FrameDirection,
@@ -31,12 +31,10 @@ __all__ = [
     "AudioEncoding",
     "AudioFormat",
     "VoiceInfo",
-    "VoiceModel",
     "VoiceModelSpec",
     "AudioDelta",
     "FrameDirection",
     "FrameObserver",
-    "GrokRealtime",
     "GrokVoiceSession",
     "ResponseDone",
     "ResponseEvent",
@@ -51,7 +49,7 @@ __all__ = [
     "VoiceConfig",
     "VoiceError",
     "VoiceEvent",
-    "VoiceProvider",
-    "VoiceRegistry",
     "VoiceSession",
+    "open_voice_session",
+    "voice_model",
 ]

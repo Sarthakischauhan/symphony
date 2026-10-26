@@ -32,7 +32,6 @@ from core_ai.voice.grok.events import (
 )
 from core_ai.voice.grok.payload import realtime_url, session_payload
 from core_ai.voice.grok.responses import ResponseRouter
-from core_ai.voice.registry import VoiceProvider
 from core_ai.voice.session import (
     AudioDelta,
     FrameObserver,
@@ -55,21 +54,18 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+XAI_BASE_URL = "https://api.x.ai/v1"
 
-class GrokRealtime(VoiceProvider):
-    """xAI's realtime voice models, on the key and base URL of an xAI account."""
 
-    def __init__(self, api_key: str, base_url: str = "https://api.x.ai/v1") -> None:
-        self.api_key = api_key
-        self.base_url = base_url
-
-    async def open(
-        self,
-        model_name: str,
-        config: VoiceConfig,
-        observer: Optional[FrameObserver] = None,
-    ) -> VoiceSession:
-        return await GrokVoiceSession.open(realtime_url(self.base_url), self.api_key, model_name, config, observer)
+async def open_grok_realtime(
+    api_key: str,
+    model_name: str,
+    config: VoiceConfig,
+    observer: Optional[FrameObserver] = None,
+    base_url: str = XAI_BASE_URL,
+) -> "GrokVoiceSession":
+    """Connect to xAI realtime model ``model_name`` on an xAI account's key and apply ``config``."""
+    return await GrokVoiceSession.open(realtime_url(base_url), api_key, model_name, config, observer)
 
 
 class GrokVoiceSession(VoiceSession):

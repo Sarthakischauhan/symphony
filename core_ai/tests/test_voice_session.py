@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from dataclasses import replace
 from typing import Any, Union
 
 import pytest
@@ -10,7 +11,6 @@ from core_ai.voice import (
     VOICE_MODELS,
     AudioDelta,
     AudioFormat,
-    GrokRealtime,
     ResponseDone,
     ResponseEvent,
     TextDelta,
@@ -18,13 +18,14 @@ from core_ai.voice import (
     UserTranscript,
     VoiceConfig,
     VoiceEvent,
-    VoiceRegistry,
     VoiceSession,
+    open_voice_session,
+    voice_model,
 )
 
 
 def test_voice_models_list_grok_realtime_models_with_voices() -> None:
-    assert {m.id for m in VOICE_MODELS} == {"grok-voice-3.0", "grok-voice-latest"}
+    assert [m.id for m in VOICE_MODELS] == ["grok-voice-latest", "grok-voice-3.0", "grok-voice-2.0"]
     model = next(m for m in VOICE_MODELS if m.id == "grok-voice-latest")
     assert len(model.voices) == 28
     assert model.default_voice == "eve"
@@ -32,29 +33,17 @@ def test_voice_models_list_grok_realtime_models_with_voices() -> None:
     assert AudioFormat("pcm16", 24000) in model.audio_input
 
 
-def test_voice_registry_leaves_unknown_context_limits_unset() -> None:
-    assert {m.full_id: m.context_limit for m in VoiceRegistry().models()} == {
-        "grok:grok-voice-3.0": None,
-        "grok:grok-voice-latest": None,
-    }
-    registry = VoiceRegistry(context_limits={"grok:grok-voice-latest": 1_000})
-    assert {m.full_id: m.context_limit for m in registry.models()} == {
-        "grok:grok-voice-3.0": None,
-        "grok:grok-voice-latest": 1_000,
-    }
-    latest = registry.get("grok:grok-voice-latest")
-    assert latest is not None and latest.spec.default_voice == "eve"
+def test_voice_model_looks_up_the_catalog_by_full_id() -> None:
+    latest = voice_model("grok:grok-voice-latest")
+    assert latest is not None and latest.default_voice == "eve"
+    assert voice_model("grok-voice-latest") is None
+    assert voice_model("openai:gpt-realtime") is None
 
 
-def test_voice_registry_lists_its_catalog_and_opens_registered_providers_only() -> None:
-    registry = VoiceRegistry()
-    assert {m.spec.id for m in registry.models()} == {"grok-voice-3.0", "grok-voice-latest"}
-    registry.register("grok", GrokRealtime("key"))
-    assert registry.namespaces() == ("grok",)
-    registry.unregister("grok")
-    assert registry.namespaces() == ()
-    with pytest.raises(KeyError):
-        asyncio.run(registry.open("grok:grok-voice-latest", VoiceConfig(voice="eve")))
+def test_open_voice_session_needs_a_provider_with_a_realtime_client() -> None:
+    model = replace(VOICE_MODELS[0], provider="openai")
+    with pytest.raises(ValueError, match="openai"):
+        asyncio.run(open_voice_session(model, VoiceConfig(voice="eve"), api_key="key"))
 
 
 Frame = Union[str, bytes]
@@ -109,10 +98,12 @@ async def _with_fake_xai(
 
     async with serve(handler, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
-        registry = VoiceRegistry()
-        registry.register("grok", GrokRealtime("key", base_url=f"http://127.0.0.1:{port}/v1"))
+        model = voice_model("grok:grok-voice-latest")
+        assert model is not None
         frames: list[str] = []
-        session = await registry.open("grok:grok-voice-latest", config, observer=lambda d, f: frames.append(d))
+        session = await open_voice_session(
+            model, config, api_key="key", observer=lambda d, f: frames.append(d), base_url=f"http://127.0.0.1:{port}/v1"
+        )
         try:
             return await body(session)
         finally:

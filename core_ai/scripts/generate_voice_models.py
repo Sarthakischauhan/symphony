@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Generate the shipped core_ai voice model catalog.
+
+This is a maintainer command, not part of installing the package:
+
+    uv run python scripts/generate_voice_models.py
+
+It reads xAI's published realtime API spec (models, reasoning efforts and
+audio formats; no credentials needed) and, when ``XAI_API_KEY`` is set, the
+built-in voices from ``GET /v1/tts/voices``, then rewrites
+``src/core_ai/voice/catalog.py``. Commit the result. Without a key the voices
+already in the snapshot are kept; if the spec is unreachable the whole
+snapshot is kept unless ``CORE_AI_GENERATE_STRICT=1`` is set.
+``CORE_AI_VOICE_SPEC=0`` skips the network.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+OUTPUT = Path(__file__).resolve().parents[1] / "src/core_ai/voice/catalog.py"
+REALTIME_SPEC_URL = "https://docs.x.ai/voice-realtime.ws.json"
+XAI_BASE_URL = "https://api.x.ai/v1"
+
+# Wire format types core_ai's grok realtime client implements (see
+# core_ai/voice/grok/payload.py); `audio/opus` is published but not implemented.
+ENCODINGS = {"audio/pcm": "pcm16", "audio/pcmu": "pcmu", "audio/pcma": "pcma"}
+# The spec documents `rate` as PCM only; G.711 (pcmu/pcma) is 8 kHz.
+G711_RATE = 8000
+EFFORT_ORDER = ("none", "minimal", "low", "medium", "high")
+EXISTING_VOICE_RE = re.compile(r'VoiceInfo\("([^"]+)", "([^"]+)"')
+
+
+@dataclass(frozen=True)
+class RealtimeSpec:
+    models: tuple[str, ...]
+    efforts: tuple[str, ...]
+    audio: tuple[tuple[str, int], ...]
+    example_voice: str
+
+
+@dataclass(frozen=True)
+class VoiceCatalog:
+    spec: RealtimeSpec
+    voices: tuple[tuple[str, str], ...]
+
+
+def session_schema(payload: dict) -> dict:
+    """The `session.update` client message's `session` schema."""
+    for message in payload["clientMessages"]:
+        properties = message["schema"]["properties"]
+        if "session" in properties:
+            return {"schema": properties["session"], "example": message["example"]["session"]}
+    raise ValueError("realtime spec has no session.update message")
+
+
+def audio_formats(fmt: dict) -> tuple[tuple[str, int], ...]:
+    """Implemented (encoding, sample rate) pairs, 24 kHz PCM (the default) first."""
+    rates = fmt["properties"]["rate"]["enum"]
+    default = 24000
+    found: list[tuple[str, int]] = []
+    for wire in fmt["properties"]["type"]["enum"]:
+        encoding = ENCODINGS.get(wire)
+        if encoding == "pcm16":
+            found.extend((encoding, rate) for rate in sorted(rates, key=lambda r: (r != default, -r)))
+        elif encoding is not None:
+            found.append((encoding, G711_RATE))
+    return tuple(found)
+
+
+def parse_realtime_spec(payload: dict) -> RealtimeSpec:
+    session = session_schema(payload)
+    properties = session["schema"]["properties"]
+    efforts = properties["reasoning"]["properties"]["effort"]["enum"]
+    audio = properties["audio"]["properties"]
+    input_audio = audio_formats(audio["input"]["properties"]["format"])
+    if input_audio != audio_formats(audio["output"]["properties"]["format"]):
+        raise ValueError("input and output audio formats differ; the catalog needs both")
+    return RealtimeSpec(
+        models=tuple(properties["model"]["enum"]),
+        efforts=tuple(sorted(efforts, key=EFFORT_ORDER.index)),
+        audio=input_audio,
+        example_voice=session["example"]["voice"],
+    )
+
+
+def fetch_realtime_spec(url: str = REALTIME_SPEC_URL) -> RealtimeSpec:
+    import httpx
+
+    response = httpx.get(url, headers={"User-Agent": "core-ai-voice-catalog/1.0"}, timeout=30.0)
+    response.raise_for_status()
+    return parse_realtime_spec(response.json())
+
+
+def fetch_voices(api_key: str, base_url: str = XAI_BASE_URL) -> tuple[tuple[str, str], ...]:
+    """Built-in voices as (voice_id, name), from `GET /v1/tts/voices`."""
+    import httpx
+
+    response = httpx.get(
+        f"{base_url.rstrip('/')}/tts/voices",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    voices = tuple((voice["voice_id"], voice["name"]) for voice in response.json()["voices"])
+    if not voices:
+        raise RuntimeError("/v1/tts/voices returned no voices")
+    return voices
+
+
+def read_existing_voices(path: Path = OUTPUT) -> tuple[tuple[str, str], ...]:
+    return tuple(EXISTING_VOICE_RE.findall(path.read_text())) if path.exists() else ()
+
+
+def default_voice(spec: RealtimeSpec, voices: tuple[tuple[str, str], ...]) -> str:
+    """The voice the spec's own session example uses (`Eve`), as a catalog id."""
+    wanted = spec.example_voice.lower()
+    return next(voice_id for voice_id, label in voices if wanted in (voice_id.lower(), label.lower()))
+
+
+def quoted(values: tuple[str, ...]) -> str:
+    return "(" + ", ".join(json.dumps(v) for v in values) + ("," if len(values) == 1 else "") + ")"
+
+
+def render(catalog: VoiceCatalog) -> str:
+    spec = catalog.spec
+    lines = [
+        "# Generated by scripts/generate_voice_models.py. Do not edit by hand.",
+        '"""xAI realtime voice models, from the published realtime API spec',
+        f"({REALTIME_SPEC_URL}) and the built-in voices of ``GET /v1/tts/voices``.",
+        '"""',
+        "",
+        "from core_ai.voice.types import AudioFormat, VoiceInfo, VoiceModelSpec",
+        "",
+        "GROK_VOICES: tuple[VoiceInfo, ...] = (",
+        *(f"    VoiceInfo({json.dumps(voice_id)}, {json.dumps(label)})," for voice_id, label in catalog.voices),
+        ")",
+        "",
+        "GROK_VOICE_AUDIO: tuple[AudioFormat, ...] = (",
+        *(f"    AudioFormat({json.dumps(encoding)}, {rate})," for encoding, rate in spec.audio),
+        ")",
+        "",
+        "VOICE_MODELS: tuple[VoiceModelSpec, ...] = (",
+    ]
+    for model_id in spec.models:
+        lines.extend(
+            (
+                "    VoiceModelSpec(",
+                f"        id={json.dumps(model_id)},",
+                '        provider="grok",',
+                "        voices=GROK_VOICES,",
+                f"        default_voice={json.dumps(default_voice(spec, catalog.voices))},",
+                "        audio_input=GROK_VOICE_AUDIO,",
+                "        audio_output=GROK_VOICE_AUDIO,",
+                f"        reasoning_efforts={quoted(spec.efforts)},",
+                "    ),",
+            )
+        )
+    lines.extend((")", ""))
+    return "\n".join(lines)
+
+
+def collect_catalog(*, strict: bool = False, output: Path = OUTPUT) -> VoiceCatalog | None:
+    """The catalog to write, or None to keep the existing snapshot."""
+    if os.environ.get("CORE_AI_VOICE_SPEC", "1") == "0":
+        return None
+    try:
+        spec = fetch_realtime_spec(os.environ.get("CORE_AI_VOICE_SPEC_URL", REALTIME_SPEC_URL))
+    except Exception:
+        if strict:
+            raise
+        return None
+    api_key = os.environ.get("XAI_API_KEY")
+    if api_key:
+        voices = fetch_voices(api_key, os.environ.get("XAI_BASE_URL", XAI_BASE_URL))
+    else:
+        voices = read_existing_voices(output)
+        if not voices:
+            raise RuntimeError("no snapshot voices to keep; set XAI_API_KEY to read /v1/tts/voices")
+    return VoiceCatalog(spec, voices)
+
+
+def generate(*, strict: bool = False, output: Path = OUTPUT) -> Path:
+    catalog = collect_catalog(strict=strict, output=output)
+    if catalog is None:
+        print(f"kept the existing snapshot at {output}")
+        return output
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(render(catalog))
+    print(f"wrote {len(catalog.spec.models)} voice models and {len(catalog.voices)} voices to {output}")
+    return output
+
+
+def main() -> None:
+    # Local development credentials are only loaded for direct script runs;
+    # explicit environment variables still win over values from .env.
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        pass
+    else:
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    generate(strict=os.environ.get("CORE_AI_GENERATE_STRICT") == "1")
+
+
+if __name__ == "__main__":
+    main()

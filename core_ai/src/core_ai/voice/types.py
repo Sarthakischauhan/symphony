@@ -5,7 +5,7 @@ and live only in this package's catalog.
 """
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 AudioEncoding = Literal["pcm16", "pcmu", "pcma"]
 
@@ -20,6 +20,7 @@ class AudioFormat:
 class VoiceInfo:
     id: str
     label: str
+    # Descriptive traits; xAI's voice API publishes none, so the generated catalog has none.
     traits: tuple[str, ...] = ()
 
 
@@ -39,16 +40,3 @@ class VoiceModelSpec:
     @property
     def full_id(self) -> str:
         return f"{self.provider}:{self.id}"
-
-
-@dataclass(frozen=True, slots=True)
-class VoiceModel:
-    """A voice model as a ``VoiceRegistry`` serves it: its spec plus its context window in
-    tokens, or None when unknown."""
-
-    spec: VoiceModelSpec
-    context_limit: Optional[int] = None
-
-    @property
-    def full_id(self) -> str:
-        return self.spec.full_id
