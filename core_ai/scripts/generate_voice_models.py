@@ -11,7 +11,8 @@ Nothing is carried over from the previous catalog and nothing is filled in by ha
 no source publishes is left out.
 
 - grok: xAI's realtime API spec (models, efforts, audio formats, the session example's
-  voice) and, with ``XAI_API_KEY``, the built-in voices of ``GET /v1/tts/voices``.
+  voice) and the built-in voices of the text-to-speech guide's voice table. With
+  ``XAI_API_KEY``, ``GET /v1/tts/voices`` replaces that table.
 - openai: OpenAI's OpenAPI spec (models, voices, default voice, audio formats) and
   models.dev (reasoning efforts).
 - gemini: Live models from models.dev and, with ``GEMINI_API_KEY``, ``GET /v1beta/models``;
@@ -36,6 +37,7 @@ from pathlib import Path
 OUTPUT = Path(__file__).resolve().parents[1] / "src/core_ai/voice/catalog.py"
 XAI_SPEC_URL = "https://docs.x.ai/voice-realtime.ws.json"
 XAI_VOICES_URL = "https://api.x.ai/v1/tts/voices"
+XAI_TTS_DOC_URL = "https://docs.x.ai/developers/model-capabilities/audio/text-to-speech"
 OPENAI_SPEC_URL = "https://raw.githubusercontent.com/openai/openai-openapi/main/openapi.json"
 MODELS_DEV_URL = "https://models.dev/api.json"
 GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models"
@@ -163,16 +165,33 @@ def parse_xai_voices(payload: dict) -> tuple[Voice, ...]:
     return voices
 
 
-def grok_family(spec: RealtimeSpec, voices: tuple[Voice, ...] | None) -> Family:
-    """Without ``/v1/tts/voices`` the only published voice is the spec's session example."""
-    default = spec.example_voice.lower()
-    listed = (
-        Sourced(voices, XAI_VOICES_URL)
-        if voices is not None
-        else Sourced(((default, spec.example_voice, ()),), f"{XAI_SPEC_URL} (session.update example)")
-    )
+def parse_xai_voice_table(html: str) -> tuple[Voice, ...]:
+    """The guide's voice table is rendered only into its HTML: the page's ``.md`` version omits
+    it and the page embeds no JSON data for it, so the rendered table is read. Voices from the text-to-speech guide's table: id, capitalised label, tone and accent."""
+    body = html.split("<tbody>", 1)[-1]
+    rows = re.findall(r"<tr>(.*?)</tr>", body, flags=re.DOTALL)
+    voices: list[Voice] = []
+    for row in rows:
+        found = re.search(r"<code>([a-z0-9_-]+)</code>", row)
+        if found is None or "voice_" not in row:
+            continue
+        voice_id = found.group(1)
+        tone = re.search(r"<div>(.*?)</div>", row, flags=re.DOTALL)
+        text = re.sub(r"<span\b.*?</span>", "", tone.group(1) if tone else "", flags=re.DOTALL)
+        text = re.sub(r"<[^>]+>", "", text).replace("&amp;", "&").strip()
+        traits = (text,) if text else ()
+        accent = re.search(r">([A-Za-z]+)<!-- --> accent<", row)
+        if accent:
+            traits += (f"{accent.group(1)} accent",)
+        voices.append((voice_id, voice_id[:1].upper() + voice_id[1:], traits))
+    if not voices:
+        raise ValueError("text-to-speech guide published no voice table")
+    return tuple(voices)
+
+
+def grok_family(spec: RealtimeSpec, voices: Sourced) -> Family:
     audio = Sourced(spec.audio, XAI_SPEC_URL)
-    return Family(listed, default, audio, audio)
+    return Family(voices, spec.example_voice.lower(), audio, audio)
 
 
 # --- OpenAI ------------------------------------------------------------------------------
@@ -378,9 +397,15 @@ def keyed(name: str, what: str) -> str | None:
 
 def collect_catalog() -> VoiceCatalog:
     spec = parse_realtime_spec(get_json(XAI_SPEC_URL))
-    xai_key = keyed("XAI_API_KEY", f"{XAI_VOICES_URL} (grok voices beyond the spec's example)")
-    xai_voices = (
-        parse_xai_voices(get_json(XAI_VOICES_URL, headers={"Authorization": f"Bearer {xai_key}"})) if xai_key else None
+    # ``/v1/tts/voices`` is the roster; without a key the text-to-speech guide's voice table is,
+    # and the guide is not fetched at all when the live API answers.
+    xai_key = keyed("XAI_API_KEY", f"{XAI_VOICES_URL} (using the voice table of {XAI_TTS_DOC_URL})")
+    grok_voices = (
+        Sourced(
+            parse_xai_voices(get_json(XAI_VOICES_URL, headers={"Authorization": f"Bearer {xai_key}"})), XAI_VOICES_URL
+        )
+        if xai_key
+        else Sourced(parse_xai_voice_table(get_text(XAI_TTS_DOC_URL)), XAI_TTS_DOC_URL)
     )
     openai = parse_openai_spec(get_json(OPENAI_SPEC_URL))
     models_dev = get_json(MODELS_DEV_URL)
@@ -393,7 +418,7 @@ def collect_catalog() -> VoiceCatalog:
         for page in get_gemini_pages(GEMINI_MODELS_URL, gemini_key, {"pageSize": "1000"}):
             gemini_models.update(dict.fromkeys(parse_gemini_models(page), GEMINI_MODELS_URL))
     families = {
-        "grok": grok_family(spec, xai_voices),
+        "grok": grok_family(spec, grok_voices),
         "openai": openai_family(openai),
         "gemini": gemini_family(gemini_voices, get_text(GEMINI_LIVE_DOC_URL)),
     }

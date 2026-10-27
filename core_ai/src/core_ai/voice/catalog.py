@@ -3,9 +3,36 @@
 
 from core_ai.voice.types import AudioFormat, VoiceInfo, VoiceModelSpec, VoiceSources
 
-# https://docs.x.ai/voice-realtime.ws.json (session.update example)
+# https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
 GROK_VOICES: tuple[VoiceInfo, ...] = (
-    VoiceInfo("eve", "Eve", ()),
+    VoiceInfo("carina", "Carina", ("Soft, empathetic, and soothing",)),
+    VoiceInfo("zagan", "Zagan", ("Powerful, dramatic, and unmistakable",)),
+    VoiceInfo("helix", "Helix", ("Bold, dynamic, and adrenaline-fueled",)),
+    VoiceInfo("orion", "Orion", ("Rich, cinematic, and resonant",)),
+    VoiceInfo("luna", "Luna", ("Gentle, patient, and deeply nurturing",)),
+    VoiceInfo("iris", "Iris", ("Friendly, upbeat, and naturally charming",)),
+    VoiceInfo("altair", "Altair", ("Elegant, refined, and effortlessly premium",)),
+    VoiceInfo("zenith", "Zenith", ("Sharp, focused, and driven",)),
+    VoiceInfo("perseus", "Perseus", ("Strong, confident, and trustworthy",)),
+    VoiceInfo("helios", "Helios", ("Upbeat, energetic, and endlessly versatile",)),
+    VoiceInfo("lux", "Lux", ("Grounded, calm, and quietly wise",)),
+    VoiceInfo("kepler", "Kepler", ("Inventive, forward-thinking, and charismatic",)),
+    VoiceInfo("rigel", "Rigel", ("Precise, professional, and calmly confident", "Australian accent")),
+    VoiceInfo("cosmo", "Cosmo", ("Bright, curious, and easy to follow",)),
+    VoiceInfo("celeste", "Celeste", ("Compassionate, confident, and reassuring",)),
+    VoiceInfo("ursa", "Ursa", ("Friendly, warm, and steadfast",)),
+    VoiceInfo("sirius", "Sirius", ("Quick-witted, clever, and playful",)),
+    VoiceInfo("lumen", "Lumen", ("Warm, articulate, and engaging",)),
+    VoiceInfo("castor", "Castor", ("Charismatic, down-to-earth, and easygoing",)),
+    VoiceInfo("naksh", "Naksh", ("Warm, thoughtful, and wise", "Indian accent")),
+    VoiceInfo("atlas", "Atlas", ("Confident, commanding, and reassuring",)),
+    VoiceInfo("aurora", "Aurora", ("Serene, steady, and radiant",)),
+    VoiceInfo("liora", "Liora", ("Calm, grounded, and luminous",)),
+    VoiceInfo("ara", "Ara", ("Warm and friendly",)),
+    VoiceInfo("eve", "Eve", ("Energetic and upbeat", "British accent")),
+    VoiceInfo("leo", "Leo", ("Authoritative and strong", "British accent")),
+    VoiceInfo("rex", "Rex", ("Confident and clear",)),
+    VoiceInfo("sal", "Sal", ("Smooth and balanced",)),
 )
 # https://docs.x.ai/voice-realtime.ws.json
 GROK_AUDIO_INPUT: tuple[AudioFormat, ...] = (
@@ -111,7 +138,7 @@ VOICE_MODELS: tuple[VoiceModelSpec, ...] = (
         reasoning_efforts=("none", "high"),
         sources=VoiceSources(
             model="https://docs.x.ai/voice-realtime.ws.json",
-            voices="https://docs.x.ai/voice-realtime.ws.json (session.update example)",
+            voices="https://docs.x.ai/developers/model-capabilities/audio/text-to-speech",
             reasoning_efforts="https://docs.x.ai/voice-realtime.ws.json",
             audio="https://docs.x.ai/voice-realtime.ws.json",
         ),
@@ -126,7 +153,7 @@ VOICE_MODELS: tuple[VoiceModelSpec, ...] = (
         reasoning_efforts=("none", "high"),
         sources=VoiceSources(
             model="https://docs.x.ai/voice-realtime.ws.json",
-            voices="https://docs.x.ai/voice-realtime.ws.json (session.update example)",
+            voices="https://docs.x.ai/developers/model-capabilities/audio/text-to-speech",
             reasoning_efforts="https://docs.x.ai/voice-realtime.ws.json",
             audio="https://docs.x.ai/voice-realtime.ws.json",
         ),
@@ -141,7 +168,7 @@ VOICE_MODELS: tuple[VoiceModelSpec, ...] = (
         reasoning_efforts=("none", "high"),
         sources=VoiceSources(
             model="https://docs.x.ai/voice-realtime.ws.json",
-            voices="https://docs.x.ai/voice-realtime.ws.json (session.update example)",
+            voices="https://docs.x.ai/developers/model-capabilities/audio/text-to-speech",
             reasoning_efforts="https://docs.x.ai/voice-realtime.ws.json",
             audio="https://docs.x.ai/voice-realtime.ws.json",
         ),
@@ -321,7 +348,7 @@ VOICE_MODELS: tuple[VoiceModelSpec, ...] = (
         reasoning_efforts=(),
         sources=VoiceSources(
             model="https://ai-gateway.vercel.sh/v1/models",
-            voices="https://docs.x.ai/voice-realtime.ws.json (session.update example)",
+            voices="https://docs.x.ai/developers/model-capabilities/audio/text-to-speech",
             reasoning_efforts="",
             audio="https://docs.x.ai/voice-realtime.ws.json",
         ),
