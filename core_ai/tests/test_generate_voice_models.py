@@ -139,6 +139,17 @@ MODELS_DEV = {
             "gemini-flash-tts": {"type": "speech"},
         }
     },
+    # models.dev lists no xAI realtime model: the realtime spec supplies them.
+    "xai": {"models": {"grok-4": {"reasoning_options": []}}},
+    "vercel": {
+        "models": {
+            "openai/gpt-realtime-2": {"type": "realtime"},
+            "google/gemini-live": {"type": "realtime"},
+            # Not tagged websocket-realtime by the gateway: skipped.
+            "openai/gpt-realtime-mini": {"type": "realtime"},
+            "fish/tts": {"type": "speech"},
+        }
+    },
 }
 # Recorded from https://ai.google.dev/gemini-api/docs/speech-generation.md.txt (trimmed).
 GEMINI_TTS_DOC = """### Prebuilt voices
@@ -248,6 +259,8 @@ def test_without_keys_keyed_sources_are_skipped_and_logged(
     assert "GEMINI_API_KEY is not set: skipping" in out
     assert "openai/gpt-realtime-2: gateway publishes efforts" in out
     assert "skipping gateway model other/voice" in out
+    assert "skipping models.dev vercel model openai/gpt-realtime-mini" in out
+    assert "grok-voice-latest: not a realtime model on models.dev" in out
     assert list(by_id) == [
         "grok:grok-voice-latest",
         "grok:grok-voice-3.0",
@@ -272,6 +285,11 @@ def test_without_keys_keyed_sources_are_skipped_and_logged(
     assert openai.reasoning_efforts == ("minimal", "low")
     assert openai.sources.reasoning_efforts == gen.MODELS_DEV_URL
     assert by_id["openai:gpt-realtime-mini"].sources.reasoning_efforts == ""
+    assert openai.sources.model == gen.MODELS_DEV_URL
+    assert by_id["openai:gpt-realtime-mini"].sources.model == gen.OPENAI_SPEC_URL
+    assert grok.sources.model == gen.XAI_SPEC_URL
+    assert by_id["vercel:openai/gpt-realtime-2"].sources.model == gen.MODELS_DEV_URL
+    assert by_id["vercel:spacexai/grok-voice-3.0"].sources.model == gen.GATEWAY_MODELS_URL
     gemini = by_id["gemini:gemini-flash-live"]
     assert [(v.id, v.traits) for v in gemini.voices] == [
         ("Zephyr", ("Bright",)),

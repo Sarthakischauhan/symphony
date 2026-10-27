@@ -10,18 +10,22 @@ records, on every entry, the source of its model id, voices, efforts and audio f
 Nothing is carried over from the previous catalog and nothing is filled in by hand: a value
 no source publishes is left out.
 
-- grok: xAI's realtime API spec (models, efforts, audio formats, the session example's
-  voice) and the built-in voices of the text-to-speech guide's voice table. With
+models.dev (``type: "realtime"``) is the first source of every provider's realtime models and
+their reasoning efforts. It publishes no voices, audio formats or transports, so those, and
+models it does not list, come from the provider sources below.
+
+- grok: xAI's realtime API spec (models models.dev lacks, efforts, audio formats, the session
+  example's voice) and the built-in voices of the text-to-speech guide's voice table. With
   ``XAI_API_KEY``, ``GET /v1/tts/voices`` replaces that table.
-- openai: OpenAI's OpenAPI spec (models, voices, default voice, audio formats) and
-  models.dev (reasoning efforts).
+- openai: OpenAI's OpenAPI spec (GA realtime aliases models.dev lacks, voices, default voice,
+  audio formats) and models.dev (reasoning efforts).
 - gemini: Live models from models.dev and, with ``GEMINI_API_KEY``, ``GET /v1beta/models``;
   efforts from models.dev; voices from the speech-generation guide's prebuilt voice table
   (which the Live guide says native-audio models use) and, with ``GEMINI_API_KEY``, the
   prebuilt voices of ``GET /v1beta/voices``; audio formats from the Live guide.
-- vercel: AI Gateway's public ``GET /v1/models`` (realtime WebSocket models and their
-  efforts); voices and audio formats are the upstream provider's, which the gateway passes
-  through. Efforts are kept only where the gateway documents how to send them.
+- vercel: models.dev's ``vercel`` realtime models that AI Gateway's public ``GET /v1/models``
+  tags as realtime-WebSocket models, plus tagged ones models.dev lacks (and their efforts); voices and audio formats are the
+  upstream provider's, which the gateway passes through. Efforts are kept only where the gateway documents how to send them.
 
 A source that needs a missing key is skipped with a log line. Any other failure raises.
 """
@@ -295,19 +299,19 @@ def parse_gateway_models(payload: dict) -> dict[str, tuple[str, ...]]:
     }
 
 
-def gateway_entries(models: dict[str, tuple[str, ...]], families: dict[str, Family]) -> tuple[Entry, ...]:
+def gateway_entries(models: dict[str, tuple[str, Sourced]]) -> tuple[Entry, ...]:
+    """Gateway entries from ``gateway_models``: model id -> (its source, its efforts)."""
     entries: list[Entry] = []
-    for model_id, efforts in models.items():
+    for model_id, (source, efforts) in models.items():
         owner = model_id.split("/", 1)[0]
         upstream = GATEWAY_UPSTREAM.get(owner)
         if upstream is None:
             log(f"skipping gateway model {model_id}: no catalog provider supplies {owner!r} voices")
             continue
-        if efforts and owner not in GATEWAY_EFFORT_OWNERS:
-            log(f"{model_id}: gateway publishes efforts {efforts} but documents no realtime field to send them")
-            efforts = ()
-        sourced = Sourced(efforts, GATEWAY_MODELS_URL if efforts else "")
-        entries.append(Entry(model_id, "vercel", upstream, GATEWAY_MODELS_URL, sourced))
+        if efforts.values and owner not in GATEWAY_EFFORT_OWNERS:
+            log(f"{model_id}: gateway publishes efforts {efforts.values} but documents no realtime field to send them")
+            efforts = Sourced((), "")
+        entries.append(Entry(model_id, "vercel", upstream, source, efforts))
     return tuple(entries)
 
 
@@ -424,31 +428,74 @@ def collect_catalog() -> VoiceCatalog:
     }
     return VoiceCatalog(
         families,
-        provider_entries(
-            spec, openai, parse_models_dev(models_dev, "openai"), parse_models_dev(models_dev, "google"), gemini_models
-        )
-        + gateway_entries(parse_gateway_models(get_json(GATEWAY_MODELS_URL)), families),
+        provider_entries(spec, openai, models_dev, gemini_models)
+        + gateway_entries(gateway_models(models_dev, parse_gateway_models(get_json(GATEWAY_MODELS_URL)))),
     )
 
 
 def provider_entries(
     spec: RealtimeSpec,
     openai: OpenAISpec,
-    openai_efforts: dict[str, tuple[str, ...]],
-    gemini_efforts: dict[str, tuple[str, ...]],
+    models_dev: dict,
     gemini_models: dict[str, str],
 ) -> tuple[Entry, ...]:
-    """Direct-provider entries, each with the source of its id and efforts."""
-    grok = tuple(Entry(m, "grok", "grok", XAI_SPEC_URL, Sourced(spec.efforts, XAI_SPEC_URL)) for m in spec.models)
+    """Direct-provider entries: models.dev's realtime models first, then those only the
+    provider's own spec lists, each with the source of its id and efforts."""
+    xai_dev = parse_models_dev(models_dev, "xai")
+    openai_dev = parse_models_dev(models_dev, "openai")
+    google_dev = parse_models_dev(models_dev, "google")
+    grok = tuple(
+        Entry(
+            m,
+            "grok",
+            "grok",
+            src,
+            models_dev_efforts(xai_dev, m) if m in xai_dev else Sourced(spec.efforts, XAI_SPEC_URL),
+        )
+        for m, src in models_first(xai_dev, spec.models, XAI_SPEC_URL).items()
+    )
     return (
         grok
         + tuple(
-            Entry(m, "openai", "openai", OPENAI_SPEC_URL, models_dev_efforts(openai_efforts, m)) for m in openai.models
+            Entry(m, "openai", "openai", src, models_dev_efforts(openai_dev, m))
+            for m, src in models_first(openai_dev, openai.models, OPENAI_SPEC_URL).items()
         )
         + tuple(
-            Entry(m, "gemini", "gemini", src, models_dev_efforts(gemini_efforts, m)) for m, src in gemini_models.items()
+            Entry(m, "gemini", "gemini", src, models_dev_efforts(google_dev, m)) for m, src in gemini_models.items()
         )
     )
+
+
+def models_first(models_dev: dict[str, tuple[str, ...]], spec_models: tuple[str, ...], spec_url: str) -> dict[str, str]:
+    """Model id -> source: models.dev's realtime models, then the spec's that models.dev lacks."""
+    ids = dict.fromkeys(models_dev, MODELS_DEV_URL)
+    for model_id in spec_models:
+        if model_id not in ids:
+            log(f"{model_id}: not a realtime model on models.dev; listed from {spec_url}")
+            ids[model_id] = spec_url
+    return ids
+
+
+def gateway_models(models_dev: dict, gateway: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, Sourced]]:
+    """models.dev's Vercel realtime models the gateway serves over its realtime WebSocket, then
+    WebSocket models models.dev lacks; each with (model source, efforts). models.dev publishes
+    no transport, so the gateway's ``websocket-realtime`` tag decides what the client can open."""
+    models: dict[str, tuple[str, Sourced]] = {}
+    for model_id, efforts in parse_models_dev(models_dev, "vercel").items():
+        if model_id not in gateway:
+            log(f"skipping models.dev vercel model {model_id}: the gateway does not tag it {GATEWAY_REALTIME_TAG}")
+            continue
+        sourced = Sourced(efforts, MODELS_DEV_URL) if efforts else gateway_efforts(gateway[model_id])
+        models[model_id] = (MODELS_DEV_URL, sourced)
+    for model_id, efforts in gateway.items():
+        if model_id not in models:
+            log(f"{model_id}: not a realtime model on models.dev; listed from {GATEWAY_MODELS_URL}")
+            models[model_id] = (GATEWAY_MODELS_URL, gateway_efforts(efforts))
+    return models
+
+
+def gateway_efforts(efforts: tuple[str, ...]) -> Sourced:
+    return Sourced(efforts, GATEWAY_MODELS_URL if efforts else "")
 
 
 def models_dev_efforts(efforts: dict[str, tuple[str, ...]], model_id: str) -> Sourced:
