@@ -141,6 +141,8 @@ MODELS_DEV = {
     },
     # models.dev lists no xAI realtime model: the realtime spec supplies them.
     "xai": {"models": {"grok-4": {"reasoning_options": []}}},
+    # models.dev's Sarvam models are text models: the AsyncAPI spec supplies the realtime ones.
+    "sarvam": {"models": {"sarvam-30b": {}}},
     "vercel": {
         "models": {
             "openai/gpt-realtime-2": {"type": "realtime"},
@@ -185,6 +187,125 @@ GEMINI_MODELS_PAGES = [
 ]
 
 
+# The parts of https://docs.sarvam.ai/asyncapi.json the script reads (trimmed).
+def _sarvam_ref(name: str) -> dict:
+    return {"$ref": f"#/components/schemas/speechToTextRealtimeStreaming_{name}"}
+
+
+SARVAM_ASYNCAPI = {
+    "channels": {
+        "/speech-to-text-realtime/ws": {
+            "bindings": {
+                "ws": {
+                    "query": {
+                        "properties": {
+                            name: _sarvam_ref(name) for name in ("language_code", "model", "encoding", "sample_rate")
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "speechToTextRealtimeStreaming_language_code": {"type": "string", "enum": ["auto", "en-IN", "or-IN"]},
+            "speechToTextRealtimeStreaming_model": {"type": "string", "enum": ["saaras:v3-realtime", "saaras:v4"]},
+            "speechToTextRealtimeStreaming_encoding": {
+                "type": "string",
+                "enum": ["linear16", "linear32", "mulaw", "alaw"],
+            },
+            "speechToTextRealtimeStreaming_sample_rate": {"type": "string", "enum": ["16000", "8000"]},
+        }
+    },
+}
+SARVAM_GUIDE_URL = "https://docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/voices"
+# The ``speaker`` description of https://docs.sarvam.ai/openapi/apis.json (trimmed).
+SARVAM_SPEAKER_DESCRIPTION = f"""The speaker voice to be used for the output audio.
+
+**Default:** shubh (for bulbul:v3), anushka (for bulbul:v2), shubh_enhi_ads (for bulbul:v4-flash).
+
+**Model Compatibility (Speakers compatible with respective model):**
+- **bulbul:v3:**
+  - shubh (default), ritu
+- **bulbul:v4-flash:**
+  - 200+ persona voices. See the [Voices guide]({SARVAM_GUIDE_URL}#bulbul-v4-flash-voices) for the full catalog.
+- **bulbul:v2:**
+  - Female: anushka
+  - Male: karun
+
+**Note:** Speaker selection must match the chosen model version."""
+
+
+def _nullable(name: str) -> dict:
+    return {"oneOf": [{"$ref": f"#/components/schemas/{name}"}, {"type": "null"}]}
+
+
+SARVAM_OPENAPI = {
+    "paths": {
+        "/text-to-speech": {
+            "post": {
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TextToSpeechRequest"}}}
+                }
+            }
+        },
+        "/speech-to-text": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "properties": {
+                                    "model": _nullable("SpeechToTextModel"),
+                                    "language_code": _nullable("SpeechToTextLanguage"),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    },
+    "components": {
+        "schemas": {
+            "TextToSpeechRequest": {
+                "properties": {
+                    "language_code": {"$ref": "#/components/schemas/TextToSpeechLanguage"},
+                    "speaker": {**_nullable("TextToSpeechSpeaker"), "description": SARVAM_SPEAKER_DESCRIPTION},
+                    "model": _nullable("TextToSpeechModel"),
+                }
+            },
+            "TextToSpeechLanguage": {"type": "string", "enum": ["hi-IN", "od-IN"]},
+            "TextToSpeechSpeaker": {"type": "string", "enum": ["anushka", "karun", "shubh", "ritu"]},
+            "TextToSpeechModel": {"type": "string", "enum": ["bulbul:v2", "bulbul:v3", "bulbul:v4-flash"]},
+            "SpeechToTextModel": {"type": "string", "enum": ["saaras:v3", "saaras:v4"]},
+            "SpeechToTextLanguage": {"type": "string", "enum": ["unknown", "hi-IN"]},
+        }
+    },
+}
+# Recorded from the Voices guide's ``.md`` version (trimmed).
+SARVAM_VOICES_DOC = """## Bulbul v3 Male Voices
+
+## Bulbul v4 Flash Voices
+
+### All v4 Flash voices
+
+#### Hindi (hi-IN) (1 voices)
+
+| Voice ID                  | Speaker | Style          |
+| ------------------------- | ------- | -------------- |
+| `aayan_hi_conversational` | Aayan   | conversational |
+
+#### Hindi-English Code-Mixed (1 voices)
+
+| Voice ID         | Speaker | Style |
+| ---------------- | ------- | ----- |
+| `shubh_enhi_ads` | Shubh   | ads   |
+
+## Hear Voices Across Languages
+"""
+
+
 def load_generate_voice_models():
     spec = importlib.util.spec_from_file_location("generate_voice_models", SCRIPT)
     assert spec is not None and spec.loader is not None
@@ -217,6 +338,9 @@ def serve_fixtures(gen, monkeypatch: pytest.MonkeyPatch) -> list[str]:
         gen.GEMINI_VOICES_URL: GEMINI_VOICES,
         gen.GEMINI_TTS_DOC_URL: GEMINI_TTS_DOC,
         gen.GEMINI_LIVE_DOC_URL: GEMINI_LIVE_DOC,
+        gen.SARVAM_ASYNCAPI_URL: SARVAM_ASYNCAPI,
+        gen.SARVAM_OPENAPI_URL: SARVAM_OPENAPI,
+        f"{SARVAM_GUIDE_URL}.md": SARVAM_VOICES_DOC,
     }
 
     def get_json(url: str, headers: dict[str, str] | None = None, params: dict[str, str] | None = None) -> object:
@@ -270,7 +394,20 @@ def test_without_keys_keyed_sources_are_skipped_and_logged(
         "vercel:openai/gpt-realtime-2",
         "vercel:google/gemini-live",
         "vercel:spacexai/grok-voice-3.0",
+        "sarvam:saaras:v3-realtime",
+        "sarvam:saaras:v4",
     ]
+    assert "saaras:v3-realtime: not a realtime model on models.dev" in out
+    sarvam = by_id["sarvam:saaras:v4"]
+    assert sarvam.voices == () and sarvam.audio_output == ()
+    assert [(a.encoding, a.sample_rate) for a in sarvam.audio_input] == [
+        ("pcm16", 16000),
+        ("pcm16", 8000),
+        ("pcmu", 8000),
+        ("pcma", 8000),
+    ]
+    assert sarvam.languages == ("auto", "en-IN", "or-IN")
+    assert sarvam.sources.model == sarvam.sources.languages == gen.SARVAM_ASYNCAPI_URL
     grok = by_id["grok:grok-voice-latest"]
     assert [(v.id, v.label, v.traits) for v in grok.voices] == [
         ("ara", "Ara", ("Warm and friendly",)),
@@ -310,7 +447,9 @@ def test_without_keys_keyed_sources_are_skipped_and_logged(
     assert by_id["vercel:openai/gpt-realtime-2"].reasoning_efforts == ()
     assert by_id["vercel:openai/gpt-realtime-2"].default_voice == "alloy"
     assert by_id["vercel:spacexai/grok-voice-3.0"].voices == grok.voices
-    assert all(m.sources.model and m.sources.voices and m.sources.audio for m in by_id.values())
+    assert all(
+        m.sources.model and m.sources.voices and m.sources.audio for m in by_id.values() if m.provider != "sarvam"
+    )
 
 
 def test_with_keys_the_keyed_sources_are_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -376,3 +515,49 @@ def test_a_tts_guide_without_its_voice_table_raises() -> None:
     gen = load_generate_voice_models()
     with pytest.raises(ValueError):
         gen.parse_xai_voice_table("<html><body><p>no table</p></body></html>")
+
+
+def test_sarvam_speech_models_come_from_the_openapi_spec_and_voices_guide(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gen = load_generate_voice_models()
+    serve_fixtures(gen, monkeypatch)
+    output = tmp_path / "catalog.py"
+    output.write_text(gen.render(gen.collect_catalog()))
+    namespace: dict[str, object] = {}
+    exec(compile(output.read_text(), str(output), "exec"), namespace)
+    speech = namespace["SPEECH_MODELS"]
+    assert isinstance(speech, tuple)
+    by_id = {m.id: m for m in speech}
+    assert [(m.id, m.kind) for m in speech] == [
+        ("bulbul:v2", "tts"),
+        ("bulbul:v3", "tts"),
+        ("bulbul:v4-flash", "tts"),
+        ("saaras:v3", "stt"),
+        ("saaras:v4", "stt"),
+    ]
+    assert [(v.id, v.traits) for v in by_id["bulbul:v2"].voices] == [("anushka", ("Female",)), ("karun", ("Male",))]
+    assert [v.id for v in by_id["bulbul:v3"].voices] == ["shubh", "ritu"]
+    v4 = by_id["bulbul:v4-flash"]
+    assert [(v.id, v.label, v.traits) for v in v4.voices] == [
+        ("aayan_hi_conversational", "Aayan", ("conversational", "Hindi (hi-IN)")),
+        ("shubh_enhi_ads", "Shubh", ("ads", "Hindi-English Code-Mixed")),
+    ]
+    assert v4.sources.voices == f"{SARVAM_GUIDE_URL}.md"
+    assert [m.default_voice for m in speech] == ["anushka", "shubh", "shubh_enhi_ads", "", ""]
+    assert by_id["bulbul:v3"].languages == ("hi-IN", "od-IN")
+    assert by_id["saaras:v4"].languages == ("unknown", "hi-IN")
+    assert by_id["saaras:v4"].sources.model == gen.SARVAM_OPENAPI_URL
+
+
+def test_a_voices_guide_table_shorter_than_its_heading_raises() -> None:
+    gen = load_generate_voice_models()
+    doc = SARVAM_VOICES_DOC.replace("(1 voices)", "(2 voices)", 1)
+    with pytest.raises(ValueError, match="heading says 2"):
+        gen.sarvam_guide_voices(doc, "bulbul-v4-flash-voices")
+
+
+def test_a_sarvam_speaker_missing_from_the_enum_raises() -> None:
+    gen = load_generate_voice_models()
+    with pytest.raises(ValueError, match="missing from the speaker enum"):
+        gen.sarvam_tts_voices(SARVAM_SPEAKER_DESCRIPTION, ["anushka", "karun", "shubh"])

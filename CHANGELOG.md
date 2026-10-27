@@ -12,6 +12,17 @@
   `scripts/generate_voice_models.py`: models.dev's realtime models and efforts first, then the
   provider specs for models models.dev lacks, voices and audio formats. Grok lists the 28
   voices of xAI's text-to-speech guide (or `GET /v1/tts/voices` with `XAI_API_KEY`).
+- `symphony-core` voice: Sarvam AI. `open_voice_session` opens Sarvam's realtime
+  speech-to-text (`saaras:v3-realtime`, `saaras:v4`; 24 input languages) as a
+  transcription-only session, and `core_ai.voice.sarvam` adds `synthesize`
+  (`POST /text-to-speech`) and `transcribe` (`POST /speech-to-text`). The new
+  `SPEECH_MODELS` catalog lists Sarvam's TTS models (`bulbul:v2` 7 speakers, `bulbul:v3`
+  37, `bulbul:v4-flash` 222; 11 languages) and STT models (`saaras:v3`, `saaras:v4`; 24
+  languages), read from Sarvam's OpenAPI and AsyncAPI specs and its Voices guide.
+  Gaps: Sarvam documents no realtime speech-to-speech model, so its sessions raise
+  `SarvamResponsesUnsupported` for responses, history and tools; TTS streaming
+  (`/text-to-speech/stream`, `/text-to-speech/ws`), cloned voices and the `linear32`
+  input encoding are not implemented; models.dev lists no Sarvam speech model.
 - `symphony-core` models: the registry is regenerated from models.dev and adds OpenAI
   `gpt-6.1-terra`.
 

@@ -16,19 +16,23 @@ from core_ai.voice import (
     AudioDelta,
     AudioFormat,
     ResponseDone,
+    SPEECH_MODELS,
+    SarvamResponsesUnsupported,
+    SpeechStarted,
     SpeechStopped,
     TextDelta,
     ToolCall,
     UserTranscript,
     VOICE_MODELS,
     VoiceConfig,
+    VoiceError,
     VoiceEvent,
     VoiceModelSpec,
     VoiceSession,
     open_voice_session,
     voice_model,
 )
-from core_ai.voice import gemini, openai, vercel
+from core_ai.voice import gemini, openai, sarvam, vercel
 from core_ai.voice.gemini.payload import audio_mime_type, setup_message
 from core_ai.voice.gemini.speech import output_audio, speech_request
 from core_ai.voice.openai.payload import INPUT_TRANSCRIPTION_MODEL, session_payload
@@ -448,3 +452,124 @@ def test_gemini_speech_request_and_audio() -> None:
         ]
     }
     assert output_audio(interaction) == b"\x02"
+
+
+# Sarvam
+
+
+def _sarvam_model(model_id: str) -> VoiceModelSpec:
+    return next(m for m in VOICE_MODELS if m.provider == "sarvam" and m.id == model_id)
+
+
+async def _serve_sarvam(handler: Handler, config: VoiceConfig, body: Body) -> Any:
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        session = await open_voice_session(
+            _sarvam_model("saaras:v3-realtime"), config, api_key="key", base_url=f"http://127.0.0.1:{port}"
+        )
+        try:
+            return await body(session)
+        finally:
+            await session.aclose()
+
+
+def test_sarvam_realtime_transcribes_over_the_wire() -> None:
+    received: list[dict[str, Any]] = []
+    requests: list[tuple[str, str]] = []
+
+    async def handler(connection: ServerConnection) -> None:
+        assert connection.request is not None
+        requests.append((connection.request.path, connection.request.headers["api-subscription-key"]))
+        async for message in connection:
+            received.append(json.loads(message))
+            for frame in (
+                {"event": "session.begin", "request_id": "q"},
+                {"event": "vad.speech_start", "utterance_idx": 0},
+                {"event": "transcript.partial", "utterance_idx": 0, "text": "nam"},
+                {"event": "vad.speech_end", "utterance_idx": 0},
+                {"event": "transcript.final", "utterance_idx": 0, "text": " namaste "},
+                {"event": "error", "code": "x", "is_fatal": False, "message": "slow down"},
+            ):
+                await connection.send(json.dumps(frame))
+
+    async def body(session: VoiceSession) -> list[VoiceEvent]:
+        await session.send_audio(b"\x01\x02")
+        return await _collect(session, 4)
+
+    config = VoiceConfig(voice="", audio=AudioFormat("pcm16", 16000), language="hi-IN")
+    events = asyncio.run(_serve_sarvam(handler, config, body))
+    path, key = requests[0]
+    assert key == "key"
+    assert path == (
+        "/speech-to-text-realtime/ws?model=saaras%3Av3-realtime&language_code=hi-IN"
+        "&encoding=linear16&sample_rate=16000&endpointing=vad"
+    )
+    assert received == [{"event": "audio_input", "audio": _b64(b"\x01\x02")}]
+    assert events == [SpeechStarted(), SpeechStopped(), UserTranscript("namaste"), VoiceError("slow down")]
+
+
+def test_sarvam_manual_turns_and_unsupported_calls() -> None:
+    received: list[dict[str, Any]] = []
+
+    async def handler(connection: ServerConnection) -> None:
+        async for message in connection:
+            received.append(json.loads(message))
+
+    async def body(session: VoiceSession) -> None:
+        await session.send_audio(b"\x01")
+        await session.send_audio(b"\x02")
+        await session.respond()
+        await session.update(replace(config, language="ta-IN"))
+        for call in (
+            session.add_message("user", "hi"),
+            session.add_tool_call("c", "f", "{}"),
+            session.add_tool_result("c", "{}"),
+            session.cancel(),
+            session.update(replace(config, turn_detection="server_vad")),
+        ):
+            with pytest.raises(SarvamResponsesUnsupported):
+                await call
+        with pytest.raises(SarvamResponsesUnsupported):
+            session.response()
+        await asyncio.sleep(0.05)
+
+    config = VoiceConfig(voice="", audio=AudioFormat("pcmu", 8000), turn_detection="manual")
+    asyncio.run(_serve_sarvam(handler, config, body))
+    assert [frame["event"] for frame in received] == [
+        "speech_start",
+        "audio_input",
+        "audio_input",
+        "speech_end",
+        "config.update",
+    ]
+    assert received[-1]["language_code"] == "ta-IN"
+
+
+def test_sarvam_speech_and_transcription_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    speech = _Recorded(httpx.Response(200, json={"request_id": "r", "audios": [_b64(b"RI"), _b64(b"FF")]}))
+    speech.install(monkeypatch)
+    assert asyncio.run(sarvam.synthesize("key", "bulbul:v3", "Hi", "shubh", "hi-IN")) == b"RIFF"
+    request = speech.requests[0]
+    assert str(request.url) == "https://api.sarvam.ai/text-to-speech"
+    assert request.headers["api-subscription-key"] == "key"
+    assert json.loads(request.content) == {
+        "text": "Hi",
+        "model": "bulbul:v3",
+        "speaker": "shubh",
+        "language_code": "hi-IN",
+    }
+    stt = _Recorded(httpx.Response(200, json={"transcript": "hello", "language_code": "en-IN"}))
+    stt.install(monkeypatch)
+    assert asyncio.run(sarvam.transcribe("key", "saaras:v3", b"RIFF", "a.wav", "audio/wav")) == "hello"
+    request = stt.requests[0]
+    assert str(request.url) == "https://api.sarvam.ai/speech-to-text"
+    assert b'name="model"' in request.content and b"saaras:v3" in request.content
+    assert b'name="language_code"' not in request.content
+
+
+def test_sarvam_speech_catalog_lists_each_models_speakers() -> None:
+    tts = {m.id: m for m in SPEECH_MODELS if m.kind == "tts"}
+    for model in tts.values():
+        assert model.provider == "sarvam" and model.voices and model.languages
+        assert model.default_voice in {voice.id for voice in model.voices}
+    assert all(m.provider == "sarvam" and not m.voices and m.languages for m in SPEECH_MODELS if m.kind == "stt")

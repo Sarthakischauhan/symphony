@@ -27,6 +27,15 @@ models it does not list, come from the provider sources below.
   tags as realtime-WebSocket models, plus tagged ones models.dev lacks (and their efforts); voices and audio formats are the
   upstream provider's, which the gateway passes through. Efforts are kept only where the gateway documents how to send them.
 
+- sarvam: models.dev lists no Sarvam speech model, so Sarvam's own specs are the source.
+  Realtime speech-to-text models, input languages and audio formats come from the
+  ``/speech-to-text-realtime/ws`` channel of Sarvam's AsyncAPI spec; these are the voice
+  models. Its text-to-speech and speech-to-text REST models (``SPEECH_MODELS``), their
+  languages, default speakers and the bulbul:v2/v3 speakers come from its OpenAPI spec; the
+  persona speakers the OpenAPI spec defers to the Voices guide come from that guide's tables.
+  No Sarvam source needs a key: keyed ``GET /voices`` lists only a workspace's cloned voices
+  and keyed ``GET /v2/models`` only chat models.
+
 A source that needs a missing key is skipped with a log line. Any other failure raises.
 """
 
@@ -50,6 +59,10 @@ GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_VOICES_URL = "https://generativelanguage.googleapis.com/v1beta/voices"
 GEMINI_TTS_DOC_URL = "https://ai.google.dev/gemini-api/docs/speech-generation.md.txt"
 GEMINI_LIVE_DOC_URL = "https://ai.google.dev/gemini-api/docs/live-guide.md.txt"
+SARVAM_ASYNCAPI_URL = "https://docs.sarvam.ai/asyncapi.json"
+SARVAM_OPENAPI_URL = "https://docs.sarvam.ai/openapi/apis.json"
+SARVAM_DOCS_URL = "https://docs.sarvam.ai"
+SARVAM_REALTIME_CHANNEL = "/speech-to-text-realtime/ws"
 
 # Wire format types core_ai's realtime clients implement; `audio/opus` is published but not
 # implemented.
@@ -104,12 +117,26 @@ class Entry:
     family: str
     model_source: str
     efforts: Sourced = field(default_factory=lambda: Sourced((), ""))
+    languages: Sourced = field(default_factory=lambda: Sourced((), ""))
+
+
+@dataclass(frozen=True)
+class SpeechEntry:
+    """A Sarvam TTS or STT REST model."""
+
+    id: str
+    kind: str
+    voices: Sourced
+    default_voice: str
+    languages: Sourced
+    model_source: str
 
 
 @dataclass(frozen=True)
 class VoiceCatalog:
     families: dict[str, Family]
     entries: tuple[Entry, ...]
+    speech: tuple[SpeechEntry, ...] = ()
 
 
 # --- xAI ---------------------------------------------------------------------------------
@@ -217,11 +244,11 @@ def _resolve(schemas: dict, node: dict) -> dict:
 def _enum_of(schemas: dict, node: dict) -> list[str]:
     """The string enum of a ``anyOf: [string, {enum}]`` schema (OpenAI's open enums)."""
     node = _resolve(schemas, node)
-    for option in node.get("anyOf", ()):
+    for option in (*node.get("anyOf", ()), *node.get("oneOf", ())):
         option = _resolve(schemas, option)
         if "enum" in option:
             return option["enum"]
-        nested = _enum_of(schemas, option) if "anyOf" in option else []
+        nested = _enum_of(schemas, option) if "anyOf" in option or "oneOf" in option else []
         if nested:
             return nested
     return node.get("enum", [])
@@ -426,10 +453,16 @@ def collect_catalog() -> VoiceCatalog:
         "openai": openai_family(openai),
         "gemini": gemini_family(gemini_voices, get_text(GEMINI_LIVE_DOC_URL)),
     }
+    sarvam = parse_sarvam_realtime(get_json(SARVAM_ASYNCAPI_URL))
+    sarvam_audio = Sourced(sarvam.audio, SARVAM_ASYNCAPI_URL)
+    # Realtime STT: no voices and no audio output.
+    families["sarvam"] = Family(Sourced((), ""), "", sarvam_audio, Sourced((), ""))
     return VoiceCatalog(
         families,
         provider_entries(spec, openai, models_dev, gemini_models)
-        + gateway_entries(gateway_models(models_dev, parse_gateway_models(get_json(GATEWAY_MODELS_URL)))),
+        + gateway_entries(gateway_models(models_dev, parse_gateway_models(get_json(GATEWAY_MODELS_URL))))
+        + sarvam_entries(sarvam, models_dev),
+        parse_sarvam_speech(get_json(SARVAM_OPENAPI_URL)),
     )
 
 
@@ -503,6 +536,123 @@ def models_dev_efforts(efforts: dict[str, tuple[str, ...]], model_id: str) -> So
     return Sourced(values, MODELS_DEV_URL if values else "")
 
 
+# --- Sarvam --------------------------------------------------------------------------------
+
+# The realtime channel's ``encoding`` values for the encodings core_ai's sessions carry.
+SARVAM_ENCODINGS = {"linear16": "pcm16", "mulaw": "pcmu", "alaw": "pcma"}
+# ``- **bulbul:v3:**`` followed by its indented ``  - …`` lines, in the ``speaker`` description.
+SARVAM_SPEAKER_BLOCK_RE = re.compile(r"^- \*\*([\w.:-]+):\*\*\n((?:  - .*(?:\n|$))+)", re.MULTILINE)
+SARVAM_DEFAULT_RE = re.compile(r"([a-z0-9_]+) \(for ([\w.:-]+)\)")
+SARVAM_GUIDE_RE = re.compile(r"\]\((https://docs\.sarvam\.ai/[^)#]+)#([\w-]+)\)")
+SARVAM_TABLE_RE = re.compile(r"^#### (.+?) \((\d+) voices\)\n(.*?)(?=^#{2,4} |\Z)", re.MULTILINE | re.DOTALL)
+SARVAM_ROW_RE = re.compile(r"^\| `([a-z0-9_]+)`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|", re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class SarvamRealtime:
+    models: tuple[str, ...]
+    languages: tuple[str, ...]
+    audio: Audio
+
+
+def parse_sarvam_realtime(payload: dict) -> SarvamRealtime:
+    """Models, languages and implemented audio formats of the realtime STT channel's query."""
+    schemas = payload["components"]["schemas"]
+    query = payload["channels"][SARVAM_REALTIME_CHANNEL]["bindings"]["ws"]["query"]["properties"]
+    rates = [int(rate) for rate in _enum_of(schemas, query["sample_rate"])]
+    audio: list[tuple[str, int]] = []
+    for wire in _enum_of(schemas, query["encoding"]):
+        encoding = SARVAM_ENCODINGS.get(wire)
+        if encoding == "pcm16":
+            audio.extend((encoding, rate) for rate in sorted(rates, reverse=True))
+        elif encoding is not None and G711_RATE in rates:
+            audio.append((encoding, G711_RATE))
+    models = tuple(_enum_of(schemas, query["model"]))
+    if not models or not audio:
+        raise ValueError(f"{SARVAM_ASYNCAPI_URL} publishes no realtime STT models or audio formats")
+    return SarvamRealtime(models, tuple(_enum_of(schemas, query["language_code"])), audio)
+
+
+def _request_properties(spec: dict, path: str, media_type: str) -> dict:
+    schemas = spec["components"]["schemas"]
+    return _resolve(schemas, spec["paths"][path]["post"]["requestBody"]["content"][media_type]["schema"])["properties"]
+
+
+def sarvam_guide_voices(markdown: str, anchor: str) -> tuple[Voice, ...]:
+    """Persona voices from the Voices guide section ``anchor``: id, speaker, (style, language)."""
+    sections = re.split(r"^## ", markdown, flags=re.MULTILINE)
+    section = next((s for s in sections if re.sub(r"[^a-z0-9]+", "-", s.split("\n", 1)[0].lower()) == anchor), None)
+    if section is None:
+        raise ValueError(f"Voices guide has no #{anchor} section")
+    voices: list[Voice] = []
+    for language, count, table in SARVAM_TABLE_RE.findall(section):
+        rows = SARVAM_ROW_RE.findall(table)
+        if len(rows) != int(count):
+            raise ValueError(f"Voices guide {language}: {len(rows)} rows, heading says {count}")
+        voices.extend((voice_id, speaker, (style, language)) for voice_id, speaker, style in rows)
+    if not voices:
+        raise ValueError(f"Voices guide #{anchor} has no voice tables")
+    return tuple(voices)
+
+
+def sarvam_tts_voices(description: str, speakers: list[str]) -> dict[str, tuple[Sourced, str]]:
+    """TTS model -> (its speakers, its default speaker), from the ``speaker`` description's
+    model-compatibility list; a model that points at the Voices guide reads that guide."""
+    defaults = {model: voice for voice, model in SARVAM_DEFAULT_RE.findall(description)}
+    found: dict[str, tuple[Sourced, str]] = {}
+    for model, block in SARVAM_SPEAKER_BLOCK_RE.findall(description):
+        guide = SARVAM_GUIDE_RE.search(block)
+        if guide:
+            url, anchor = guide.groups()
+            voices = Sourced(sarvam_guide_voices(get_text(f"{url}.md"), anchor), f"{url}.md")
+        else:
+            parsed: list[Voice] = []
+            for line in block.splitlines():
+                group, _, names = line.removeprefix("  - ").rpartition(": ")
+                for name in names.split(", "):
+                    voice_id = name.removesuffix(" (default)").strip()
+                    parsed.append((voice_id, voice_id[:1].upper() + voice_id[1:], (group,) if group else ()))
+            unknown = [v[0] for v in parsed if v[0] not in speakers]
+            if unknown:
+                raise ValueError(f"{model} speakers missing from the speaker enum: {unknown}")
+            voices = Sourced(tuple(parsed), SARVAM_OPENAPI_URL)
+        default = defaults.get(model, "")
+        if default and default not in {v[0] for v in voices.values}:
+            raise ValueError(f"{model} default speaker {default} is not among its speakers")
+        found[model] = (voices, default)
+    return found
+
+
+def parse_sarvam_speech(spec: dict) -> tuple[SpeechEntry, ...]:
+    """TTS models with speakers and languages, then STT models with languages."""
+    schemas = spec["components"]["schemas"]
+    tts = _request_properties(spec, "/text-to-speech", "application/json")
+    stt = _request_properties(spec, "/speech-to-text", "multipart/form-data")
+    speaker = _resolve(schemas, tts["speaker"])
+    voices = sarvam_tts_voices(speaker["description"], _enum_of(schemas, speaker))
+    tts_languages = Sourced(tuple(_enum_of(schemas, tts["language_code"])), SARVAM_OPENAPI_URL)
+    entries: list[SpeechEntry] = []
+    for model in _enum_of(schemas, tts["model"]):
+        if model not in voices:
+            raise ValueError(f"{SARVAM_OPENAPI_URL} lists no speakers for TTS model {model}")
+        model_voices, default = voices[model]
+        entries.append(SpeechEntry(model, "tts", model_voices, default, tts_languages, SARVAM_OPENAPI_URL))
+    stt_languages = Sourced(tuple(_enum_of(schemas, stt["language_code"])), SARVAM_OPENAPI_URL)
+    for model in _enum_of(schemas, stt["model"]):
+        entries.append(SpeechEntry(model, "stt", Sourced((), ""), "", stt_languages, SARVAM_OPENAPI_URL))
+    if not entries:
+        raise ValueError(f"{SARVAM_OPENAPI_URL} publishes no TTS or STT models")
+    return tuple(entries)
+
+
+def sarvam_entries(realtime: SarvamRealtime, models_dev: dict) -> tuple[Entry, ...]:
+    languages = Sourced(realtime.languages, SARVAM_ASYNCAPI_URL)
+    return tuple(
+        Entry(m, "sarvam", "sarvam", src, languages=languages)
+        for m, src in models_first(parse_models_dev(models_dev, "sarvam"), realtime.models, SARVAM_ASYNCAPI_URL).items()
+    )
+
+
 # --- rendering -----------------------------------------------------------------------------
 
 
@@ -513,7 +663,7 @@ def quoted(values: tuple[str, ...]) -> str:
 def family_lines(name: str, family: Family) -> list[str]:
     prefix = name.upper()
     return [
-        f"# {family.voices.source}",
+        *((f"# {family.voices.source}",) if family.voices.source else ()),
         f"{prefix}_VOICES: tuple[VoiceInfo, ...] = (",
         *(
             f"    VoiceInfo({json.dumps(voice_id)}, {json.dumps(label)}, {quoted(traits)}),"
@@ -547,6 +697,31 @@ def entry_lines(entry: Entry, family: Family) -> tuple[str, ...]:
         f"            voices={json.dumps(family.voices.source)},",
         f"            reasoning_efforts={json.dumps(entry.efforts.source)},",
         f"            audio={json.dumps(family.audio_input.source)},",
+        *((f"            languages={json.dumps(entry.languages.source)},",) if entry.languages.values else ()),
+        "        ),",
+        *((f"        languages={quoted(entry.languages.values)},",) if entry.languages.values else ()),
+        "    ),",
+    )
+
+
+def speech_lines(entry: SpeechEntry) -> tuple[str, ...]:
+    return (
+        "    SpeechModelSpec(",
+        f"        id={json.dumps(entry.id)},",
+        '        provider="sarvam",',
+        f"        kind={json.dumps(entry.kind)},",
+        "        voices=(",
+        *(
+            f"            VoiceInfo({json.dumps(voice_id)}, {json.dumps(label)}, {quoted(traits)}),"
+            for voice_id, label, traits in entry.voices.values
+        ),
+        "        ),",
+        f"        default_voice={json.dumps(entry.default_voice)},",
+        f"        languages={quoted(entry.languages.values)},",
+        "        sources=SpeechSources(",
+        f"            model={json.dumps(entry.model_source)},",
+        f"            voices={json.dumps(entry.voices.source)},",
+        f"            languages={json.dumps(entry.languages.source)},",
         "        ),",
         "    ),",
     )
@@ -555,9 +730,17 @@ def entry_lines(entry: Entry, family: Family) -> tuple[str, ...]:
 def render(catalog: VoiceCatalog) -> str:
     lines = [
         "# Generated by scripts/generate_voice_models.py. Do not edit by hand.",
-        '"""Realtime voice models; each entry\'s ``sources`` names where every value was read."""',
+        '"""Realtime voice models and request/response speech models; each entry\'s ``sources``',
+        'names where every value was read."""',
         "",
-        "from core_ai.voice.types import AudioFormat, VoiceInfo, VoiceModelSpec, VoiceSources",
+        "from core_ai.voice.types import (",
+        "    AudioFormat,",
+        "    SpeechModelSpec,",
+        "    SpeechSources,",
+        "    VoiceInfo,",
+        "    VoiceModelSpec,",
+        "    VoiceSources,",
+        ")",
         "",
     ]
     for name, family in catalog.families.items():
@@ -565,6 +748,9 @@ def render(catalog: VoiceCatalog) -> str:
     lines.append("VOICE_MODELS: tuple[VoiceModelSpec, ...] = (")
     for entry in catalog.entries:
         lines.extend(entry_lines(entry, catalog.families[entry.family]))
+    lines.extend((")", "", "SPEECH_MODELS: tuple[SpeechModelSpec, ...] = ("))
+    for speech in catalog.speech:
+        lines.extend(speech_lines(speech))
     lines.extend((")", ""))
     return "\n".join(lines)
 
@@ -577,7 +763,11 @@ def generate(output: Path = OUTPUT) -> Path:
         entries = [entry for entry in catalog.entries if entry.provider == provider]
         voices = {len(catalog.families[entry.family].voices.values) for entry in entries}
         log(f"{provider}: {len(entries)} models, voices per model {sorted(voices)}")
-    log(f"wrote {len(catalog.entries)} voice models to {output}")
+    for speech in catalog.speech:
+        log(
+            f"sarvam {speech.kind} {speech.id}: {len(speech.voices.values)} voices, {len(speech.languages.values)} languages"
+        )
+    log(f"wrote {len(catalog.entries)} voice models and {len(catalog.speech)} speech models to {output}")
     return output
 
 

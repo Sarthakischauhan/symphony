@@ -7,6 +7,7 @@ from core_ai.voice.catalog import VOICE_MODELS
 from core_ai.voice.gemini import GEMINI_LIVE_URL, open_gemini_live
 from core_ai.voice.grok import XAI_BASE_URL, open_grok_realtime
 from core_ai.voice.openai import OPENAI_BASE_URL, open_openai_realtime
+from core_ai.voice.sarvam import SARVAM_BASE_URL, open_sarvam_realtime
 from core_ai.voice.session import FrameObserver, VoiceConfig, VoiceSession
 from core_ai.voice.types import VoiceModelSpec
 from core_ai.voice.vercel import AI_GATEWAY_BASE_URL, open_vercel_realtime
@@ -19,6 +20,7 @@ REALTIME_CLIENTS: dict[str, tuple[RealtimeOpener, str]] = {
     "openai": (open_openai_realtime, OPENAI_BASE_URL),
     "gemini": (open_gemini_live, GEMINI_LIVE_URL),
     "vercel": (open_vercel_realtime, AI_GATEWAY_BASE_URL),
+    "sarvam": (open_sarvam_realtime, SARVAM_BASE_URL),
 }
 
 

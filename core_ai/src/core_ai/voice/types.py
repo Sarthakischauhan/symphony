@@ -32,6 +32,7 @@ class VoiceSources:
     voices: str
     reasoning_efforts: str
     audio: str
+    languages: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,37 @@ class VoiceModelSpec:
     # Provider-native reasoning effort values, lowest first.
     reasoning_efforts: tuple[str, ...] = ()
     sources: VoiceSources | None = None
+    # Input language codes, where the source publishes them (Sarvam's realtime STT does).
+    languages: tuple[str, ...] = ()
+
+    @property
+    def full_id(self) -> str:
+        return f"{self.provider}:{self.id}"
+
+
+SpeechKind = Literal["tts", "stt"]
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechSources:
+    """Where a speech model's values were read; empty when no source publishes that value."""
+
+    model: str
+    voices: str
+    languages: str
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechModelSpec:
+    """A request/response text-to-speech or speech-to-text model (not a realtime session)."""
+
+    id: str
+    provider: str
+    kind: SpeechKind
+    voices: tuple[VoiceInfo, ...]
+    default_voice: str
+    languages: tuple[str, ...]
+    sources: SpeechSources
 
     @property
     def full_id(self) -> str:

@@ -14,6 +14,7 @@ from core_ai.voice import (
     GeminiVoiceSession,
     GrokVoiceSession,
     OpenAIVoiceSession,
+    SarvamVoiceSession,
     VercelVoiceSession,
     VoiceConfig,
     VoiceModelSpec,
@@ -26,8 +27,10 @@ SESSION_CLASSES = {
     "openai": OpenAIVoiceSession,
     "gemini": GeminiVoiceSession,
     "vercel": VercelVoiceSession,
+    "sarvam": SarvamVoiceSession,
 }
 # The session configuration frame each WebSocket client sends first (Live sends ``setup``).
+# Sarvam configures in the URL query, so its first frame is the audio the test sends.
 FIRST_FRAME_TYPES = {"grok": "session.update", "openai": "session.update", "vercel": "session-update"}
 
 
@@ -36,6 +39,8 @@ def _base_url(provider: str, port: int) -> str:
         return f"ws://127.0.0.1:{port}/ws/live"
     if provider == "vercel":
         return f"http://127.0.0.1:{port}/v4/ai"
+    if provider == "sarvam":
+        return f"http://127.0.0.1:{port}"
     return f"http://127.0.0.1:{port}/v1"
 
 
@@ -44,6 +49,10 @@ def _expected_path(model: VoiceModelSpec) -> str:
         return "/ws/live?key=key"
     if model.provider == "vercel":
         return f"/v4/ai/realtime-model?{urlencode({'ai-model-id': model.id})}"
+    if model.provider == "sarvam":
+        audio = model.audio_input[0]
+        query = {"model": model.id, "language_code": "auto", "encoding": "linear16", "sample_rate": audio.sample_rate}
+        return f"/speech-to-text-realtime/ws?{urlencode(query | {'endpointing': 'vad'})}"
     return f"/v1/realtime?model={model.id}"
 
 
@@ -81,8 +90,14 @@ def test_catalog_entry_opens_on_its_provider_client(model: VoiceModelSpec, monke
     async def run() -> Any:
         async with serve(handler, "127.0.0.1", 0) as server:
             port = server.sockets[0].getsockname()[1]
-            config = VoiceConfig(voice=model.voices[0].id)
+            if model.provider == "sarvam":
+                # Realtime STT: no voice, and the model's own input format.
+                config = VoiceConfig(voice="", audio=model.audio_input[0])
+            else:
+                config = VoiceConfig(voice=model.voices[0].id)
             session = await open_voice_session(model, config, api_key="key", base_url=_base_url(model.provider, port))
+            if model.provider == "sarvam":
+                await session.send_audio(b"\x00\x00")
             try:
                 await asyncio.wait_for(first_frame.wait(), 5)
                 return session
@@ -96,6 +111,8 @@ def test_catalog_entry_opens_on_its_provider_client(model: VoiceModelSpec, monke
     first = frames[0]
     if model.provider == "gemini":
         assert "setup" in first
+    elif model.provider == "sarvam":
+        assert first["event"] == "audio_input"
     else:
         assert first["type"] == FIRST_FRAME_TYPES[model.provider]
     assert _opened_model(model, first) == model.id

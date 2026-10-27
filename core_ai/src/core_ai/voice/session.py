@@ -26,6 +26,9 @@ class VoiceConfig:
     reasoning_effort: Optional[str] = None
     audio: AudioFormat = AudioFormat("pcm16", 24000)
     turn_detection: TurnDetection = "server_vad"
+    # Input language code, for models that take one (Sarvam's realtime STT); None lets the
+    # model choose.
+    language: Optional[str] = None
 
 
 @dataclass(frozen=True, slots=True)
