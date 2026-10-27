@@ -155,6 +155,14 @@ is natively 16kHz, but the Live API will resample if needed
 """
 # GET https://api.x.ai/v1/tts/voices response shape (trimmed).
 XAI_VOICES = {"voices": [{"voice_id": "eve", "name": "Eve"}, {"voice_id": "ara", "name": "Ara"}]}
+# The text-to-speech guide's voice table, trimmed to the markup the parser reads.
+XAI_TTS_DOC = """
+<tbody>
+<tr><td><code>ara</code></td><td><div>Warm and friendly</div></td><td>voice_ara.mp3</td></tr>
+<tr><td><code>eve</code></td><td><div>Energetic and upbeat</div><div>British<!-- --> accent</div></td><td>voice_eve.mp3</td></tr>
+<tr><td><code>rex</code></td><td><div>Confident and clear</div></td><td>voice_rex.mp3</td></tr>
+</tbody>
+"""
 # GET https://generativelanguage.googleapis.com/v1beta/voices and /models response shapes.
 GEMINI_VOICES = {"voices": [{"id": "Zephyr", "displayName": "Zephyr"}, {"id": "Achird", "displayName": "Achird"}]}
 GEMINI_MODELS_PAGES = [
@@ -191,6 +199,7 @@ def serve_fixtures(gen, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     documents = {
         gen.XAI_SPEC_URL: SPEC,
         gen.XAI_VOICES_URL: XAI_VOICES,
+        gen.XAI_TTS_DOC_URL: XAI_TTS_DOC,
         gen.OPENAI_SPEC_URL: OPENAI_SPEC,
         gen.MODELS_DEV_URL: MODELS_DEV,
         gen.GATEWAY_MODELS_URL: GATEWAY_MODELS,
@@ -250,9 +259,14 @@ def test_without_keys_keyed_sources_are_skipped_and_logged(
         "vercel:spacexai/grok-voice-3.0",
     ]
     grok = by_id["grok:grok-voice-latest"]
-    assert [(v.id, v.label) for v in grok.voices] == [("eve", "Eve")]
+    assert [(v.id, v.label, v.traits) for v in grok.voices] == [
+        ("ara", "Ara", ("Warm and friendly",)),
+        ("eve", "Eve", ("Energetic and upbeat", "British accent")),
+        ("rex", "Rex", ("Confident and clear",)),
+    ]
     assert grok.default_voice == "eve"
-    assert grok.sources.voices == f"{gen.XAI_SPEC_URL} (session.update example)"
+    assert grok.sources.voices == gen.XAI_TTS_DOC_URL
+    assert gen.XAI_TTS_DOC_URL in asked
     assert grok.reasoning_efforts == ("none", "high")
     openai = by_id["openai:gpt-realtime"]
     assert openai.reasoning_efforts == ("minimal", "low")
