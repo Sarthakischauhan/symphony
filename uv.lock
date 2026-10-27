@@ -1330,6 +1330,7 @@ dependencies = [
     { name = "dotenv" },
     { name = "httpx" },
     { name = "pydantic" },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -1343,6 +1344,7 @@ requires-dist = [
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "websockets", specifier = ">=13.0" },
 ]
 
 [package.metadata.requires-dev]
