@@ -299,11 +299,12 @@ def test_with_keys_the_keyed_sources_are_read(tmp_path: Path, monkeypatch: pytes
     gen = load_generate_voice_models()
     monkeypatch.setenv("XAI_API_KEY", "xai-key")
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
-    serve_fixtures(gen, monkeypatch)
+    asked = serve_fixtures(gen, monkeypatch)
     by_id = load_rendered(gen, gen.collect_catalog(), tmp_path)
     grok = by_id["grok:grok-voice-latest"]
     assert [v.id for v in grok.voices] == ["eve", "ara"]
     assert grok.sources.voices == gen.XAI_VOICES_URL
+    assert gen.XAI_TTS_DOC_URL not in asked
     gemini = by_id["gemini:gemini-live-2"]
     assert gemini.sources.model == gen.GEMINI_MODELS_URL
     assert [v.id for v in gemini.voices] == ["Zephyr", "Achird"]
@@ -340,3 +341,20 @@ def test_parse_openai_spec_keeps_ga_realtime_aliases() -> None:
     assert spec.voices == ("alloy", "marin")
     assert spec.default_voice == "alloy"
     assert spec.audio == (("pcm16", 24000), ("pcmu", 8000), ("pcma", 8000))
+
+
+def test_the_published_xai_voice_table_parses() -> None:
+    """A verbatim excerpt of the real text-to-speech guide's voice table."""
+    gen = load_generate_voice_models()
+    html = (Path(__file__).parent / "fixtures/xai_tts_voice_table.html").read_text()
+    voices = gen.parse_xai_voice_table(html)
+    assert len(voices) == 28
+    assert len({voice_id for voice_id, _, _ in voices}) == 28
+    assert voices[0] == ("carina", "Carina", ("Soft, empathetic, and soothing",))
+    assert all(traits for _, _, traits in voices)
+
+
+def test_a_tts_guide_without_its_voice_table_raises() -> None:
+    gen = load_generate_voice_models()
+    with pytest.raises(ValueError):
+        gen.parse_xai_voice_table("<html><body><p>no table</p></body></html>")

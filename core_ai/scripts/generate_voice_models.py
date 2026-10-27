@@ -166,7 +166,8 @@ def parse_xai_voices(payload: dict) -> tuple[Voice, ...]:
 
 
 def parse_xai_voice_table(html: str) -> tuple[Voice, ...]:
-    """Voices from the text-to-speech guide's table: id, capitalised label, tone and accent."""
+    """The guide's voice table is rendered only into its HTML: the page's ``.md`` version omits
+    it and the page embeds no JSON data for it, so the rendered table is read. Voices from the text-to-speech guide's table: id, capitalised label, tone and accent."""
     body = html.split("<tbody>", 1)[-1]
     rows = re.findall(r"<tr>(.*?)</tr>", body, flags=re.DOTALL)
     voices: list[Voice] = []
@@ -188,17 +189,9 @@ def parse_xai_voice_table(html: str) -> tuple[Voice, ...]:
     return tuple(voices)
 
 
-def grok_family(spec: RealtimeSpec, voices: tuple[Voice, ...] | None, documented: tuple[Voice, ...] | None = None) -> Family:
-    """``/v1/tts/voices`` wins. Without a key, the published voice table is the roster."""
-    default = spec.example_voice.lower()
-    if voices is not None:
-        listed = Sourced(voices, XAI_VOICES_URL)
-    elif documented:
-        listed = Sourced(documented, XAI_TTS_DOC_URL)
-    else:
-        listed = Sourced(((default, spec.example_voice, ()),), f"{XAI_SPEC_URL} (session.update example)")
+def grok_family(spec: RealtimeSpec, voices: Sourced) -> Family:
     audio = Sourced(spec.audio, XAI_SPEC_URL)
-    return Family(listed, default, audio, audio)
+    return Family(voices, spec.example_voice.lower(), audio, audio)
 
 
 # --- OpenAI ------------------------------------------------------------------------------
@@ -404,11 +397,16 @@ def keyed(name: str, what: str) -> str | None:
 
 def collect_catalog() -> VoiceCatalog:
     spec = parse_realtime_spec(get_json(XAI_SPEC_URL))
-    xai_key = keyed("XAI_API_KEY", f"{XAI_VOICES_URL} (names from the live voice list)")
-    xai_voices = (
-        parse_xai_voices(get_json(XAI_VOICES_URL, headers={"Authorization": f"Bearer {xai_key}"})) if xai_key else None
+    # ``/v1/tts/voices`` is the roster; without a key the text-to-speech guide's voice table is,
+    # and the guide is not fetched at all when the live API answers.
+    xai_key = keyed("XAI_API_KEY", f"{XAI_VOICES_URL} (using the voice table of {XAI_TTS_DOC_URL})")
+    grok_voices = (
+        Sourced(
+            parse_xai_voices(get_json(XAI_VOICES_URL, headers={"Authorization": f"Bearer {xai_key}"})), XAI_VOICES_URL
+        )
+        if xai_key
+        else Sourced(parse_xai_voice_table(get_text(XAI_TTS_DOC_URL)), XAI_TTS_DOC_URL)
     )
-    documented = parse_xai_voice_table(get_text(XAI_TTS_DOC_URL))
     openai = parse_openai_spec(get_json(OPENAI_SPEC_URL))
     models_dev = get_json(MODELS_DEV_URL)
     gemini_key = keyed("GEMINI_API_KEY", f"{GEMINI_MODELS_URL} and {GEMINI_VOICES_URL}")
@@ -420,7 +418,7 @@ def collect_catalog() -> VoiceCatalog:
         for page in get_gemini_pages(GEMINI_MODELS_URL, gemini_key, {"pageSize": "1000"}):
             gemini_models.update(dict.fromkeys(parse_gemini_models(page), GEMINI_MODELS_URL))
     families = {
-        "grok": grok_family(spec, xai_voices, documented),
+        "grok": grok_family(spec, grok_voices),
         "openai": openai_family(openai),
         "gemini": gemini_family(gemini_voices, get_text(GEMINI_LIVE_DOC_URL)),
     }
