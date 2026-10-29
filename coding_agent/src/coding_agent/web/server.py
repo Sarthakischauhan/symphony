@@ -6,6 +6,7 @@ import argparse
 import base64
 import binascii
 import json
+import mimetypes
 import secrets
 import shutil
 import signal
@@ -20,6 +21,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from coding_agent.addons.artifacts import ArtifactStore
+from coding_agent.addons.persistence import sessions_dir
 from coding_agent.updates import installed_version
 from coding_agent.web.bundle import BundleError, bundle_root, install, resolve_static, rollback
 from coding_agent.web.sessions import JsonObject, Sessions, Worker, WorkerError
@@ -31,6 +34,18 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 # Base64 grows 4/3; a prompt may carry every image plus its text.
 PROMPT_LIMIT = MAX_ATTACHMENTS * (MAX_IMAGE_BYTES * 4 // 3 + 1024) + 1024 * 1024
 IMAGE_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
+APP_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+    "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+)
+# Artifact files run in an opaque origin with scripts but nothing of the app:
+# no cookies, storage, forms, popups or requests back to it, and only the app
+# may frame them.
+ARTIFACT_CSP = (
+    "sandbox allow-scripts; default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; "
+    "connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors {origin}"
+)
+ARTIFACT_ROUTE = "artifacts"
 
 
 def stage_attachments(raw: object, folder: Path) -> list[str]:
@@ -71,6 +86,10 @@ class Server(ThreadingHTTPServer):
         self.sessions = sessions
         self.static = static
         self.token = secrets.token_urlsafe(32)
+        # Read-only capability for artifact files. It sits in their URL path,
+        # since a sandboxed frame's own requests cannot carry the API token.
+        self.artifact_token = secrets.token_urlsafe(32)
+        self.artifacts = ArtifactStore(sessions_dir(sessions.workspace, client="web"))
         # Composer images live here until the server stops; workers read them by path.
         self.uploads = Path(tempfile.mkdtemp(prefix="symphony-web-uploads-"))
         super().__init__(address, Handler)
@@ -123,16 +142,13 @@ class Handler(BaseHTTPRequestHandler):
             if not secrets.compare_digest(supplied, self.app.token):
                 raise PermissionError("Invalid capability")
 
-    def _headers(self, status: int, content_type: str, length: int | None = None) -> None:
+    def _headers(self, status: int, content_type: str, length: int | None = None, csp: str = APP_CSP) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-        )
+        self.send_header("Content-Security-Policy", csp)
         if length is not None:
             self.send_header("Content-Length", str(length))
         self.end_headers()
@@ -165,11 +181,32 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             return
 
+    def _artifact_file(self, parts: list[str]) -> None:
+        """``/artifacts/<artifact token>/<session>/<artifact>/v<N>/<file>``, sandboxed."""
+        if self.headers.get("Host") != urlsplit(self.app.origin).netloc:
+            raise PermissionError("Invalid Host")
+        if len(parts) < 6 or not secrets.compare_digest(parts[1], self.app.artifact_token):
+            raise PermissionError("Invalid capability")
+        session_id = str(uuid.UUID(parts[2]))
+        try:
+            # Rejects traversal, symlinks and folders.
+            path = self.app.artifacts.file(session_id, parts[3], "/".join(parts[4:]))
+        except (KeyError, ValueError):
+            return self._json({"error": "Not found"}, 404)
+        body = path.read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        self._headers(200, content_type, len(body), ARTIFACT_CSP.format(origin=self.app.origin))
+        self.wfile.write(body)
+
     def do_GET(self) -> None:
         try:
-            self._guard()
             path = urlsplit(self.path).path
             parts = path.strip("/").split("/")
+            if parts[0] == ARTIFACT_ROUTE:
+                # Requests from inside the sandbox come from an opaque origin;
+                # the path capability replaces the Origin and token checks.
+                return self._artifact_file(parts)
+            self._guard()
             if path == "/api/sessions":
                 return self._json(self.app.sessions.listing())
             if path == "/api/info":
@@ -181,6 +218,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) >= 3 and parts[:2] == ["api", "sessions"]:
                 session_id = str(uuid.UUID(parts[2]))
                 worker = self.app.sessions.workers.get(session_id)
+                if len(parts) == 4 and parts[3] == "artifacts":
+                    return self._json({**self.app.sessions.artifacts(session_id),
+                                       "base": f"/{ARTIFACT_ROUTE}/{self.app.artifact_token}/{session_id}"})
                 if len(parts) == 4 and parts[3] == "events":
                     if worker is None:
                         return self._json({"error": "Resume session first"}, 409)

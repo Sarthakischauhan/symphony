@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
 from coding_agent.addons.evaluation.addon import JevAddon
@@ -16,6 +17,7 @@ from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.calls import ToolOutcome
 from coding_agent.tui.tools.activity import choose_completion_verb
 from coding_agent.tui.tools.partial_args import string_field
+from coding_agent.tui.transcript.decision import decision_text
 from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
@@ -149,6 +151,8 @@ class TranscriptView(Protocol):
 
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
+    def add_artifact(self, title: str, detail: str, path: Path) -> None: ...
+
     def add_update(self, text: str, hint: str = "") -> None: ...
 
     def add_run_summary(
@@ -258,6 +262,25 @@ class EventPresenter:
         after = self._chrome_snapshot()
         if after != before:
             self.refresh_chrome()
+
+    def _on_artifact_created(self, payload: Mapping[str, Any]) -> None:
+        self.show_artifact(payload, updated=False)
+
+    def _on_artifact_updated(self, payload: Mapping[str, Any]) -> None:
+        self.show_artifact(payload, updated=True)
+
+    def show_artifact(self, payload: Mapping[str, Any], *, updated: bool) -> None:
+        """``Artifact: <title>`` with its kind, version and entry path."""
+        path, title = payload.get("path"), payload.get("title")
+        if not isinstance(path, str) or not isinstance(title, str):
+            return
+        detail = f"{payload.get('kind')} · v{payload.get('version')}"
+        if updated:
+            detail += " · updated"
+        self.view.add_artifact(title, detail, Path(path))
+
+    def _on_auto_decision(self, payload: Mapping[str, Any]) -> None:
+        self.view.add_notice(decision_text(payload))
 
     def flush_stream_to_log(self) -> None:
         """Paint any buffered stream text, then close the live assistant widget."""

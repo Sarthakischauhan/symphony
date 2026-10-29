@@ -35,6 +35,26 @@ export type ErrorFrame = {
   request_id?: string;
 };
 
+// Protocol 4 artifacts: what a run kept for the user to open and preview.
+export type ArtifactKind = "html" | "csv" | "json" | "image";
+export type ArtifactManifest = {
+  id: string;
+  kind: ArtifactKind;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  tool_call_id: string;
+  source: string;
+  // The file to open, relative to the artifact folder (e.g. "v2/index.html").
+  entry: string;
+  mime: string;
+  sha256: string;
+  size: number;
+};
+// GET /api/sessions/<id>/artifacts; files are served under `base`.
+export type ArtifactListing = { artifacts: ArtifactManifest[]; base: string };
+
 // Subagent events carry their parent and agent ids on any payload.
 type Routed = { parent_id?: string; agent_id?: string };
 export type ToolArguments = Record<string, unknown> & {
@@ -120,7 +140,11 @@ export type StdioEvent =
       event: "agent_spawned" | "agent_completed" | "agent_failed";
       payload: AgentPayload;
     }
-  | { event: "question_asked"; payload: Routed & { request_id: string } };
+  | { event: "question_asked"; payload: Routed & { request_id: string } }
+  | {
+      event: "artifact_created" | "artifact_updated";
+      payload: Routed & ArtifactManifest & { path: string };
+    };
 export type EventFrame = { type: "event" } & StdioEvent;
 export type Frame =
   ReadyFrame | InputRequestedFrame | DoneFrame | ErrorFrame | EventFrame;
@@ -150,6 +174,8 @@ const EVENTS = new Set<string>([
   "agent_completed",
   "agent_failed",
   "question_asked",
+  "artifact_created",
+  "artifact_updated",
 ]);
 
 /** Narrow one decoded SSE payload to a frame this client renders. */

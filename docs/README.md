@@ -1,6 +1,6 @@
 # Documentation
 
-Find the guide for the task you came to do. Symphony is a Python workspace for building and running AI agents. Install `symphony-core`, `symphony-harness`, and `symphony-code` 0.0.1 from PyPI, or [install from source](./getting-started/installation.md). `core-server` and `symphony-browser` are source-only.
+Find the guide for the task you came to do. Symphony is a Python workspace for building and running AI agents. Install `symphony-core` and `symphony-harness` 0.0.1 and `symphony-code` 0.0.3 from PyPI, or [install from source](./getting-started/installation.md). `core-server` and `symphony-browser` are source-only.
 
 ## Run an agent
 
@@ -28,7 +28,7 @@ Find the guide for the task you came to do. Symphony is a Python workspace for b
 | A browser-use agent | [symphony-browser](./packages/symphony-browser.md) |
 | An HTTP/SSE interface | [core-server](./packages/core-server.md) |
 
-`symphony-core`, `symphony-harness`, and `symphony-code` 0.0.1 are on PyPI. `symphony-browser` and `core-server` are source-only. Package READMEs are short entry points; this `docs/` tree contains the guides. Maintainers publish later versions with the [publishing guide](./developer-guide/publishing.md).
+`symphony-core` and `symphony-harness` 0.0.1 and `symphony-code` 0.0.3 are on PyPI. `symphony-browser` and `core-server` are source-only. Package READMEs are short entry points; this `docs/` tree contains the guides. Maintainers publish later versions with the [publishing guide](./developer-guide/publishing.md).
 
 ## Develop Symphony
 

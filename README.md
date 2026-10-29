@@ -6,7 +6,7 @@
 
 **An open-source Python harness for AI agents, with a coding agent ready to run.** Build an agent from composable model providers, tools, and a typed event stream—or use Symphony Code from your terminal.
 
-> **Availability:** `symphony-core`, `symphony-harness`, and `symphony-code` **0.0.1** are on PyPI. `core-server` and `symphony-browser` remain source-only.
+> **Availability:** `symphony-core` and `symphony-harness` **0.0.1**, and `symphony-code` **0.0.3**, are on PyPI. `core-server` and `symphony-browser` remain source-only.
 
 <p align="center">
   <a href="docs/getting-started/installation.md"><strong>Install</strong></a> ·
@@ -35,7 +35,7 @@ less install.sh
 sh install.sh
 ```
 
-- Pin a version: `curl -fsSL .../install.sh | SYMPHONY_VERSION=0.0.1 sh`
+- Pin a version: `curl -fsSL .../install.sh | SYMPHONY_VERSION=0.0.3 sh`
 - Uninstall: `curl -fsSL .../install.sh | sh -s -- --uninstall`
 
 Then run `symphony --workspace /path/to/your/project`.

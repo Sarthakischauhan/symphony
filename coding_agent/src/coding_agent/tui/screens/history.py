@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any, Protocol
 
+from coding_agent.addons.artifacts import Manifest
 from coding_agent.agent import CodingAgent
+from coding_agent.protocols.stdio.requests import artifact_list
 from coding_agent.addons.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
 from coding_agent.tui.runtime.events import _duration
 from coding_agent.tui.tools.activity import choose_completion_verb
@@ -32,6 +35,8 @@ class HistoryView(Protocol):
 
     def finalize_transcript_history(self) -> None: ...
 
+    def add_artifact(self, title: str, detail: str, path: Path) -> None: ...
+
 
 async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     """Restore compact history with interactive child and background-job cards."""
@@ -56,7 +61,23 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     else:
         for widget in restored:
             view.mount_transcript(widget)
+    restore_artifacts(agent, view)
     view.finalize_transcript_history()
+
+
+def restore_artifacts(agent: CodingAgent, view: HistoryView) -> None:
+    """One ``Artifact`` row per artifact of the session, from ``artifacts_list``."""
+    if agent.artifacts is None:
+        return
+    store = agent.artifacts.store
+    reply = artifact_list(agent, "tui-resume", agent.session_id)
+    rows = reply.get("artifacts")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        manifest = Manifest.from_json(row)
+        detail = f"{manifest.kind.value} · v{manifest.version}"
+        view.add_artifact(manifest.title, detail, store.folder(agent.session_id, manifest.id) / manifest.entry)
 
 
 def _history_widgets(

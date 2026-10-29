@@ -43,7 +43,7 @@ GIF_1X1 = (
 
 def test_tool_surface_is_small(tmp_path: Path) -> None:
     assert [tool.name for tool in build_tools(tmp_path)] == [
-        "read_file", "write_file", "generate_image", "patch", "bash", "search", "web_search", "ask_user"
+        "read_file", "write_file", "generate_image", "save_artifact", "patch", "bash", "search", "web_search", "ask_user"
 
     ]
 
