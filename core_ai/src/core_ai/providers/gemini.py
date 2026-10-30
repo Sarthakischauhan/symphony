@@ -12,6 +12,21 @@ from core_ai.types import Message, StreamEvent
 
 load_dotenv(override=True)
 
+# Google retires these ids for projects that have not already used them.
+# generateContent answers 404 and names the replacement.
+_RETIRED_GEMINI_MODELS = {
+    "gemini-2.5-flash": "gemini-3.8-flash",
+    "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
+    "gemini-2.5-pro": "gemini-3.1-pro-preview",
+    "gemini-3.5-flash": "gemini-3.6-flash",
+    "gemini-3.7-flash": "gemini-3.8-flash",
+}
+
+
+def _callable_model_id(model_name: str) -> str:
+    model_id = model_name.removeprefix("models/")
+    return _RETIRED_GEMINI_MODELS.get(model_id, model_id)
+
 
 class GeminiProvider(BaseProvider):
     """Google Gemini generateContent streaming provider."""
@@ -53,7 +68,7 @@ class GeminiProvider(BaseProvider):
         output_format: str = "png",
     ) -> tuple[bytes, str]:
         del output_format
-        model_id = model_name.removeprefix("models/")
+        model_id = _callable_model_id(model_name)
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
@@ -95,7 +110,7 @@ class GeminiProvider(BaseProvider):
         if max_output_tokens is not None:
             payload["generationConfig"] = {"maxOutputTokens": max_output_tokens}
 
-        model_id = model_name.removeprefix("models/")
+        model_id = _callable_model_id(model_name)
         tool_index = 0
         latest_usage: Optional[StreamEvent] = None
         async with httpx.AsyncClient(transport=self.transport) as client:

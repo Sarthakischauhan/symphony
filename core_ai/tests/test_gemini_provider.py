@@ -12,9 +12,30 @@ def _sse(*events: str) -> str:
     return "\n\n".join(f"data: {event}" for event in events) + "\n\n"
 
 
+def test_gemini_rewrites_retired_model_ids() -> None:
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(
+            200,
+            text=_sse('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}'),
+        )
+
+    async def collect(model: str) -> None:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(model, [Message(role="user", content="hi")]):
+            pass
+
+    asyncio.run(collect("gemini-2.5-pro"))
+    asyncio.run(collect("models/gemini-3.8-flash"))
+    assert seen[0].endswith("/models/gemini-3.1-pro-preview:streamGenerateContent")
+    assert seen[1].endswith("/models/gemini-3.8-flash:streamGenerateContent")
+
+
 def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/models/gemini-3.7-flash:streamGenerateContent")
+        assert request.url.path.endswith("/models/gemini-3.8-flash:streamGenerateContent")
         assert request.url.params["alt"] == "sse"
         assert request.headers["x-goog-api-key"] == "test"
         payload = json.loads(request.content)
@@ -32,7 +53,7 @@ def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
         return [
             event
             async for event in provider.stream(
-                "models/gemini-3.7-flash",
+                "models/gemini-3.7-flash",  # retired; rewritten to gemini-3.8-flash
                 [
                     Message(role="system", content="Be brief"),
                     Message(role="user", content="Read a.py"),
@@ -335,7 +356,7 @@ def test_gemini_generate_image_uses_generate_content() -> None:
         return await provider.generate_image("gemini-3.7-flash", "a cat icon")
 
     payload, media_type = asyncio.run(run())
-    assert str(captured["path"]).endswith("/models/gemini-3.7-flash:generateContent")
+    assert str(captured["path"]).endswith("/models/gemini-3.8-flash:generateContent")
     body = captured["payload"]
     assert body["generationConfig"]["responseModalities"] == ["TEXT", "IMAGE"]
     assert body["contents"][0]["parts"][0]["text"] == "a cat icon"

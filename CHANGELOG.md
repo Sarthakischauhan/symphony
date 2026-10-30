@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.5 — 2026-10-28
+
+Fix release for `symphony-code` and `symphony-core`. `symphony-harness` stays at 0.0.1.
+
+- Gemini calls use models the API still serves. The default is `gemini-3.8-flash`
+  (`gemini-3.7-flash` is deprecated). Gemini 2.5, Deep Research, and the computer-use
+  preview are no longer offered: new projects get HTTP 404, or a 400 that the model
+  only accepts another API. Saved `gemini-2.5-*`, `gemini-3.5-flash`, and
+  `gemini-3.7-flash` ids are rewritten to the replacement Google names in the 404.
+- Gemini image generation uses `gemini-3.1-flash-image`. `gemini-3.7-flash` accepted
+  `responseModalities: IMAGE` and returned text only, so `generate_image` raised
+  "provider returned no image data".
+
 ## 0.0.4 — 2026-10-27
 
 `symphony-code` and `symphony-core` 0.0.4; `symphony-harness` stays at 0.0.1.

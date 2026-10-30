@@ -66,9 +66,9 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         id="gemini",
         label="Gemini",
-        description="Gemini 3.7 Flash and Pro",
+        description="Gemini 3.8 Flash and Pro",
         env_key="GEMINI_API_KEY",
-        default_model="gemini:gemini-3.7-flash",
+        default_model="gemini:gemini-3.8-flash",
         docs_url="https://aistudio.google.com/apikey",
         key_placeholder="AIza...",
         env_aliases=("GOOGLE_API_KEY",),

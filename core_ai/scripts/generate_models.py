@@ -105,8 +105,21 @@ def fetch_models_dev_models(url: str = MODELS_DEV_URL) -> dict[str, list[tuple[s
 
 OPENAI_PREFIXES = ("gpt-", "o1", "o3", "o4")
 OPENAI_CHAT_COMPLETIONS_PREFIXES = ("o1", "o3", "o4")
-GEMINI_ALLOWED_PREFIXES = ("gemini-2.5-", "gemini-3")
-GEMINI_SKIP_TOKENS = ("embedding", "image", "tts", "live", "robotics", "computer")
+GEMINI_ALLOWED_PREFIXES = ("gemini-3", "gemini-4", "gemini-flash", "gemini-pro", "gemma-")
+# Gemini 2.5 generateContent returns 404 for projects that have not used it.
+GEMINI_RETIRED_PREFIXES = ("gemini-2.5-",)
+GEMINI_SKIP_TOKENS = (
+    "embedding",
+    "image",
+    "tts",
+    "live",
+    "robotics",
+    "computer",
+    "deep-research",
+    "lyria",
+    "transcribe",
+    "omni",
+)
 DEPRECATED_STATUSES = {"deprecated", "decommissioned", "retired", "disabled"}
 EXISTING_MODEL_RE = re.compile(
     r'ModelInfo\(id="([^"]+)", provider="([^"]+)", api="([^"]+)"\)'
@@ -130,7 +143,7 @@ FALLBACK_MODELS: dict[str, tuple[tuple[str, str], ...]] = {
         ("gemini-3.1-pro-preview", "generate_content"),
         ("gemini-3.5-flash", "generate_content"),
         ("gemini-3.6-flash", "generate_content"),
-        ("gemini-3.7-flash", "generate_content"),
+        ("gemini-3.8-flash", "generate_content"),
     ),
     "grok": (
         ("grok-4.3", "chat_completions"),
@@ -247,6 +260,8 @@ def fetch_gemini_models(api_key: str, base_url: str) -> list[tuple[str, str]]:
                 continue
             model_id = name.removeprefix("models/")
             lowered = model_id.lower()
+            if model_id.startswith(GEMINI_RETIRED_PREFIXES):
+                continue
             if not model_id.startswith(GEMINI_ALLOWED_PREFIXES):
                 continue
             if any(token in lowered for token in GEMINI_SKIP_TOKENS):

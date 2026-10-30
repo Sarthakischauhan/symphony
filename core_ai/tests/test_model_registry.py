@@ -24,7 +24,8 @@ def test_shipped_catalog_includes_openai_anthropic_gemini_and_grok() -> None:
     assert any(model.id == "gpt-5.6-luna" and model.api == "responses" for model in openai)
     assert any(model.id == "gpt-image-2" and model.api == "responses" for model in openai)
     assert any(model.id == "claude-sonnet-5" and model.api == "messages" for model in anthropic)
-    assert any(model.id == "gemini-3.7-flash" and model.api == "generate_content" for model in gemini)
+    assert any(model.id == "gemini-3.8-flash" and model.api == "generate_content" for model in gemini)
+    assert get_model("gemini", "gemini-2.5-flash") is None
     assert any(model.id == "grok-4.6" and model.api == "chat_completions" for model in grok)
     assert get_model("anthropic", "claude-opus-5") is not None
     assert get_model("gemini", "gemini-3.1-pro-preview") is not None

@@ -43,7 +43,7 @@ def test_default_model_id_prefers_first_registered_provider(monkeypatch: pytest.
     registry = build_default_registry()
     assert default_model_id(registry) == "anthropic:claude-sonnet-5"
     assert default_model_id(registry, "claude-opus-5") == "anthropic:claude-opus-5"
-    assert default_model_id(registry, "gemini:gemini-3.7-flash") == "gemini:gemini-3.7-flash"
+    assert default_model_id(registry, "gemini:gemini-3.8-flash") == "gemini:gemini-3.8-flash"
 
 
 def test_gemini_google_api_key_alias_counts_as_configured(monkeypatch: pytest.MonkeyPatch) -> None:

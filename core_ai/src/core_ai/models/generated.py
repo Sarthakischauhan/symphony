@@ -73,12 +73,6 @@ ANTHROPIC_MODELS = (
 )
 
 GEMINI_MODELS = (
-    ModelInfo(id="deep-research-max-preview-04-2026", provider="gemini", api="generate_content", reasoning=True, context_limit=131072),
-    ModelInfo(id="deep-research-preview-04-2026", provider="gemini", api="generate_content", reasoning=True, context_limit=131072),
-    ModelInfo(id="gemini-2.5-computer-use-preview-10-2025", provider="gemini", api="generate_content", reasoning=True, context_limit=128000),
-    ModelInfo(id="gemini-2.5-flash", provider="gemini", api="generate_content", reasoning=True, context_limit=1048576),
-    ModelInfo(id="gemini-2.5-flash-lite", provider="gemini", api="generate_content", reasoning=True, context_limit=1048576),
-    ModelInfo(id="gemini-2.5-pro", provider="gemini", api="generate_content", reasoning=True, context_limit=1048576),
     ModelInfo(id="gemini-3-flash-preview", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', 'minimal'), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None)), context_limit=1048576),
     ModelInfo(id="gemini-3.1-flash-lite", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', 'minimal'), ('low', 'low'), ('medium', 'medium'), ('high', 'high'), ('xhigh', None), ('max', None)), context_limit=1048576),
     ModelInfo(id="gemini-3.1-flash-lite-image", provider="gemini", api="generate_content", reasoning=True, thinking_level_map=(('off', None), ('minimal', 'minimal'), ('low', None), ('medium', None), ('high', 'high'), ('xhigh', None), ('max', None)), context_limit=65536),
