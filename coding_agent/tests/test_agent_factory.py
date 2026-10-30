@@ -51,7 +51,7 @@ def test_build_agent_registers_gemini_when_only_gemini_key_is_set(
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
 
     agent = build_agent(workspace=tmp_path, sink=TextualEventSink())
-    assert agent.harness.model_id == "gemini:gemini-3.7-flash"
+    assert agent.harness.model_id == "gemini:gemini-3.8-flash"
     assert isinstance(agent.registry._providers["gemini"], GeminiProvider)
 
 

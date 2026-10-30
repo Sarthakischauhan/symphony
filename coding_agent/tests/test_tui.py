@@ -2673,8 +2673,8 @@ def test_slash_command_discovery_and_model_resolution() -> None:
 def test_effort_is_only_available_when_model_advertises_effort() -> None:
     assert model_supports_effort("openai:gpt-5.6-luna")
     assert effort_options_for_model("openai:gpt-5.6-luna")
-    assert not model_supports_effort("gemini:gemini-2.5-flash")
-    assert effort_options_for_model("gemini:gemini-2.5-flash") == ()
+    assert not model_supports_effort("gemini:gemma-4-31b-it")
+    assert effort_options_for_model("gemini:gemma-4-31b-it") == ()
     assert command_matches("/e", include_effort=False) == ()
 
 

@@ -1277,7 +1277,7 @@ requires-dist = [
 
 [[package]]
 name = "symphony-code"
-version = "0.0.4"
+version = "0.0.5"
 source = { editable = "coding_agent" }
 dependencies = [
     { name = "certifi" },
@@ -1324,7 +1324,7 @@ dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "symphony-core"
-version = "0.0.4"
+version = "0.0.5"
 source = { editable = "core_ai" }
 dependencies = [
     { name = "dotenv" },

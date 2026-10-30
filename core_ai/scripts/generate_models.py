@@ -30,6 +30,14 @@ MODELS_DEV_PROVIDERS = {
 # families implemented by core_ai; unlike provider /models endpoints, the
 # upstream catalog does not need credentials.
 
+def _excluded(model_id: str) -> bool:
+    """True for a retired id or a dated snapshot of one (``claude-haiku-4-5-20251001``)."""
+    for excluded in EXCLUDED_MODEL_IDS:
+        if model_id == excluded or model_id.startswith(excluded + "-"):
+            return True
+    return False
+
+
 def models_dev_api(provider: str, model_id: str) -> str:
     if provider == "openai" and model_id.startswith(OPENAI_CHAT_COMPLETIONS_PREFIXES):
         return "chat_completions"
@@ -91,6 +99,8 @@ def fetch_models_dev_models(url: str = MODELS_DEV_URL) -> dict[str, list[tuple[s
         for model_id, metadata in models.items():
             if not isinstance(model_id, str) or not isinstance(metadata, dict):
                 continue
+            if _excluded(model_id):
+                continue
             modalities = metadata.get("modalities") or {}
             output = modalities.get("output") or []
             is_openai_image = provider == "openai" and model_id.startswith("gpt-image-")
@@ -105,8 +115,60 @@ def fetch_models_dev_models(url: str = MODELS_DEV_URL) -> dict[str, list[tuple[s
 
 OPENAI_PREFIXES = ("gpt-", "o1", "o3", "o4")
 OPENAI_CHAT_COMPLETIONS_PREFIXES = ("o1", "o3", "o4")
-GEMINI_ALLOWED_PREFIXES = ("gemini-2.5-", "gemini-3")
-GEMINI_SKIP_TOKENS = ("embedding", "image", "tts", "live", "robotics", "computer")
+# Retired or deprecated chat models. The catalog only lists ids that still
+# accept a normal generation request. Dated snapshots of a kept family stay.
+EXCLUDED_MODEL_IDS = {
+    # OpenAI: shut down or deprecated (platform deprecations, 2026).
+    "gpt-4",
+    "gpt-4-turbo",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-pro",
+    "gpt-5.1",
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
+    "gpt-5.4-nano",
+    "o1",
+    "o1-pro",
+    "o3-mini",
+    # Anthropic 4.5 generation, superseded by 4.6+ / 5.
+    "claude-haiku-4-5",
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+    # Gemini: 404 for new projects, Interactions-only, or deprecated.
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-2.5-computer-use-preview-10-2025",
+    "gemini-3.5-flash",
+    "gemini-3.7-flash",
+    "deep-research-max-preview-04-2026",
+    "deep-research-preview-04-2026",
+    "deep-research-pro-preview-12-2025",
+    # xAI snapshots older than the current Grok 4.x line.
+    "grok-4.20-0309-non-reasoning",
+    "grok-4.20-0309-reasoning",
+    "grok-4.3",
+}
+GEMINI_ALLOWED_PREFIXES = ("gemini-3", "gemini-4", "gemini-flash", "gemini-pro", "gemma-")
+GEMINI_SKIP_TOKENS = (
+    "embedding",
+    "image",
+    "tts",
+    "live",
+    "robotics",
+    "computer",
+    "deep-research",
+    "lyria",
+    "transcribe",
+    "omni",
+)
 DEPRECATED_STATUSES = {"deprecated", "decommissioned", "retired", "disabled"}
 EXISTING_MODEL_RE = re.compile(
     r'ModelInfo\(id="([^"]+)", provider="([^"]+)", api="([^"]+)"\)'
@@ -114,28 +176,25 @@ EXISTING_MODEL_RE = re.compile(
 
 FALLBACK_MODELS: dict[str, tuple[tuple[str, str], ...]] = {
     "openai": (
-        ("gpt-4.1", "responses"),
-        ("gpt-4.1-mini", "responses"),
-        ("gpt-4o-mini", "responses"),
         ("gpt-5.6-luna", "responses"),
+        ("gpt-5.6-sol", "responses"),
         ("o3", "chat_completions"),
     ),
     "anthropic": (
         ("claude-fable-5", "messages"),
-        ("claude-haiku-4-5", "messages"),
+        ("claude-haiku-5-5", "messages"),
         ("claude-opus-5", "messages"),
         ("claude-sonnet-5", "messages"),
     ),
     "gemini": (
         ("gemini-3.1-pro-preview", "generate_content"),
-        ("gemini-3.5-flash", "generate_content"),
         ("gemini-3.6-flash", "generate_content"),
-        ("gemini-3.7-flash", "generate_content"),
+        ("gemini-3.8-flash", "generate_content"),
     ),
     "grok": (
-        ("grok-4.3", "chat_completions"),
         ("grok-4.5", "chat_completions"),
         ("grok-4.6", "chat_completions"),
+        ("grok-4.7", "chat_completions"),
         ("grok-build-0.1", "chat_completions"),
     ),
 }
@@ -247,6 +306,8 @@ def fetch_gemini_models(api_key: str, base_url: str) -> list[tuple[str, str]]:
                 continue
             model_id = name.removeprefix("models/")
             lowered = model_id.lower()
+            if _excluded(model_id):
+                continue
             if not model_id.startswith(GEMINI_ALLOWED_PREFIXES):
                 continue
             if any(token in lowered for token in GEMINI_SKIP_TOKENS):
@@ -267,7 +328,7 @@ def read_existing_catalog(path: Path = OUTPUT) -> dict[str, list[tuple[str, str]
     }
     if path.exists():
         for model_id, provider, api in EXISTING_MODEL_RE.findall(path.read_text()):
-            if provider in found:
+            if provider in found and not _excluded(model_id):
                 found[provider].append((model_id, api))
     for provider, models in found.items():
         if not models:
@@ -314,6 +375,8 @@ def render(catalog: dict[str, Iterable[tuple]]) -> str:
                 context_limit = None
             else:
                 model_id, api, reasoning, thinking_level_map, context_limit = model
+            if _excluded(model_id):
+                continue
             args = [
                 f'id="{model_id}"',
                 f'provider="{provider}"',

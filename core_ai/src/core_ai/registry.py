@@ -6,7 +6,7 @@ from core_ai.types import Message, StreamEvent
 
 _IMAGE_MODELS = {
     "openai": "gpt-image-1",
-    "gemini": "gemini-3.7-flash",
+    "gemini": "gemini-3.1-flash-image",
 }
 
 

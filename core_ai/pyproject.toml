@@ -1,6 +1,6 @@
 [project]
 name = "symphony-core"
-version = "0.0.4"
+version = "0.0.5"
 description = "Symphony provider layer: model registry, generated model catalog, and streaming message types (import as core_ai)"
 readme = "README.md"
 license = "MIT"
