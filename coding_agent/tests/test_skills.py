@@ -34,6 +34,19 @@ def test_discovery_does_not_walk_past_the_depth_cap(tmp_path: Path):
     assert registry.skills == ()
 
 
+def test_earlier_root_wins_a_shared_skill_name(tmp_path: Path):
+    symphony = tmp_path / "symphony"
+    shared = tmp_path / "agents"
+    _write_skill(symphony, "review", "name: review\ndescription: From symphony.")
+    _write_skill(shared, "review", "name: review\ndescription: From agents.")
+    _write_skill(shared, "deploy", "name: deploy\ndescription: From agents only.")
+    registry, diagnostics = SkillRegistry.discover([("user", symphony), ("agents", shared)])
+    assert [item.message for item in diagnostics] == ["duplicate skill name: review"]
+    assert registry.get("user/review").description == "From symphony."
+    assert registry.get("agents/deploy").description == "From agents only."
+    assert "agents/review" not in {skill.skill_id for skill in registry.skills}
+
+
 def test_bundled_skills_all_load_with_a_valid_arg_contract():
     registry, diagnostics = SkillRegistry.discover([("bundled", bundled_skills_root())])
     assert "bundled/addon-authoring" in {skill.skill_id for skill in registry.skills}

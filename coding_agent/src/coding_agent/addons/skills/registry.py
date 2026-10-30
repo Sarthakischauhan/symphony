@@ -71,9 +71,10 @@ class SkillRegistry:
                     continue
                 try:
                     skill = _parse_skill(origin, skill_root, document)
-                    if skill.skill_id in seen:
-                        raise ValueError(f"duplicate skill id: {skill.skill_id}")
+                    if skill.skill_id in seen or skill.name in seen:
+                        raise ValueError(f"duplicate skill name: {skill.name}")
                     seen.add(skill.skill_id)
+                    seen.add(skill.name)
                     if len(found) >= max_skills:
                         diagnostics.append(SkillDiagnostic(str(document), "skill limit reached"))
                         continue

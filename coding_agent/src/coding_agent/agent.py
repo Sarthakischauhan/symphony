@@ -150,6 +150,9 @@ class CodingAgent:
         skill_roots = [
             ("bundled", bundled_skills_root()),
             ("user", Path.home() / ".symphony" / "skills"),
+            # Shared with Codex, Pi, OpenCode, and Grok. Listed after Symphony's
+            # own root so a same-named skill there wins the duplicate check.
+            ("agents", Path.home() / ".agents" / "skills"),
             *[("configured", root) for root in self.config.skills.roots],
         ]
         plugin_addons = []
@@ -420,7 +423,7 @@ class CodingAgent:
         skills = ""
         if self.config.skills.enabled and self.skill_registry.skills:
             lines = [
-                "Available skills (load one with the skill tool when it applies):"
+                "Skills (load a match with the skill tool before acting on that task):"
             ]
             lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
             skills = "\n".join(lines)
