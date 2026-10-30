@@ -51,7 +51,7 @@ def test_bundled_skills_all_load_with_a_valid_arg_contract():
     registry, diagnostics = SkillRegistry.discover([("bundled", bundled_skills_root())])
     assert "bundled/addon-authoring" in {skill.skill_id for skill in registry.skills}
     assert diagnostics == ()
-    assert len(registry.skills) == 8
+    assert len(registry.skills) == 9
     for skill in registry.skills:
         for arg in skill.args:
             assert arg.description

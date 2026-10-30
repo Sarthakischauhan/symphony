@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List
 
+from core_ai.models.pricing import turn_cost
 from core_ai.types import Message, StreamEvent
 
 from core_harness.context import estimate_completion_tokens, estimate_prompt_tokens
@@ -30,6 +31,7 @@ async def stream_model_turn(
             usage=usage,
             streamed=streamed,
             emit=runner.emit,
+            model_id=str(getattr(runner, "model_id", "") or ""),
         )
 
     if not streamed.saw_usage:
@@ -55,6 +57,7 @@ async def dispatch_stream_event(
     usage: UsageTotals,
     streamed: StreamedTurn,
     emit: Callable[..., Awaitable[None]],
+    model_id: str = "",
 ) -> None:
     """Apply one provider event to stream state and the event sink."""
     if event.type == "text_delta" and event.delta:
@@ -184,6 +187,12 @@ async def dispatch_stream_event(
                 "total_tokens": event.total_tokens or 0,
                 "cumulative_tokens": usage.total_tokens,
                 "estimated": False,
+                "model_id": model_id,
+                "session_cost": turn_cost(
+                    model_id,
+                    input_tokens=usage.prompt_tokens,
+                    output_tokens=usage.completion_tokens,
+                ),
             },
         )
 
@@ -218,6 +227,12 @@ async def _emit_estimated_usage(
             "total_tokens": total_tokens,
             "cumulative_tokens": usage.total_tokens,
             "estimated": True,
+            "model_id": getattr(runner, "model_id", ""),
+            "session_cost": turn_cost(
+                str(getattr(runner, "model_id", "") or ""),
+                input_tokens=usage.prompt_tokens,
+                output_tokens=usage.completion_tokens,
+            ),
         },
     )
 

@@ -27,7 +27,10 @@ class TurnSurface:
         Usage events refresh this often. Re-reading git and rebuilding the
         top bar on every token made the composer stutter during a live run.
         """
-        hint = footer_hint(question_pending=self._pending_question_id is not None)
+        hint = footer_hint(
+            question_pending=self._pending_question_id is not None,
+            metrics=self._ui_state.metrics,
+        )
         self.query_one("#status", Static).update(
             render_footer(
                 self._ui_state,

@@ -527,6 +527,9 @@ def test_topbar_shows_lab_mark_instead_of_auth_emoji(
 def test_footer_hint_switches_for_pending_question() -> None:
     assert footer_hint(question_pending=False) == "esc cancel"
     assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"
+    priced = RunMetrics(session_cost=0.042)
+    assert footer_hint(question_pending=False, metrics=priced) == "$0.04"
+    assert footer_hint(question_pending=True, metrics=priced) == "↵ approve   ↑↓ choose   esc deny"
 
 
 def test_context_percent_prefers_reported_utilization() -> None:
@@ -546,6 +549,8 @@ def test_footer_segments_follow_mock_order() -> None:
         "130,000/200,000",
         "esc cancel",
     )
+    state.metrics.session_cost = 1.25
+    assert footer_segments(state, hint="esc cancel")[-1] == "$1.25"
     offline = UiRunState()
     assert footer_segments(offline, hint="esc cancel") == (
         "context unknown",

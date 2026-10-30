@@ -219,6 +219,7 @@ class EventPresenter:
             m.context_left,
             m.utilization,
             m.estimated,
+            m.session_cost,
         )
 
     def _show_banner(self, event_type: str, payload: Optional[Mapping[str, Any]] = None) -> None:
