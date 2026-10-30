@@ -71,6 +71,15 @@ class TurnSurface:
         metrics.utilization = tokens_used / context_limit if context_limit else None
         self._set_status("")
 
+    def set_session_cost(self, costs: dict[str, float]) -> None:
+        """Restore the session price so the footer shows it before the next run."""
+        metrics = self._ui_state.metrics
+        metrics.model_costs = dict(costs)
+        metrics.session_cost = sum(costs.values())
+        if costs:
+            metrics.priced_model = next(reversed(costs))
+        self._set_status("")
+
     @work(exclusive=False)
     async def load_session_history(self) -> None:
         if self._agent is None:

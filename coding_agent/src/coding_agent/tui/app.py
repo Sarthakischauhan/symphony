@@ -293,7 +293,7 @@ class CodingAgentApp(
         costs = self._ui_state.metrics.model_costs
         if not costs:
             return
-        self.push_screen(CostBreakdownScreen(costs, self._ui_state.metrics.session_cost))
+        self.push_screen(CostBreakdownScreen(costs))
 
     def show_model_picker(self) -> None:
         """Open the same model list as ``/model``, from a click on the model name."""

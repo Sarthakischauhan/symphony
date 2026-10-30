@@ -34,10 +34,10 @@ class CostBreakdownScreen(ModalBase[None]):
     #cost-body { height: auto; padding: 0 1; background: #0A0A0A; color: #ededed; }
     """
 
-    def __init__(self, costs: dict[str, float], total: float) -> None:
+    def __init__(self, costs: dict[str, float], total: float | None = None) -> None:
         super().__init__()
         self._costs = dict(costs)
-        self._total = total
+        self._total = sum(self._costs.values()) if total is None else total
 
     def compose(self) -> ComposeResult:
         with Container(id="cost-pane"):

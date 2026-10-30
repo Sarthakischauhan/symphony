@@ -33,6 +33,8 @@ class HistoryView(Protocol):
 
     def set_context_metrics(self, tokens_used: int, context_limit: int) -> None: ...
 
+    def set_session_cost(self, costs: dict[str, float]) -> None: ...
+
     def finalize_transcript_history(self) -> None: ...
 
     def add_artifact(self, title: str, detail: str, path: Path) -> None: ...
@@ -49,6 +51,9 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
 
     load_events = getattr(agent.persistence, "load_events", None)
     events = await load_events(session_id=agent.session_id) if callable(load_events) else []
+    set_cost = getattr(view, "set_session_cost", None)
+    if callable(set_cost):
+        set_cost(session_costs(events))
     restored = _history_widgets(messages, events)
     tools = getattr(view, "_tools", None)
     if isinstance(tools, dict):
@@ -63,6 +68,23 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
             view.mount_transcript(widget)
     restore_artifacts(agent, view)
     view.finalize_transcript_history()
+
+
+def session_costs(events: list[tuple[str, dict[str, Any]]]) -> dict[str, float]:
+    """Last reported cost for each model, ignoring child-agent events.
+
+    A usage event's ``session_cost`` is the running total for that model, so
+    the latest value per model is the spend to restore.
+    """
+    costs: dict[str, float] = {}
+    for kind, payload in events:
+        if kind != "usage" or payload.get("parent_id"):
+            continue
+        model = payload.get("model_id")
+        cost = payload.get("session_cost")
+        if isinstance(model, str) and model and isinstance(cost, (int, float)):
+            costs[model] = float(cost)
+    return costs
 
 
 def restore_artifacts(agent: CodingAgent, view: HistoryView) -> None:

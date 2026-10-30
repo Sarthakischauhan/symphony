@@ -71,7 +71,7 @@ from coding_agent.tui.screens import (
     ImageModal,
 )
 from coding_agent.tui.runtime import SubagentRecord, SubagentScreen, SubagentWidget
-from coding_agent.tui.screens.history import load_session_history
+from coding_agent.tui.screens.history import load_session_history, session_costs
 from coding_agent.tui.screens.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.tools import (
@@ -529,7 +529,7 @@ def test_clicking_the_cost_opens_the_model_breakdown(tmp_path: Path) -> None:
         app = CodingAgentApp(workspace=tmp_path)
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause()
-            app._ui_state.metrics.session_cost = 1.5
+            app._ui_state.metrics.session_cost = 0.02
             app._ui_state.metrics.model_costs = {
                 "openai:gpt-5.6-luna": 1.2,
                 "openai:gpt-5.4-mini": 0.3,
@@ -541,12 +541,13 @@ def test_clicking_the_cost_opens_the_model_breakdown(tmp_path: Path) -> None:
             text = _render_plain(app.screen.query_one("#cost-body").render(), width=60)
             assert "gpt-5.6-luna" in text and "$1.20" in text
             assert "gpt-5.4-mini" in text and "$0.30" in text
+            assert "total" in text and "$1.50" in text
 
     asyncio.run(_run())
 
 
 def test_footer_hint_switches_for_pending_question() -> None:
-    assert footer_hint(question_pending=False) == "esc cancel"
+    assert footer_hint(question_pending=False) == "$0.00"
     assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"
     priced = RunMetrics(session_cost=0.042)
     assert footer_hint(question_pending=False, metrics=priced) == "$0.04"
@@ -568,7 +569,7 @@ def test_footer_segments_follow_mock_order() -> None:
     assert footer_segments(state, hint="esc cancel") == (
         "65% context",
         "130,000/200,000",
-        "esc cancel",
+        "$0.00",
     )
     state.metrics.session_cost = 1.25
     assert footer_segments(state, hint="esc cancel")[-1] == "$1.25"
@@ -576,7 +577,7 @@ def test_footer_segments_follow_mock_order() -> None:
     assert footer_segments(offline, hint="esc cancel") == (
         "context unknown",
         "—",
-        "esc cancel",
+        "$0.00",
     )
 
 
@@ -587,7 +588,7 @@ def test_render_footer_shows_context_meter_and_right_aligned_hint() -> None:
     assert line.startswith(
         "65% context   |   ████████████░░░░░░ 130,000/200,000"
     )
-    assert line.endswith("esc cancel")
+    assert line.endswith("$0.00")
 
     state.phase = "streaming"
     streaming = _render_plain(render_footer(state, hint="esc cancel"), width=100)
@@ -605,7 +606,7 @@ def test_footer_separates_usage_from_hint_with_long_workspace() -> None:
         ).rstrip("\n")
         assert "6% context" in line
         assert "22,082/400,000" in line
-        assert line.rstrip().endswith("esc cancel")
+        assert line.rstrip().endswith("$0.00")
 
 
 def test_footer_preserves_context_and_hint_at_narrow_widths() -> None:
@@ -622,9 +623,9 @@ def test_footer_preserves_context_and_hint_at_narrow_widths() -> None:
     ).rstrip("\n")
 
     assert "6% context" in narrow
-    assert narrow.endswith("esc cancel")
+    assert narrow.endswith("$0.00")
     assert "22,082/400,000" in medium
-    assert medium.endswith("esc cancel")
+    assert medium.endswith("$0.00")
 
 
 def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
@@ -638,7 +639,7 @@ def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
             assert not app.query("#composer-hint")
             composer = app.query_one("#composer")
             assert composer.styles.border_top[0] == "round"
-            assert "esc cancel" in _footer_text(app)
+            assert "$0.00" in _footer_text(app)
 
             app._pending_question_id = "q-1"
             app._update_composer_hint()
@@ -1295,6 +1296,17 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
         "The emoji width is the culprit.",
         "Spacing is now correct.",
     ]
+
+
+def test_session_costs_keep_the_latest_cost_per_model() -> None:
+    costs = session_costs([
+        ("usage", {"model_id": "xai:grok-4.7", "session_cost": 1.0}),
+        ("usage", {"model_id": "xai:grok-4.7", "session_cost": 2.45}),
+        ("usage", {"parent_id": "child", "model_id": "openai:gpt-6-luna", "session_cost": 9}),
+        ("usage", {"model_id": "openai:gpt-6-luna", "session_cost": 0.02}),
+        ("run_completed", {"session_cost": 99}),
+    ])
+    assert costs == {"xai:grok-4.7": 2.45, "openai:gpt-6-luna": 0.02}
 
 
 def test_history_resume_honours_collected_mid_run_events() -> None:

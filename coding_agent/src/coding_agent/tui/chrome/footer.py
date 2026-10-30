@@ -23,10 +23,8 @@ IDLE_HINT = "esc cancel"
 
 
 def session_cost_label(metrics: RunMetrics) -> str:
-    """The right-hand slot: this session's USD cost, or the idle hint before one exists."""
-    if metrics.session_cost > 0:
-        return format_cost(metrics.session_cost)
-    return IDLE_HINT
+    """The right-hand slot: this session's USD cost, including ``$0.00``."""
+    return format_cost(metrics.session_cost)
 QUESTION_HINT = "↵ approve   ↑↓ choose   esc deny"
 # Context stays a left-to-right block meter. These thresholds only recolor it,
 # the same way claude-hud warns as the window fills.
@@ -38,9 +36,9 @@ def footer_hint(*, question_pending: bool, metrics: RunMetrics | None = None) ->
     """The footer's last segment: the question keys, else the session cost."""
     if question_pending:
         return QUESTION_HINT
-    if metrics is not None:
-        return session_cost_label(metrics)
-    return IDLE_HINT
+    if metrics is None:
+        return format_cost(0)
+    return session_cost_label(metrics)
 
 
 def context_percent(metrics: RunMetrics) -> Optional[int]:
@@ -62,7 +60,8 @@ def footer_segments(state: UiRunState, *, hint: str) -> tuple[str, ...]:
     metrics = state.metrics
     percent = context_percent(metrics)
     label = f"{percent}% context" if percent is not None else "context unknown"
-    return (label, _context_count(metrics), session_cost_label(metrics) if hint == IDLE_HINT else hint)
+    right = session_cost_label(metrics) if hint == IDLE_HINT else hint
+    return (label, _context_count(metrics), right)
 
 
 def _context_count(metrics: RunMetrics) -> str:
@@ -206,6 +205,8 @@ def render_footer(
     workspace: str = "",
 ) -> ResponsiveFooter:
     """Render a footer that adapts its detail to the available terminal width."""
+    if hint == IDLE_HINT:
+        hint = session_cost_label(state.metrics)
     return ResponsiveFooter(state=state, hint=hint, workspace=workspace)
 
 
