@@ -1,6 +1,6 @@
 [project]
 name = "symphony-core"
-version = "0.0.1"
+version = "0.0.4"
 description = "Symphony provider layer: model registry, generated model catalog, and streaming message types (import as core_ai)"
 readme = "README.md"
 license = "MIT"
@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "dotenv>=0.9.9",
     "httpx>=0.28.1",
+    "websockets>=13.0",
     "pydantic>=2.13.4",
 ]
 
