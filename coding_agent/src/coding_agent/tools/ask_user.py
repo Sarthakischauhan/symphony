@@ -30,7 +30,10 @@ class AskUserTool(WorkspaceTool):
     name = "ask_user"
     description = (
         "Ask the user one concise question when the task is blocked on a decision "
-        "only they can make. Do not ask for facts you can look up in the repo."
+        "only they can make. Do not ask for facts you can look up in the repo, "
+        "with search, or with web_search. Offer choices when there are a few real "
+        "options, and set default when one is sensible. In an unattended run nobody "
+        "answers; you get the default and choices back and must pick and continue."
     )
     args_model = AskUserArgs
 

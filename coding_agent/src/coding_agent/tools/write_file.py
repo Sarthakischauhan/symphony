@@ -25,8 +25,10 @@ class WriteFileTool(WorkspaceTool):
     name = "write_file"
     description = (
         "Create a file or replace its entire contents. Content is written unchanged, "
-        "including indentation and the final newline. Use patch to change part of "
-        "an existing file. Relative paths start at the working directory."
+        "including indentation and the final newline. This overwrites an existing "
+        "file; read it first if you are replacing one, and use patch to change part "
+        "of it. Parent directories are created. Relative paths start at the working "
+        "directory; absolute and ~ paths are allowed."
     )
     args_model = WriteFileArgs
 

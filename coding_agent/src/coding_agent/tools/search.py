@@ -202,9 +202,12 @@ def _strip_dot(path: str) -> str:
 class SearchTool(WorkspaceTool):
     name = "search"
     description = (
-        "Find files or text. mode=files returns paths; mode=content returns "
-        "path:line:content. Use a literal query unless regex is set. Scope with "
-        "path and glob. Relative paths start at the working directory."
+        "Find files or text. Prefer this over grep, rg, or find in bash. "
+        "mode=content (default) returns path:line:content; mode=files returns paths "
+        "whose path matches the query. Use a literal query unless regex is set. "
+        "Patterns do not cross lines. Scope with path and glob (for example '*.py'). "
+        "Skips hidden and gitignored files and common build directories. Results are "
+        "capped, so narrow the query. Relative paths start at the working directory."
     )
     args_model = SearchArgs
 

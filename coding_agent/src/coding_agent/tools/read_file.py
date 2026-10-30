@@ -46,9 +46,11 @@ class ReadFileTool(WorkspaceTool):
     name = "read_file"
     description = (
         "Read a text or image file before editing or quoting it. Text comes back "
-        "with line numbers, capped at about 32KB; pass offset to read further. "
-        "png, jpeg, gif, webp, bmp, and tiff are returned as images. "
-        "Relative paths start at the working directory."
+        "as N|line, capped at about 32KB; pass offset to read further. The number "
+        "and the pipe are not part of the file: copy only the text after them into "
+        "patch. This reads files, not directories. png, jpeg, gif, webp, bmp, and "
+        "tiff are returned as images. Relative paths start at the working directory; "
+        "absolute and ~ paths are allowed."
     )
     args_model = ReadFileArgs
 
