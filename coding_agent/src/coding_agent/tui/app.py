@@ -10,7 +10,6 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.widgets import Static
 
 from coding_agent.agent import CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings

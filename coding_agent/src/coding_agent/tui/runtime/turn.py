@@ -6,7 +6,6 @@ import asyncio
 from typing import Any, Callable, Mapping
 
 from textual import work
-from textual.widgets import Static
 
 from coding_agent.tui.chrome import TopBar, display_workspace_path, footer_hint, render_footer
 from coding_agent.tui.composer.input import PromptInput
@@ -144,8 +143,31 @@ class TurnSurface:
             "run_failed",
             "run_cancelled",
             "run_limit_exceeded",
+            "tool_execution_completed",
+            "message_injected",
+            "waiting_for_children",
+        }:
+            self._refresh_background_tasks()
+        if message.event_type in {
+            "run_completed",
+            "run_failed",
+            "run_cancelled",
+            "run_limit_exceeded",
         }:
             self._collect_run_events(payload)
+
+    def _refresh_background_tasks(self) -> None:
+        """Count live background jobs and subagents for the top bar."""
+        harness = getattr(self._agent, "harness", None)
+        tasks = getattr(harness, "child_tasks", {})
+        count = sum(
+            1
+            for record in tasks.values()
+            if getattr(record, "status", "") in {"running", "background"}
+            and (getattr(record, "task", None) is None or not record.task.done())
+        )
+        topbar = self.query_one("#topbar", TopBar)
+        topbar.set_background_tasks(count)
 
     on_control_plane_event = on_harness_event
 

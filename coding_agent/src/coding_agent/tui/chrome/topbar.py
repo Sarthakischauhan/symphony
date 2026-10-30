@@ -112,6 +112,7 @@ class TopBar(Static):
         self._branch = ""
         self._dirty = False
         self._model = ""
+        self._tasks = 0
         self._label = ""
         self._auth = ""
         self._workspace: Optional[Path] = None
@@ -128,6 +129,7 @@ class TopBar(Static):
         """
         self._branch_timer = self.set_interval(0.5, self._refresh_branch)
         self._dirty_timer = self.set_interval(2.0, self._schedule_dirty_probe)
+        self._tasks_timer = self.set_interval(0.5, self._refresh_background_tasks)
 
     def on_unmount(self) -> None:
         if self._branch_timer is not None:
@@ -137,6 +139,20 @@ class TopBar(Static):
         if dirty_timer is not None:
             dirty_timer.stop()
             self._dirty_timer = None
+        tasks_timer = getattr(self, "_tasks_timer", None)
+        if tasks_timer is not None:
+            tasks_timer.stop()
+            self._tasks_timer = None
+
+    def _refresh_background_tasks(self) -> None:
+        agent = getattr(self.app, "_agent", None)
+        harness = getattr(agent, "harness", None)
+        tasks = getattr(harness, "child_tasks", {})
+        self.set_background_tasks(sum(
+            1 for record in tasks.values()
+            if getattr(record, "status", "") in {"running", "background"}
+            and (getattr(record, "task", None) is None or not record.task.done())
+        ))
 
     def _refresh_branch(self) -> None:
         if self._workspace is None:
@@ -199,6 +215,14 @@ class TopBar(Static):
         self._auth = auth
         self.update(self._render_row(max(self.content_size.width, 1)))
 
+    def set_background_tasks(self, count: int) -> None:
+        """Show ``n Background tasks`` to the left of the model. Hide it at zero."""
+        count = max(int(count), 0)
+        if count == self._tasks:
+            return
+        self._tasks = count
+        self.update(self._render_row(max(self.content_size.width, 1)))
+
     def on_resize(self, event: events.Resize) -> None:
         """Rebudget the model whenever the terminal changes width.
 
@@ -226,9 +250,15 @@ class TopBar(Static):
         model = self._model
         if width >= 48:
             model = short_model_name(model)
-        if not model:
-            return Text()
-        return Text(model, style=f"bold {SYMPHONY_COLORS['accent']}", no_wrap=True, overflow="ellipsis")
+        right = Text(no_wrap=True, overflow="ellipsis")
+        if self._tasks and width >= 60:
+            label = "Background task" if self._tasks == 1 else "Background tasks"
+            right.append(f"{self._tasks} {label}", style=SYMPHONY_COLORS["muted"])
+        if model:
+            if right.plain:
+                right.append(CLUSTER_GAP)
+            right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
+        return right
 
     def on_click(self, event: events.Click) -> None:
         """The model name is the right-hand cluster. Clicking it opens /model.

@@ -514,6 +514,13 @@ def test_topbar_shows_lab_mark_instead_of_auth_emoji(
             assert rendered.rstrip().endswith("grok-4-fast")
             assert not rendered.rstrip().endswith("X grok-4-fast")
             assert "grok:" not in rendered
+            topbar.set_background_tasks(2)
+            counted = _render_plain(topbar.content, width=80).rstrip("\n")
+            assert counted.rstrip().endswith("2 Background tasks    grok-4-fast")
+            topbar.set_background_tasks(0)
+            cleared = _render_plain(topbar.content, width=80).rstrip("\n")
+            assert "Background" not in cleared
+            assert cleared.rstrip().endswith("grok-4-fast")
 
             # No agent is configured here, so the click reports that instead of
             # opening an empty picker. The hit has to land on the model side.
