@@ -31,7 +31,7 @@ class TurnSurface:
             question_pending=self._pending_question_id is not None,
             metrics=self._ui_state.metrics,
         )
-        self.query_one("#status", Static).update(
+        self.query_one("#status").update(
             render_footer(
                 self._ui_state,
                 hint=hint,

@@ -23,6 +23,8 @@ class RunMetrics:
     # Running USD total for this session, summed the way OpenCode sums message cost.
     session_cost: float = 0.0
     priced_model: str = ""
+    # Per-model spend, so a click on the total can show where it went.
+    model_costs: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -56,6 +58,7 @@ class UiRunState:
             utilization=context.utilization,
             session_cost=context.session_cost,
             priced_model=context.priced_model,
+            model_costs=dict(context.model_costs),
         )
         self.detail = "starting"
 
@@ -86,6 +89,7 @@ class UiRunState:
         model = payload.get("model_id")
         if isinstance(model, str) and model:
             m.priced_model = model
+            m.model_costs[model] = float(cost) if isinstance(cost, (int, float)) else m.model_costs.get(model, 0.0)
 
     def set_context_limit(self, limit: Optional[int]) -> None:
         """Apply a model context limit and recalculate all derived metrics."""

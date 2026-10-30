@@ -16,7 +16,7 @@ from coding_agent.agent import CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.config.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.addons.persistence.active import register_active, release_active
-from coding_agent.tui.chrome import ComposerOverlay, TopBar
+from coding_agent.tui.chrome import ComposerOverlay, StatusBar, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import (
     Composer,
@@ -224,7 +224,7 @@ class CodingAgentApp(
         yield Composer(id="composer")
         # Keep approval choices in their own full-width surface.
         yield SlashMenu(id="approval-menu")
-        yield Static(id="status")
+        yield StatusBar(id="status")
 
     def on_mount(self) -> None:
         self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)
@@ -285,6 +285,15 @@ class CodingAgentApp(
         if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
+
+    def show_cost_breakdown(self) -> None:
+        """Open the per-model spend for this session, from a click on the cost."""
+        from coding_agent.tui.screens.cost import CostBreakdownScreen
+
+        costs = self._ui_state.metrics.model_costs
+        if not costs:
+            return
+        self.push_screen(CostBreakdownScreen(costs, self._ui_state.metrics.session_cost))
 
     def show_model_picker(self) -> None:
         """Open the same model list as ``/model``, from a click on the model name."""

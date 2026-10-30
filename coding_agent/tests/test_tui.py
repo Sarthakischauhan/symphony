@@ -524,6 +524,27 @@ def test_topbar_shows_lab_mark_instead_of_auth_emoji(
     asyncio.run(_run())
 
 
+def test_clicking_the_cost_opens_the_model_breakdown(tmp_path: Path) -> None:
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            app._ui_state.metrics.session_cost = 1.5
+            app._ui_state.metrics.model_costs = {
+                "openai:gpt-5.6-luna": 1.2,
+                "openai:gpt-5.4-mini": 0.3,
+            }
+            app._set_status("")
+            await pilot.click("#status", offset=(95, 0))
+            await pilot.pause()
+            assert app.screen.__class__.__name__ == "CostBreakdownScreen"
+            text = _render_plain(app.screen.query_one("#cost-body").render(), width=60)
+            assert "gpt-5.6-luna" in text and "$1.20" in text
+            assert "gpt-5.4-mini" in text and "$0.30" in text
+
+    asyncio.run(_run())
+
+
 def test_footer_hint_switches_for_pending_question() -> None:
     assert footer_hint(question_pending=False) == "esc cancel"
     assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"
@@ -693,7 +714,7 @@ def _thought_text(body: Widget) -> str:
 
 
 def _footer_text(app: App[Any]) -> str:
-    return _render_plain(app.query_one("#status", Static).content, width=120)
+    return _render_plain(app.query_one("#status").content, width=120)
 
 
 def test_themed_markdown_avoids_rich_monokai_default() -> None:

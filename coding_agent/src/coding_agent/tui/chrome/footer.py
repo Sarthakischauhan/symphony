@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 from rich.console import Console, ConsoleOptions, Group, RenderResult
 from rich.table import Table
 from rich.text import Text
+from textual import events
 from textual.widgets import Static
 
 from core_ai.models.pricing import format_cost
@@ -239,6 +240,27 @@ def update_banner(event_type: str, payload: Optional[dict] = None) -> tuple[str,
         text = str(payload.get("text") or "").strip()
         return (text, DEFAULT_HINT) if text else None
     return None
+
+
+class StatusBar(Static):
+    """The footer. Clicking the cost figure opens the per-model breakdown."""
+
+    def on_click(self, event: events.Click) -> None:
+        hint = self._hint_text()
+        if not hint.startswith("$"):
+            return
+        # The figure is the last segment. A click on the context meter, which
+        # ends well before the right edge, is not it.
+        if event.x < self.content_size.width - len(hint) - 4:
+            return
+        event.stop()
+        show = getattr(self.app, "show_cost_breakdown", None)
+        if callable(show):
+            show()
+
+    def _hint_text(self) -> str:
+        renderable = self.content
+        return renderable.hint if isinstance(renderable, ResponsiveFooter) else ""
 
 
 class ComposerOverlay(Static):
