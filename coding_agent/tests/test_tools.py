@@ -78,7 +78,7 @@ def test_read_file_returns_image_parts_by_type(tmp_path: Path) -> None:
     assert tool.run("data.bin").startswith("error: file is not valid UTF-8 text")
 
     wrapped = tool.as_harness_tool()
-    executed = asyncio.run(wrapped.execute(sink=None, args={"path": "shot.png"}))
+    executed = asyncio.run(wrapped.execute(sink=None, args={"path": "shot.png", "activity": {"verb": "Reading", "reason": "See the image"}}))
     assert isinstance(executed, list)
     assert executed[1]["type"] == "image"
 
@@ -104,7 +104,7 @@ def test_write_file_preserves_whitespace_through_validation(tmp_path: Path) -> N
     assert args.path == "a.py"
     assert args.content == "    x = 1\n\n"
     tool = WriteFileTool(tmp_path).as_harness_tool()
-    result = asyncio.run(tool.execute(sink=None, args=args.model_dump()))
+    result = asyncio.run(tool.execute(sink=None, args={**args.model_dump(), "activity": {"verb": "Writing", "reason": "Create the file"}}))
     assert result.startswith("wrote a.py")
     assert (tmp_path / "a.py").read_text(encoding="utf-8") == "    x = 1\n\n"
 
@@ -129,7 +129,7 @@ def test_generate_image_writes_file_and_returns_image_parts(tmp_path: Path) -> N
     executed = asyncio.run(
         wrapped.execute(
             sink=None,
-            args={"prompt": "a red square", "path": "assets/icon.png"},
+            args={"prompt": "a red square", "path": "assets/icon.png", "activity": {"verb": "Drawing", "reason": "Make the icon"}},
         )
     )
     assert isinstance(executed, list)
@@ -285,11 +285,29 @@ def test_bash_is_async_and_does_not_use_blocking_run() -> None:
     assert inspect.iscoroutinefunction(BashTool.run)
 
 
+def test_a_tool_call_without_verb_and_reason_is_rejected(tmp_path: Path) -> None:
+    tool = BashTool(tmp_path).as_harness_tool()
+    schema = tool.parameters
+    assert "activity" in schema["required"]
+    assert schema["properties"]["activity"]["required"] == ["verb", "reason"]
+
+    from core_harness.loop.tools import _require_activity
+    from core_harness.models import ToolCall
+
+    def call(arguments: dict) -> str | None:
+        return _require_activity(ToolCall(id="c", name="bash", arguments=arguments), tool)
+
+    assert call({"command": "printf nope"}) == "bash requires activity.verb and activity.reason"
+    assert call({"command": "printf nope", "activity": {"verb": "Running"}}) == "bash requires activity.reason"
+    assert call({"command": "printf ok", "activity": {"verb": "Running", "reason": "Verify"}}) is None
+
+
 def test_workspace_tools_accept_ui_activity_without_passing_it_to_run(
     tmp_path: Path,
 ) -> None:
     tool = BashTool(tmp_path).as_harness_tool()
     activity = {
+        "verb": "Running",
         "reason": "Verify the change",
         "group": "validation",
     }
@@ -316,6 +334,7 @@ def test_configured_tools_also_strip_ui_activity(tmp_path: Path) -> None:
         {
             "query": "needle",
             "activity": {
+                "verb": "Searching",
                 "reason": "Find the code",
                 "group": "inspection",
             },
@@ -333,6 +352,7 @@ def test_workspace_tools_strip_flattened_activity_aliases(tmp_path: Path) -> Non
             "verb": "Searching",
             "goal": "Find the code",
             "group": "inspection",
+            "activity": {"verb": "Searching", "reason": "Find the code"},
         }
     )
     assert prepared == {
@@ -346,8 +366,7 @@ def test_workspace_tools_strip_flattened_activity_aliases(tmp_path: Path) -> Non
             sink=None,
             args={
                 "query": "needle",
-                "verb": "Searching",
-                "goal": "Find the code",
+                "activity": {"verb": "Searching", "reason": "Find the code"},
             },
         )
     )
@@ -361,7 +380,7 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
     async def _run() -> None:
         capped = await tool.execute(
             sink=None,
-            args={"command": "python3 -c \"print('x' * 80_000)\""},
+            args={"command": "python3 -c \"print('x' * 80_000)\"", "activity": {"verb": "Running", "reason": "Check the cap"}},
         )
         assert "truncated" in capped
         assert len(capped.encode("utf-8")) < tool.config.max_output_bytes + 200
@@ -375,6 +394,7 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
                     "flush=True); time.sleep(30)\""
                 ),
                 "timeout": 1,
+                "activity": {"verb": "Running", "reason": "Check the timeout"},
             },
         )
         assert "timed out" in timed_out
@@ -385,7 +405,7 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
         with pytest.raises(CommandFailed) as failed:
             await tool.execute(
                 sink=None,
-                args={"command": "python3 -c \"import sys; sys.exit(7)\""},
+                args={"command": "python3 -c \"import sys; sys.exit(7)\"", "activity": {"verb": "Running", "reason": "Check the exit"}},
             )
         assert failed.value.exit_code == 7
         assert str(failed.value).startswith("exit=7")
@@ -396,7 +416,8 @@ def test_bash_caps_and_times_out_without_blocking(tmp_path: Path) -> None:
                 "command": (
                     "python3 -c \"print('HEAD_MARKER'); print('y' * 80_000); "
                     "print('TAIL_MARKER')\""
-                )
+                ),
+                "activity": {"verb": "Running", "reason": "Check the tail"},
             },
         )
         assert "TAIL_MARKER" in tail
@@ -412,7 +433,7 @@ def test_bash_cancel_kills_process_group(tmp_path: Path) -> None:
         task = asyncio.create_task(
             tool.execute(
                 sink=None,
-                args={"command": "sleep 30", "timeout": 30},
+                args={"command": "sleep 30", "timeout": 30, "activity": {"verb": "Running", "reason": "Check cancel"}},
             )
         )
         await asyncio.sleep(0.15)
@@ -473,7 +494,7 @@ def test_tool_widget_only_treats_error_prefix_as_failed() -> None:
 
 def test_ask_user_without_an_answer_fails_the_call(tmp_path: Path) -> None:
     async def ask(tool: AskUserTool, **args: object) -> str:
-        return await tool.execute(sink=None, args={"question": "Which db?", **args})
+        return await tool.execute(sink=None, args={"question": "Which db?", "activity": {"verb": "Asking", "reason": "Need a choice"}, **args})
 
     with pytest.raises(AskUserFailed, match="^interactive user questions require"):
         asyncio.run(ask(AskUserTool(str(tmp_path))))

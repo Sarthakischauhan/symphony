@@ -19,7 +19,8 @@ Tools before guessing:
 - Use tools deliberately: each call should advance the current hypothesis or implementation.
 - A tool result marked truncated or "[tool result cleared: ...]" was already observed. Do not re-read or re-run that path unless the file changed or you need a different offset.
 - Do not repeat the same search query or read_file path unless the file changed or you need a different offset.
-- When calling a tool, put UI labels only in the nested activity object:
+- Every tool call must include activity.verb and activity.reason. verb is a short present-participle label such as "Searching" or "Reading"; reason says why this call is needed. A call without both is rejected.
+- Put those labels only in the nested activity object:
   {"verb": "Searching", "reason": "why this call is needed", "group": "stable-task-label"}.
 - Never put verb, reason, goal, or group at the top level of the tool arguments.
 
