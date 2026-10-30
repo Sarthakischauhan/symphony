@@ -263,7 +263,8 @@ class SubagentAddon(Addon):
                 "full task in prompt. A background call returns a child_id immediately "
                 "and its result arrives later; do not poll. "
                 f"Background defaults to {default_background}. "
-                "Set model_id or max_turns only when this child needs them. "
+                "Leave model_id empty: the child runs on a cheaper model than you. "
+                "Do not set it to your own model or a larger one. "
                 "Children cannot spawn further agents."
             ),
             parameters={
@@ -283,7 +284,7 @@ class SubagentAddon(Addon):
                     },
                     "model_id": {
                         "type": "string",
-                        "description": "Optional model for the child. Defaults to the parent model.",
+                        "description": "Leave empty. A child runs on the cheaper model of your provider; a larger model is rejected.",
                     },
                     "max_turns": {
                         "type": "integer",
