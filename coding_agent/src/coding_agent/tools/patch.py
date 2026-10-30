@@ -50,10 +50,10 @@ class PatchArgs(ToolArgsModel):
 class PatchTool(WorkspaceTool):
     name = "patch"
     description = (
-        "Replace text in an existing UTF-8 file. Exact match first; unique "
-        "trailing-whitespace or quote/dash folding still applies. On a miss the "
-        "result lists nearby lines instead of failing. Identical old_str/new_str "
-        "is a no-op."
+        "Replace one exact span in an existing text file. old_str must match the "
+        "file, including indentation. A unique whitespace or quote difference still "
+        "matches; several matches need replace_all or a longer old_str. A miss "
+        "returns nearby lines and changes nothing."
     )
     args_model = PatchArgs
 

@@ -24,8 +24,9 @@ class WriteFileArgs(ToolArgsModel):
 class WriteFileTool(WorkspaceTool):
     name = "write_file"
     description = (
-        "Create or overwrite a UTF-8 text file while preserving content exactly, "
-        "including indentation and final newlines. Relative paths start at the working directory."
+        "Create a file or replace its entire contents. Content is written unchanged, "
+        "including indentation and the final newline. Use patch to change part of "
+        "an existing file. Relative paths start at the working directory."
     )
     args_model = WriteFileArgs
 

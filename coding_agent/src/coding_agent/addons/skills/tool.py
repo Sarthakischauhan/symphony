@@ -22,9 +22,9 @@ class SkillArgs(ToolArgsModel):
 class SkillTool(WorkspaceTool):
     name = "skill"
     description = (
-        "Load a skill when it applies to the task. The system prompt lists only skill ids and "
-        "one-line descriptions; this returns the full SKILL.md instructions plus the skill's "
-        "resource files. Pass resource to read one of those files."
+        "Load one skill listed in the system prompt before following it. Returns that "
+        "skill's instructions and its resource paths. Pass resource to read one of "
+        "those files. Do not invent a skill id."
     )
     args_model = SkillArgs
 

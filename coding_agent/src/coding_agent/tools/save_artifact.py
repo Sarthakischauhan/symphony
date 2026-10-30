@@ -25,9 +25,9 @@ class SaveArtifactTool(WorkspaceTool):
 
     name = "save_artifact"
     description = (
-        "Save a file as a session artifact the user can open and preview. html, csv, json and "
-        "image files you write are saved automatically; use this for other paths, such as a "
-        "file a command produced or a website folder with index.html."
+        "Publish a file the user can open and preview in the session. html, csv, json, "
+        "and image files written by tools are saved automatically. Use this for other "
+        "outputs, including a command result or a folder whose entry is index.html."
     )
     args_model = SaveArtifactArgs
 

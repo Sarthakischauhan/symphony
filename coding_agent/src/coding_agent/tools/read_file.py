@@ -45,10 +45,10 @@ class ReadFileArgs(ToolArgsModel):
 class ReadFileTool(WorkspaceTool):
     name = "read_file"
     description = (
-        "Read a file. UTF-8 text is returned with line numbers "
-        "(`   12|code`, capped at ~32KB; pass offset to page). Images (png, jpeg, "
-        "gif, webp, bmp, tiff) are returned as visual content the model can see. "
-        "Relative paths start at the working directory; absolute and ~ paths are allowed."
+        "Read a text or image file before editing or quoting it. Text comes back "
+        "with line numbers, capped at about 32KB; pass offset to read further. "
+        "png, jpeg, gif, webp, bmp, and tiff are returned as images. "
+        "Relative paths start at the working directory."
     )
     args_model = ReadFileArgs
 

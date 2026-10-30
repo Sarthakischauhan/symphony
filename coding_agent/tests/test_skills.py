@@ -16,6 +16,24 @@ def _write_skill(root: Path, name: str, front: str, body: str = "Do the thing.\n
     (skill / "SKILL.md").write_text(f"---\n{front}\n---\n{body}", encoding="utf-8")
 
 
+def test_discovery_finds_a_nested_collection(tmp_path: Path):
+    _write_skill(tmp_path / "team", "review", "name: review\ndescription: Review a diff.")
+    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    assert diagnostics == ()
+    assert registry.get("user/review").description == "Review a diff."
+
+
+def test_discovery_does_not_walk_past_the_depth_cap(tmp_path: Path):
+    _write_skill(
+        tmp_path / "a" / "b" / "c" / "d",
+        "too-deep",
+        "name: too-deep\ndescription: Past the cap.",
+    )
+    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    assert diagnostics == ()
+    assert registry.skills == ()
+
+
 def test_bundled_skills_all_load_with_a_valid_arg_contract():
     registry, diagnostics = SkillRegistry.discover([("bundled", bundled_skills_root())])
     assert "bundled/addon-authoring" in {skill.skill_id for skill in registry.skills}

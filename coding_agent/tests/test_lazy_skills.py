@@ -71,5 +71,5 @@ def test_read_only_memory_tools_are_parallel_and_writes_stay_serial(tmp_path: Pa
 
 def test_bash_description_steers_toward_pipelines_and_scripts() -> None:
     description = BashTool.description
-    assert "one well-built command usually beats many small tool calls" in description
-    assert "|" in description and "<<'EOF'" in description
+    assert "Chain with && or a pipe" in description
+    assert "exit=N" in description

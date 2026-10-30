@@ -4,7 +4,7 @@ Skills provide reusable instructions to Symphony Code. Plugins can package skill
 
 ## Skills
 
-A skill is a directory containing `SKILL.md`. Bundled skills ship with the coding agent; user skills can be placed under `~/.symphony/skills/<name>/`. A skill may include bounded metadata such as a name, description, and declared arguments. The agent can read the instructions and referenced resources when relevant. Discovery does not execute scripts.
+A skill is a directory containing `SKILL.md`. Bundled skills ship with the coding agent. User skills can be placed under `~/.symphony/skills/<name>/` or one collection deeper, such as `~/.symphony/skills/team/<name>/`. Discovery walks at most four directories down and skips symlinks. A skill may include bounded metadata such as a name, description, and declared arguments. The agent can read the instructions and referenced resources when relevant. Discovery does not execute scripts.
 
 ## Local plugins and trust
 

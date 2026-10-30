@@ -75,17 +75,11 @@ class BashArgs(ToolArgsModel):
 class BashTool(WorkspaceTool):
     name = "bash"
     description = (
-        "Run a shell command (bash) in the working directory and return combined stdout/stderr. "
-        "Reach for this early and often: one well-built command usually beats many small tool calls. "
-        "Use pipelines and chaining (rg -n 'TODO' src | head -50, git log --oneline -20 && git status, "
-        "ls -R | wc -l), loops, heredocs, and short inline scripts (python - <<'EOF' ... EOF) to explore, "
-        "count, compare, transform, and verify in a single call. Prefer it for builds, tests, git, "
-        "package managers, codebase surveys, and quick checks; keep read_file for reading a file you "
-        "will edit and patch/write_file for edits. "
-        "A non-zero exit is a tool error whose text starts with exit=N and includes the output. "
-        "Timeouts include captured output. Output is capped to the last bytes, so filter or limit "
-        "noisy output in the command itself. "
-        "Child processes are killed as a group according to the configured limits."
+        "Run a shell command in the working directory and return stdout and stderr. "
+        "Use it for tests, git, builds, and other commands. Chain with && or a pipe "
+        "when one command is enough. A non-zero exit is a tool error starting with "
+        "exit=N and includes the output. Output is capped, so filter noisy commands. "
+        "Read files you will edit with read_file, and edit them with patch or write_file."
     )
     args_model = BashArgs
 

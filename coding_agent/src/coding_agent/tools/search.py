@@ -202,10 +202,9 @@ def _strip_dot(path: str) -> str:
 class SearchTool(WorkspaceTool):
     name = "search"
     description = (
-        "Search file names or text content. Returns file paths for mode=files "
-        "and path:line:content for mode=content. Supports literal or regex queries, "
-        "path/glob scoping, case-insensitive matching, and bounded output. "
-        "Relative paths start at the working directory. Uses ripgrep when installed."
+        "Find files or text. mode=files returns paths; mode=content returns "
+        "path:line:content. Use a literal query unless regex is set. Scope with "
+        "path and glob. Relative paths start at the working directory."
     )
     args_model = SearchArgs
 

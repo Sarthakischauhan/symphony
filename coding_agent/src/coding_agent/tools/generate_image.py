@@ -44,9 +44,9 @@ class GenerateImageArgs(ToolArgsModel):
 class GenerateImageTool(WorkspaceTool):
     name = "generate_image"
     description = (
-        "Generate an image from a text prompt and write it to a path. "
-        "Uses the current OpenAI or Gemini provider (same credentials as chat). "
-        "The path must end in .png, .jpg, .jpeg, or .webp."
+        "Generate an image from a text prompt and write it to a path ending in "
+        ".png, .jpg, .jpeg, or .webp. Uses the current OpenAI or Gemini credentials. "
+        "Only call when the user asked for an image."
     )
     args_model = GenerateImageArgs
 

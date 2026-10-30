@@ -29,9 +29,8 @@ class AskUserArgs(ToolArgsModel):
 class AskUserTool(WorkspaceTool):
     name = "ask_user"
     description = (
-        "Ask the user a clarifying question during an interactive run and return their answer. "
-        "Use when the task is ambiguous or blocked on a human decision. "
-        "Keep the question concise and specific."
+        "Ask the user one concise question when the task is blocked on a decision "
+        "only they can make. Do not ask for facts you can look up in the repo."
     )
     args_model = AskUserArgs
 
