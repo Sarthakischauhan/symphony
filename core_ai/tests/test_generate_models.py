@@ -82,6 +82,9 @@ def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: p
                         "gpt-4.1-mini": {
                             "tool_call": True, "modalities": {"output": ["text"]}
                         },
+                        "gpt-5.6-luna": {
+                            "tool_call": True, "modalities": {"output": ["text"]}
+                        },
                         "o3": {
                             "tool_call": True, "modalities": {"output": ["text"]}
                         },
@@ -102,6 +105,9 @@ def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: p
                     "id": "google",
                     "models": {
                         "gemini-3.7-flash": {
+                            "tool_call": True, "modalities": {"output": ["text"]}
+                        },
+                        "gemini-3.8-flash": {
                             "tool_call": True, "modalities": {"output": ["text"]}
                         },
                         "gemini-3.7-flash-image": {
@@ -130,11 +136,13 @@ def test_generate_uses_curated_models_dev_catalog(tmp_path: Path, monkeypatch: p
     monkeypatch.setenv("MODELS_DEV_URL", generate_models.MODELS_DEV_URL)
     generate_models.generate(output=output)
     text = output.read_text()
-    assert 'ModelInfo(id="gpt-4.1-mini", provider="openai", api="responses")' in text
+    assert 'ModelInfo(id="gpt-4.1-mini"' not in text
+    assert 'ModelInfo(id="gpt-5.6-luna", provider="openai", api="responses")' in text
     assert 'ModelInfo(id="o3", provider="openai", api="chat_completions")' in text
     assert "whisper-1" not in text
     assert 'ModelInfo(id="claude-sonnet-5", provider="anthropic", api="messages")' in text
-    assert 'ModelInfo(id="gemini-3.7-flash", provider="gemini", api="generate_content")' in text
+    assert 'ModelInfo(id="gemini-3.7-flash"' not in text
+    assert 'ModelInfo(id="gemini-3.8-flash", provider="gemini", api="generate_content")' in text
     assert "gemini-3.7-flash-image" not in text
     assert 'ModelInfo(id="grok-4.6", provider="grok", api="chat_completions", reasoning=True' in text
     assert "grok-imagine-image" not in text

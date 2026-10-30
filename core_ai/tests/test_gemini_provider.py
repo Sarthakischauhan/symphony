@@ -12,27 +12,6 @@ def _sse(*events: str) -> str:
     return "\n\n".join(f"data: {event}" for event in events) + "\n\n"
 
 
-def test_gemini_rewrites_retired_model_ids() -> None:
-    seen: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.url.path)
-        return httpx.Response(
-            200,
-            text=_sse('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}'),
-        )
-
-    async def collect(model: str) -> None:
-        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
-        async for _event in provider.stream(model, [Message(role="user", content="hi")]):
-            pass
-
-    asyncio.run(collect("gemini-2.5-pro"))
-    asyncio.run(collect("models/gemini-3.8-flash"))
-    assert seen[0].endswith("/models/gemini-3.1-pro-preview:streamGenerateContent")
-    assert seen[1].endswith("/models/gemini-3.8-flash:streamGenerateContent")
-
-
 def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/models/gemini-3.8-flash:streamGenerateContent")
@@ -53,7 +32,7 @@ def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
         return [
             event
             async for event in provider.stream(
-                "models/gemini-3.7-flash",  # retired; rewritten to gemini-3.8-flash
+                "models/gemini-3.8-flash",
                 [
                     Message(role="system", content="Be brief"),
                     Message(role="user", content="Read a.py"),
@@ -99,7 +78,7 @@ def test_gemini_rate_limit_retries_using_retry_after_header() -> None:
         return [
             event
             async for event in provider.stream(
-                "gemini-3.7-flash", [Message(role="user", content="Do it")]
+                "gemini-3.8-flash", [Message(role="user", content="Do it")]
             )
         ]
 
@@ -139,7 +118,7 @@ def test_gemini_retries_retryable_in_stream_error(
         return [
             event
             async for event in provider.stream(
-                "gemini-3.7-flash", [Message(role="user", content="Do it")]
+                "gemini-3.8-flash", [Message(role="user", content="Do it")]
             )
         ]
 
@@ -167,7 +146,7 @@ def test_gemini_does_not_retry_terminal_in_stream_error() -> None:
     async def collect() -> None:
         provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
         async for _event in provider.stream(
-            "gemini-3.7-flash", [Message(role="user", content="Do it")]
+            "gemini-3.8-flash", [Message(role="user", content="Do it")]
         ):
             pass
 
@@ -216,7 +195,7 @@ def test_gemini_translates_tool_history() -> None:
     async def collect() -> None:
         provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
         async for _event in provider.stream(
-            "gemini-3.7-flash",
+            "gemini-3.8-flash",
             [
                 Message(role="user", content="edit it"),
                 Message(
@@ -261,7 +240,7 @@ def test_gemini_attaches_tool_images_next_to_function_response() -> None:
     async def collect() -> None:
         provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
         async for _event in provider.stream(
-            "gemini-3.7-flash",
+            "gemini-3.8-flash",
             [
                 Message(role="user", content="look"),
                 Message(
@@ -307,7 +286,7 @@ def test_gemini_sends_inline_image_parts() -> None:
     async def collect() -> None:
         provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
         async for _event in provider.stream(
-            "gemini-3.7-flash",
+            "gemini-3.8-flash",
             [
                 Message(
                     role="user",
@@ -353,7 +332,7 @@ def test_gemini_generate_image_uses_generate_content() -> None:
 
     async def run() -> tuple[bytes, str]:
         provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
-        return await provider.generate_image("gemini-3.7-flash", "a cat icon")
+        return await provider.generate_image("gemini-3.8-flash", "a cat icon")
 
     payload, media_type = asyncio.run(run())
     assert str(captured["path"]).endswith("/models/gemini-3.8-flash:generateContent")

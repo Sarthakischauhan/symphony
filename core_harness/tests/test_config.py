@@ -27,7 +27,7 @@ def test_load_harness_config_fills_omitted_keys_from_model_defaults(tmp_path: Pa
     assert config.context_compact_ratio == 0.8
     assert config.compaction_keep_recent_tools == 32
     assert config.subagent_system_prompt == DEFAULT_SUBAGENT_SYSTEM_PROMPT
-    assert "gpt-4o" in config.context_limits
+    assert "gpt-5.6-luna" in config.context_limits
 
 
 def test_load_harness_config_ignores_removed_context_settings(tmp_path: Path) -> None:

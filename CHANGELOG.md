@@ -4,11 +4,12 @@
 
 Fix release for `symphony-code` and `symphony-core`. `symphony-harness` stays at 0.0.1.
 
-- Gemini calls use models the API still serves. The default is `gemini-3.8-flash`
-  (`gemini-3.7-flash` is deprecated). Gemini 2.5, Deep Research, and the computer-use
-  preview are no longer offered: new projects get HTTP 404, or a 400 that the model
-  only accepts another API. Saved `gemini-2.5-*`, `gemini-3.5-flash`, and
-  `gemini-3.7-flash` ids are rewritten to the replacement Google names in the 404.
+- The model catalog drops ids the providers no longer serve. Gemini defaults to
+  `gemini-3.8-flash`. Gemini 2.5, Deep Research, the computer-use preview,
+  `gemini-3.5-flash`, and `gemini-3.7-flash` are excluded: new projects get HTTP 404,
+  or a 400 that the model only accepts another API. Also dropped: shut-down OpenAI
+  models (`gpt-4`, `gpt-4-turbo`, `gpt-4.1`, `gpt-4o`, `gpt-5`, `gpt-5.1`, `o1`),
+  the Claude 4.5 generation, and Grok snapshots older than 4.5.
 - Gemini image generation uses `gemini-3.1-flash-image`. `gemini-3.7-flash` accepted
   `responseModalities: IMAGE` and returned text only, so `generate_image` raised
   "provider returned no image data".
