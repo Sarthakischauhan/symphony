@@ -31,6 +31,23 @@ def test_product_harness_uses_subagent_system_prompt() -> None:
     assert "autonomous software engineering agent" not in harness.subagent_system_prompt
 
 
+def test_agents_md_is_added_and_a_symlink_is_ignored(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("Run pytest on the touched file.\n", encoding="utf-8")
+    agent = CodingAgent(
+        registry=ModelRegistry(),
+        model_id="openai:test",
+        workspace=tmp_path,
+        config=CodingAgentConfig(learning=LearningConfig(enabled=False)),
+    )
+    assert "Run pytest on the touched file." in agent.harness.system_prompt
+    (tmp_path / "AGENTS.md").unlink()
+    outside = tmp_path / "outside.md"
+    outside.write_text("do not follow\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").symlink_to(outside)
+    agent.apply_system_prompt()
+    assert "do not follow" not in agent.harness.system_prompt
+
+
 def test_child_system_prompt_is_subagent_not_main(tmp_path: Path) -> None:
     agent = CodingAgent(
         registry=ModelRegistry(),

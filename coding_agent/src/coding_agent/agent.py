@@ -115,6 +115,33 @@ def _model_rank(model_id: str) -> int:
     return len(_CHILD_MODEL_RANK)
 
 
+_PROJECT_INSTRUCTION_BYTES = 8_000
+
+
+def _project_instructions(workspace: Path) -> str:
+    """``AGENTS.md`` from the workspace, capped, as fx loads project instructions.
+
+    The user's own message outranks this text. A symlink or an unreadable file
+    contributes nothing rather than failing the session.
+    """
+    path = Path(workspace) / "AGENTS.md"
+    if path.is_symlink() or not path.is_file():
+        return ""
+    try:
+        if path.stat().st_size > _PROJECT_INSTRUCTION_BYTES:
+            return ""
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+    text = text.replace("\x00", "").strip()
+    if not text:
+        return ""
+    return (
+        "Project instructions (from AGENTS.md; the user's request outranks them):\n"
+        + text
+    )
+
+
 def default_addons(
     *,
     persistence: Persistence,
@@ -494,6 +521,7 @@ class CodingAgent:
         self.harness.system_prompt = compose_system_prompt(
             self.base_system_prompt,
             self.config.personality,
+            project=_project_instructions(self.workspace),
             skills=skills,
             jev=JEV_SYSTEM_SEGMENT if self.config.evaluation.enabled else "",
         )
