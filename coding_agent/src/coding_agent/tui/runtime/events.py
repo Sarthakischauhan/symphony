@@ -591,6 +591,17 @@ class EventPresenter:
         is_new = not self._reasoning_active
         self._reasoning_active = True
         cumulative_text = str(payload.get("text") or "")
+        # Gemini emits one thought part per event and always reports summary
+        # index 0. The next part would otherwise replace the previous one
+        # before the scheduled paint, so the transcript only kept the last
+        # fragment. A cumulative snapshot continues the same part; anything
+        # else starts a new block.
+        if cumulative_text and not cumulative_text.startswith(
+            self._reasoning_parts.get(index, "")
+        ):
+            self._finish_reasoning()
+            self._reasoning_active = True
+            is_new = True
         if cumulative_text:
             # Some adapters include the complete content accumulated so far;
             # retain that form without appending it twice.

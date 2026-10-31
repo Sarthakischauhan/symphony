@@ -194,6 +194,7 @@ async def dispatch_stream_event(
                     model_id,
                     input_tokens=event.prompt_tokens or 0,
                     output_tokens=event.completion_tokens or 0,
+                    reasoning_tokens=event.reasoning_tokens or 0,
                 ),
             },
         )

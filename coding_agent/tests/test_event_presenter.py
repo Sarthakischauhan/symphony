@@ -278,6 +278,35 @@ def test_reasoning_deltas_coalesce_to_one_scheduled_paint() -> None:
     assert len(scheduled) == 2
 
 
+def test_gemini_thought_parts_stay_visible_when_index_repeats() -> None:
+    """Gemini reports every thought part at summary index 0.
+
+    A later part must not replace an unpainted earlier one, or the transcript
+    shows only the last fragment and looks like the model never reasoned.
+    """
+    scheduled: list = []
+    presenter, view, _chrome = _presenter(schedule=scheduled)
+    presenter.handle("run_started", {"model_id": "gemini:gemini-3.8-flash"})
+    presenter.handle("turn_started", {"turn": 0})
+
+    presenter.handle(
+        "reasoning_delta",
+        {"delta": "First thought.", "text": "First thought.", "summary_index": 0},
+    )
+    presenter.handle(
+        "reasoning_delta",
+        {"delta": "Second thought.", "text": "Second thought.", "summary_index": 0},
+    )
+    assert [text for text, _new in view.reasoning] == ["First thought."]
+    assert view.finished_reasoning == 1
+
+    scheduled[-1]()
+    assert [text for text, _new in view.reasoning] == ["First thought.", "Second thought."]
+
+    presenter.handle("tool_call_started", {"tool_call_id": "read-1", "tool_name": "read_file"})
+    assert view.finished_reasoning == 2
+
+
 def test_delta_only_reasoning_fragments_are_accumulated() -> None:
     scheduled: list = []
     presenter, view, _chrome = _presenter(schedule=scheduled)

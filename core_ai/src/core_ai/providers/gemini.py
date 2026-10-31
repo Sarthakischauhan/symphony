@@ -6,6 +6,7 @@ import httpx
 from dotenv import load_dotenv
 
 from core_ai.content import split_text_and_images, to_gemini_parts
+from core_ai.models.registry import get_model
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import iter_sse_json, stream_with_retries
 from core_ai.types import Message, StreamEvent
@@ -35,13 +36,14 @@ class GeminiProvider(BaseProvider):
         reasoning_effort: Optional[str] = None,
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        del reasoning_effort, extra_headers
+        del extra_headers
         async for event in stream_with_retries(
             lambda: self._stream_once(
                 model_name,
                 messages,
                 tools,
                 max_output_tokens=max_output_tokens,
+                reasoning_effort=reasoning_effort,
             )
         ):
             yield event
@@ -78,6 +80,7 @@ class GeminiProvider(BaseProvider):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         system, contents = self._contents_payload(messages)
         payload: Dict[str, Any] = {"contents": contents}
@@ -92,8 +95,14 @@ class GeminiProvider(BaseProvider):
                     ]
                 }
             ]
+        generation: Dict[str, Any] = {}
         if max_output_tokens is not None:
-            payload["generationConfig"] = {"maxOutputTokens": max_output_tokens}
+            generation["maxOutputTokens"] = max_output_tokens
+        thinking = _thinking_config(model_name, reasoning_effort)
+        if thinking is not None:
+            generation["thinkingConfig"] = thinking
+        if generation:
+            payload["generationConfig"] = generation
 
         model_id = model_name.removeprefix("models/")
         tool_index = 0
@@ -281,6 +290,39 @@ def _first_inline_image(payload: Dict[str, Any]) -> tuple[bytes, str]:
             )
             return base64.b64decode(data), media_type
     raise RuntimeError("provider returned no image data")
+
+
+def _thinking_config(
+    model_name: str, reasoning_effort: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Ask Gemini to think separately and return a summary, not answer text.
+
+    Without ``includeThoughts``, a thinking model spends thought tokens and
+    then writes that reasoning into the candidate text. The UI stores that
+    text as the assistant message, so the transcript looks like the model
+    never called a tool. ``thinkingLevel`` is only sent when this model
+    advertises that effort.
+    """
+    model_id = model_name.removeprefix("models/")
+    model = get_model("gemini", model_id)
+    if model is None or not model.reasoning:
+        return None
+    config: Dict[str, Any] = {"includeThoughts": True}
+    level = _thinking_level(model.thinking_level_map, reasoning_effort)
+    if level is not None:
+        config["thinkingLevel"] = level
+    return config
+
+
+def _thinking_level(
+    mapping: tuple[tuple[str, Optional[str]], ...], effort: Optional[str]
+) -> Optional[str]:
+    if not effort:
+        return None
+    for name, provider_value in mapping:
+        if name == effort:
+            return provider_value
+    return None
 
 
 def _gemini_tool_schema(tool: Dict[str, Any]) -> Dict[str, Any]:

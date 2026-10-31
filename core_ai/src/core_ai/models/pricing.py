@@ -29,8 +29,14 @@ def turn_cost(
     output_tokens: int,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    reasoning_tokens: int = 0,
 ) -> float:
-    """USD for one response. Cache reads are not billed again as input."""
+    """USD for one response. Cache reads are not billed again as input.
+
+    Gemini bills ``thoughtsTokenCount`` on top of ``candidatesTokenCount``,
+    both at the output rate. Other providers already fold reasoning into
+    ``output_tokens``; they pass ``reasoning_tokens=0`` here.
+    """
     price = model_price(model_id)
     if price is None:
         return 0.0
@@ -41,6 +47,7 @@ def turn_cost(
     return (
         fresh * price.input
         + max(output_tokens, 0) * price.output
+        + max(reasoning_tokens, 0) * price.output
         + cached * read_rate
         + max(cache_write_tokens, 0) * write_rate
     ) / MILLION
