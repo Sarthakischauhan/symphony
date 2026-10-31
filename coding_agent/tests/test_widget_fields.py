@@ -228,7 +228,7 @@ def test_stdio_ask_user_result_is_the_answer_frame_value(
     turns = [
         [
             StreamEvent(type="toolcall_start", content_index=0, tool_call_id="ask-1", tool_name="ask_user"),
-            StreamEvent(type="toolcall_delta", content_index=0, delta='{"question": "Units?"}'),
+            StreamEvent(type="toolcall_delta", content_index=0, delta='{"question": "Units?", "activity": {"verb": "Asking", "reason": "Need the units."}}'),
             StreamEvent(type="done"),
         ],
         [StreamEvent(type="text_delta", delta="ok"), StreamEvent(type="done")],
@@ -323,7 +323,11 @@ def test_read_file_start_line_reaches_stdio_frames_and_the_journal(
     from coding_agent.config import CodingAgentConfig, LangfuseConfig, LearningConfig
 
     (tmp_path / "a.py").write_text("".join(f"line {n}\n" for n in range(1, 61)), encoding="utf-8")
-    calls = [("r41", '{"path": "a.py", "offset": 41, "limit": 2}'), ("gone", '{"path": "nope.py"}')]
+    activity = '"activity": {"verb": "Reading", "reason": "Check the numbered lines."}'
+    calls = [
+        ("r41", '{"path": "a.py", "offset": 41, "limit": 2, ' + activity + "}"),
+        ("gone", '{"path": "nope.py", ' + activity + "}"),
+    ]
     turns = [
         [
             *(

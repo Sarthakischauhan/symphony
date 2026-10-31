@@ -84,5 +84,5 @@ def test_child_model_stays_at_or_below_the_cheap_sibling() -> None:
 
 def test_bash_description_steers_toward_pipelines_and_scripts() -> None:
     description = BashTool.description
-    assert "Chain with && or a pipe" in description
+    assert "chain with &&" in description and "a pipe to filter" in description
     assert "exit=N" in description

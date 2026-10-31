@@ -51,8 +51,11 @@ def model(monkeypatch):
                             "function": {
                                 "name": "write_file",
                                 "arguments": json.dumps(
-                                    {"path": "table.csv", "content": "a,b\n1,2\n"} if "csv" in str(prompt)
-                                    else {"path": "web-result.txt", "content": "Web works\n"}
+                                    {
+                                        "path": "table.csv" if "csv" in str(prompt) else "web-result.txt",
+                                        "content": "a,b\n1,2\n" if "csv" in str(prompt) else "Web works\n",
+                                        "activity": {"verb": "Writing", "reason": "Create the requested file."},
+                                    }
                                 ),
                             },
                         }
