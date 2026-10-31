@@ -36,6 +36,7 @@ from coding_agent.tui.runtime.turn import TurnSurface
 from coding_agent.tui.screens.ask import QuestionSurface
 from coding_agent.tui.screens.file_selector import WorkspaceFileIndex
 from coding_agent.tui.screens.onboard import OnboardApp
+from coding_agent.tui.terminal_title import TerminalTitleSurface
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.theme.load import ThemeConfigError, apply_theme, load_theme, theme_signature
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
@@ -83,6 +84,7 @@ class CodingAgentApp(
     QuestionSurface,
     ComposerSurface,
     TurnSurface,
+    TerminalTitleSurface,
     App[None],
 ):
     """Full-screen chat transcript backed by core_harness events."""
