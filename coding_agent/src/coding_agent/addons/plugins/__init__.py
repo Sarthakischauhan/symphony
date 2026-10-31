@@ -1,6 +1,6 @@
 """Local plugin loading for coding_agent."""
 
-from coding_agent.addons.plugins.manager import PluginManager
+from coding_agent.addons.plugins.manager import PluginManager, bundled_plugins_root
 from coding_agent.addons.plugins.models import (
     LoadedPlugin,
     PluginConfig,
@@ -16,4 +16,5 @@ __all__ = [
     "PluginDiagnostic",
     "PluginLoadResult",
     "PluginManager",
+    "bundled_plugins_root",
 ]

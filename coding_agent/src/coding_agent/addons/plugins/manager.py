@@ -11,6 +11,11 @@ from coding_agent.addons.plugins.models import (
     LoadedPlugin, PluginConfig, PluginContext, PluginDiagnostic, PluginLoadResult, PluginMetadata,
 )
 
+
+def bundled_plugins_root() -> Path:
+    """Plugins shipped in the package. They are resource-only and need no trust root."""
+    return Path(__file__).resolve().parent / "bundled_plugins"
+
 class PluginManager:
     """Load ~/.symphony plugin manifests; addons are code, so only authorized roots are imported."""
 
@@ -29,6 +34,7 @@ class PluginManager:
         seen: set[Path] = set()
         for root in (
             Path.home() / ".symphony" / "plugins",
+            bundled_plugins_root(),
         ):
             root = root.expanduser().resolve()
             if not root.is_dir():
@@ -49,7 +55,9 @@ class PluginManager:
         skill_roots = []
         loaded: list[LoadedPlugin] = []
         seen: set[str] = set()
+        shipped: set[str] = set()
         addon_names: set[str] = set()
+        bundled = bundled_plugins_root().resolve()
         for entry in entries:
             # Relative plugin paths resolve against the user-wide plugin
             # directory. Absolute paths remain usable as-is.
@@ -73,8 +81,18 @@ class PluginManager:
                 if not isinstance(plugin_id, str) or not plugin_id or "/" in plugin_id:
                     raise ValueError("id must be a non-empty identifier")
                 if plugin_id in seen:
-                    raise ValueError(f"duplicate plugin id: {plugin_id}")
+                    if root.is_relative_to(bundled) and plugin_id not in shipped:
+                        continue
+                    if plugin_id in shipped and not root.is_relative_to(bundled):
+                        origin = f"plugin/{plugin_id}"
+                        loaded[:] = [item for item in loaded if item.plugin_id != plugin_id]
+                        skill_roots[:] = [item for item in skill_roots if item[0] != origin]
+                        shipped.discard(plugin_id)
+                    else:
+                        raise ValueError(f"duplicate plugin id: {plugin_id}")
                 seen.add(plugin_id)
+                if root.is_relative_to(bundled):
+                    shipped.add(plugin_id)
                 metadata = PluginMetadata.model_validate(data)
                 loaded.append(LoadedPlugin(plugin_id, metadata.description, root, entry.enabled))
                 skills = data.get("skills", [])
@@ -137,4 +155,4 @@ class PluginManager:
                 diagnostics.append(PluginDiagnostic(str(manifest_path), str(exc)))
         return PluginLoadResult(addons, skill_roots, tuple(loaded), tuple(diagnostics))
 
-__all__ = ["PluginManager"]
+__all__ = ["PluginManager", "bundled_plugins_root"]

@@ -14,5 +14,5 @@ args:
 1. Run `repro` and keep the exact error. Do not edit while reading it.
 2. Name the file and function that produced the failure.
 3. If `hypothesis` is set, test that claim before inventing another.
-4. Change only what the hypothesis requires, then run the same repro.
-Do not disable the test or swallow the error.
+4. Add a regression test that fails for this cause, then change only what the hypothesis requires.
+5. Run the same repro and the new test. Do not disable the test or swallow the error.

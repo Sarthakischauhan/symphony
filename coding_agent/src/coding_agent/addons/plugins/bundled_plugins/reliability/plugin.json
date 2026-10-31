@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "id": "reliability",
+  "version": "0.1.0",
+  "description": "Shipped instructions that keep a coding task complete: a failing test first, then the code, the tests, and a fresh verification run.",
+  "skills": ["skills"]
+}

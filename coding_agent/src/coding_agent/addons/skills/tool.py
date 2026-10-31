@@ -12,7 +12,7 @@ from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
 
 class SkillArgs(ToolArgsModel):
-    skill_id: str = Field(..., min_length=1, description="Skill id from the catalog, e.g. 'bundled/orient-first'.")
+    skill_id: str = Field(..., min_length=1, description="Skill id from the catalog, e.g. 'bundled/systematic-debug'.")
     resource: str = Field(
         default="",
         description="Optional file inside the skill (a path listed under resources). Empty loads SKILL.md.",
