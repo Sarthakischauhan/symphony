@@ -83,13 +83,19 @@ class UiRunState:
         m.total_tokens = int(payload.get("total_tokens") or 0)
         m.cumulative_tokens = int(payload.get("cumulative_tokens") or m.total_tokens)
         m.estimated = bool(payload.get("estimated", False))
-        cost = payload.get("session_cost")
-        if isinstance(cost, (int, float)):
-            m.session_cost = float(cost)
         model = payload.get("model_id")
         if isinstance(model, str) and model:
             m.priced_model = model
-            m.model_costs[model] = float(cost) if isinstance(cost, (int, float)) else m.model_costs.get(model, 0.0)
+        stored = payload.get("model_costs")
+        if isinstance(stored, Mapping):
+            costs = {
+                str(name): float(amount)
+                for name, amount in stored.items()
+                if isinstance(name, str) and isinstance(amount, (int, float))
+            }
+            if costs:
+                m.model_costs = costs
+                m.session_cost = sum(costs.values())
 
     def set_context_limit(self, limit: Optional[int]) -> None:
         """Apply a model context limit and recalculate all derived metrics."""

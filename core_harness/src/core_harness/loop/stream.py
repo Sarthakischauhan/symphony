@@ -190,8 +190,8 @@ async def dispatch_stream_event(
                 "model_id": model_id,
                 "session_cost": turn_cost(
                     model_id,
-                    input_tokens=usage.prompt_tokens,
-                    output_tokens=usage.completion_tokens,
+                    input_tokens=event.prompt_tokens or 0,
+                    output_tokens=event.completion_tokens or 0,
                 ),
             },
         )
@@ -230,8 +230,8 @@ async def _emit_estimated_usage(
             "model_id": getattr(runner, "model_id", ""),
             "session_cost": turn_cost(
                 str(getattr(runner, "model_id", "") or ""),
-                input_tokens=usage.prompt_tokens,
-                output_tokens=usage.completion_tokens,
+                input_tokens=prompt_tokens,
+                output_tokens=completion_tokens,
             ),
         },
     )

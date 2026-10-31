@@ -27,6 +27,7 @@ from textual.widget import Widget
 from textual.widgets import OptionList, Static
 
 from core_ai.types import Message, StreamEvent
+from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.tui.screens import ContextModal
 from core_harness import HarnessResult
 from core_harness.context import (
@@ -71,7 +72,7 @@ from coding_agent.tui.screens import (
     ImageModal,
 )
 from coding_agent.tui.runtime import SubagentRecord, SubagentScreen, SubagentWidget
-from coding_agent.tui.screens.history import load_session_history, session_costs
+from coding_agent.tui.screens.history import load_session_history
 from coding_agent.tui.screens.resume import ResumeApp, SessionOption, load_session_options
 from coding_agent.tui.theme import SYMPHONY_CODE_THEME, SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.tools import (
@@ -1334,15 +1335,25 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
     ]
 
 
-def test_session_costs_keep_the_latest_cost_per_model() -> None:
-    costs = session_costs([
-        ("usage", {"model_id": "xai:grok-4.7", "session_cost": 1.0}),
-        ("usage", {"model_id": "xai:grok-4.7", "session_cost": 2.45}),
-        ("usage", {"parent_id": "child", "model_id": "openai:gpt-6-luna", "session_cost": 9}),
-        ("usage", {"model_id": "openai:gpt-6-luna", "session_cost": 0.02}),
-        ("run_completed", {"session_cost": 99}),
-    ])
-    assert costs == {"xai:grok-4.7": 2.45, "openai:gpt-6-luna": 0.02}
+def test_session_cost_accumulates_runs_and_survives_reload(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path)
+    events = [
+        ("usage", {"session_id": "s1", "run_id": "r1", "model_id": "xai:grok-4.7", "session_cost": 1.0}),
+        ("usage", {"session_id": "s1", "run_id": "r1", "model_id": "xai:grok-4.7", "session_cost": 2.45}),
+        ("usage", {"session_id": "s1", "run_id": "child-r1", "parent_id": "child", "model_id": "openai:gpt-6-luna", "session_cost": 9}),
+        ("usage", {"session_id": "s1", "run_id": "r2", "model_id": "openai:gpt-6-luna", "session_cost": 0.02}),
+        ("run_completed", {"session_id": "s1", "session_cost": 99}),
+    ]
+
+    async def journal() -> dict[str, float]:
+        for kind, payload in events:
+            await store.append_event(event_type=kind, payload=payload)
+        return store.session_costs("s1")
+
+    assert asyncio.run(journal()) == {"xai:grok-4.7": 3.45, "openai:gpt-6-luna": 0.02}
+    reloaded = JsonlPersistence(tmp_path)
+    assert reloaded.session_costs("s1") == {"openai:gpt-6-luna": 0.02, "xai:grok-4.7": 3.45}
+    assert not (tmp_path / "s1" / "cost-runs.json").exists()
 
 
 def test_history_resume_honours_collected_mid_run_events() -> None:

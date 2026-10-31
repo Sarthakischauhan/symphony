@@ -90,6 +90,17 @@ def _tool_arguments_from_protocol(raw: str) -> Optional[dict[str, Any]]:
     return arguments or None
 
 
+def _persisted_model_costs(view: Any, payload: Mapping[str, Any]) -> dict[str, float] | None:
+    agent = getattr(view, "_agent", None)
+    store = getattr(agent, "persistence", None)
+    session_id = str(payload.get("session_id") or getattr(agent, "session_id", ""))
+    costs = getattr(store, "session_costs", None)
+    if not callable(costs) or not session_id:
+        return None
+    loaded = costs(session_id)
+    return loaded if isinstance(loaded, dict) and loaded else None
+
+
 def _duration(seconds: float) -> str:
     minutes, seconds = divmod(max(0, int(seconds)), 60)
     hours, minutes = divmod(minutes, 60)
@@ -693,7 +704,8 @@ class EventPresenter:
     # Metrics and context
     def _on_usage(self, payload: Mapping[str, Any]) -> None:
         self._usage_estimated |= bool(payload.get("estimated", False))
-        self.state.update_usage(payload)
+        stored = _persisted_model_costs(self.view, payload)
+        self.state.update_usage({**payload, "model_costs": stored} if stored else payload)
         self._pending_thinking = self._usage_text()
 
     def _on_context(self, payload: Mapping[str, Any]) -> None:

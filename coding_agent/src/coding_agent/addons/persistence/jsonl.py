@@ -81,6 +81,20 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _read_cost(path: Path) -> dict[str, float]:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    return {
+        str(model): float(amount)
+        for model, amount in loaded.items()
+        if isinstance(model, str) and isinstance(amount, (int, float)) and amount >= 0
+    }
+
+
 def sessions_dir(
     workspace: Union[str, Path] | None = None,
     *,
@@ -338,6 +352,27 @@ class JsonlPersistence:
         if session_id in {".", ".."} or not _SESSION_ID.fullmatch(session_id):
             raise ValueError(f"invalid session_id: {session_id!r}")
         return safe_path(self.root, session_id)
+
+    def record_message_cost(self, session_id: str, model_id: str, amount: float) -> dict[str, float]:
+        """Add one response's USD cost and return the saved per-model totals."""
+        if not model_id or not isinstance(amount, (int, float)) or amount < 0:
+            return self.session_costs(session_id)
+        with self._lock, self._session_lock(session_id):
+            directory = self.session_dir(session_id)
+            directory.mkdir(parents=True, exist_ok=True)
+            path = safe_path(directory, "cost.json")
+            costs = _read_cost(path)
+            costs[model_id] = costs.get(model_id, 0.0) + float(amount)
+            path.write_text(json.dumps(costs, sort_keys=True), encoding="utf-8")
+            return dict(costs)
+
+    def session_costs(self, session_id: str) -> dict[str, float]:
+        """The running per-model cost stored beside this session's transcript."""
+        try:
+            path = safe_path(self.session_dir(session_id), "cost.json")
+        except ValueError:
+            return {}
+        return _read_cost(path)
 
     def _path(self, session_id: str) -> Path:
         return safe_path(self.session_dir(session_id), "transcript.jsonl")
@@ -870,6 +905,17 @@ class JsonlPersistence:
         fields = self.fields
         for name, body in fields.apply(event_type, payload) if fields is not None else [(event_type, payload)]:
             self._journal(name, body)
+            if name == "usage":
+                self._record_usage_cost(body)
+
+    def _record_usage_cost(self, payload: dict[str, Any]) -> None:
+        if payload.get("parent_id"):
+            return
+        session_id = str(payload.get("session_id") or "")
+        model_id = payload.get("model_id")
+        amount = payload.get("session_cost")
+        if session_id and isinstance(model_id, str) and isinstance(amount, (int, float)):
+            self.record_message_cost(session_id, model_id, float(amount))
 
     def _journal(self, event_type: str, payload: dict[str, Any]) -> None:
         session_id = str(payload.get("session_id") or "")
