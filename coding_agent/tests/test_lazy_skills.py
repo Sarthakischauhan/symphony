@@ -54,8 +54,7 @@ def test_skill_tool_reads_resources_and_refuses_escapes(tmp_path: Path) -> None:
     assert tool.run("user/orient", resource="../../outside.txt").startswith("error:")
     assert tool.run("user/orient", resource="/etc/passwd").startswith("error:")
     assert tool.run("user/missing").startswith("error: Unknown skill id")
-    assert tool.run() == "- user/orient: Map owners first."
-    assert tool.run(resource="SKILL.md").startswith("error: resource requires a skill_id")
+    assert "Available: user/orient: Map owners first." in tool.description
 
 
 def test_catalog_line_is_short(tmp_path: Path) -> None:

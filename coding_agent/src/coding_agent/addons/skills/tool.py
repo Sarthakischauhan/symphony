@@ -12,10 +12,7 @@ from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
 
 class SkillArgs(ToolArgsModel):
-    skill_id: str = Field(
-        default="",
-        description="Skill id from the catalog, e.g. 'bundled/systematic-debug'. Empty lists every skill.",
-    )
+    skill_id: str = Field(..., min_length=1, description="Skill id from the catalog, e.g. 'bundled/systematic-debug'.")
     resource: str = Field(
         default="",
         description="Optional file inside the skill (a path listed under resources). Empty loads SKILL.md.",
@@ -25,23 +22,20 @@ class SkillArgs(ToolArgsModel):
 class SkillTool(WorkspaceTool):
     name = "skill"
     description = (
-        "List the available skills, or load one and follow it before other work on "
-        "that task. Omit skill_id to list every id and description. Pass skill_id "
-        "to load that skill, and resource to read one of its files."
+        "Load a skill whose description matches the task, and follow it before other "
+        "work on that task. Returns its instructions and resource paths. Pass "
+        "resource to read one of those files. Use only a skill id from the prompt."
     )
     args_model = SkillArgs
 
     def __init__(self, workspace: str | Path, *, registry: SkillRegistry) -> None:
         self.registry = registry
         super().__init__(workspace, parallel=True)
+        catalog = ", ".join(skill.catalog_line().removeprefix("- ") for skill in registry.skills)
+        if catalog:
+            self.description = f"{type(self).description} Available: {catalog}."
 
-    def run(self, skill_id: str = "", resource: str = "") -> str:
-        if not skill_id:
-            if resource:
-                return "error: resource requires a skill_id"
-            if not self.registry.skills:
-                return "No skills are available."
-            return "\n".join(skill.catalog_line() for skill in self.registry.skills)
+    def run(self, skill_id: str, resource: str = "") -> str:
         try:
             skill = self.registry.get(skill_id)
             path = self.registry.resource_path(skill_id, resource or "SKILL.md")
