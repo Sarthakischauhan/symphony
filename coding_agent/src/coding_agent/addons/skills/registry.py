@@ -11,6 +11,7 @@ from coding_agent.addons.skills.models import Skill, SkillDiagnostic
 
 logger = logging.getLogger(__name__)
 MAX_SKILL_FILE_BYTES = 128_000
+MAX_SKILL_WALK_DEPTH = 4
 
 
 def bundled_skills_root() -> Path:
@@ -64,18 +65,16 @@ class SkillRegistry:
             root = root.expanduser().resolve()
             if not root.is_dir():
                 continue
-            candidates = [root] if (root / "SKILL.md").is_file() else sorted(
-                path for path in root.iterdir() if path.is_dir()
-            )
-            for skill_root in candidates:
+            for skill_root in _skill_directories(root):
                 document = skill_root / "SKILL.md"
                 if not document.is_file():
                     continue
                 try:
                     skill = _parse_skill(origin, skill_root, document)
-                    if skill.skill_id in seen:
-                        raise ValueError(f"duplicate skill id: {skill.skill_id}")
+                    if skill.skill_id in seen or skill.name in seen:
+                        raise ValueError(f"duplicate skill name: {skill.name}")
                     seen.add(skill.skill_id)
+                    seen.add(skill.name)
                     if len(found) >= max_skills:
                         diagnostics.append(SkillDiagnostic(str(document), "skill limit reached"))
                         continue
@@ -84,6 +83,33 @@ class SkillRegistry:
                     logger.warning("Skipping skill %s: %s", document, exc)
                     diagnostics.append(SkillDiagnostic(str(document), str(exc)))
         return cls(found), tuple(diagnostics)
+
+
+def _skill_directories(root: Path, *, max_depth: int = MAX_SKILL_WALK_DEPTH) -> list[Path]:
+    """Directories under ``root`` that contain ``SKILL.md``.
+
+    A root that is itself a skill is returned alone. Otherwise walk downward,
+    bounded by ``max_depth``, so ``~/.symphony/skills/<name>`` and a nested
+    collection such as ``skills/bundled/<name>`` both load. Symlinks are skipped.
+    """
+    if (root / "SKILL.md").is_file():
+        return [root]
+    found: list[Path] = []
+
+    def walk(directory: Path, depth: int) -> None:
+        if depth > max_depth:
+            return
+        children = sorted(
+            path for path in directory.iterdir() if path.is_dir() and not path.is_symlink()
+        )
+        for child in children:
+            if (child / "SKILL.md").is_file():
+                found.append(child)
+                continue
+            walk(child, depth + 1)
+
+    walk(root, 1)
+    return found
 
 
 def _parents_from(root: Path, path: Path) -> list[Path]:

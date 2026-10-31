@@ -48,8 +48,13 @@ class ScriptedRegistry:
         if step < len(turns):
             for index, (name, args) in enumerate(turns[step]):
                 call_id = f"call-{step}-{index}-{len(self.calls)}"
+                payload = dict(args)
+                payload.setdefault(
+                    "activity",
+                    {"verb": "Testing", "reason": "Replay a scripted tool call."},
+                )
                 yield StreamEvent(type="toolcall_start", content_index=index, tool_call_id=call_id, tool_name=name)
-                yield StreamEvent(type="toolcall_delta", content_index=index, delta=json.dumps(args))
+                yield StreamEvent(type="toolcall_delta", content_index=index, delta=json.dumps(payload))
         else:
             yield StreamEvent(type="text_delta", delta="all done")
         yield StreamEvent(type="done")

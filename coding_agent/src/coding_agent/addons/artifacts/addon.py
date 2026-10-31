@@ -5,8 +5,9 @@
 - ``write_file``, ``patch`` and ``generate_image`` capture the written path
   when its suffix is html, csv, json or an image (see ``capture``). A file
   inside a website folder (one below the workspace with ``index.html``)
-  versions that whole site instead. Manifests, configs, lockfiles and
-  anything under node_modules, .git, dist or build are skipped (``noise``),
+  versions that whole site instead. A Vite, Next, or Astro project is not a
+  site: its ``index.html`` is the dev entry. Manifests, configs, lockfiles and
+  anything under node_modules, .git, dist, build, or .vite are skipped (``noise``),
   as is a patch to an html or json file git tracks outside a website folder.
 - ``save_artifact`` captures its path with the kind and title it was given.
 - Any other tool except ``read_file`` captures the inline images it returned.
@@ -39,7 +40,7 @@ from coding_agent.addons.artifacts.capture import (
     snapshot_site,
 )
 from coding_agent.addons.artifacts.kinds import ArtifactKind, kind_of
-from coding_agent.addons.artifacts.noise import git_tracked, is_noise
+from coding_agent.addons.artifacts.noise import git_tracked, is_app_project, is_noise
 from coding_agent.addons.artifacts.store import ArtifactStore, Saved
 
 ARTIFACT_CREATED = "artifact_created"
@@ -69,7 +70,7 @@ def site_of(path: Path, workspace: Path) -> Path | None:
     for folder in path.parents:
         if folder == workspace or not folder.is_relative_to(workspace):
             return None
-        if (folder / SITE_ENTRY).is_file():
+        if (folder / SITE_ENTRY).is_file() and not is_app_project(folder):
             return folder
     return None
 
@@ -116,7 +117,7 @@ class ArtifactsAddon(Addon):
             )
         elif tool_call.name in PATH_TOOLS and isinstance(raw, str):
             path = resolve(self.workspace, raw)
-            if is_noise(path, self.workspace):
+            if is_noise(path, self.workspace) or is_app_project(path.parent):
                 return
             site = site_of(path, self.workspace)
             kind = kind_of(path)

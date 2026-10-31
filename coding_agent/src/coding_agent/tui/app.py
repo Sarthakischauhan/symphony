@@ -10,13 +10,12 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.widgets import Static
 
 from coding_agent.agent import CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.config.credentials import OFFLINE_HINT, load_provider_env
 from coding_agent.addons.persistence.active import register_active, release_active
-from coding_agent.tui.chrome import ComposerOverlay, TopBar
+from coding_agent.tui.chrome import ComposerOverlay, StatusBar, TopBar
 from coding_agent.tui.commands import CommandManager, model_options
 from coding_agent.tui.composer import (
     Composer,
@@ -165,6 +164,7 @@ class CodingAgentApp(
         self._tool_groups: dict[str, ToolCallSummary] = {}
         self._open_tool_group: Optional[ToolCallSummary] = None
         self._subagents: dict[str, SubagentRecord] = {}
+        self._session_artifacts: dict[Path, tuple[str, str, Path]] = {}
         self._file_index = WorkspaceFileIndex(self.workspace)
         self._pending_question_id: str | None = None
         self._pending_question_agent_id = ""
@@ -224,7 +224,7 @@ class CodingAgentApp(
         yield Composer(id="composer")
         # Keep approval choices in their own full-width surface.
         yield SlashMenu(id="approval-menu")
-        yield Static(id="status")
+        yield StatusBar(id="status")
 
     def on_mount(self) -> None:
         self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)
@@ -285,6 +285,22 @@ class CodingAgentApp(
         if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
+
+    def show_cost_breakdown(self) -> None:
+        """Open the per-model spend for this session, from a click on the cost."""
+        from coding_agent.tui.screens.cost import CostBreakdownScreen
+
+        costs = self._ui_state.metrics.model_costs
+        if not costs:
+            return
+        self.push_screen(CostBreakdownScreen(costs))
+
+    def show_artifacts(self) -> None:
+        """Open the latest version of each session artifact in a list."""
+        from coding_agent.tui.screens.artifacts import ArtifactsScreen
+
+        if self._session_artifacts:
+            self.push_screen(ArtifactsScreen(list(self._session_artifacts.values())))
 
     def show_model_picker(self) -> None:
         """Open the same model list as ``/model``, from a click on the model name."""
@@ -398,7 +414,7 @@ class CodingAgentApp(
     def action_dashboard(self) -> None:
         from coding_agent.tui.screens.dashboard import AgentDashboard
 
-        self.push_screen(AgentDashboard())
+        self.push_screen(AgentDashboard(self._agent.harness if self._agent is not None else None))
 
     def _register_active_session(self) -> None:
         agent = self._agent

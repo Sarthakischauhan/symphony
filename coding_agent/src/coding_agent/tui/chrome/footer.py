@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Optional
 from rich.console import Console, ConsoleOptions, Group, RenderResult
 from rich.table import Table
 from rich.text import Text
+from textual import events
 from textual.widgets import Static
+
+from core_ai.models.pricing import format_cost
 
 from coding_agent.tui.theme import SYMPHONY_COLORS
 
@@ -17,6 +20,11 @@ if TYPE_CHECKING:
 
 SEGMENT_SEPARATOR = "   |   "
 IDLE_HINT = "esc cancel"
+
+
+def session_cost_label(metrics: RunMetrics) -> str:
+    """The right-hand slot: this session's USD cost, including ``$0.00``."""
+    return format_cost(metrics.session_cost)
 QUESTION_HINT = "↵ approve   ↑↓ choose   esc deny"
 # Context stays a left-to-right block meter. These thresholds only recolor it,
 # the same way claude-hud warns as the window fills.
@@ -24,9 +32,13 @@ CONTEXT_WARN = 70
 CONTEXT_CRITICAL = 85
 
 
-def footer_hint(*, question_pending: bool) -> str:
-    """Keyboard hint shown as the footer's last segment."""
-    return QUESTION_HINT if question_pending else IDLE_HINT
+def footer_hint(*, question_pending: bool, metrics: RunMetrics | None = None) -> str:
+    """The footer's last segment: the question keys, else the session cost."""
+    if question_pending:
+        return QUESTION_HINT
+    if metrics is None:
+        return format_cost(0)
+    return session_cost_label(metrics)
 
 
 def context_percent(metrics: RunMetrics) -> Optional[int]:
@@ -48,7 +60,8 @@ def footer_segments(state: UiRunState, *, hint: str) -> tuple[str, ...]:
     metrics = state.metrics
     percent = context_percent(metrics)
     label = f"{percent}% context" if percent is not None else "context unknown"
-    return (label, _context_count(metrics), hint)
+    right = session_cost_label(metrics) if hint == IDLE_HINT else hint
+    return (label, _context_count(metrics), right)
 
 
 def _context_count(metrics: RunMetrics) -> str:
@@ -192,6 +205,8 @@ def render_footer(
     workspace: str = "",
 ) -> ResponsiveFooter:
     """Render a footer that adapts its detail to the available terminal width."""
+    if hint == IDLE_HINT:
+        hint = session_cost_label(state.metrics)
     return ResponsiveFooter(state=state, hint=hint, workspace=workspace)
 
 
@@ -226,6 +241,27 @@ def update_banner(event_type: str, payload: Optional[dict] = None) -> tuple[str,
         text = str(payload.get("text") or "").strip()
         return (text, DEFAULT_HINT) if text else None
     return None
+
+
+class StatusBar(Static):
+    """The footer. Clicking the cost figure opens the per-model breakdown."""
+
+    def on_click(self, event: events.Click) -> None:
+        hint = self._hint_text()
+        if not hint.startswith("$"):
+            return
+        # The figure is the last segment. A click on the context meter, which
+        # ends well before the right edge, is not it.
+        if event.x < self.content_size.width - len(hint) - 4:
+            return
+        event.stop()
+        show = getattr(self.app, "show_cost_breakdown", None)
+        if callable(show):
+            show()
+
+    def _hint_text(self) -> str:
+        renderable = self.content
+        return renderable.hint if isinstance(renderable, ResponsiveFooter) else ""
 
 
 class ComposerOverlay(Static):

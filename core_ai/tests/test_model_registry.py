@@ -1,4 +1,6 @@
 from core_ai.models import ModelCatalog, ModelInfo, get_model, list_models, register_model, unregister_model
+from core_ai.models.pricing import turn_cost
+from core_ai.models.types import ModelPrice
 from core_ai.providers.openai import OpenAIProvider
 
 
@@ -30,6 +32,31 @@ def test_shipped_catalog_includes_openai_anthropic_gemini_and_grok() -> None:
     assert get_model("anthropic", "claude-opus-5") is not None
     assert get_model("gemini", "gemini-3.1-pro-preview") is not None
     assert get_model("grok", "grok-4.6") is not None
+
+
+def test_turn_cost_bills_reasoning_tokens_at_the_output_rate() -> None:
+    register_model(
+        ModelInfo(
+            id="priced-thinker",
+            provider="gemini",
+            api="generate_content",
+            price=ModelPrice(input=1.0, output=4.0),
+        )
+    )
+    try:
+        assert turn_cost(
+            "gemini:priced-thinker",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+            reasoning_tokens=2_000_000,
+        ) == 1.0 + 4.0 + 8.0
+        assert turn_cost(
+            "gemini:priced-thinker",
+            input_tokens=0,
+            output_tokens=0,
+        ) == 0.0
+    finally:
+        unregister_model("gemini", "priced-thinker")
 
 
 def test_openai_provider_uses_registered_model_api() -> None:

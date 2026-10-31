@@ -6,6 +6,7 @@ import httpx
 from dotenv import load_dotenv
 
 from core_ai.content import split_text_and_images, to_gemini_parts
+from core_ai.models.registry import get_model
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import iter_sse_json, stream_with_retries
 from core_ai.types import Message, StreamEvent
@@ -35,13 +36,14 @@ class GeminiProvider(BaseProvider):
         reasoning_effort: Optional[str] = None,
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        del reasoning_effort, extra_headers
+        del extra_headers
         async for event in stream_with_retries(
             lambda: self._stream_once(
                 model_name,
                 messages,
                 tools,
                 max_output_tokens=max_output_tokens,
+                reasoning_effort=reasoning_effort,
             )
         ):
             yield event
@@ -78,6 +80,7 @@ class GeminiProvider(BaseProvider):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         system, contents = self._contents_payload(messages)
         payload: Dict[str, Any] = {"contents": contents}
@@ -92,8 +95,14 @@ class GeminiProvider(BaseProvider):
                     ]
                 }
             ]
+        generation: Dict[str, Any] = {}
         if max_output_tokens is not None:
-            payload["generationConfig"] = {"maxOutputTokens": max_output_tokens}
+            generation["maxOutputTokens"] = max_output_tokens
+        thinking = _thinking_config(model_name, reasoning_effort)
+        if thinking is not None:
+            generation["thinkingConfig"] = thinking
+        if generation:
+            payload["generationConfig"] = generation
 
         model_id = model_name.removeprefix("models/")
         tool_index = 0
@@ -283,6 +292,39 @@ def _first_inline_image(payload: Dict[str, Any]) -> tuple[bytes, str]:
     raise RuntimeError("provider returned no image data")
 
 
+def _thinking_config(
+    model_name: str, reasoning_effort: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Ask Gemini to think separately and return a summary, not answer text.
+
+    Without ``includeThoughts``, a thinking model spends thought tokens and
+    then writes that reasoning into the candidate text. The UI stores that
+    text as the assistant message, so the transcript looks like the model
+    never called a tool. ``thinkingLevel`` is only sent when this model
+    advertises that effort.
+    """
+    model_id = model_name.removeprefix("models/")
+    model = get_model("gemini", model_id)
+    if model is None or not model.reasoning:
+        return None
+    config: Dict[str, Any] = {"includeThoughts": True}
+    level = _thinking_level(model.thinking_level_map, reasoning_effort)
+    if level is not None:
+        config["thinkingLevel"] = level
+    return config
+
+
+def _thinking_level(
+    mapping: tuple[tuple[str, Optional[str]], ...], effort: Optional[str]
+) -> Optional[str]:
+    if not effort:
+        return None
+    for name, provider_value in mapping:
+        if name == effort:
+            return provider_value
+    return None
+
+
 def _gemini_tool_schema(tool: Dict[str, Any]) -> Dict[str, Any]:
     """Convert the shared tool schema to Gemini's accepted JSON schema.
 
@@ -291,16 +333,25 @@ def _gemini_tool_schema(tool: Dict[str, Any]) -> Dict[str, Any]:
     providers continue receiving the canonical harness schema.
     """
     schema = tool.get("parameters") or {"type": "object", "properties": {}}
+    defs = schema.get("$defs") if isinstance(schema, dict) else None
+    defs = defs if isinstance(defs, dict) else {}
 
-    def clean(value: Any) -> Any:
+    def resolve(value: Any, seen: set[str]) -> Any:
         if isinstance(value, list):
-            return [clean(item) for item in value]
+            return [resolve(item, seen) for item in value]
         if not isinstance(value, dict):
             return value
+        ref = value.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.removeprefix("#/$defs/")
+            if name in seen or name not in defs:
+                return {key: resolve(item, seen) for key, item in value.items() if key != "$ref"}
+            merged = {**defs[name], **{key: item for key, item in value.items() if key != "$ref"}}
+            return resolve(merged, seen | {name})
         result = {
-            key: clean(item)
+            key: resolve(item, seen)
             for key, item in value.items()
-            if key not in {"additionalProperties", "$schema", "strict"}
+            if key not in {"additionalProperties", "$schema", "strict", "$defs"}
         }
         if not result.get("required"):
             result.pop("required", None)
@@ -309,7 +360,7 @@ def _gemini_tool_schema(tool: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "name": tool.get("name", ""),
         "description": tool.get("description", ""),
-        "parameters": clean(schema),
+        "parameters": resolve(schema, set()),
     }
 
 

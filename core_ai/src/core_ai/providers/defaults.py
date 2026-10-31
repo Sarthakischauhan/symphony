@@ -159,6 +159,10 @@ def build_default_registry(
 def default_model_id(registry: ModelRegistry, model_id: Optional[str] = None) -> str:
     """Resolve a `provider:model` id from an explicit value, env, or first provider."""
     selected = model_id
+    # A saved last_model is an explicit user choice. Environment defaults only
+    # fill the gap when no model has been saved.
+    if selected and ":" in selected:
+        return _qualified_model_id(selected, registry.namespaces())
     if not selected:
         for name in _MODEL_ENV:
             value = os.getenv(name)

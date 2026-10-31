@@ -7,6 +7,7 @@ from coding_agent.tui.chrome.footer import (
     footer_segments,
     phase_label,
     render_footer,
+    StatusBar,
 )
 from coding_agent.tui.chrome.topbar import (
     TopBar,
@@ -24,6 +25,7 @@ __all__ = [
     "display_workspace_path",
     "footer_hint",
     "footer_segments",
+    "StatusBar",
     "phase_label",
     "read_git_branch",
     "read_git_dirty",

@@ -33,6 +33,8 @@ class HistoryView(Protocol):
 
     def set_context_metrics(self, tokens_used: int, context_limit: int) -> None: ...
 
+    def set_session_cost(self, costs: dict[str, float]) -> None: ...
+
     def finalize_transcript_history(self) -> None: ...
 
     def add_artifact(self, title: str, detail: str, path: Path) -> None: ...
@@ -49,6 +51,11 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
 
     load_events = getattr(agent.persistence, "load_events", None)
     events = await load_events(session_id=agent.session_id) if callable(load_events) else []
+    set_cost = getattr(view, "set_session_cost", None)
+    costs = getattr(agent.persistence, "session_costs", None)
+    stored = costs(agent.session_id) if callable(costs) else {}
+    if callable(set_cost) and stored:
+        set_cost(stored)
     restored = _history_widgets(messages, events)
     tools = getattr(view, "_tools", None)
     if isinstance(tools, dict):

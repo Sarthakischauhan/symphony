@@ -376,6 +376,9 @@ class SubagentSurface:
         self._bind_spawn_widget(record)
         self._refresh_subagent_screen(record)
         self._refresh_subagent_tasks()
+        refresh = getattr(self, "_refresh_background_tasks", None)
+        if callable(refresh):
+            refresh()
 
     def _on_agent_finished(self, event_type: str, payload: dict[str, Any]) -> None:
         child_id = str(payload.get("child_id") or "")
@@ -402,6 +405,9 @@ class SubagentSurface:
         self._refresh_subagent_widgets(record)
         self._refresh_subagent_screen(record)
         self._refresh_subagent_tasks()
+        refresh = getattr(self, "_refresh_background_tasks", None)
+        if callable(refresh):
+            refresh()
         self.add_notice(f"Subagent {record.label} {record.status} · Ctrl+G to inspect")
 
     def _on_child_event(self, event_type: str, payload: dict[str, Any]) -> None:

@@ -112,6 +112,8 @@ class TopBar(Static):
         self._branch = ""
         self._dirty = False
         self._model = ""
+        self._tasks = 0
+        self._artifacts = 0
         self._label = ""
         self._auth = ""
         self._workspace: Optional[Path] = None
@@ -128,6 +130,7 @@ class TopBar(Static):
         """
         self._branch_timer = self.set_interval(0.5, self._refresh_branch)
         self._dirty_timer = self.set_interval(2.0, self._schedule_dirty_probe)
+        self._tasks_timer = self.set_interval(0.5, self._refresh_background_tasks)
 
     def on_unmount(self) -> None:
         if self._branch_timer is not None:
@@ -137,6 +140,20 @@ class TopBar(Static):
         if dirty_timer is not None:
             dirty_timer.stop()
             self._dirty_timer = None
+        tasks_timer = getattr(self, "_tasks_timer", None)
+        if tasks_timer is not None:
+            tasks_timer.stop()
+            self._tasks_timer = None
+
+    def _refresh_background_tasks(self) -> None:
+        agent = getattr(self.app, "_agent", None)
+        harness = getattr(agent, "harness", None)
+        tasks = getattr(harness, "child_tasks", {})
+        self.set_background_tasks(sum(
+            1 for record in tasks.values()
+            if getattr(record, "status", "") in {"running", "background"}
+            and (getattr(record, "task", None) is None or not record.task.done())
+        ))
 
     def _refresh_branch(self) -> None:
         if self._workspace is None:
@@ -199,6 +216,20 @@ class TopBar(Static):
         self._auth = auth
         self.update(self._render_row(max(self.content_size.width, 1)))
 
+    def set_background_tasks(self, count: int) -> None:
+        """Show ``n Background tasks`` to the left of the model. Hide it at zero."""
+        count = max(int(count), 0)
+        if count == self._tasks:
+            return
+        self._tasks = count
+        self.update(self._render_row(max(self.content_size.width, 1)))
+
+    def set_artifact_count(self, count: int) -> None:
+        count = max(count, 0)
+        if count != self._artifacts:
+            self._artifacts = count
+            self.update(self._render_row(max(self.content_size.width, 1)))
+
     def on_resize(self, event: events.Resize) -> None:
         """Rebudget the model whenever the terminal changes width.
 
@@ -226,9 +257,20 @@ class TopBar(Static):
         model = self._model
         if width >= 48:
             model = short_model_name(model)
-        if not model:
-            return Text()
-        return Text(model, style=f"bold {SYMPHONY_COLORS['accent']}", no_wrap=True, overflow="ellipsis")
+        right = Text(no_wrap=True, overflow="ellipsis")
+        if self._tasks and width >= 60:
+            label = "Background task" if self._tasks == 1 else "Background tasks"
+            right.append(f"{self._tasks} {label}", style=SYMPHONY_COLORS["muted"])
+        if self._artifacts and width >= 60:
+            if right.plain:
+                right.append(CLUSTER_GAP)
+            label = "artifact" if self._artifacts == 1 else "artifacts"
+            right.append(f"{self._artifacts} {label}", style=SYMPHONY_COLORS["muted"])
+        if model:
+            if right.plain:
+                right.append(CLUSTER_GAP)
+            right.append(model, style=f"bold {SYMPHONY_COLORS['accent']}")
+        return right
 
     def on_click(self, event: events.Click) -> None:
         """The model name is the right-hand cluster. Clicking it opens /model.
@@ -236,7 +278,17 @@ class TopBar(Static):
         The branch occupies the left of the row, so a click past the midpoint
         is the model. Opening the existing picker avoids a second modal.
         """
-        if not self._model or event.x < max(self.content_size.width // 2, 1):
+        width = self.content_size.width
+        model = self._model_text(width).plain
+        if self._artifacts and width >= 60:
+            label = f"{self._artifacts} {'artifact' if self._artifacts == 1 else 'artifacts'}"
+            index = model.find(label)
+            start = width - cell_len(model) + cell_len(model[:index])
+            if index >= 0 and start <= event.x < start + cell_len(label):
+                event.stop()
+                self.app.show_artifacts()
+                return
+        if not self._model or event.x < width - cell_len(short_model_name(self._model)):
             return
         event.stop()
         show = getattr(self.app, "show_model_picker", None)
@@ -247,7 +299,8 @@ class TopBar(Static):
         """Text row. Width budgets keep a narrow terminal from cropping the header."""
         row = Table.grid(expand=True, padding=0)
         model = self._model_text(width)
-        model_width = min(max(cell_len(model.plain), 1), max(width // 2, 1))
+        budget = max(width - 20, 1) if width >= 60 else max(width // 2, 1)
+        model_width = min(max(cell_len(model.plain), 1), budget)
         row.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         row.add_column(
             justify="right",
