@@ -37,6 +37,14 @@ def test_build_default_registry_requires_at_least_one_key() -> None:
         build_default_registry()
 
 
+def test_saved_model_beats_environment_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setenv("OPENAI_MODEL", "openai:gpt-5.4")
+    registry = build_default_registry()
+    assert default_model_id(registry, "gemini:gemini-3.8-flash") == "gemini:gemini-3.8-flash"
+
+
 def test_default_model_id_prefers_first_registered_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
 
