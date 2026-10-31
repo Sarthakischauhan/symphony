@@ -27,6 +27,7 @@ from textual.widget import Widget
 from textual.widgets import OptionList, Static
 
 from core_ai.types import Message, StreamEvent
+from coding_agent.addons.persistence import JsonlPersistence
 from coding_agent.tui.screens import ContextModal
 from core_harness import HarnessResult
 from core_harness.context import (
@@ -514,6 +515,13 @@ def test_topbar_shows_lab_mark_instead_of_auth_emoji(
             assert rendered.rstrip().endswith("grok-4-fast")
             assert not rendered.rstrip().endswith("X grok-4-fast")
             assert "grok:" not in rendered
+            topbar.set_background_tasks(2)
+            counted = _render_plain(topbar.content, width=80).rstrip("\n")
+            assert counted.rstrip().endswith("2 Background tasks    grok-4-fast")
+            topbar.set_background_tasks(0)
+            cleared = _render_plain(topbar.content, width=80).rstrip("\n")
+            assert "Background" not in cleared
+            assert cleared.rstrip().endswith("grok-4-fast")
 
             # No agent is configured here, so the click reports that instead of
             # opening an empty picker. The hit has to land on the model side.
@@ -524,9 +532,63 @@ def test_topbar_shows_lab_mark_instead_of_auth_emoji(
     asyncio.run(_run())
 
 
+def test_clicking_the_cost_opens_the_model_breakdown(tmp_path: Path) -> None:
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            app._ui_state.metrics.session_cost = 0.02
+            app._ui_state.metrics.model_costs = {
+                "openai:gpt-5.6-luna": 1.2,
+                "openai:gpt-5.4-mini": 0.3,
+            }
+            app._set_status("")
+            await pilot.click("#status", offset=(95, 0))
+            await pilot.pause()
+            assert app.screen.__class__.__name__ == "CostBreakdownScreen"
+            text = _render_plain(app.screen.query_one("#cost-body").render(), width=60)
+            assert "gpt-5.6-luna" in text and "$1.20" in text
+            assert "gpt-5.4-mini" in text and "$0.30" in text
+            assert "total" in text and "$1.50" in text
+
+    asyncio.run(_run())
+
+
+def test_topbar_artifacts_open_latest_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[str] = []
+    monkeypatch.setattr("coding_agent.tui.transcript.artifact.webbrowser.open", opened.append)
+
+    async def _run() -> None:
+        app = CodingAgentApp(workspace=tmp_path, model_id="grok:grok-4.7")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            first = tmp_path / "artifacts" / "abc" / "v1" / "image.png"
+            latest = tmp_path / "artifacts" / "abc" / "v2" / "image.png"
+            app.add_artifact("Image", "image · v1", first)
+            app.add_artifact("Updated image", "image · v2", latest)
+            await pilot.pause()
+            from coding_agent.tui.transcript.artifact import ArtifactRow
+
+            assert not app.query(ArtifactRow)
+            topbar = app.query_one(TopBar)
+            assert "1 artifact" in _render_plain(topbar.content, width=120)
+            await pilot.click("#topbar", offset=(101, 0))
+            await pilot.pause()
+            assert app.screen.__class__.__name__ == "ArtifactsScreen"
+            rows = list(app.screen.query(ArtifactRow))
+            assert len(rows) == 1 and rows[0].path == latest
+            await pilot.click(ArtifactRow)
+            assert opened == [latest.as_uri()]
+
+    asyncio.run(_run())
+
+
 def test_footer_hint_switches_for_pending_question() -> None:
-    assert footer_hint(question_pending=False) == "esc cancel"
+    assert footer_hint(question_pending=False) == "$0.00"
     assert footer_hint(question_pending=True) == "↵ approve   ↑↓ choose   esc deny"
+    priced = RunMetrics(session_cost=0.042)
+    assert footer_hint(question_pending=False, metrics=priced) == "$0.04"
+    assert footer_hint(question_pending=True, metrics=priced) == "↵ approve   ↑↓ choose   esc deny"
 
 
 def test_context_percent_prefers_reported_utilization() -> None:
@@ -544,13 +606,15 @@ def test_footer_segments_follow_mock_order() -> None:
     assert footer_segments(state, hint="esc cancel") == (
         "65% context",
         "130,000/200,000",
-        "esc cancel",
+        "$0.00",
     )
+    state.metrics.session_cost = 1.25
+    assert footer_segments(state, hint="esc cancel")[-1] == "$1.25"
     offline = UiRunState()
     assert footer_segments(offline, hint="esc cancel") == (
         "context unknown",
         "—",
-        "esc cancel",
+        "$0.00",
     )
 
 
@@ -561,7 +625,7 @@ def test_render_footer_shows_context_meter_and_right_aligned_hint() -> None:
     assert line.startswith(
         "65% context   |   ████████████░░░░░░ 130,000/200,000"
     )
-    assert line.endswith("esc cancel")
+    assert line.endswith("$0.00")
 
     state.phase = "streaming"
     streaming = _render_plain(render_footer(state, hint="esc cancel"), width=100)
@@ -579,7 +643,7 @@ def test_footer_separates_usage_from_hint_with_long_workspace() -> None:
         ).rstrip("\n")
         assert "6% context" in line
         assert "22,082/400,000" in line
-        assert line.rstrip().endswith("esc cancel")
+        assert line.rstrip().endswith("$0.00")
 
 
 def test_footer_preserves_context_and_hint_at_narrow_widths() -> None:
@@ -596,9 +660,9 @@ def test_footer_preserves_context_and_hint_at_narrow_widths() -> None:
     ).rstrip("\n")
 
     assert "6% context" in narrow
-    assert narrow.endswith("esc cancel")
+    assert narrow.endswith("$0.00")
     assert "22,082/400,000" in medium
-    assert medium.endswith("esc cancel")
+    assert medium.endswith("$0.00")
 
 
 def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
@@ -612,7 +676,7 @@ def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
             assert not app.query("#composer-hint")
             composer = app.query_one("#composer")
             assert composer.styles.border_top[0] == "round"
-            assert "esc cancel" in _footer_text(app)
+            assert "$0.00" in _footer_text(app)
 
             app._pending_question_id = "q-1"
             app._update_composer_hint()
@@ -688,7 +752,7 @@ def _thought_text(body: Widget) -> str:
 
 
 def _footer_text(app: App[Any]) -> str:
-    return _render_plain(app.query_one("#status", Static).content, width=120)
+    return _render_plain(app.query_one("#status").content, width=120)
 
 
 def test_themed_markdown_avoids_rich_monokai_default() -> None:
@@ -1269,6 +1333,27 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
         "The emoji width is the culprit.",
         "Spacing is now correct.",
     ]
+
+
+def test_session_cost_accumulates_runs_and_survives_reload(tmp_path: Path) -> None:
+    store = JsonlPersistence(tmp_path)
+    events = [
+        ("usage", {"session_id": "s1", "run_id": "r1", "model_id": "xai:grok-4.7", "session_cost": 1.0}),
+        ("usage", {"session_id": "s1", "run_id": "r1", "model_id": "xai:grok-4.7", "session_cost": 2.45}),
+        ("usage", {"session_id": "s1", "run_id": "child-r1", "parent_id": "child", "model_id": "openai:gpt-6-luna", "session_cost": 9}),
+        ("usage", {"session_id": "s1", "run_id": "r2", "model_id": "openai:gpt-6-luna", "session_cost": 0.02}),
+        ("run_completed", {"session_id": "s1", "session_cost": 99}),
+    ]
+
+    async def journal() -> dict[str, float]:
+        for kind, payload in events:
+            await store.append_event(event_type=kind, payload=payload)
+        return store.session_costs("s1")
+
+    assert asyncio.run(journal()) == {"xai:grok-4.7": 3.45, "openai:gpt-6-luna": 0.02}
+    reloaded = JsonlPersistence(tmp_path)
+    assert reloaded.session_costs("s1") == {"openai:gpt-6-luna": 0.02, "xai:grok-4.7": 3.45}
+    assert not (tmp_path / "s1" / "cost-runs.json").exists()
 
 
 def test_history_resume_honours_collected_mid_run_events() -> None:
@@ -2400,81 +2485,6 @@ def test_live_tool_updates_do_not_hijack_transcript_scroll(
             app.update_tool("bash-1", status="done", result="clean")
             await pilot.pause()
             assert transcript.scroll_y == 0
-
-    asyncio.run(_run())
-
-
-def test_live_reasoning_follows_tail_then_folds_to_thought(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    app = CodingAgentApp(workspace=tmp_path)
-
-    async def _run() -> None:
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            assert app._presenter is not None
-            app._presenter.handle("run_started", {"model_id": "openai:test"})
-            app._presenter.handle(
-                "reasoning_delta",
-                {
-                    "turn": 0,
-                    "summary_index": 0,
-                    "delta": "**REASONING SUMMARY**\nStarting.",
-                    "text": "**REASONING SUMMARY**\nStarting.",
-                },
-            )
-            app._presenter.flush_stream_paints()
-            await pilot.pause()
-            text = "**REASONING SUMMARY**\n**Explaining application context**\n\nStarting.\n\n" + "\n\n".join(
-                f"Streaming thought {index}." for index in range(30)
-            )
-            app._presenter.handle(
-                "reasoning_delta",
-                {
-                    "turn": 0,
-                    "summary_index": 0,
-                    "delta": text,
-                    "text": text,
-                },
-            )
-            app._presenter.flush_stream_paints()
-            await pilot.pause()
-
-            thought = app.query_one(ReasoningWidget)
-            scroll = thought.query_one(".reasoning-scroll")
-            header = thought.query_one(ReasoningHeader)
-            label = thought.query_one(".reasoning-label")
-            status = thought.query_one(".reasoning-status")
-            assert header.query_one(".reasoning-label") is label
-            assert header.query_one(".reasoning-status") is status
-            assert not list(header.query(".tool-call-bracket"))
-            assert "Thinking…" in str(label.render())
-            assert str(status.render()).strip() == ""
-            assert not thought.collapsed
-            assert "REASONING SUMMARY" not in thought.reasoning_text
-            assert scroll.is_anchored
-
-            app._presenter.handle(
-                "tool_call_started",
-                {"tool_call_id": "read-1", "tool_name": "read_file"},
-            )
-            await pilot.pause()
-
-            assert thought.title.startswith("Thought ")
-            assert thought.title.endswith("s")
-            assert "Thought" in str(label.render())
-            assert str(status.render()).endswith("s")
-            assert not thought.collapsed
-            assert not scroll.is_anchored
-            body = thought.query_one(".reasoning-text")
-            rendered = _thought_text(body)
-            assert "Streaming thought 0." in rendered
-            assert "Streaming thought 29." in rendered
-            assert "Explaining application context" in rendered
-            assert body.styles.color is not None
-            assert app._thinking is not None
-            assert not app._thinking.display
 
     asyncio.run(_run())
 

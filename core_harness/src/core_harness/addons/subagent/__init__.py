@@ -259,17 +259,13 @@ class SubagentAddon(Addon):
             spawn_agent,
             name="spawn_agent",
             description=(
-                "Spawn a child agent for a focused subtask. Background work returns "
-                "a child_id immediately. Continue independent work; the runtime "
-                "delivers child results automatically between turns and waits for "
-                "remaining children before finalizing your answer. No polling is needed. "
+                "Delegate one well-scoped subtask to a child agent. Give the child the "
+                "full task in prompt. A background call returns a child_id immediately "
+                "and its result arrives later; do not poll. "
                 f"Background defaults to {default_background}. "
-                "Optionally set model_id and max_turns for that child. "
-                "Children are not capped by turns, tool calls, runtime, or tokens. "
-                "They run until the context window compacts them out, unless "
-                "max_turns is set on the call. "
-                "Children run without approval prompts and cannot spawn further "
-                "agents."
+                "Leave model_id empty: the child runs on a cheaper model than you. "
+                "Do not set it to your own model or a larger one. "
+                "Children cannot spawn further agents."
             ),
             parameters={
                 "type": "object",
@@ -288,7 +284,7 @@ class SubagentAddon(Addon):
                     },
                     "model_id": {
                         "type": "string",
-                        "description": "Optional model for the child. Defaults to the parent model.",
+                        "description": "Leave empty. A child runs on the cheaper model of your provider; a larger model is rejected.",
                     },
                     "max_turns": {
                         "type": "integer",

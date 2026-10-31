@@ -20,6 +20,10 @@ def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
         payload = json.loads(request.content)
         assert payload["systemInstruction"]["parts"][0]["text"] == "Be brief"
         assert payload["generationConfig"]["maxOutputTokens"] == 900
+        assert payload["generationConfig"]["thinkingConfig"] == {
+            "includeThoughts": True,
+            "thinkingLevel": "low",
+        }
         assert payload["tools"][0]["functionDeclarations"][0]["name"] == "read_file"
         body = _sse(
             '{"candidates":[{"content":{"parts":[{"text":"Checking","thought":true}]}}]}',
@@ -39,6 +43,7 @@ def test_gemini_streams_reasoning_text_tools_and_usage() -> None:
                 ],
                 tools=[{"name": "read_file", "description": "Read a file", "parameters": {"type": "object"}}],
                 max_output_tokens=900,
+                reasoning_effort="low",
             )
         ]
 
@@ -341,3 +346,70 @@ def test_gemini_generate_image_uses_generate_content() -> None:
     assert body["contents"][0]["parts"][0]["text"] == "a cat icon"
     assert media_type == "image/png"
     assert payload == __import__("base64").b64decode(png)
+
+
+def test_gemini_inlines_schema_refs() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(200, text=_sse('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}'))
+
+    schema = {
+        "$defs": {"Kind": {"type": "string", "enum": ["html", "csv"]}},
+        "type": "object",
+        "properties": {"kind": {"$ref": "#/$defs/Kind", "description": "html or csv."}},
+        "required": ["kind"],
+        "additionalProperties": False,
+    }
+
+    async def collect() -> None:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "gemini-3.8-flash",
+            [Message(role="user", content="save")],
+            tools=[{"name": "save_artifact", "description": "Save", "parameters": schema}],
+        ):
+            pass
+
+    asyncio.run(collect())
+    sent = json.dumps(captured["payload"])
+    assert "$ref" not in sent and "$defs" not in sent
+    parameters = captured["payload"]["tools"][0]["functionDeclarations"][0]["parameters"]  # type: ignore[index]
+    assert parameters["properties"]["kind"]["enum"] == ["html", "csv"]
+    assert parameters["properties"]["kind"]["description"] == "html or csv."
+
+
+def _generation_config(model: str, effort: str | None) -> dict:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(200, text=_sse('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}'))
+
+    async def collect() -> None:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            model, [Message(role="user", content="hi")], reasoning_effort=effort
+        ):
+            pass
+
+    asyncio.run(collect())
+    config = captured["payload"].get("generationConfig")  # type: ignore[union-attr]
+    return config if isinstance(config, dict) else {}
+
+
+def test_gemini_includes_thoughts_when_effort_is_unset() -> None:
+    assert _generation_config("gemini-4-argon", None) == {
+        "thinkingConfig": {"includeThoughts": True}
+    }
+
+
+def test_gemini_omits_unsupported_thinking_level() -> None:
+    assert _generation_config("gemini-4-argon", "off") == {
+        "thinkingConfig": {"includeThoughts": True}
+    }
+
+
+def test_gemini_skips_thinking_config_for_unknown_model() -> None:
+    assert "thinkingConfig" not in _generation_config("not-a-gemini-model", "high")

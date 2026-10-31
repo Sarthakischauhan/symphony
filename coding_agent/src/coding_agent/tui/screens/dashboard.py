@@ -7,6 +7,7 @@ list whose rows refresh in place. Open it with ``/dashboard``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual.widgets import OptionList
@@ -15,6 +16,9 @@ from textual.widgets.option_list import Option
 from coding_agent.addons.persistence.active import ActiveSession, list_active
 from coding_agent.resources.usage import sample_usage
 from coding_agent.tui.screens.modal import ModalBase
+
+if TYPE_CHECKING:
+    from core_harness import Harness
 
 
 _KIND_COLOR = {"tui": "#d7a84b", "run": "#72a57a"}
@@ -34,15 +38,16 @@ class AgentDashboard(ModalBase[None]):
     #agent-dashboard { width: 90%; height: 70%; border: round #484F58; background: #0A0A0A; }
     """
 
-    def __init__(self) -> None:
+    def __init__(self, harness: Harness | None = None) -> None:
         super().__init__()
+        self.harness = harness
         self._samples: dict[int, _Sample] = {}
 
     def compose(self):  # type: ignore[no-untyped-def]
         yield OptionList(id="agent-dashboard")
 
     def on_mount(self) -> None:
-        self.query_one(OptionList).border_title = "Agents · CPU  RAM  disk · Esc back"
+        self.query_one(OptionList).border_title = "Agents & background tasks · CPU  RAM  disk · Esc back"
         self.refresh_agents()
         self.set_interval(1, self.refresh_agents)
         self.query_one(OptionList).focus()
@@ -57,9 +62,20 @@ class AgentDashboard(ModalBase[None]):
             seen.add(record.pid)
             options.add_option(Option(self._row(record), id=str(record.pid)))
         self._samples = {pid: sample for pid, sample in self._samples.items() if pid in seen}
-        if not records:
+        task_count = 0
+        if self.harness is not None:
+            for record in self.harness.child_tasks.values():
+                if record.status not in {"running", "background"} or record.task is None or record.task.done():
+                    continue
+                kind = "job" if record.status == "background" else "subagent"
+                label = record.label.removeprefix("bash:") if kind == "job" else record.label
+                row = Text(f"{kind:8} running  ", style="#d7a84b")
+                row.append(f"{_clip(label, 70)} · {record.child_id[:8]}")
+                options.add_option(Option(row, id=f"task:{record.child_id}", disabled=True))
+                task_count += 1
+        if not records and not task_count:
             options.add_option(Option("No agents are running.", disabled=True))
-        else:
+        elif records:
             options.highlighted = min(highlighted or 0, len(records) - 1)
 
     def _row(self, record: ActiveSession) -> Text:

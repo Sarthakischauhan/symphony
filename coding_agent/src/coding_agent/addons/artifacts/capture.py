@@ -23,6 +23,7 @@ from pathlib import Path
 from core_ai.content import sniff_image_media_type
 
 from coding_agent.addons.artifacts.kinds import IMAGE_MIME_TYPES, TEXT_MIME_TYPES, ArtifactKind, kind_of
+from coding_agent.addons.artifacts.noise import is_app_project
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_SITE_FILES = 200
@@ -118,7 +119,12 @@ def snapshot_path(path: Path, workspace: Path, kind: ArtifactKind | None = None,
     chosen = kind or kind_of(path)
     if chosen is None:
         raise ArtifactError(f"not an html, csv, json or image file: {path}")
-    if chosen is ArtifactKind.HTML and path.name == SITE_ENTRY and path.parent != workspace:
+    if (
+        chosen is ArtifactKind.HTML
+        and path.name == SITE_ENTRY
+        and path.parent != workspace
+        and not is_app_project(path.parent)
+    ):
         return snapshot_site(path.parent, workspace, title)
     payload = _read(path)
     if chosen is ArtifactKind.IMAGE:

@@ -21,7 +21,7 @@ from coding_agent.addons.learning.prompts import CAPTURE_SYSTEM_PROMPT
 FACT = "The deploy script is scripts/ship.sh and needs --staging first"
 OBSERVATIONS = json.dumps({"observations": [{"text": FACT, "topic": "deploy", "confidence": 0.9}]})
 # Catalogued reasoning model whose lowest advertised effort is "none".
-REASONING_MODEL = "openai:gpt-5.1"
+REASONING_MODEL = "openai:gpt-5.4"
 
 
 def _is_capture(messages) -> bool:

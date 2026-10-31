@@ -35,6 +35,7 @@ def test_system_prompt_lists_ids_not_bodies_and_skill_tool_is_registered(tmp_pat
     agent = CodingAgent(registry=_Registry(), model_id="test:model", workspace=tmp_path)  # type: ignore[arg-type]
     prompt = agent.harness.system_prompt
     assert "- bundled/orient: Map owners first." in prompt
+    assert "load a match with the skill tool before acting" in prompt
     assert "BODY-SENTINEL" not in prompt
     assert "SKILL.md:" not in prompt
     assert "skill" in agent.harness.tools
@@ -69,7 +70,19 @@ def test_read_only_memory_tools_are_parallel_and_writes_stay_serial(tmp_path: Pa
     assert BashTool(str(tmp_path)).parallel is False
 
 
+def test_child_model_stays_at_or_below_the_cheap_sibling() -> None:
+    from coding_agent.agent import _bounded_child_model, child_model_id
+
+    cheap = child_model_id("openai:gpt-5.6-luna")
+    assert cheap is not None and "mini" in cheap
+    assert _bounded_child_model("openai:gpt-5.6-luna", "") == cheap
+    assert _bounded_child_model("openai:gpt-5.6-luna", "openai:gpt-5.6-luna") == cheap
+    assert _bounded_child_model("openai:gpt-5.6-luna", "openai:gpt-5.6-sol") == cheap
+    assert _bounded_child_model("openai:gpt-5.4-mini", "") is None
+    assert _bounded_child_model("ollama:qwen", "ollama:qwen") is None
+
+
 def test_bash_description_steers_toward_pipelines_and_scripts() -> None:
     description = BashTool.description
-    assert "one well-built command usually beats many small tool calls" in description
-    assert "|" in description and "<<'EOF'" in description
+    assert "chain with &&" in description and "a pipe to filter" in description
+    assert "exit=N" in description

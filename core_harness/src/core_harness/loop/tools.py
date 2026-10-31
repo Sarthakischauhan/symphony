@@ -149,6 +149,28 @@ async def emit_tool_result(
     )
 
 
+def _require_activity(tool_call: ToolCall, tool: Any = None) -> str | None:
+    """Reject a call whose schema requires an activity label and did not send one.
+
+    Tools that do not declare ``activity`` are unchanged. A declared one must
+    carry a non-empty ``verb`` and ``reason`` before the tool runs.
+    """
+    parameters = getattr(tool, "parameters", None)
+    if not isinstance(parameters, dict):
+        return None
+    if "activity" not in parameters.get("required", ()):
+        return None
+    activity = tool_call.arguments.get("activity")
+    if not isinstance(activity, dict):
+        return f"{tool_call.name} requires activity.verb and activity.reason"
+    verb, reason = activity.get("verb"), activity.get("reason")
+    if not isinstance(verb, str) or not verb.strip():
+        return f"{tool_call.name} requires activity.verb"
+    if not isinstance(reason, str) or not reason.strip():
+        return f"{tool_call.name} requires activity.reason"
+    return None
+
+
 async def execute_tool(runner: Any, tool_call: ToolCall) -> ToolResult:
     decode_error = tool_call.arguments.pop("_decode_error", None)
     if decode_error:
@@ -161,6 +183,12 @@ async def execute_tool(runner: Any, tool_call: ToolCall) -> ToolResult:
             content=f"Tool '{tool_call.name}' is not registered.",
             error_type="KeyError",
         )
+        await emit_tool_result(runner, tool_call, result)
+        return result
+
+    activity_error = _require_activity(tool_call, runner.tools.get(tool_call.name))
+    if activity_error:
+        result = ToolResult(status="error", content=activity_error, error_type="ValueError")
         await emit_tool_result(runner, tool_call, result)
         return result
 

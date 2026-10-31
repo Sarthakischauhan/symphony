@@ -60,7 +60,7 @@ class WorkspaceTool(Tool, ABC):
         return candidate.resolve()
 
     def parameters_schema(self) -> Dict[str, Any]:
-        """JSON Schema for tool arguments, including optional UI activity metadata."""
+        """JSON Schema for tool arguments. ``activity.verb`` and ``reason`` are required."""
         schema = self.args_model.model_json_schema()
         schema.pop("title", None)
         schema.setdefault("type", "object")
@@ -69,19 +69,21 @@ class WorkspaceTool(Tool, ABC):
         properties["activity"] = {
             "type": "object",
             "description": (
-                "Optional UI context as a nested object. Do not put verb, reason, "
-                "goal, or group at the top level of the tool arguments. "
-                "Set activity.verb to a short present-participle label such as "
-                "'Searching' or 'Reading', activity.reason to why this call is "
-                "needed, and activity.group to a stable label shared by related calls."
+                "Required UI context. Put it only in this nested object, never as "
+                "top-level verb, reason, goal, or group. activity.verb is a short "
+                "present-participle label such as 'Searching' or 'Reading'. "
+                "activity.reason says why this call is needed. activity.group is an "
+                "optional stable label shared by related calls."
             ),
             "properties": {
                 "verb": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "Short present-participle label, e.g. Searching, Reading.",
                 },
                 "reason": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "Why this call is needed.",
                 },
                 "group": {
@@ -89,8 +91,12 @@ class WorkspaceTool(Tool, ABC):
                     "description": "Stable label shared by related calls.",
                 },
             },
+            "required": ["verb", "reason"],
             "additionalProperties": False,
         }
+        required = schema.setdefault("required", [])
+        if "activity" not in required:
+            required.append("activity")
         return schema
 
     def validate_args(self, **kwargs: Any) -> BaseModel:
@@ -101,7 +107,13 @@ class WorkspaceTool(Tool, ABC):
             raise ValueError(f"invalid {self.name} arguments: {exc}") from exc
 
     def prepare_args(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove presentation-only metadata before schema validation."""
+        """Drop the activity label before validation.
+
+        A model call must carry activity.verb and activity.reason; the harness
+        checks that before it reaches here. A direct call may omit it. The tool
+        body never sees the label, and a flattened verb or reason at the top
+        level does not count as one.
+        """
         prepared = dict(args)
         for key in ("activity", "verb", "reason", "goal", "group"):
             prepared.pop(key, None)

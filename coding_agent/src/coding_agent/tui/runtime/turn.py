@@ -6,7 +6,6 @@ import asyncio
 from typing import Any, Callable, Mapping
 
 from textual import work
-from textual.widgets import Static
 
 from coding_agent.tui.chrome import TopBar, display_workspace_path, footer_hint, render_footer
 from coding_agent.tui.composer.input import PromptInput
@@ -27,8 +26,11 @@ class TurnSurface:
         Usage events refresh this often. Re-reading git and rebuilding the
         top bar on every token made the composer stutter during a live run.
         """
-        hint = footer_hint(question_pending=self._pending_question_id is not None)
-        self.query_one("#status", Static).update(
+        hint = footer_hint(
+            question_pending=self._pending_question_id is not None,
+            metrics=self._ui_state.metrics,
+        )
+        self.query_one("#status").update(
             render_footer(
                 self._ui_state,
                 hint=hint,
@@ -66,6 +68,15 @@ class TurnSurface:
         metrics.context_limit = context_limit
         metrics.context_left = max(context_limit - tokens_used, 0)
         metrics.utilization = tokens_used / context_limit if context_limit else None
+        self._set_status("")
+
+    def set_session_cost(self, costs: dict[str, float]) -> None:
+        """Restore the session price so the footer shows it before the next run."""
+        metrics = self._ui_state.metrics
+        metrics.model_costs = dict(costs)
+        metrics.session_cost = sum(costs.values())
+        if costs:
+            metrics.priced_model = next(reversed(costs))
         self._set_status("")
 
     @work(exclusive=False)
@@ -132,8 +143,31 @@ class TurnSurface:
             "run_failed",
             "run_cancelled",
             "run_limit_exceeded",
+            "tool_execution_completed",
+            "message_injected",
+            "waiting_for_children",
+        }:
+            self._refresh_background_tasks()
+        if message.event_type in {
+            "run_completed",
+            "run_failed",
+            "run_cancelled",
+            "run_limit_exceeded",
         }:
             self._collect_run_events(payload)
+
+    def _refresh_background_tasks(self) -> None:
+        """Count live background jobs and subagents for the top bar."""
+        harness = getattr(self._agent, "harness", None)
+        tasks = getattr(harness, "child_tasks", {})
+        count = sum(
+            1
+            for record in tasks.values()
+            if getattr(record, "status", "") in {"running", "background"}
+            and (getattr(record, "task", None) is None or not record.task.done())
+        )
+        topbar = self.query_one("#topbar", TopBar)
+        topbar.set_background_tasks(count)
 
     on_control_plane_event = on_harness_event
 

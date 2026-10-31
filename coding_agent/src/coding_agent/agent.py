@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional, Union
 
 from core_ai.content import text_from_content
+from core_ai.models import list_models
 from core_ai.registry import ModelRegistry
 from core_ai.types import Content, Message
 from core_harness import (
@@ -56,6 +57,89 @@ from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
 from core_harness.extensions import EMPTY_SNAPSHOT
 from coding_agent.widget_fields import EventFields
 from coding_agent.tools import BashJobs, build_tools
+
+
+# A child inherits the parent model unless told otherwise, which bills a Codex
+# plan for every lookup. Prefer the smallest model of the same provider.
+_CHILD_MODEL_RANK = ("nano", "mini", "flash-lite", "lite", "haiku", "flash", "sonnet")
+
+
+def child_model_id(parent_model_id: str) -> str | None:
+    """The cheapest registered model from the parent's provider, or None.
+
+    None keeps the parent model: a local or unknown provider has no cheaper
+    sibling to switch to. Image, realtime, and embedding models are not children.
+    """
+    provider, _, _name = parent_model_id.partition(":")
+    if not provider or provider == parent_model_id:
+        return None
+    candidates = [
+        model for model in list_models(provider)
+        if not any(token in model.id for token in ("image", "realtime", "embed", "tts", "transcri"))
+    ]
+    if not candidates:
+        return None
+
+    def rank(model_id: str) -> tuple[int, str]:
+        for index, marker in enumerate(_CHILD_MODEL_RANK):
+            if marker in model_id:
+                return (index, model_id)
+        return (len(_CHILD_MODEL_RANK), model_id)
+
+    chosen = min(candidates, key=lambda model: rank(model.id))
+    qualified = f"{provider}:{chosen.id}"
+    return None if qualified == parent_model_id else qualified
+
+
+def _bounded_child_model(parent_model_id: str, requested: str) -> str | None:
+    """The child model: the cheap sibling, unless the request is cheaper still.
+
+    Requesting the parent model, or anything above the cheap sibling, is
+    ignored. A provider with no cheaper sibling keeps the parent model.
+    """
+    cheap = child_model_id(parent_model_id)
+    if not requested or requested == parent_model_id:
+        return cheap
+    if cheap is None:
+        return requested
+    if _model_rank(requested) < _model_rank(cheap):
+        return requested
+    return cheap
+
+
+def _model_rank(model_id: str) -> int:
+    name = model_id.split(":", 1)[-1]
+    for index, marker in enumerate(_CHILD_MODEL_RANK):
+        if marker in name:
+            return index
+    return len(_CHILD_MODEL_RANK)
+
+
+_PROJECT_INSTRUCTION_BYTES = 8_000
+
+
+def _project_instructions(workspace: Path) -> str:
+    """``AGENTS.md`` from the workspace, capped, as fx loads project instructions.
+
+    The user's own message outranks this text. A symlink or an unreadable file
+    contributes nothing rather than failing the session.
+    """
+    path = Path(workspace) / "AGENTS.md"
+    if path.is_symlink() or not path.is_file():
+        return ""
+    try:
+        if path.stat().st_size > _PROJECT_INSTRUCTION_BYTES:
+            return ""
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+    text = text.replace("\x00", "").strip()
+    if not text:
+        return ""
+    return (
+        "Project instructions (from AGENTS.md; the user's request outranks them):\n"
+        + text
+    )
 
 
 def default_addons(
@@ -121,6 +205,7 @@ class CodingAgent:
         self.config = ensure_spawn_settings(self.workspace, config=loaded)
         self.sink = sink or EventSink()
         self.registry = registry
+        self.model_id = model_id
         self.session_id = session_id or str(uuid.uuid4())
         self.persistence = persistence or JsonlPersistence(sessions_dir(self.workspace))
         self.goal = ""
@@ -150,6 +235,9 @@ class CodingAgent:
         skill_roots = [
             ("bundled", bundled_skills_root()),
             ("user", Path.home() / ".symphony" / "skills"),
+            # Shared with Codex, Pi, OpenCode, and Grok. Listed after Symphony's
+            # own root so a same-named skill there wins the duplicate check.
+            ("agents", Path.home() / ".agents" / "skills"),
             *[("configured", root) for root in self.config.skills.roots],
         ]
         plugin_addons = []
@@ -287,10 +375,16 @@ class CodingAgent:
         max_turns: Optional[int] = None,
         **_: Any,
     ) -> ChildConfig:
-        """Children share the parent sink and skip ApprovalAddon (deny-only fork when unattended)."""
+        """Children share the parent sink and skip ApprovalAddon (deny-only fork when unattended).
+
+        An omitted model uses the cheap sibling of the parent provider. An
+        explicit model is kept only when it is not more expensive than that
+        sibling, so a child cannot upgrade onto the parent's Codex model.
+        """
         del prompt, label
         turns = max(1, int(max_turns)) if max_turns else None
-        mid = str(model_id).strip() if model_id else None
+        requested = str(model_id).strip() if model_id else ""
+        mid = _bounded_child_model(self.model_id, requested)
         return ChildConfig(
             model_id=mid or None,
             max_turns=turns,
@@ -420,13 +514,14 @@ class CodingAgent:
         skills = ""
         if self.config.skills.enabled and self.skill_registry.skills:
             lines = [
-                "Available skills (load one with the skill tool when it applies):"
+                "Skills (load a match with the skill tool before acting on that task):"
             ]
             lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
             skills = "\n".join(lines)
         self.harness.system_prompt = compose_system_prompt(
             self.base_system_prompt,
             self.config.personality,
+            project=_project_instructions(self.workspace),
             skills=skills,
             jev=JEV_SYSTEM_SEGMENT if self.config.evaluation.enabled else "",
         )

@@ -366,6 +366,33 @@ def test_outputs_are_not_noise(tmp_path: Path, relative: str) -> None:
     assert not is_noise(tmp_path / relative, tmp_path)
 
 
+def test_vite_project_index_is_not_captured_as_a_site(tmp_path: Path) -> None:
+    app = tmp_path / "web"
+    app.mkdir()
+    (app / "package.json").write_text('{"name": "web"}')
+    (app / "vite.config.ts").write_text("export default {}\n")
+    (app / "index.html").write_text('<script type="module" src="/src/main.ts"></script>\n')
+    (app / "src").mkdir()
+    (app / "src" / "main.ts").write_text("console.log(1)\n")
+    addon = ArtifactsAddon(ArtifactStore(tmp_path / "sessions"), tmp_path)
+    call = ToolCall(id="w", name="write_file", arguments={"path": "web/index.html"})
+    assert list(addon.snapshots(call, ToolResult(status="success", content="ok"))) == []
+    assert site_of(app / "src" / "main.ts", tmp_path) is None
+
+
+def test_generated_site_is_still_captured_beside_an_app(tmp_path: Path) -> None:
+    app = tmp_path / "web"
+    app.mkdir()
+    (app / "package.json").write_text("{}")
+    page = tmp_path / "preview"
+    page.mkdir()
+    (page / "index.html").write_text("<h1>preview</h1>")
+    addon = ArtifactsAddon(ArtifactStore(tmp_path / "sessions"), tmp_path)
+    call = ToolCall(id="w", name="write_file", arguments={"path": "preview/index.html"})
+    captured = list(addon.snapshots(call, ToolResult(status="success", content="ok")))
+    assert [item.source for item in captured] == ["preview"]
+
+
 def test_noise_can_still_be_saved_explicitly(tmp_path: Path) -> None:
     (tmp_path / "package.json").write_text('{"name": "x"}')
     addon = ArtifactsAddon(ArtifactStore(tmp_path / "sessions"), tmp_path)

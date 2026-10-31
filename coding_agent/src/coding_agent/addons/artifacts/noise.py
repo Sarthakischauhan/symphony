@@ -10,7 +10,16 @@ import subprocess
 from pathlib import Path
 
 # Any path through one of these folders is dependencies, VCS data or build output.
-NOISE_DIRS = frozenset({"node_modules", ".git", "dist", "build"})
+NOISE_DIRS = frozenset({
+    "node_modules", ".git", "dist", "build", ".vite", ".next", ".nuxt", ".output",
+})
+# A folder holding one of these is an application project. Its index.html is the
+# dev server entry (Vite, Next, Astro), not a page the run produced.
+APP_MARKERS = frozenset({
+    "package.json", "vite.config.js", "vite.config.ts", "vite.config.mjs",
+    "next.config.js", "next.config.ts", "next.config.mjs", "astro.config.mjs",
+    "astro.config.ts",
+})
 MANIFEST_NAMES = frozenset({"package.json", "package-lock.json", "npm-shrinkwrap.json"})
 CONFIG_PATTERNS = ("tsconfig*.json", "*.config.json")
 # Lockfiles of every package manager: yarn.lock, Cargo.lock, uv.lock,
@@ -30,6 +39,11 @@ def is_noise(path: Path, workspace: Path) -> bool:
     return any(fnmatch.fnmatchcase(name, pattern) for pattern in (*CONFIG_PATTERNS, *LOCK_PATTERNS))
 
 
+def is_app_project(folder: Path) -> bool:
+    """True when ``folder`` is a web app project rather than a generated site."""
+    return any((folder / name).is_file() for name in APP_MARKERS)
+
+
 def git_tracked(path: Path) -> bool:
     """Whether git tracks ``path`` in the repository that contains it."""
     try:
@@ -45,4 +59,4 @@ def git_tracked(path: Path) -> bool:
     return result.returncode == 0
 
 
-__all__ = ["NOISE_DIRS", "git_tracked", "is_noise"]
+__all__ = ["APP_MARKERS", "NOISE_DIRS", "git_tracked", "is_app_project", "is_noise"]
