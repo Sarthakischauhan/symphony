@@ -291,16 +291,25 @@ def _gemini_tool_schema(tool: Dict[str, Any]) -> Dict[str, Any]:
     providers continue receiving the canonical harness schema.
     """
     schema = tool.get("parameters") or {"type": "object", "properties": {}}
+    defs = schema.get("$defs") if isinstance(schema, dict) else None
+    defs = defs if isinstance(defs, dict) else {}
 
-    def clean(value: Any) -> Any:
+    def resolve(value: Any, seen: set[str]) -> Any:
         if isinstance(value, list):
-            return [clean(item) for item in value]
+            return [resolve(item, seen) for item in value]
         if not isinstance(value, dict):
             return value
+        ref = value.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.removeprefix("#/$defs/")
+            if name in seen or name not in defs:
+                return {key: resolve(item, seen) for key, item in value.items() if key != "$ref"}
+            merged = {**defs[name], **{key: item for key, item in value.items() if key != "$ref"}}
+            return resolve(merged, seen | {name})
         result = {
-            key: clean(item)
+            key: resolve(item, seen)
             for key, item in value.items()
-            if key not in {"additionalProperties", "$schema", "strict"}
+            if key not in {"additionalProperties", "$schema", "strict", "$defs"}
         }
         if not result.get("required"):
             result.pop("required", None)
@@ -309,7 +318,7 @@ def _gemini_tool_schema(tool: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "name": tool.get("name", ""),
         "description": tool.get("description", ""),
-        "parameters": clean(schema),
+        "parameters": resolve(schema, set()),
     }
 
 

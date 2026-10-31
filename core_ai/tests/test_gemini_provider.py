@@ -341,3 +341,35 @@ def test_gemini_generate_image_uses_generate_content() -> None:
     assert body["contents"][0]["parts"][0]["text"] == "a cat icon"
     assert media_type == "image/png"
     assert payload == __import__("base64").b64decode(png)
+
+
+def test_gemini_inlines_schema_refs() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(200, text=_sse('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}'))
+
+    schema = {
+        "$defs": {"Kind": {"type": "string", "enum": ["html", "csv"]}},
+        "type": "object",
+        "properties": {"kind": {"$ref": "#/$defs/Kind", "description": "html or csv."}},
+        "required": ["kind"],
+        "additionalProperties": False,
+    }
+
+    async def collect() -> None:
+        provider = GeminiProvider(api_key="test", transport=httpx.MockTransport(handler))
+        async for _event in provider.stream(
+            "gemini-3.8-flash",
+            [Message(role="user", content="save")],
+            tools=[{"name": "save_artifact", "description": "Save", "parameters": schema}],
+        ):
+            pass
+
+    asyncio.run(collect())
+    sent = json.dumps(captured["payload"])
+    assert "$ref" not in sent and "$defs" not in sent
+    parameters = captured["payload"]["tools"][0]["functionDeclarations"][0]["parameters"]  # type: ignore[index]
+    assert parameters["properties"]["kind"]["enum"] == ["html", "csv"]
+    assert parameters["properties"]["kind"]["description"] == "html or csv."
