@@ -61,6 +61,7 @@ async def dispatch_stream_event(
 ) -> None:
     """Apply one provider event to stream state and the event sink."""
     if event.type == "text_delta" and event.delta:
+        streamed.reasoning_texts.clear()
         streamed.assistant_text += event.delta
         await emit(
             "text_delta",
@@ -81,6 +82,7 @@ async def dispatch_stream_event(
             },
         )
     elif event.type == "toolcall_start":
+        streamed.reasoning_texts.clear()
         # Some OpenAI-compatible streams split the id/name over multiple
         # deltas.  Do not replace a call created by an earlier argument delta:
         # doing so loses the accumulated arguments and the eventual tool
