@@ -35,8 +35,7 @@ def test_system_prompt_lists_ids_not_bodies_and_skill_tool_is_registered(tmp_pat
     agent = CodingAgent(registry=_Registry(), model_id="test:model", workspace=tmp_path)  # type: ignore[arg-type]
     prompt = agent.harness.system_prompt
     assert "- bundled/orient: Map owners first." in prompt
-    assert "this is the complete list" in prompt
-    assert "do not search the filesystem" in prompt
+    assert "load a match with the skill tool before acting" in prompt
     assert "BODY-SENTINEL" not in prompt
     assert "SKILL.md:" not in prompt
     assert "skill" in agent.harness.tools
@@ -55,6 +54,8 @@ def test_skill_tool_reads_resources_and_refuses_escapes(tmp_path: Path) -> None:
     assert tool.run("user/orient", resource="../../outside.txt").startswith("error:")
     assert tool.run("user/orient", resource="/etc/passwd").startswith("error:")
     assert tool.run("user/missing").startswith("error: Unknown skill id")
+    assert tool.run() == "- user/orient: Map owners first."
+    assert tool.run(resource="SKILL.md").startswith("error: resource requires a skill_id")
 
 
 def test_catalog_line_is_short(tmp_path: Path) -> None:

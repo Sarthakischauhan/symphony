@@ -12,7 +12,10 @@ from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
 
 class SkillArgs(ToolArgsModel):
-    skill_id: str = Field(..., min_length=1, description="Skill id from the catalog, e.g. 'bundled/systematic-debug'.")
+    skill_id: str = Field(
+        default="",
+        description="Skill id from the catalog, e.g. 'bundled/systematic-debug'. Empty lists every skill.",
+    )
     resource: str = Field(
         default="",
         description="Optional file inside the skill (a path listed under resources). Empty loads SKILL.md.",
@@ -22,9 +25,9 @@ class SkillArgs(ToolArgsModel):
 class SkillTool(WorkspaceTool):
     name = "skill"
     description = (
-        "Load a skill whose description matches the task, and follow it before other "
-        "work on that task. Returns its instructions and resource paths. Pass "
-        "resource to read one of those files. Use only a skill id from the prompt."
+        "List the available skills, or load one and follow it before other work on "
+        "that task. Omit skill_id to list every id and description. Pass skill_id "
+        "to load that skill, and resource to read one of its files."
     )
     args_model = SkillArgs
 
@@ -32,7 +35,13 @@ class SkillTool(WorkspaceTool):
         self.registry = registry
         super().__init__(workspace, parallel=True)
 
-    def run(self, skill_id: str, resource: str = "") -> str:
+    def run(self, skill_id: str = "", resource: str = "") -> str:
+        if not skill_id:
+            if resource:
+                return "error: resource requires a skill_id"
+            if not self.registry.skills:
+                return "No skills are available."
+            return "\n".join(skill.catalog_line() for skill in self.registry.skills)
         try:
             skill = self.registry.get(skill_id)
             path = self.registry.resource_path(skill_id, resource or "SKILL.md")
@@ -44,6 +53,8 @@ class SkillTool(WorkspaceTool):
         if resource:
             return text
         header = [f"# skill {skill.skill_id}"]
+        if skill.skill_id != skill_id:
+            header.append(f"(loaded for the retired id {skill_id})")
         if skill.args:
             header.append(f"args: {render_args(skill.args)}")
         if skill.resources:
