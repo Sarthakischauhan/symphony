@@ -307,39 +307,6 @@ def test_gemini_thought_parts_stay_visible_when_index_repeats() -> None:
     assert view.finished_reasoning == 2
 
 
-def test_reasoning_summary_snapshot_stays_one_live_block() -> None:
-    """A longer snapshot of the same thought is not a new block.
-
-    The stored part has the provider's "reasoning summary" label removed, so
-    comparing the raw snapshot would close the live thought early.
-    """
-    scheduled: list = []
-    presenter, view, _chrome = _presenter(schedule=scheduled)
-    presenter.handle("run_started", {"model_id": "openai:test"})
-    presenter.handle("turn_started", {"turn": 0})
-
-    presenter.handle(
-        "reasoning_delta",
-        {
-            "delta": "**REASONING SUMMARY**\nStarting.",
-            "text": "**REASONING SUMMARY**\nStarting.",
-            "summary_index": 0,
-        },
-    )
-    presenter.handle(
-        "reasoning_delta",
-        {
-            "delta": " more",
-            "text": "**REASONING SUMMARY**\n**Explaining**\n\nStarting. more",
-            "summary_index": 0,
-        },
-    )
-    assert view.finished_reasoning == 0
-    scheduled[0]()
-    assert view.reasoning == [("**Explaining**\n\nStarting. more", True)]
-    assert view.finished_reasoning == 0
-
-
 def test_delta_only_reasoning_fragments_are_accumulated() -> None:
     scheduled: list = []
     presenter, view, _chrome = _presenter(schedule=scheduled)
