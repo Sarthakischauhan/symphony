@@ -514,7 +514,8 @@ class CodingAgent:
         skills = ""
         if self.config.skills.enabled and self.skill_registry.skills:
             lines = [
-                "Skills (load a match with the skill tool before acting on that task):"
+                "Skills (this is the complete list; when asked what skills you have, answer from it and do not search the filesystem):",
+                "Load a matching skill with the skill tool before acting on that task.",
             ]
             lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
             skills = "\n".join(lines)

@@ -35,7 +35,8 @@ def test_system_prompt_lists_ids_not_bodies_and_skill_tool_is_registered(tmp_pat
     agent = CodingAgent(registry=_Registry(), model_id="test:model", workspace=tmp_path)  # type: ignore[arg-type]
     prompt = agent.harness.system_prompt
     assert "- bundled/orient: Map owners first." in prompt
-    assert "load a match with the skill tool before acting" in prompt
+    assert "this is the complete list" in prompt
+    assert "do not search the filesystem" in prompt
     assert "BODY-SENTINEL" not in prompt
     assert "SKILL.md:" not in prompt
     assert "skill" in agent.harness.tools
