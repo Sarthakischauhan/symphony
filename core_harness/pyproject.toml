@@ -1,6 +1,6 @@
 [project]
 name = "symphony-harness"
-version = "0.0.1"
+version = "0.0.5"
 description = "Symphony agent harness: provider-agnostic tool loop, control-plane events, run limits, and compaction (import as core_harness)"
 readme = "README.md"
 license = "MIT"
@@ -10,7 +10,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "symphony-core",
+    "symphony-core>=0.0.5",
     "pydantic>=2.0.0",
 ]
 

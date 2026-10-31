@@ -139,6 +139,7 @@ jobs:
           uv venv /tmp/symphony-wheel-smoke
           uv pip install --python /tmp/symphony-wheel-smoke/bin/python dist/*.whl
           /tmp/symphony-wheel-smoke/bin/python coding_agent/tests/web_wheel_smoke.py
+          /tmp/symphony-wheel-smoke/bin/python -c 'from importlib.metadata import version, requires; from core_harness.loop.tools import _require_activity; from core_ai.models.pricing import turn_cost; assert version("symphony-harness") >= "0.0.5"; assert any("symphony-harness>=" in r.replace(" ", "") for r in requires("symphony-code"))'
 
       - name: Catalog snapshot is untouched by build
         run: git diff --exit-code -- core_ai/src/core_ai/models/generated.py

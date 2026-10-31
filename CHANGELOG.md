@@ -1,8 +1,27 @@
 # Changelog
 
-## 0.0.5 — 2026-10-28
+## 0.0.5 — 2026-10-31
 
-Fix release for `symphony-code` and `symphony-core`. `symphony-harness` stays at 0.0.1.
+Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.5.
+
+- The TUI shows estimated session cost in the footer, with a per-model breakdown;
+  costs persist across session restoration. Estimates use catalog token prices,
+  including cache and Gemini reasoning usage; models without prices contribute zero.
+- The top bar lists session artifacts and live background task counts; the dashboard
+  shows background tasks. Artifact capture excludes Vite and app project pages.
+- The agent loads workspace `AGENTS.md` instructions (up to 8,000 bytes), asks
+  for matching skills before acting, discovers nested skills and shared
+  `~/.agents/skills`, and includes a model-picking skill. Tool descriptions and
+  prompts now better match the available tools and encourage reporting what checks proved.
+- Subagents default to a low-ranked model from the parent's provider when one is
+  available, and requests for larger models are bounded by that selection.
+- Coding-agent tools require an `activity` with nonempty `verb` and `reason`;
+  the harness validates these fields before executing any tool whose schema
+  requires activity. Tools without that requirement are unaffected.
+- Gemini tool schemas inline references, and Gemini thought content stays out of
+  assistant text. Reasoning summaries reset at stream-block boundaries, while the
+  TUI maintains one live thought across reasoning snapshots.
+- A saved model takes precedence over environment defaults.
 
 - The model catalog drops ids the providers no longer serve. Gemini defaults to
   `gemini-3.8-flash`. Gemini 2.5, Deep Research, the computer-use preview,

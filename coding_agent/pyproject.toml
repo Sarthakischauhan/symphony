@@ -10,8 +10,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "symphony-core",
-    "symphony-harness",
+    "symphony-core>=0.0.5",
+    "symphony-harness>=0.0.5",
     "pillow>=12.3.0",
     "pydantic>=2.0.0",
     # coding_agent.tls: stdlib HTTPS on uv-managed Pythons without a CA store.
