@@ -566,13 +566,14 @@ def test_topbar_artifacts_open_latest_version(tmp_path: Path, monkeypatch: pytes
             app.add_artifact("Image", "image · v1", first)
             app.add_artifact("Updated image", "image · v2", latest)
             await pilot.pause()
+            from coding_agent.tui.transcript.artifact import ArtifactRow
+
+            assert not app.query(ArtifactRow)
             topbar = app.query_one(TopBar)
             assert "1 artifact" in _render_plain(topbar.content, width=120)
             await pilot.click("#topbar", offset=(101, 0))
             await pilot.pause()
             assert app.screen.__class__.__name__ == "ArtifactsScreen"
-            from coding_agent.tui.transcript.artifact import ArtifactRow
-
             rows = list(app.screen.query(ArtifactRow))
             assert len(rows) == 1 and rows[0].path == latest
             await pilot.click(ArtifactRow)

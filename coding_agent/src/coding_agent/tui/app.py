@@ -414,7 +414,7 @@ class CodingAgentApp(
     def action_dashboard(self) -> None:
         from coding_agent.tui.screens.dashboard import AgentDashboard
 
-        self.push_screen(AgentDashboard())
+        self.push_screen(AgentDashboard(self._agent.harness if self._agent is not None else None))
 
     def _register_active_session(self) -> None:
         agent = self._agent

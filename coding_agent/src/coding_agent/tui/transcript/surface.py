@@ -17,7 +17,6 @@ from textual.containers import VerticalScroll
 from textual.geometry import Offset
 from textual.widget import Widget
 
-from coding_agent.tui.transcript.artifact import ArtifactRow
 from coding_agent.tui.transcript.messages import (
     AssistantMessage,
     Notice,
@@ -291,8 +290,6 @@ class TranscriptSurface:
             self._mount_transcript(notice)
 
     def add_artifact(self, title: str, detail: str, path: Path) -> None:
-        # In the transcript, not the run's work, so collapsing the run keeps it visible.
-        self._mount_transcript(ArtifactRow(title, detail, path))
         # Stored paths are artifacts/<id>/v<version>/<entry>, possibly nested.
         version_dir = next((parent for parent in path.parents if parent.name.startswith("v")
                             and parent.name[1:].isdigit() and parent.parent.parent.name == "artifacts"), None)
