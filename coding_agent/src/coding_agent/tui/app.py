@@ -164,6 +164,7 @@ class CodingAgentApp(
         self._tool_groups: dict[str, ToolCallSummary] = {}
         self._open_tool_group: Optional[ToolCallSummary] = None
         self._subagents: dict[str, SubagentRecord] = {}
+        self._session_artifacts: dict[Path, tuple[str, str, Path]] = {}
         self._file_index = WorkspaceFileIndex(self.workspace)
         self._pending_question_id: str | None = None
         self._pending_question_agent_id = ""
@@ -293,6 +294,13 @@ class CodingAgentApp(
         if not costs:
             return
         self.push_screen(CostBreakdownScreen(costs))
+
+    def show_artifacts(self) -> None:
+        """Open the latest version of each session artifact in a list."""
+        from coding_agent.tui.screens.artifacts import ArtifactsScreen
+
+        if self._session_artifacts:
+            self.push_screen(ArtifactsScreen(list(self._session_artifacts.values())))
 
     def show_model_picker(self) -> None:
         """Open the same model list as ``/model``, from a click on the model name."""
