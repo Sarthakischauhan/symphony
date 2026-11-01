@@ -12,7 +12,7 @@ from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
 
 class SkillArgs(ToolArgsModel):
-    skill_id: str = Field(..., min_length=1, description="Skill id from the catalog, e.g. 'bundled/orient-first'.")
+    skill_id: str = Field(..., min_length=1, description="Skill id from the catalog, e.g. 'bundled/systematic-debug'.")
     resource: str = Field(
         default="",
         description="Optional file inside the skill (a path listed under resources). Empty loads SKILL.md.",
@@ -31,6 +31,9 @@ class SkillTool(WorkspaceTool):
     def __init__(self, workspace: str | Path, *, registry: SkillRegistry) -> None:
         self.registry = registry
         super().__init__(workspace, parallel=True)
+        catalog = ", ".join(skill.catalog_line().removeprefix("- ") for skill in registry.skills)
+        if catalog:
+            self.description = f"{type(self).description} Available: {catalog}."
 
     def run(self, skill_id: str, resource: str = "") -> str:
         try:
@@ -44,6 +47,8 @@ class SkillTool(WorkspaceTool):
         if resource:
             return text
         header = [f"# skill {skill.skill_id}"]
+        if skill.skill_id != skill_id:
+            header.append(f"(loaded for the retired id {skill_id})")
         if skill.args:
             header.append(f"args: {render_args(skill.args)}")
         if skill.resources:

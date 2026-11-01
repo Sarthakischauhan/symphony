@@ -9,7 +9,8 @@ from textual.widgets import Static
 
 from coding_agent.addons.skills.args import ExtensionArg
 from coding_agent.addons.plugins import LoadedPlugin, PluginConfig
-from coding_agent.addons.plugins.manager import PluginManager
+from coding_agent.addons.plugins.manager import PluginManager, bundled_plugins_root
+from coding_agent.addons.skills.registry import SkillRegistry
 from coding_agent.addons.skills import Skill
 from coding_agent.tui.screens.extensions import ExtensionsModal
 
@@ -25,6 +26,49 @@ def _write_plugin(root: Path, plugin_id: str = "demo") -> Path:
     return plugin
 
 
+def test_shipped_reliability_plugin_loads_without_code(tmp_path):
+    root = bundled_plugins_root() / "reliability"
+    result = PluginManager(tmp_path).load([PluginConfig(path=root)])
+    assert result.diagnostics == () and result.addons == []
+    assert result.plugins == (
+        LoadedPlugin(
+            "reliability",
+            "Shipped instructions that keep a coding task complete: a failing test first, then the code, the tests, and a fresh verification run.",
+            root.resolve(),
+            True,
+        ),
+    )
+    registry, diagnostics = SkillRegistry.discover(result.skill_roots)
+    assert diagnostics == ()
+    assert {skill.name for skill in registry.skills} == {"finish-the-task", "test-first"}
+
+
+def test_user_plugin_replaces_shipped_plugin_with_the_same_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
+    shipped = bundled_plugins_root() / "reliability"
+    user = tmp_path / "home" / ".symphony" / "plugins" / "reliability"
+    user.mkdir(parents=True)
+    (user / "plugin.json").write_text(
+        '{"schema_version": 1, "id": "reliability", "description": "Local replacement.", "skills": ["skills"]}',
+        encoding="utf-8",
+    )
+    (user / "skills" / "test-first").mkdir(parents=True)
+    (user / "skills" / "test-first" / "SKILL.md").write_text(
+        "---\nname: test-first\ndescription: Replaced.\n---\nLOCAL\n",
+        encoding="utf-8",
+    )
+    entries = PluginManager(tmp_path / "repo").discover()
+    result = PluginManager(tmp_path / "repo").load(entries)
+    assert result.diagnostics == ()
+    assert [plugin.plugin_id for plugin in result.plugins] == ["reliability"]
+    assert result.plugins[0].root == user.resolve()
+    registry, diagnostics = SkillRegistry.discover(result.skill_roots)
+    assert diagnostics == ()
+    assert registry.get("plugin/reliability/test-first").description == "Replaced."
+    assert "finish-the-task" not in {skill.name for skill in registry.skills}
+    assert shipped.is_dir()
+
+
 def test_plugin_discovery_finds_user_scope_only(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
     workspace = tmp_path / "repo"
@@ -33,7 +77,8 @@ def test_plugin_discovery_finds_user_scope_only(tmp_path, monkeypatch):
 
     entries = PluginManager(workspace).discover()
 
-    assert {entry.path for entry in entries} == {user_plugin.resolve()}
+    assert user_plugin.resolve() in {entry.path for entry in entries}
+    assert not any(entry.path.is_relative_to(workspace.resolve()) for entry in entries)
 
 
 def test_plugin_discovery_ignores_directories_without_manifest(tmp_path, monkeypatch):
@@ -41,7 +86,7 @@ def test_plugin_discovery_ignores_directories_without_manifest(tmp_path, monkeyp
     workspace = tmp_path / "repo"
     (workspace / ".symphony" / "plugins" / "not-a-plugin").mkdir(parents=True)
 
-    assert PluginManager(workspace).discover() == ()
+    assert all(entry.path.is_relative_to(bundled_plugins_root().resolve()) for entry in PluginManager(workspace).discover())
 
 
 def _manifest(root: Path, **fields: object) -> Path:
