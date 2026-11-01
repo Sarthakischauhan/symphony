@@ -204,7 +204,7 @@ def test_addon_startup_failure_restores_ui_and_closes(monkeypatch, startup):
         harness.addons.append(addon)
 
     monkeypatch.setattr(addon_module, "VoiceAddon", Addon)
-    harness = SimpleNamespace(addons=[], register_addon=register)
+    harness = SimpleNamespace(addons=[], child_tasks={}, register_addon=register)
     app = FakeApp()
     app._agent = SimpleNamespace(harness=harness)
     voice_mode.start_voice(app, capture=Capture(), transcriber=Transcriber("hello"))
@@ -234,7 +234,7 @@ def test_existing_addon_is_armed_for_each_voice_turn(monkeypatch):
     monkeypatch.setattr(addon_module, "VoiceAddon", Addon)
     addon = Addon()
     app = FakeApp()
-    app._agent = SimpleNamespace(harness=SimpleNamespace(addons=[addon]))
+    app._agent = SimpleNamespace(harness=SimpleNamespace(addons=[addon], child_tasks={}))
     assert voice_mode.ensure_voice_addon(app) == ""
     assert voice_mode.ensure_voice_addon(app) == ""
     assert addon.arms == 2

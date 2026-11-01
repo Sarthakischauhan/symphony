@@ -69,6 +69,13 @@ class ScriptedTranscriber:
         return self.text
 
 
+class _NoJobsApp(CodingAgentApp):
+    """App whose stand-in agent has no harness, so it reports no background jobs."""
+
+    def background_task_count(self) -> int:
+        return 0
+
+
 def test_voice_uses_grok_oauth_when_no_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from coding_agent.tui.composer.voice import grok_voice_credentials
 
@@ -198,7 +205,7 @@ def test_voice_command_is_discoverable() -> None:
 
 
 def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) -> None:
-    app = CodingAgentApp(workspace=tmp_path)
+    app = _NoJobsApp(workspace=tmp_path)
     started: list[str] = []
     app._agent = object()
     app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
@@ -244,7 +251,7 @@ def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) ->
 
 
 def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    app = CodingAgentApp(workspace=tmp_path)
+    app = _NoJobsApp(workspace=tmp_path)
     submitted: list[str] = []
     app._agent = object()
     app._start_turn = lambda turn: submitted.append(turn.text)  # type: ignore[method-assign]
@@ -367,7 +374,7 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
 
 
 def test_escape_leaves_voice_mode_without_a_turn(tmp_path: Path) -> None:
-    app = CodingAgentApp(workspace=tmp_path)
+    app = _NoJobsApp(workspace=tmp_path)
     started: list[str] = []
     app._agent = object()
     app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]

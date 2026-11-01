@@ -154,6 +154,7 @@ def test_tui_escape_stops_in_flight_turn(
             await pilot.pause()
 
             class FakeAgent:
+                harness = SimpleNamespace(child_tasks={})
                 async def run(self, user_input: str, **kwargs: object) -> HarnessResult:
                     del user_input, kwargs
                     await asyncio.sleep(30)
@@ -185,6 +186,7 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
     max_concurrent = 0
 
     class FakeAgent:
+        harness = SimpleNamespace(child_tasks={})
         async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
             del kwargs
             nonlocal concurrent, max_concurrent
@@ -235,6 +237,7 @@ def test_queued_follow_up_starts_after_current_run_finishes(
     gate = asyncio.Event()
 
     class FakeAgent:
+        harness = SimpleNamespace(child_tasks={})
         async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
             del kwargs
             label = str(user_input)
@@ -273,6 +276,7 @@ def test_escape_keeps_queued_follow_up(
     started: list[str] = []
 
     class FakeAgent:
+        harness = SimpleNamespace(child_tasks={})
         async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
             del kwargs
             started.append(str(user_input))
@@ -362,6 +366,7 @@ def test_tui_quit_cancels_pending_learning(
             cancelled.append("shutdown")
 
     class FakeAgent:
+        harness = SimpleNamespace(child_tasks={})
         learning_loop = FakeLearning()
 
         async def shutdown_learning(self) -> None:
@@ -776,6 +781,7 @@ def test_pasted_prompt_is_compacted_without_changing_agent_input(
     calls: list[str] = []
 
     class FakeAgent:
+        harness = SimpleNamespace(child_tasks={})
         learning_loop = None
 
         async def run(self, user_input: str) -> HarnessResult:
