@@ -15,6 +15,7 @@ from coding_agent.tui.chrome.session import ArtifactEntry
 from coding_agent.addons.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
 from coding_agent.tui.runtime.events import _duration
 from coding_agent.tui.tools.activity import choose_completion_verb
+from coding_agent.tui.tools.calls import ToolCallWidget
 from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.tools.snapshots import (
     CompletedRunSummary,
@@ -29,9 +30,11 @@ from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
 
 class HistoryView(Protocol):
+    _tools: dict[str, ToolCallWidget]
+
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
-    def mount_transcript(self, widget: Any) -> None: ...
+    def mount_transcript_batch(self, widgets: list[Any]) -> None: ...
 
     def reset_session_chrome(self, session: SessionChrome) -> None: ...
 
@@ -56,20 +59,11 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     )
     view.add_notice(f"Resumed session · {agent.session_id}")
 
-    load_events = getattr(agent.persistence, "load_events", None)
-    events = await load_events(session_id=agent.session_id) if callable(load_events) else []
+    store = agent.session_store
+    events = await store.load_events(session_id=agent.session_id) if store is not None else []
     restored = _history_widgets(messages, events)
-    tools = getattr(view, "_tools", None)
-    if isinstance(tools, dict):
-        from coding_agent.tui.tools.calls import ToolCallWidget
-
-        tools.update((widget.call_id, widget) for widget in restored if isinstance(widget, ToolCallWidget))
-    mount_batch = getattr(view, "mount_transcript_batch", None)
-    if callable(mount_batch):
-        mount_batch(restored)
-    else:
-        for widget in restored:
-            view.mount_transcript(widget)
+    view._tools.update((widget.call_id, widget) for widget in restored if isinstance(widget, ToolCallWidget))
+    view.mount_transcript_batch(restored)
     view.finalize_transcript_history()
 
 

@@ -23,6 +23,7 @@ import re
 from collections.abc import Iterator
 
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from markdown_it.tree import SyntaxTreeNode
 from rich.console import Group, RenderableType
 from rich.padding import Padding
@@ -178,9 +179,9 @@ def _stable_prefix_end(source: str, display_text: str, scan_start: int) -> tuple
     return frozen, start if keep < len(closed) else frozen
 
 
-def _tail_can_extend(token: object) -> bool:
+def _tail_can_extend(token: Token) -> bool:
     """A following paragraph can continue these top-level containers."""
-    return getattr(token, "type", "") in {
+    return token.type in {
         "bullet_list_close",
         "ordered_list_close",
         "blockquote_close",

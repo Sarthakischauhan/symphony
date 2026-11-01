@@ -27,6 +27,15 @@ def _highlight_provider(app: OnboardApp, provider_id: str) -> None:
     )
 
 
+async def _no_children() -> None:
+    return None
+
+
+def _no_submit(op: object) -> bool:
+    del op
+    return False
+
+
 async def _choose_api_key(pilot: Any, app: Any) -> None:
     listing = app.query_one("#provider-list", OptionList)
     listing.highlighted = 1
@@ -336,8 +345,11 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
             child_tasks={},
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
             find_addon=lambda _kind: None,
+            shutdown_children=_no_children,
+            submit=_no_submit,
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
+        shutdown_learning=_no_children,
         learning_loop=None,
         set_mode=lambda _mode: None,
         user_addons=no_user_addons(),
@@ -358,8 +370,11 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
             await pilot.pause()
             app._agent = SimpleNamespace(
                 session_id="current-session",
-                harness=SimpleNamespace(reasoning_effort=None, child_tasks={}),
+                harness=SimpleNamespace(
+                    reasoning_effort=None, child_tasks={}, shutdown_children=_no_children, submit=_no_submit
+                ),
                 registry=SimpleNamespace(namespaces=lambda: ("openai",)),
+                shutdown_learning=_no_children,
                 learning_loop=None,
                 user_addons=no_user_addons(),
                 dispose_user_addons=lambda: None,

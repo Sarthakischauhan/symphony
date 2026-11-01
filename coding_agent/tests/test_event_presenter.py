@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 import pytest
 
@@ -11,6 +11,7 @@ from core_harness import CoreHarness, HarnessConfig
 
 from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.evaluation.evaluators import StubEvaluator
+from coding_agent.addons.evaluation.policy import PolicyDecision
 from coding_agent.config import EvaluationConfig
 from coding_agent.tui.runtime.events import EventPresenter
 from coding_agent.tui.runtime.state import UiRunState
@@ -36,7 +37,6 @@ class RecordingView:
         self.thinking: list[str] = []
         self.working: list[str] = []
         self.finished_process: list[str] = []
-        self._agent = None
 
     def set_assistant(self, text: str, *, new: bool = False) -> None:
         self.assistant.append((text, new))
@@ -116,6 +116,7 @@ def _presenter(
     *,
     schedule: list | None = None,
     chrome: list[str] | None = None,
+    jev_decision: Callable[[], Optional[PolicyDecision]] | None = None,
 ) -> tuple[EventPresenter, RecordingView, list[str]]:
     view = RecordingView()
     status_calls = chrome if chrome is not None else []
@@ -127,6 +128,8 @@ def _presenter(
     )
     if schedule is not None:
         kwargs["schedule_flush"] = schedule.append
+    if jev_decision is not None:
+        kwargs["jev_decision"] = jev_decision
     presenter = EventPresenter(**kwargs)
     return presenter, view, status_calls
 
@@ -518,28 +521,24 @@ def test_compaction_completed_without_estimate_keeps_metrics() -> None:
 
 
 def test_jev_recommendation_update_toastable_vs_silent() -> None:
-    from types import SimpleNamespace
-
     from coding_agent.tui.runtime.events import jev_recommendation_update
 
     assert jev_recommendation_update(None) is None
     for action in ("replan", "retry", "review", "gather", "ask"):
-        text = jev_recommendation_update(SimpleNamespace(action=action, reason="need more context"))
+        text = jev_recommendation_update(PolicyDecision(action=action, reason="need more context"))
         assert text == f"Jev → {action}: need more context"
-    for action in ("continue_normally", "finish", "continue", None):
-        assert jev_recommendation_update(SimpleNamespace(action=action, reason="done")) is None
+    for action in ("continue_normally", "finish", "continue"):
+        assert jev_recommendation_update(PolicyDecision(action=action, reason="done")) is None
 
 
 def test_jev_recommendation_update_clips_reason() -> None:
-    from types import SimpleNamespace
-
     from coding_agent.tui.runtime.events import (
         _JEV_TOAST_REASON_LIMIT,
         jev_recommendation_update,
     )
 
     long_reason = "x" * (_JEV_TOAST_REASON_LIMIT + 40)
-    text = jev_recommendation_update(SimpleNamespace(action="retry", reason=long_reason))
+    text = jev_recommendation_update(PolicyDecision(action="retry", reason=long_reason))
     assert text is not None
     assert text.startswith("Jev → retry: ")
     clipped = text.removeprefix("Jev → retry: ")
@@ -547,7 +546,7 @@ def test_jev_recommendation_update_clips_reason() -> None:
     assert clipped.endswith("…")
 
 
-def _harness_with_jev_decision(decision: Any) -> CoreHarness:
+def _harness_with_jev_decision(decision: Optional[PolicyDecision]) -> CoreHarness:
     jev = JevAddon(EvaluationConfig(), evaluator=StubEvaluator())
     jev.last_decision = decision
     return CoreHarness(
@@ -560,31 +559,35 @@ def _harness_with_jev_decision(decision: Any) -> CoreHarness:
 
 
 def test_run_completed_shows_jev_toast_for_user_facing_decision() -> None:
-    from types import SimpleNamespace
-
-    presenter, view, _ = _presenter()
-    view._agent = SimpleNamespace(
-        harness=_harness_with_jev_decision(SimpleNamespace(action="review", reason="claims look unsupported"))
-    )
+    decision = PolicyDecision(action="review", reason="claims look unsupported")
+    presenter, view, _ = _presenter(jev_decision=lambda: decision)
     presenter.handle("run_started", {"ts": 1.0})
     presenter.handle("run_completed", {"ts": 2.0, "output_text": "done"})
     assert view.updates == ["Jev → review: claims look unsupported"]
 
 
 def test_run_completed_skips_toast_when_jev_silent_or_missing() -> None:
-    from types import SimpleNamespace
-
     presenter, view, _ = _presenter()
     presenter.handle("run_started", {"ts": 1.0})
     presenter.handle("run_completed", {"ts": 2.0})
     assert view.updates == []
 
-    view._agent = SimpleNamespace(
-        harness=_harness_with_jev_decision(SimpleNamespace(action="continue_normally", reason="ok"))
-    )
+    silent = PolicyDecision(action="continue_normally", reason="ok")
+    presenter, view, _ = _presenter(jev_decision=lambda: silent)
     presenter.handle("run_started", {"ts": 3.0})
     presenter.handle("run_completed", {"ts": 4.0})
     assert view.updates == []
+
+
+def test_turn_surface_reads_the_jev_decision_from_the_live_harness() -> None:
+    from types import SimpleNamespace
+
+    from coding_agent.tui.runtime.turn import TurnSurface
+
+    decision = PolicyDecision(action="review", reason="claims look unsupported")
+    app = SimpleNamespace(_agent=SimpleNamespace(harness=_harness_with_jev_decision(decision)))
+    assert TurnSurface.jev_decision(app) is decision
+    assert TurnSurface.jev_decision(SimpleNamespace(_agent=None)) is None
 
 
 @pytest.mark.parametrize("stream", ["text", "reasoning"])

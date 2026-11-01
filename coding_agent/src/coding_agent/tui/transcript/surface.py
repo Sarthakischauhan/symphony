@@ -134,9 +134,7 @@ class TranscriptSurface:
             self._assistant.finish_stream()
 
     def invalidate_workspace_caches(self) -> None:
-        index = getattr(self, "_file_index", None)
-        if index is not None:
-            index.invalidate()
+        self._file_index.invalidate()
 
     def set_thinking(self, text: str) -> None:
         if self._thinking is None:

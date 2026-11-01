@@ -375,17 +375,20 @@ class CodingAgent:
             addon_factory=self._child_addons,
         )
 
+    @property
+    def session_store(self) -> Optional[JsonlPersistence]:
+        """The on-disk store behind this agent; None for a store that keeps nothing on disk."""
+        return self.persistence if isinstance(self.persistence, JsonlPersistence) else None
+
     def _session_dir(self, session_id: str) -> Optional[Path]:
         """Where ``session_id`` keeps its files; None for a store that is not on disk."""
-        if isinstance(self.persistence, JsonlPersistence):
-            return self.persistence.session_dir(session_id)
-        return None
+        store = self.session_store
+        return store.session_dir(session_id) if store is not None else None
 
     def session_costs(self, session_id: str) -> dict[str, float]:
         """The saved per-model cost of ``session_id``; empty for a store that does not record cost."""
-        if isinstance(self.persistence, JsonlPersistence):
-            return self.persistence.session_costs(session_id)
-        return {}
+        store = self.session_store
+        return store.session_costs(session_id) if store is not None else {}
 
     def bind_session(self, session_id: str) -> None:
         """Make ``session_id`` the active session for this agent, its harness and its learning store."""

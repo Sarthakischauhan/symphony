@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -39,7 +39,8 @@ class PromptInput(TextArea):
 
     COMPACT_PASTE_AFTER = UserMessage.COMPACT_PASTE_AFTER
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, voice_active: Callable[[], bool], **kwargs: Any) -> None:
+        self._voice_active = voice_active
         self._pasted_chunks: list[tuple[str, str]] = []
         self._images: list[ImageAttachment] = []
         self._image_seq = 0
@@ -73,7 +74,7 @@ class PromptInput(TextArea):
             return
         # Voice mode is listening. Enter commits the utterance; it must not
         # submit the partial transcript as a typed turn.
-        if getattr(self.app, "_voice_active", False):
+        if self._voice_active():
             from coding_agent.tui.composer.voice_mode import commit_voice
 
             commit_voice(self.app)
@@ -208,6 +209,10 @@ class QueuedPrompt(Container):
 class Composer(Container):
     """Borderless prompt under a thin separator, for composing messages."""
 
+    def __init__(self, *, voice_active: Callable[[], bool], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._voice_active = voice_active
+
     def compose(self):  # type: ignore[no-untyped-def]
         yield QueuedPrompt(id="queued-prompt-row")
         with Horizontal(id="composer-row"):
@@ -216,4 +221,5 @@ class Composer(Container):
                 id="prompt",
                 soft_wrap=True,
                 show_line_numbers=False,
+                voice_active=self._voice_active,
             )
