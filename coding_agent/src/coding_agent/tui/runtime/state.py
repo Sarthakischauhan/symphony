@@ -62,6 +62,26 @@ class UiRunState:
         )
         self.detail = "starting"
 
+    def restore_session(self, *, tokens_used: int, context_limit: Optional[int], costs: Mapping[str, float]) -> None:
+        """Replace every session-scoped figure with the one session's.
+
+        ``reset_for_run`` keeps context usage and spend across turns on purpose.
+        A different session (``/new``, resume) must not inherit them.
+        """
+        self.phase = "idle"
+        self.detail = "ready"
+        self.turn = None
+        self.stream_text = ""
+        self.reasoning_text = ""
+        self.tool_args_preview = ""
+        self.metrics = RunMetrics(
+            tokens_used=tokens_used,
+            session_cost=sum(costs.values()),
+            priced_model=next(reversed(costs), ""),
+            model_costs=dict(costs),
+        )
+        self.set_context_limit(context_limit)
+
     def begin_turn(self, turn: int) -> None:
         self.turn = turn
         self.phase = "thinking"

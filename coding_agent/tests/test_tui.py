@@ -38,6 +38,7 @@ from core_harness.context import (
 from coding_agent.agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LearningConfig, ApprovalConfig
 from coding_agent.tui.app import CodingAgentApp
+from coding_agent.tui.chrome import SessionChrome
 from coding_agent.tui.composer import QueuedTurn
 from coding_agent.tui.commands import (
     EFFORT_CATALOG,
@@ -1091,7 +1092,7 @@ def test_history_hides_compaction_summary() -> None:
         def mount_transcript(self, widget: Any) -> None:
             self.mounted.append(widget)
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
 
         def finalize_transcript_history(self) -> None:
@@ -1150,8 +1151,8 @@ def test_history_uses_compacted_projection_for_context_metrics() -> None:
         def mount_transcript(self, widget: Any) -> None:
             pass
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
-            self.metrics = (tokens_used, context_limit)
+        def reset_session_chrome(self, session: SessionChrome) -> None:
+            self.metrics = (session.tokens_used, session.context_limit)
 
         def finalize_transcript_history(self) -> None:
             pass
@@ -1209,7 +1210,7 @@ def test_history_resume_folds_tools_into_explored() -> None:
         def mount_transcript(self, widget: Any) -> None:
             self.mounted.append(widget)
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
 
         def finalize_transcript_history(self) -> None:
@@ -1294,7 +1295,7 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
         def mount_transcript(self, widget: Any) -> None:
             self.mounted.append(widget)
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
 
         def finalize_transcript_history(self) -> None:
@@ -1427,7 +1428,7 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
         def mount_transcript(self, widget: Any) -> None:
             self.mounted.append(widget)
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
 
         def finalize_transcript_history(self) -> None:
@@ -1539,7 +1540,7 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
         def mount_transcript(self, widget: Any) -> None:
             self.mounted.append(widget)
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
 
         def finalize_transcript_history(self) -> None:
@@ -1608,7 +1609,7 @@ def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
         def mount_transcript(self, widget: Any) -> None:
             self.mounted.append(widget)
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
+        def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
 
         def finalize_transcript_history(self) -> None:
@@ -3059,6 +3060,10 @@ def test_reasoning_usage_without_summary_skips_reasoning_block(
     asyncio.run(_run())
 
 
+async def _no_children() -> None:
+    return None
+
+
 @pytest.mark.slow
 def test_slash_menu_and_commands(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -3079,6 +3084,8 @@ def test_slash_menu_and_commands(
                 reasoning_effort=None,
                 session_id="old-session",
                 state=FakeState(),
+                shutdown_children=_no_children,
+                drain_child_results=list,
             )
             self.learning_loop = None
             self.compacted = False
@@ -3252,7 +3259,7 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
         async with app.run_test() as pilot:
             await pilot.pause()
             app._agent = FakeAgent(app.sink)  # type: ignore[assignment]
-            app.set_context_metrics(90_000, 120_000)
+            app.reset_session_chrome(SessionChrome(context_limit=120_000, tokens_used=90_000))
             assert "75% context" in _footer_text(app)
             app._presenter._on_compaction_started({"message_count": 40})
             overlay = app.query_one("#composer-overlay", ComposerOverlay)
