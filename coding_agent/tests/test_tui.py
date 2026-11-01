@@ -28,6 +28,7 @@ from textual.widgets import OptionList, Static
 
 from core_ai.types import Message, StreamEvent
 from coding_agent.addons.persistence import JsonlPersistence
+from coding_agent.addons.persistence.jsonl import SessionSummary
 from coding_agent.tui.screens import ContextModal
 from core_harness import HarnessResult
 from core_harness.context import (
@@ -154,7 +155,12 @@ def test_tui_escape_stops_in_flight_turn(
             await pilot.pause()
 
             class FakeAgent:
-                harness = SimpleNamespace(child_tasks={})
+                user_addons = no_user_addons()
+                learning_store = None
+                async def shutdown_learning(self) -> None:
+                    return None
+
+                harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
                 async def run(self, user_input: str, **kwargs: object) -> HarnessResult:
                     del user_input, kwargs
                     await asyncio.sleep(30)
@@ -186,7 +192,12 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
     max_concurrent = 0
 
     class FakeAgent:
-        harness = SimpleNamespace(child_tasks={})
+        user_addons = no_user_addons()
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
+        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
         async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
             del kwargs
             nonlocal concurrent, max_concurrent
@@ -237,7 +248,12 @@ def test_queued_follow_up_starts_after_current_run_finishes(
     gate = asyncio.Event()
 
     class FakeAgent:
-        harness = SimpleNamespace(child_tasks={})
+        user_addons = no_user_addons()
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
+        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
         async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
             del kwargs
             label = str(user_input)
@@ -276,7 +292,12 @@ def test_escape_keeps_queued_follow_up(
     started: list[str] = []
 
     class FakeAgent:
-        harness = SimpleNamespace(child_tasks={})
+        user_addons = no_user_addons()
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
+        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
         async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
             del kwargs
             started.append(str(user_input))
@@ -366,7 +387,9 @@ def test_tui_quit_cancels_pending_learning(
             cancelled.append("shutdown")
 
     class FakeAgent:
-        harness = SimpleNamespace(child_tasks={})
+        user_addons = no_user_addons()
+        learning_store = None
+        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
         learning_loop = FakeLearning()
 
         async def shutdown_learning(self) -> None:
@@ -781,7 +804,12 @@ def test_pasted_prompt_is_compacted_without_changing_agent_input(
     calls: list[str] = []
 
     class FakeAgent:
-        harness = SimpleNamespace(child_tasks={})
+        user_addons = no_user_addons()
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
+        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
         learning_loop = None
 
         async def run(self, user_input: str) -> HarnessResult:
@@ -868,8 +896,13 @@ def test_dropped_image_becomes_clickable_chip(
     calls: list[object] = []
 
     class FakeAgent:
+        user_addons = no_user_addons()
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
         learning_loop = None
-        harness = SimpleNamespace(child_tasks={})
+        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
 
         async def run(self, user_input: object) -> HarnessResult:
             calls.append(user_input)
@@ -1097,8 +1130,10 @@ def test_history_hides_compaction_summary() -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             pass
 
-        def mount_transcript(self, widget: Any) -> None:
-            self.mounted.append(widget)
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
@@ -1109,6 +1144,7 @@ def test_history_hides_compaction_summary() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_store=None,
         session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
@@ -1157,7 +1193,9 @@ def test_history_uses_compacted_projection_for_context_metrics() -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             pass
 
-        def mount_transcript(self, widget: Any) -> None:
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
             pass
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
@@ -1169,6 +1207,7 @@ def test_history_uses_compacted_projection_for_context_metrics() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_store=None,
         session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
@@ -1217,8 +1256,10 @@ def test_history_resume_folds_tools_into_explored() -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             pass
 
-        def mount_transcript(self, widget: Any) -> None:
-            self.mounted.append(widget)
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
@@ -1229,6 +1270,7 @@ def test_history_resume_folds_tools_into_explored() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_store=None,
         session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
@@ -1303,8 +1345,10 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             pass
 
-        def mount_transcript(self, widget: Any) -> None:
-            self.mounted.append(widget)
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
@@ -1315,6 +1359,7 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_store=None,
         session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
@@ -1437,8 +1482,10 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             pass
 
-        def mount_transcript(self, widget: Any) -> None:
-            self.mounted.append(widget)
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
@@ -1448,7 +1495,8 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
 
     agent = SimpleNamespace(
         artifacts=None,
-        persistence=Persistence(),
+        persistence=(store := Persistence()),
+        session_store=store,
         session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
@@ -1550,8 +1598,10 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             pass
 
-        def mount_transcript(self, widget: Any) -> None:
-            self.mounted.append(widget)
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
@@ -1561,7 +1611,8 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
 
     agent = SimpleNamespace(
         artifacts=None,
-        persistence=Persistence(),
+        persistence=(store := Persistence()),
+        session_store=store,
         session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
@@ -1620,8 +1671,10 @@ def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             pass
 
-        def mount_transcript(self, widget: Any) -> None:
-            self.mounted.append(widget)
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
             pass
@@ -1631,7 +1684,8 @@ def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
 
     agent = SimpleNamespace(
         artifacts=None,
-        persistence=Persistence(),
+        persistence=(store := Persistence()),
+        session_store=store,
         session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
@@ -1822,18 +1876,13 @@ def test_workspace_file_index_scans_once(
 def test_resume_options_use_existing_persistence_api() -> None:
     class Persistence:
         async def load_resume(self, *, session_id: str):
-            messages = await self.load_conversation(session_id=session_id)
+            messages = await self.load_transcript(session_id=session_id)
             return messages, messages
 
-        async def list_sessions(self) -> list[SimpleNamespace]:
-            return [
-                SimpleNamespace(
-                    session_id="saved-1",
-                    updated_at="2026-08-12T16:00:00+00:00",
-                )
-            ]
+        async def list_sessions(self) -> list[SessionSummary]:
+            return [SessionSummary(session_id="saved-1", updated_at="2026-08-12T16:00:00+00:00")]
 
-        async def load_conversation(self, *, session_id: str) -> list[Message]:
+        async def load_transcript(self, *, session_id: str) -> list[Message]:
             assert session_id == "saved-1"
             return [
                 Message(role="system", content="system"),
@@ -1934,6 +1983,11 @@ def test_textual_control_plane_parent_answers_child_question() -> None:
 
 def test_tui_run_agent_turn_delegates_to_agent(tmp_path: Path) -> None:
     class FakeAgent:
+        user_addons = no_user_addons()
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
         def __init__(self) -> None:
             self.calls: list[str] = []
 
@@ -2645,7 +2699,10 @@ def test_addon_slash_command_points_the_model_at_the_authoring_skill(
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            app._agent = SimpleNamespace()
+            app._agent = SimpleNamespace(
+                harness=SimpleNamespace(child_tasks={}, shutdown_children=_no_children, submit=_no_submit),
+                shutdown_learning=_no_children,
+            )
             started: list[QueuedTurn] = []
             app._start_turn = started.append  # type: ignore[method-assign]
             await app._run_slash_command("/addon make a greeting command")
@@ -3001,8 +3058,11 @@ def test_reload_refreshes_config_without_clearing_conversation(
             reasoning_effort=None,
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
             find_addon=lambda _kind: None,
+            shutdown_children=_no_children,
+            submit=_no_submit,
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
+        shutdown_learning=_no_children,
         learning_loop=None,
         user_addons=no_user_addons(),
     )
@@ -3024,7 +3084,10 @@ def test_reload_refreshes_config_without_clearing_conversation(
             app._agent = SimpleNamespace(
                 session_id="current-session",
                 learning_loop=None,
-                harness=SimpleNamespace(reasoning_effort="high"),
+                harness=SimpleNamespace(
+                    reasoning_effort="high", shutdown_children=_no_children, submit=_no_submit
+                ),
+                shutdown_learning=_no_children,
                 user_addons=no_user_addons(),
                 dispose_user_addons=lambda: None,
             )
@@ -3074,6 +3137,11 @@ async def _no_children() -> None:
     return None
 
 
+def _no_submit(op: object) -> bool:
+    del op
+    return False
+
+
 @pytest.mark.slow
 def test_slash_menu_and_commands(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -3087,6 +3155,10 @@ def test_slash_menu_and_commands(
             return 128_000
 
     class FakeAgent:
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
         def __init__(self) -> None:
             self.session_id = "old-session"
             self.harness = SimpleNamespace(
@@ -3101,6 +3173,7 @@ def test_slash_menu_and_commands(
             self.learning_loop = None
             self.compacted = False
             self.config = SimpleNamespace(personality="direct")
+            self.user_addons = no_user_addons()
 
         def apply_system_prompt(self) -> None:
             return None
@@ -3245,10 +3318,21 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
     app = CodingAgentApp(workspace=tmp_path)
 
     class FakeAgent:
+        user_addons = no_user_addons()
+        learning_store = None
+        async def shutdown_learning(self) -> None:
+            return None
+
         def __init__(self, plane: TextualEventSink) -> None:
             self.plane = plane
             self.session_id = "s"
-            self.harness = SimpleNamespace(model_id="openai:gpt-4o-mini", session_id="s", child_tasks={})
+            self.harness = SimpleNamespace(
+                model_id="openai:gpt-4o-mini",
+                session_id="s",
+                child_tasks={},
+                shutdown_children=_no_children,
+                submit=_no_submit,
+            )
             self.learning_loop = None
 
         async def compact_conversation(self) -> tuple[int, int]:

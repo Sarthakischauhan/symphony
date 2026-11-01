@@ -452,8 +452,10 @@ def test_resumed_tui_session_shows_its_artifact_rows(tmp_path: Path) -> None:
         def add_notice(self, text: str, tone: str = "info") -> None:
             del text, tone
 
-        def mount_transcript(self, widget: object) -> None:
-            del widget
+        _tools: dict[str, object] = {}
+
+        def mount_transcript_batch(self, widgets: list[object]) -> None:
+            del widgets
 
         def reset_session_chrome(self, session: SessionChrome) -> None:
             self.rows = list(session.artifacts.values())

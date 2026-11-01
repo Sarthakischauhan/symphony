@@ -48,6 +48,10 @@ class FakeHarness:
     def drain_child_results(self) -> list[Any]:
         return []
 
+    def submit(self, op: object) -> bool:
+        del op
+        return False
+
 
 async def fill_session(app: CodingAgentApp, harness: FakeHarness, artifact_dir: Path) -> asyncio.Task[None]:
     """A turn with usage, cost and an artifact, plus one running background task."""
@@ -83,7 +87,16 @@ def test_new_session_resets_top_bar_and_footer(monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
     harness = FakeHarness()
-    agent = SimpleNamespace(session_id="old-session", harness=harness, learning_loop=None)
+    async def shutdown_learning() -> None:
+        return None
+
+    agent = SimpleNamespace(
+        session_id="old-session",
+        harness=harness,
+        learning_loop=None,
+        session_costs=lambda _session_id: {},
+        shutdown_learning=shutdown_learning,
+    )
 
     def bind_session(session_id: str) -> None:
         agent.session_id = session_id

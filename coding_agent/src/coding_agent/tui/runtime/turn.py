@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Optional
 
 from textual import work
 
+from coding_agent.addons.evaluation.addon import JevAddon
+from coding_agent.addons.evaluation.policy import PolicyDecision
 from coding_agent.tui.chrome import (
     SessionChrome,
     TopBar,
@@ -46,8 +48,8 @@ class TurnSurface:
             # The footer has fixed width/height; metrics only change its paint.
             layout=False,
         )
-        model_id = self._ui_state.model_id or getattr(self, "model_id", "") or ""
-        if model_id != getattr(self, "_topbar_model", None):
+        model_id = self._ui_state.model_id or self.model_id or ""
+        if model_id != self._topbar_model:
             self._topbar_model = model_id
             self.query_one("#topbar", TopBar).set_context(self.workspace, model_id)
 
@@ -56,7 +58,7 @@ class TurnSurface:
         # A structural event can drain paints before this timer fires. Keep
         # the newest generation's callback rather than stranding its updates.
         self._stream_flush_callback = callback
-        if getattr(self, "_stream_flush_timer", None) is not None:
+        if self._stream_flush_timer is not None:
             return
 
         def _run() -> None:
@@ -93,32 +95,42 @@ class TurnSurface:
 
     def _collect_run_events(self, payload: Mapping[str, Any]) -> None:
         """Tag mid-run journal events as collected after the final output."""
-        agent = getattr(self, "_agent", None)
-        store = getattr(agent, "persistence", None)
-        collect = getattr(store, "collect_run_events", None)
-        if not callable(collect):
+        if self._agent is None:
             return
-        session_id = str(
-            payload.get("session_id") or getattr(agent, "session_id", "") or ""
-        )
+        store = self._agent.session_store
+        if store is None:
+            return
+        session_id = str(payload.get("session_id") or self._agent.session_id or "")
         run_id = str(payload.get("run_id") or "")
         if not session_id:
             return
 
         async def _persist() -> None:
-            annotate = getattr(store, "annotate_run_completed", None)
-            if callable(annotate):
-                elapsed = payload.get("elapsed_seconds")
-                await annotate(
-                    session_id=session_id,
-                    run_id=run_id,
-                    completion_verb=str(payload.get("completion_verb") or ""),
-                    duration=str(payload.get("duration") or ""),
-                    elapsed_seconds=float(elapsed) if isinstance(elapsed, (int, float)) else None,
-                )
-            await collect(session_id=session_id, run_id=run_id or None)
+            elapsed = payload.get("elapsed_seconds")
+            await store.annotate_run_completed(
+                session_id=session_id,
+                run_id=run_id,
+                completion_verb=str(payload.get("completion_verb") or ""),
+                duration=str(payload.get("duration") or ""),
+                elapsed_seconds=float(elapsed) if isinstance(elapsed, (int, float)) else None,
+            )
+            await store.collect_run_events(session_id=session_id, run_id=run_id or None)
 
         self.run_worker(_persist, exclusive=False, group="collect_run_events")
+
+    def jev_decision(self) -> Optional[PolicyDecision]:
+        """The Jev critic's last decision on the live agent, if one is mounted."""
+        if self._agent is None:
+            return None
+        addon = self._agent.harness.find_addon(JevAddon)
+        return addon.last_decision if addon is not None else None
+
+    def saved_costs(self, session_id: str) -> dict[str, float]:
+        """Per-model cost saved for ``session_id``, or for the live session when it is empty."""
+        if self._agent is None:
+            return {}
+        session_id = session_id or self._agent.session_id
+        return self._agent.session_costs(session_id) if session_id else {}
 
     def feed_voice(self, text: str) -> None:
         from coding_agent.tui.composer.voice_mode import feed_voice
@@ -219,13 +231,12 @@ class TurnSurface:
                 self._pending_question_id = None
                 self._pending_question_default = ""
             self.sink.reset_cancel()
-            voice_addon = getattr(self, "_voice_addon", None)
-            if getattr(voice_addon, "_armed", False):
+            if self._voice_addon is not None and self._voice_addon.armed:
                 # Failed/cancelled runs do not reach the harness after_run hook.
                 from coding_agent.tui.composer.voice_mode import close_voice_addon
 
                 close_voice_addon(self)
-            if getattr(self, "_voice_active", False):
+            if self._voice_active:
                 # The composer is hidden. Leave focus alone until voice mode ends.
                 return
             prompt = self.query_one("#prompt", PromptInput)

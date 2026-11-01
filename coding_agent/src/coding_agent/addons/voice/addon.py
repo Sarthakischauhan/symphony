@@ -37,6 +37,11 @@ class VoiceAddon(Addon):
         self._armed = False
         self._speaker: StreamingSpeaker | None = None
 
+    @property
+    def armed(self) -> bool:
+        """True while a microphone-originated run is waiting to be spoken."""
+        return self._armed
+
     def arm(self) -> None:
         """Opt in exactly one microphone-originated run; typed runs stay silent."""
         self._armed = True

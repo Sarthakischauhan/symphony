@@ -88,10 +88,8 @@ class ComposerSurface:
         self._busy = True
         self._set_status("")
         # The harness reads this once, on the run that is about to start.
-        agent = getattr(self, "_agent", None)
-        harness = getattr(agent, "harness", None)
-        if harness is not None:
-            harness.reply_aloud = bool(turn.voice)
+        if self._agent is not None:
+            self._agent.harness.reply_aloud = bool(turn.voice)
         # Let the submitted message paint before checkpoint and prompt setup.
         self.call_after_refresh(self.run_agent, turn.content)
 
@@ -183,7 +181,7 @@ class ComposerSurface:
                 current,
             )
         elif event.text_area.text.startswith("/personality "):
-            current = getattr(getattr(self, "config", None), "personality", None) or ""
+            current = self.config.personality or ""
             menu.set_personalities(
                 personality_matches(event.text_area.text.removeprefix("/personality ")),
                 current,
@@ -202,11 +200,8 @@ class ComposerSurface:
                 current,
             )
         else:
-            model_id = getattr(getattr(self._agent, "harness", None), "model_id", "")
-            try:
-                addon_commands = self._agent.user_addons.surface.slash_commands
-            except AttributeError:  # no agent yet, or a host agent without user addons
-                addon_commands = ()
+            model_id = self._agent.harness.model_id if self._agent is not None else ""
+            addon_commands = self._agent.user_addons.surface.slash_commands if self._agent is not None else ()
             menu.set_commands(
                 command_matches(
                     event.text_area.text,
@@ -314,9 +309,7 @@ class ComposerSurface:
         await self._command_manager.run(value)
 
     def add_update(self, text: str, hint: str = "") -> None:
-        """Show a banner above the composer. Only the app has one; composer-less
-        views such as the child transcript leave this undefined, so the event
-        presenter falls back to a transcript notice."""
+        """Show a banner above the composer."""
         overlay = self.query_one("#composer-overlay", ComposerOverlay)
         overlay.show(text, hint or DEFAULT_HINT)
 

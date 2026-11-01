@@ -11,11 +11,19 @@ from coding_agent.tui.composer.voice import GROK_VOICE_MODEL, UnavailableVoice
 
 class FakeApp:
     def __init__(self):
-        self._agent = object()
+        self._agent = SimpleNamespace(harness=None)
         self._busy = False
+        self._thread_id = -1  # never a real thread, so UI work is queued like a worker thread's
         self._voice_active = False
+        self._voice_finish = False
+        self._voice_text = ""
+        self._voice_parts = []
+        self._voice_border_light = True
         self._voice_timer = None
         self._voice_addon = None
+        self._voice_session = None
+        self._voice_capture = None
+        self._voice_transcriber = None
         self.workers = []
         self.callbacks = []
         self.notices = []
