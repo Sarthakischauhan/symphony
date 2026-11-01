@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, Collection, List, Optional, Union
 
 from core_ai.content import text_from_content
 from core_ai.models import list_models
@@ -49,11 +48,12 @@ from coding_agent.addons.learning import LearningLoop, LearningStore
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
 from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.config.personalities import compose_system_prompt
-from coding_agent.addons.plugins import LoadedPlugin, PluginManager
+from coding_agent.addons.plugins import PluginSet, resolve_plugins
 from coding_agent.config.prompts import SYSTEM_PROMPT
-from coding_agent.addons.skills import SkillSet, SkillSource, discover_skills
+from coding_agent.addons.skills import SkillRegistry, discover_skills
+from coding_agent.extensions import Diagnostic
 from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
-from core_harness.extensions import EMPTY_SNAPSHOT
+from core_harness.extensions import EMPTY_SNAPSHOT, ExtensionSnapshot
 from coding_agent.widget_fields import EventFields
 from coding_agent.tools import BashJobs, build_tools
 
@@ -231,45 +231,7 @@ class CodingAgent:
             if self.config.learning.enabled
             else None
         )
-        plugin_addons = []
-        self.plugin_diagnostics = ()
-        self.loaded_plugins: tuple[LoadedPlugin, ...] = ()
-        if self.config.plugins.enabled:
-            # Global config must not be able to authorize executable code.
-            # Authorization is supplied by the trusted process environment;
-            # config may only select already-authorized plugins.
-            trusted_roots = [
-                Path(value)
-                for value in os.environ.get("SYMPHONY_PLUGIN_AUTHORIZED_ROOTS", "").split(os.pathsep)
-                if value
-            ]
-            plugin_manager = PluginManager(self.workspace, authorized_roots=trusted_roots)
-            configured_plugins = tuple(self.config.plugins.entries)
-            discovered_plugins = plugin_manager.discover()
-            # Explicit entries override auto-discovered paths by resolved path;
-            # this keeps the installed layout convenient without losing settings.
-            configured_paths = {entry.path.expanduser().resolve() for entry in configured_plugins}
-            plugin_entries = configured_plugins + tuple(
-                entry for entry in discovered_plugins
-                if entry.path.expanduser().resolve() not in configured_paths
-            )
-            plugin_addons, plugin_skill_roots, self.loaded_plugins, self.plugin_diagnostics = (
-                plugin_manager.load(plugin_entries)
-            )
-            if self.plugin_diagnostics:
-                details = "; ".join(
-                    f"{diagnostic.source}: {diagnostic.message}"
-                    for diagnostic in self.plugin_diagnostics
-                )
-                raise ValueError(f"Plugin loading failed: {details}")
-            plugin_skill_sources = [
-                SkillSource(origin, path, origin.removeprefix("plugin/")) for origin, path in plugin_skill_roots
-            ]
-        else:
-            plugin_skill_sources = []
-        self.skills: SkillSet = discover_skills(self.workspace, self.config.skills, plugin_skill_sources)
-        self.skill_registry = self.skills.registry
-        self.skill_diagnostics = self.skills.diagnostics
+        self.discover_extensions()
         self.bash_jobs = BashJobs(
             sessions_dir(self.workspace) / "jobs",
             max_seconds=self.config.tools.bash.max_background_seconds,
@@ -316,7 +278,7 @@ class CodingAgent:
             sink=self.sink,
             session_id=self.session_id,
             agent_id=self.session_id,
-            addons=addons + plugin_addons,
+            addons=addons,
         )
         self.bash_jobs.bind(self.harness)
         # User addons come last so built-in names (tools, commands, addons) win
@@ -324,12 +286,40 @@ class CodingAgent:
         self.user_addons = UserAddonRuntime(
             builtin_tool_names=tuple(self.harness.tools),
             reserved_names=tuple(addon.name for addon in self.harness.addons),
-            loader=load_user_addons if include_subagent else lambda _names: EMPTY_SNAPSHOT,
+            loader=self._load_user_addons if include_subagent else lambda _names: EMPTY_SNAPSHOT,
         )
         self._install_addon_tools()
         self._unsubscribe_addons = self.sink.subscribe(self.user_addons.on_event)
         self._active_runs = 0
         self.apply_system_prompt()
+
+    def discover_extensions(self) -> None:
+        """Find plugins, then skills (plugin skills included). Reads files only; runs no plugin code."""
+        self.plugins = (
+            resolve_plugins(self.workspace) if self.config.plugins.enabled else PluginSet()
+        )
+        self.skills = discover_skills(self.workspace, self.config.skills, self.plugins.skill_sources)
+
+    @property
+    def skill_registry(self) -> SkillRegistry:
+        return self.skills.registry
+
+    @property
+    def extension_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Problems and notices from plugins and skills, shown by /installed."""
+        return self.plugins.diagnostics + self.skills.diagnostics
+
+    def _load_user_addons(self, reserved_names: Collection[str]) -> ExtensionSnapshot:
+        """User addons plus the addons of enabled, trusted plugins. Trust is checked in ``discover_extensions``."""
+        return load_user_addons(reserved_names, plugin_roots=self.plugins.addon_roots)
+
+    def reload_extensions(self) -> str:
+        """Re-read plugins and skills (after install, enable, trust…), refresh the prompt, reload addons."""
+        saved = ensure_spawn_settings(self.workspace)
+        self.config.skills, self.config.plugins = saved.skills, saved.plugins
+        self.discover_extensions()
+        self.apply_system_prompt()
+        return self.reload_user_addons()
 
     def _install_addon_tools(self) -> None:
         for tool in self.user_addons.surface.tools:

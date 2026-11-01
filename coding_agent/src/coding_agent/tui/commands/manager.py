@@ -12,6 +12,8 @@ from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.agent import build_agent
 from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.manager import addons_report, tool_change_notice
+from coding_agent.commands.extension_slash import COMMANDS, run_extension_slash
+from coding_agent.commands.installed import discover, saved_config
 from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.presentation import session_images
@@ -252,6 +254,19 @@ def show_effort_picker(app: Any) -> None:
 
 
 # --- reload.py ---
+def show_installed(app: Any) -> None:
+    """Open the extensions screen for the running agent, or the saved setup when there is none."""
+    agent = app._agent
+    if agent is None:
+        skills, plugins = discover(app.workspace)
+        budget = saved_config(app.workspace).skills.max_context_tokens
+    else:
+        skills, plugins, budget = agent.skills, agent.plugins, agent.config.skills.max_context_tokens
+    app.push_screen(ExtensionsModal(
+        skills.catalog, plugins.plugins, plugins.diagnostics + skills.diagnostics, budget=budget,
+    ))
+
+
 async def reload_project(app: Any) -> None:
     """Reload environment-backed agent configuration in the current session."""
     previous_agent = app._agent
@@ -466,10 +481,8 @@ class CommandManager:
                 session_id=getattr(agent, "session_id", None),
                 store=learned,
             ))
-        elif command in {"installed", "extensions", "plugins", "skills"}:
-            agent = app._agent
-            skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())
-            app.push_screen(ExtensionsModal(skills, plugins))
+        elif command in {"installed", "extensions"} or (command in COMMANDS and not argument):
+            show_installed(app)
         elif command == "effort":
             if app._busy:
                 app.add_notice("/effort is unavailable while a turn is running.", "warning")
@@ -504,6 +517,9 @@ class CommandManager:
             open_langfuse_setup(app)
         elif command == "jev":
             toggle_jev(app, argument)
+        elif command in COMMANDS:
+            outcome = await run_extension_slash(command, argument, app.workspace, app._agent)
+            app.add_notice(outcome.text, "info" if outcome.ok else "error")
         elif app._agent is None:
             app.add_notice(OFFLINE_HINT, "error")
         elif command == "new":
