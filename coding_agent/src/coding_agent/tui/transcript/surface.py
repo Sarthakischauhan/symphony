@@ -290,12 +290,9 @@ class TranscriptSurface:
             self._mount_transcript(notice)
 
     def add_artifact(self, title: str, detail: str, path: Path) -> None:
-        # Stored paths are artifacts/<id>/v<version>/<entry>, possibly nested.
-        version_dir = next((parent for parent in path.parents if parent.name.startswith("v")
-                            and parent.name[1:].isdigit() and parent.parent.parent.name == "artifacts"), None)
-        key = version_dir.parent if version_dir is not None else path
-        self._session_artifacts[key] = (title, detail, path)
-        from coding_agent.tui.chrome.topbar import TopBar
+        from coding_agent.tui.chrome import TopBar, artifact_key
+
+        self._session_artifacts[artifact_key(path)] = (title, detail, path)
 
         self.query_one("#topbar", TopBar).set_artifact_count(len(self._session_artifacts))
 

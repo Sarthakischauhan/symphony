@@ -21,6 +21,7 @@ from coding_agent.addons.langfuse import ensure_langfuse_installed
 from textual.containers import Container
 from textual.widgets import Static
 
+from coding_agent.tui.chrome import SessionChrome
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import CONTENT_MODAL_CSS
 from coding_agent.tui.tools.images import ImageAttachment, textual_image
@@ -322,9 +323,13 @@ async def reload_project(app: Any) -> None:
 
 
 # --- session.py ---
-def start_new_session(app: Any) -> None:
+async def start_new_session(app: Any) -> None:
     agent = app._agent
     assert agent is not None
+    # Background jobs and subagents belong to the conversation being left. Stop
+    # them and drop their queued results so they cannot answer into the new one.
+    await agent.harness.shutdown_children()
+    agent.harness.drain_child_results()
     session_id = str(uuid.uuid4())
     app.session_id = session_id
     agent.session_id = session_id
@@ -339,12 +344,12 @@ def start_new_session(app: Any) -> None:
     register = getattr(app, "_register_active_session", None)
     if callable(register):
         register()
-    app._ui_state.reset_for_run(model_id=agent.harness.model_id)
-    app._ui_state.phase = "idle"
-    app._ui_state.detail = "ready"
+    app._ui_state.model_id = agent.harness.model_id
+    app.reset_session_chrome(
+        SessionChrome(context_limit=agent.harness.state.context_limit(agent.harness.model_id))
+    )
     app.action_clear_transcript()
     app.add_notice(f"New conversation · {session_id[:8]}", "success")
-    app._set_status("")
 
 # --- status.py ---
 def show_status(app: Any) -> None:
@@ -502,7 +507,7 @@ class CommandManager:
         elif app._agent is None:
             app.add_notice(OFFLINE_HINT, "error")
         elif command == "new":
-            start_new_session(app)
+            await start_new_session(app)
         elif command == "model":
             select_model(app, argument) if argument else show_model_picker(app)
         elif command == "personality":

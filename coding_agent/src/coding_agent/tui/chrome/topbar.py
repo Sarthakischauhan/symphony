@@ -15,6 +15,7 @@ from rich.cells import cell_len
 from rich.table import Table
 from rich.text import Text
 from textual import events
+from textual.timer import Timer
 from textual.widgets import Static
 
 from coding_agent.config.personalities import project_root
@@ -117,7 +118,9 @@ class TopBar(Static):
         self._label = ""
         self._auth = ""
         self._workspace: Optional[Path] = None
-        self._branch_timer = None
+        self._branch_timer: Optional[Timer] = None
+        self._dirty_timer: Optional[Timer] = None
+        self._tasks_timer: Optional[Timer] = None
         self._dirty_probe = False
         super().__init__(*args, **kwargs)
 
@@ -136,13 +139,11 @@ class TopBar(Static):
         if self._branch_timer is not None:
             self._branch_timer.stop()
             self._branch_timer = None
-        dirty_timer = getattr(self, "_dirty_timer", None)
-        if dirty_timer is not None:
-            dirty_timer.stop()
+        if self._dirty_timer is not None:
+            self._dirty_timer.stop()
             self._dirty_timer = None
-        tasks_timer = getattr(self, "_tasks_timer", None)
-        if tasks_timer is not None:
-            tasks_timer.stop()
+        if self._tasks_timer is not None:
+            self._tasks_timer.stop()
             self._tasks_timer = None
 
     def _refresh_background_tasks(self) -> None:
@@ -291,9 +292,7 @@ class TopBar(Static):
         if not self._model or event.x < width - cell_len(short_model_name(self._model)):
             return
         event.stop()
-        show = getattr(self.app, "show_model_picker", None)
-        if callable(show):
-            show()
+        self.app.show_model_picker()
 
     def _render_row(self, width: int) -> Table:
         """Text row. Width budgets keep a narrow terminal from cropping the header."""

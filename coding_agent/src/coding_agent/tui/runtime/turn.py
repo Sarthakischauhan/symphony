@@ -7,7 +7,7 @@ from typing import Any, Callable, Mapping
 
 from textual import work
 
-from coding_agent.tui.chrome import TopBar, display_workspace_path, footer_hint, render_footer
+from coding_agent.tui.chrome import SessionChrome, TopBar, display_workspace_path, footer_hint, render_footer
 from coding_agent.tui.composer.input import PromptInput
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.screens.history import load_session_history
@@ -61,22 +61,20 @@ class TurnSurface:
 
         self._stream_flush_timer = self.set_timer(STREAM_PAINT_INTERVAL_S, _run)
 
-    def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
-        """Restore context usage for a resumed session before its first run."""
-        metrics = self._ui_state.metrics
-        metrics.tokens_used = tokens_used
-        metrics.context_limit = context_limit
-        metrics.context_left = max(context_limit - tokens_used, 0)
-        metrics.utilization = tokens_used / context_limit if context_limit else None
-        self._set_status("")
+    def reset_session_chrome(self, session: SessionChrome) -> None:
+        """Show one session's usage, spend, artifacts and background tasks in the bars.
 
-    def set_session_cost(self, costs: dict[str, float]) -> None:
-        """Restore the session price so the footer shows it before the next run."""
-        metrics = self._ui_state.metrics
-        metrics.model_costs = dict(costs)
-        metrics.session_cost = sum(costs.values())
-        if costs:
-            metrics.priced_model = next(reversed(costs))
+        The one path for ``/new`` and resume: the footer reads the run state this
+        replaces, the top bar gets the artifact and task counts, and both repaint here.
+        """
+        self._ui_state.restore_session(
+            tokens_used=session.tokens_used,
+            context_limit=session.context_limit,
+            costs=session.costs,
+        )
+        self._session_artifacts = dict(session.artifacts)
+        self.query_one("#topbar", TopBar).set_artifact_count(len(self._session_artifacts))
+        self._refresh_background_tasks()
         self._set_status("")
 
     @work(exclusive=False)

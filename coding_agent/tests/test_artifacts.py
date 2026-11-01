@@ -32,6 +32,7 @@ from coding_agent.agent import CodingAgent
 from coding_agent.config import CodingAgentConfig, LangfuseConfig, LearningConfig
 from coding_agent.protocols.stdio.requests import artifact_get, artifact_list
 from coding_agent.tools.save_artifact import SaveArtifactArgs, SaveArtifactTool
+from coding_agent.tui.chrome import SessionChrome
 from coding_agent.tui.screens.history import load_session_history
 from coding_agent.tui.transcript import artifact as artifact_row
 
@@ -454,14 +455,11 @@ def test_resumed_tui_session_shows_its_artifact_rows(tmp_path: Path) -> None:
         def mount_transcript(self, widget: object) -> None:
             del widget
 
-        def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
-            del tokens_used, context_limit
+        def reset_session_chrome(self, session: SessionChrome) -> None:
+            self.rows = list(session.artifacts.values())
 
         def finalize_transcript_history(self) -> None:
             pass
-
-        def add_artifact(self, title: str, detail: str, path: Path) -> None:
-            self.rows.append((title, detail, path))
 
     view = View()
     asyncio.run(load_session_history(resumed, view))

@@ -9,6 +9,7 @@ from coding_agent.tui.chrome.footer import (
     render_footer,
     StatusBar,
 )
+from coding_agent.tui.chrome.session import SessionChrome, artifact_key
 from coding_agent.tui.chrome.topbar import (
     TopBar,
     display_workspace_path,
@@ -20,7 +21,9 @@ from coding_agent.tui.chrome.topbar import (
 
 __all__ = [
     "ComposerOverlay",
+    "SessionChrome",
     "TopBar",
+    "artifact_key",
     "context_percent",
     "display_workspace_path",
     "footer_hint",
