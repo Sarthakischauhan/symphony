@@ -273,7 +273,9 @@ def test_child_journal_reopens_after_restart(monkeypatch, tmp_path: Path) -> Non
         })
         app = CodingAgentApp(workspace=tmp_path)
         async with app.run_test() as pilot:
-            app._agent = SimpleNamespace(persistence=JsonlPersistence(root), session_id="parent-session")
+            app._agent = SimpleNamespace(
+                persistence=JsonlPersistence(root), session_id="parent-session", harness=SimpleNamespace(child_tasks={}),
+            )
             await app.restore_subagents()
             record = app._subagents["child"]
             assert record.status == "interrupted"

@@ -347,18 +347,8 @@ async def start_new_session(app: Any) -> None:
     agent.harness.drain_child_results()
     session_id = str(uuid.uuid4())
     app.session_id = session_id
-    agent.session_id = session_id
-    agent.harness.session_id = session_id
-    store = getattr(agent, "learning_store", None)
-    if store is not None and hasattr(store, "bind_session"):
-        persistence = getattr(agent, "persistence", None)
-        session_dir = None
-        if persistence is not None and hasattr(persistence, "session_dir"):
-            session_dir = persistence.session_dir(session_id)
-        store.bind_session(session_id, session_dir)
-    register = getattr(app, "_register_active_session", None)
-    if callable(register):
-        register()
+    agent.bind_session(session_id)
+    app._register_active_session()
     app._ui_state.model_id = agent.harness.model_id
     app.reset_session_chrome(
         SessionChrome(context_limit=agent.harness.state.context_limit(agent.harness.model_id))

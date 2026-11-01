@@ -216,8 +216,7 @@ class CodingAgent:
             self.workspace,
             session_id=self.session_id,
             max_lessons=self.config.learning.max_lessons,
-            session_dir=(self.persistence.session_dir(self.session_id)
-                         if isinstance(self.persistence, JsonlPersistence) else None),
+            session_dir=self._session_dir(self.session_id),
         )
         self.learning_loop = (
             LearningLoop(
@@ -376,6 +375,24 @@ class CodingAgent:
             addon_factory=self._child_addons,
         )
 
+    def _session_dir(self, session_id: str) -> Optional[Path]:
+        """Where ``session_id`` keeps its files; None for a store that is not on disk."""
+        if isinstance(self.persistence, JsonlPersistence):
+            return self.persistence.session_dir(session_id)
+        return None
+
+    def session_costs(self, session_id: str) -> dict[str, float]:
+        """The saved per-model cost of ``session_id``; empty for a store that does not record cost."""
+        if isinstance(self.persistence, JsonlPersistence):
+            return self.persistence.session_costs(session_id)
+        return {}
+
+    def bind_session(self, session_id: str) -> None:
+        """Make ``session_id`` the active session for this agent, its harness and its learning store."""
+        self.session_id = session_id
+        self.harness.session_id = session_id
+        self.learning_store.bind_session(session_id, self._session_dir(session_id))
+
     def _child_addons(self, parent: CoreHarness) -> list:
         addons = default_addons(
             persistence=self.persistence, harness_config=parent.config,
@@ -385,8 +402,7 @@ class CodingAgent:
         addons.append(SessionMemoryAddon(
             lambda session_id: LearningStore(
                 self.workspace, max_lessons=self.config.learning.max_lessons,
-                session_dir=(self.persistence.session_dir(session_id)
-                             if isinstance(self.persistence, JsonlPersistence) else None),
+                session_dir=self._session_dir(session_id),
             ),
             context_limit=self.config.learning.context_limit,
             context_max_chars=self.config.learning.context_max_chars,
@@ -408,9 +424,7 @@ class CodingAgent:
         from coding_agent.addons.persistence.compatibility import validate_session_workflow
 
         effective_session = session_id or self.session_id
-        directory = (self.persistence.session_dir(effective_session)
-                     if isinstance(self.persistence, JsonlPersistence) else None)
-        await asyncio.to_thread(validate_session_workflow, directory, effective_session)
+        await asyncio.to_thread(validate_session_workflow, self._session_dir(effective_session), effective_session)
         self._active_runs += 1
         try:
             return await self._run_turns(user_input, conversation=conversation, session_id=session_id)

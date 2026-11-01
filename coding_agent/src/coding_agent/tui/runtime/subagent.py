@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from rich.text import Text
 from textual.binding import Binding
@@ -155,8 +155,9 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
     ]
 
     def __init__(self, record: SubagentRecord | None = None, workspace: Any = None,
-                 *, child_id: str = "", parent_id: str = "") -> None:
+                 *, background_tasks: Callable[[], int], child_id: str = "", parent_id: str = "") -> None:
         super().__init__()
+        self._background_tasks = background_tasks
         self.record = record
         self.child_id = child_id or (record.agent_id if record else "")
         self.parent_id = parent_id or (record.parent_id if record else "")
@@ -177,7 +178,7 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         )
 
     def compose(self):  # type: ignore[no-untyped-def]
-        yield TopBar(id="topbar")
+        yield TopBar(id="topbar", background_tasks=self._background_tasks)
         yield Static(id="child-heading", markup=False)
         yield TranscriptScroll(id="transcript")
         yield Static("Viewing child transcript · Esc back · Ctrl+X stop child", id="child-back")
@@ -461,7 +462,10 @@ class SubagentSurface:
 
     def open_subagent(self, record: SubagentRecord) -> None:
         self._subagents[record.agent_id] = record
-        self.push_screen(SubagentScreen(child_id=record.agent_id, parent_id=record.parent_id, workspace=self.workspace))
+        self.push_screen(SubagentScreen(
+            child_id=record.agent_id, parent_id=record.parent_id, workspace=self.workspace,
+            background_tasks=self.background_task_count,
+        ))
 
     def action_subagents(self) -> None:
         self.push_screen(SubagentTasksScreen())

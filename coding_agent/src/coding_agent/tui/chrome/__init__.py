@@ -15,6 +15,7 @@ from coding_agent.tui.chrome.topbar import (
     display_workspace_path,
     read_git_branch,
     read_git_dirty,
+    running_background_tasks,
     short_model_name,
     topbar_text,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "read_git_branch",
     "read_git_dirty",
     "render_footer",
+    "running_background_tasks",
     "short_model_name",
     "topbar_text",
 ]

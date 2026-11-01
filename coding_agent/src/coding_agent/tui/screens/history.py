@@ -46,12 +46,11 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     # Footer usage describes the active context projection, matching /context
     # and the messages the next request will send.
     context_limit = agent.harness.state.context_limit(agent.harness.model_id)
-    costs = getattr(agent.persistence, "session_costs", None)
     view.reset_session_chrome(
         SessionChrome(
             context_limit=context_limit,
             tokens_used=estimate_prompt_tokens(context_messages),
-            costs=costs(agent.session_id) if callable(costs) else {},
+            costs=agent.session_costs(agent.session_id),
             artifacts=session_artifacts(agent),
         )
     )

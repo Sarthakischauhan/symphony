@@ -863,6 +863,7 @@ def test_dropped_image_becomes_clickable_chip(
 
     class FakeAgent:
         learning_loop = None
+        harness = SimpleNamespace(child_tasks={})
 
         async def run(self, user_input: object) -> HarnessResult:
             calls.append(user_input)
@@ -1102,6 +1103,7 @@ def test_history_hides_compaction_summary() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
             model_id="model",
@@ -1161,6 +1163,7 @@ def test_history_uses_compacted_projection_for_context_metrics() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
             model_id="model",
@@ -1220,6 +1223,7 @@ def test_history_resume_folds_tools_into_explored() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
             model_id="model",
@@ -1305,6 +1309,7 @@ def test_history_resume_splits_explored_on_interleaved_assistant_text() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
             model_id="model",
@@ -1438,6 +1443,7 @@ def test_history_resume_honours_collected_mid_run_events() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
             model_id="model",
@@ -1550,6 +1556,7 @@ def test_history_resume_uses_persisted_protocol_arguments() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
             model_id="model",
@@ -1619,6 +1626,7 @@ def test_history_resume_restores_thoughts_as_compact_snapshots() -> None:
     agent = SimpleNamespace(
         artifacts=None,
         persistence=Persistence(),
+        session_costs=lambda _session_id: {},
         session_id="session",
         harness=SimpleNamespace(
             model_id="model",
@@ -3080,6 +3088,7 @@ def test_slash_menu_and_commands(
                 reasoning_effort=None,
                 session_id="old-session",
                 state=FakeState(),
+                child_tasks={},
                 shutdown_children=_no_children,
                 drain_child_results=list,
             )
@@ -3089,6 +3098,10 @@ def test_slash_menu_and_commands(
 
         def apply_system_prompt(self) -> None:
             return None
+
+        def bind_session(self, session_id: str) -> None:
+            self.session_id = session_id
+            self.harness.session_id = session_id
 
         async def compact_conversation(self) -> tuple[int, int]:
             self.compacted = True
@@ -3229,7 +3242,7 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
         def __init__(self, plane: TextualEventSink) -> None:
             self.plane = plane
             self.session_id = "s"
-            self.harness = SimpleNamespace(model_id="openai:gpt-4o-mini", session_id="s")
+            self.harness = SimpleNamespace(model_id="openai:gpt-4o-mini", session_id="s", child_tasks={})
             self.learning_loop = None
 
         async def compact_conversation(self) -> tuple[int, int]:

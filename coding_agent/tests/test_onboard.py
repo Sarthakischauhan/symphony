@@ -333,6 +333,7 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
         harness=SimpleNamespace(
             model_id="openai:gpt-5.6-luna",
             reasoning_effort=None,
+            child_tasks={},
             state=SimpleNamespace(context_limit=lambda _model_id: 64_000),
             find_addon=lambda _kind: None,
         ),
@@ -357,7 +358,7 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
             await pilot.pause()
             app._agent = SimpleNamespace(
                 session_id="current-session",
-                harness=SimpleNamespace(reasoning_effort=None),
+                harness=SimpleNamespace(reasoning_effort=None, child_tasks={}),
                 registry=SimpleNamespace(namespaces=lambda: ("openai",)),
                 learning_loop=None,
                 user_addons=no_user_addons(),
