@@ -5,6 +5,6 @@ root order and the source parser, and neither may import the other.
 """
 
 from coding_agent.extensions.diagnostics import Diagnostic
-from coding_agent.extensions.roots import BUNDLED_SKILLS, ExtensionRoot, extension_roots
+from coding_agent.extensions.roots import BUNDLED_SKILLS, ExtensionRoot, extension_roots, project_root
 
-__all__ = ["BUNDLED_SKILLS", "Diagnostic", "ExtensionRoot", "extension_roots"]
+__all__ = ["BUNDLED_SKILLS", "Diagnostic", "ExtensionRoot", "extension_roots", "project_root"]

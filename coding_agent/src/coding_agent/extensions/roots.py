@@ -41,6 +41,11 @@ def _project_directories(workspace: Path) -> list[Path]:
     return [workspace]
 
 
+def project_root(workspace: str | Path) -> Path:
+    """The git root containing ``workspace``, or the workspace itself outside git."""
+    return _project_directories(Path(workspace).expanduser().resolve())[-1]
+
+
 def extension_roots(workspace: str | Path) -> tuple[ExtensionRoot, ...]:
     """Every root for ``workspace`` in precedence order, without duplicates."""
     workspace = Path(workspace).expanduser().resolve()
@@ -63,4 +68,4 @@ def extension_roots(workspace: str | Path) -> tuple[ExtensionRoot, ...]:
     return tuple(unique)
 
 
-__all__ = ["BUNDLED_SKILLS", "ExtensionRoot", "Scope", "extension_roots"]
+__all__ = ["BUNDLED_SKILLS", "ExtensionRoot", "Scope", "extension_roots", "project_root"]
