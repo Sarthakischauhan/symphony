@@ -77,7 +77,7 @@ def test_invalid_plugin_metadata_is_a_diagnostic(tmp_path):
 
 def test_extensions_modal_renders_skill_args_and_plugin_states(tmp_path):
     depth = ExtensionArg(name="depth", type="enum", enum=["sketch", "thorough"], description="D.", default="sketch")
-    skill = Skill("user/orient", "orient", "Map owners first.", tmp_path, "user", (depth,))
+    skill = Skill("orient", "Map owners first.", tmp_path / "SKILL.md", "user", args=(depth,))
     plugins = (
         LoadedPlugin("search", "Search before opening files.", tmp_path / "search", True),
         LoadedPlugin("idle", "", tmp_path / "idle", False),

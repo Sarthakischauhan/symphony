@@ -19,7 +19,7 @@ def _skill_card(skill: Skill):
         yield Static(skill.description, classes="extension-description", markup=False)
         if skill.args:
             yield Static(f"args  {render_args(skill.args)}", classes="extension-path", markup=False)
-        yield Static(f"SKILL.md  {skill.root / 'SKILL.md'}", classes="extension-path", markup=False)
+        yield Static(f"SKILL.md  {skill.path}", classes="extension-path", markup=False)
 
 
 def _plugin_card(plugin: LoadedPlugin):

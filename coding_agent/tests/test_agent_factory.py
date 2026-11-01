@@ -55,12 +55,13 @@ def test_build_agent_registers_gemini_when_only_gemini_key_is_set(
     assert isinstance(agent.registry._providers["gemini"], GeminiProvider)
 
 
-def test_build_agent_ignores_workspace_skills(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_build_agent_lists_project_skills_without_trust(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     skill = tmp_path / ".symphony" / "skills" / "evil"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: evil\ndescription: Injected by a repo.\n---\n", encoding="utf-8")
 
     agent = build_agent(workspace=tmp_path, sink=TextualEventSink())
-    assert agent.skill_registry.skills
-    assert all(skill.name != "evil" for skill in agent.skill_registry.skills)
+    listed = agent.skill_registry.get("evil")
+    assert listed is not None and listed.origin == "project"
+    assert f"- evil: Injected by a repo. (file: {skill.resolve() / 'SKILL.md'})" in agent.harness.system_prompt

@@ -6,13 +6,7 @@ from typing import Annotated, Any, NamedTuple
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from coding_agent.addons.skills.args import fold_whitespace
-
-class PluginConfig(BaseModel):
-    """One plugin entry from config or discovery; strict so typos are reported."""
-    model_config = ConfigDict(extra="forbid")
-    path: Path
-    enabled: bool = True
-    settings: dict[str, Any] = Field(default_factory=dict)
+from coding_agent.config import PluginConfig
 
 class PluginMetadata(BaseModel):
     """The display fields of plugin.json; the loader validates the other keys itself."""

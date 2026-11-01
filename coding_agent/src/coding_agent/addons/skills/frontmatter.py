@@ -2,7 +2,7 @@
 
 Why: skill files come from user directories and are pasted into the prompt,
 so the YAML is untrusted. It is size-capped, loaded without aliases, and
-reduced to the three keys the catalog reads: name, description, and args.
+reduced to the keys the catalog reads: name, description, args and invocation.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from coding_agent.addons.skills.args import Description, ExtensionArgs
+from coding_agent.addons.skills.models import Invocation
 
 SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
@@ -31,13 +32,17 @@ class _NoAliasLoader(yaml.SafeLoader):
 
 
 class _SkillFrontMatter(BaseModel):
-    """The keys the catalog reads; other standard keys such as allowed-tools are ignored."""
+    """The keys the catalog reads; other standard keys such as allowed-tools are ignored.
+
+    ``invocation: manual`` keeps the skill out of the prompt until the user asks for it.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     name: str = Field(pattern=SKILL_NAME.pattern, max_length=1000)
     description: Description
     args: ExtensionArgs = ()
+    invocation: Invocation = "auto"
 
 
 def read_front_matter(text: str) -> _SkillFrontMatter:

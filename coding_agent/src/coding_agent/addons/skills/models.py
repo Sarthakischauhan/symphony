@@ -4,54 +4,44 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from coding_agent.addons.skills.args import ExtensionArg
 
+Invocation = Literal["auto", "manual"]
+# on: name, description and path in the catalog. name-only: no description.
+# manual: never in the catalog. off: not loaded at all.
+SkillMode = Literal["on", "name-only", "manual", "off"]
 CATALOG_DESCRIPTION_CHARS = 160
+
+
+@dataclass(frozen=True)
+class SkillSource:
+    """A directory of skills and how to label what it holds.
+
+    ``namespace`` prefixes the skill names (``plugin:skill``) so a plugin's skills
+    can never collide with, or be shadowed by, a skill of the same name elsewhere.
+    """
+
+    origin: str
+    path: Path
+    namespace: str = ""
 
 
 @dataclass(frozen=True)
 class Skill:
     """A discovered skill and its validated front matter."""
 
-    skill_id: str
     name: str
     description: str
-    root: Path
+    path: Path
     origin: str
+    invocation: Invocation = "auto"
     args: tuple[ExtensionArg, ...] = ()
 
-    def catalog_line(self) -> str:
-        """One short prompt line: id and description. The body loads via the skill tool."""
-        description = self.description
-        if len(description) > CATALOG_DESCRIPTION_CHARS:
-            description = description[: CATALOG_DESCRIPTION_CHARS - 1].rstrip() + "…"
-        return f"- {self.skill_id}: {description}"
-
     @property
-    def resources(self) -> tuple[str, ...]:
-        paths: list[str] = []
-        for path in sorted(self.root.rglob("*")):
-            if not path.is_file() or path.is_symlink():
-                continue
-            try:
-                relative = path.relative_to(self.root)
-                path.resolve().relative_to(self.root.resolve())
-            except ValueError:
-                continue
-            if relative.name == "SKILL.md":
-                continue
-            if relative.parts and relative.parts[0] in {"references", "scripts", "assets"}:
-                paths.append(relative.as_posix())
-        return tuple(paths)
+    def root(self) -> Path:
+        return self.path.parent
 
 
-@dataclass(frozen=True)
-class SkillDiagnostic:
-    """A bounded, user-facing discovery diagnostic."""
-
-    source: str
-    message: str
-
-
-__all__ = ["Skill", "SkillDiagnostic"]
+__all__ = ["CATALOG_DESCRIPTION_CHARS", "Invocation", "Skill", "SkillMode", "SkillSource"]

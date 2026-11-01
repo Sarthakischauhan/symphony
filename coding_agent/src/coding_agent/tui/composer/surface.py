@@ -7,6 +7,7 @@ from textual.widgets import Button, OptionList, TextArea
 from textual.worker import WorkerState, get_current_worker
 
 from coding_agent.config.credentials import OFFLINE_HINT
+from coding_agent.extensions import BUNDLED_SKILLS
 from coding_agent.tui.chrome.footer import DEFAULT_HINT, ComposerOverlay
 from coding_agent.tui.commands import (
     command_matches,
@@ -298,19 +299,13 @@ class ComposerSurface:
             if self._agent is None:
                 self.add_notice(OFFLINE_HINT, "error")
                 return
-            skill_tool = self._agent.harness.tools.get("skill")
-            skill_instructions = (
-                await skill_tool.execute(sink=None, args={"skill_id": "bundled/addon-authoring"})
-                if skill_tool is not None
-                else "Bundled addon-authoring skill is unavailable; inspect core_harness.extensions and "
-                "the installed addon documentation before proceeding."
-            )
+            skill_path = BUNDLED_SKILLS / "addon-authoring" / "SKILL.md"
             prompt = (
-                "Follow these Symphony addon-authoring instructions, then create or improve a "
+                "Read the Symphony addon-authoring skill at the path below with read_file and follow it, then create or improve a "
                 "user addon for this request. Use the supported addon API and user addon "
                 "directory documented here. Do not modify Symphony's built-in source unless "
                 "I explicitly ask.\n\n"
-                f"{skill_instructions}"
+                f"{skill_path}"
             )
             if argument.strip():
                 prompt += f"\n\nAddon request: {argument.strip()}"
