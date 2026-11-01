@@ -85,6 +85,12 @@ def test_new_session_resets_top_bar_and_footer(monkeypatch: pytest.MonkeyPatch, 
     harness = FakeHarness()
     agent = SimpleNamespace(session_id="old-session", harness=harness, learning_loop=None)
 
+    def bind_session(session_id: str) -> None:
+        agent.session_id = session_id
+        harness.session_id = session_id
+
+    agent.bind_session = bind_session
+
     async def _run() -> None:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()

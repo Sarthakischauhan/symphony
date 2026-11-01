@@ -9,6 +9,7 @@ from rich.console import Console, ConsoleOptions, Group, RenderResult
 from rich.table import Table
 from rich.text import Text
 from textual import events
+from textual.message import Message
 from textual.widgets import Static
 
 from core_ai.models.pricing import format_cost
@@ -244,7 +245,10 @@ def update_banner(event_type: str, payload: Optional[dict] = None) -> tuple[str,
 
 
 class StatusBar(Static):
-    """The footer. Clicking the cost figure opens the per-model breakdown."""
+    """The footer. Clicking the cost figure asks the app for the per-model breakdown."""
+
+    class CostBreakdownRequested(Message):
+        """The cost figure was clicked."""
 
     def on_click(self, event: events.Click) -> None:
         hint = self._hint_text()
@@ -255,9 +259,7 @@ class StatusBar(Static):
         if event.x < self.content_size.width - len(hint) - 4:
             return
         event.stop()
-        show = getattr(self.app, "show_cost_breakdown", None)
-        if callable(show):
-            show()
+        self.post_message(self.CostBreakdownRequested())
 
     def _hint_text(self) -> str:
         renderable = self.content

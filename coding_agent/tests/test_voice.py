@@ -285,7 +285,7 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
 
     app = CodingAgentApp(workspace=tmp_path)
     started: list[str] = []
-    harness = SimpleNamespace(addons=[], register_addon=lambda addon: harness.addons.append(addon))
+    harness = SimpleNamespace(addons=[], child_tasks={}, register_addon=lambda addon: harness.addons.append(addon))
     app._agent = SimpleNamespace(harness=harness)
     app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
 

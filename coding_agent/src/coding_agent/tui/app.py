@@ -218,7 +218,7 @@ class CodingAgentApp(
         return True
 
     def compose(self) -> ComposeResult:
-        yield TopBar(id="topbar")
+        yield TopBar(id="topbar", background_tasks=self.background_task_count)
         with TranscriptScroll(id="transcript"):
             yield Welcome(self.workspace)
         yield SlashMenu(id="slash-menu")
@@ -287,6 +287,10 @@ class CodingAgentApp(
         if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
+
+    def on_status_bar_cost_breakdown_requested(self, message: StatusBar.CostBreakdownRequested) -> None:
+        message.stop()
+        self.show_cost_breakdown()
 
     def show_cost_breakdown(self) -> None:
         """Open the per-model spend for this session, from a click on the cost."""

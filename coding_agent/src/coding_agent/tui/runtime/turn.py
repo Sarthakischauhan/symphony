@@ -7,7 +7,14 @@ from typing import Any, Callable, Mapping
 
 from textual import work
 
-from coding_agent.tui.chrome import SessionChrome, TopBar, display_workspace_path, footer_hint, render_footer
+from coding_agent.tui.chrome import (
+    SessionChrome,
+    TopBar,
+    display_workspace_path,
+    footer_hint,
+    render_footer,
+    running_background_tasks,
+)
 from coding_agent.tui.composer.input import PromptInput
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.screens.history import load_session_history
@@ -154,18 +161,14 @@ class TurnSurface:
         }:
             self._collect_run_events(payload)
 
+    def background_task_count(self) -> int:
+        """Live background jobs and subagents across the agent's sessions; 0 before an agent exists."""
+        if self._agent is None:
+            return 0
+        return running_background_tasks(self._agent.harness.child_tasks)
+
     def _refresh_background_tasks(self) -> None:
-        """Count live background jobs and subagents for the top bar."""
-        harness = getattr(self._agent, "harness", None)
-        tasks = getattr(harness, "child_tasks", {})
-        count = sum(
-            1
-            for record in tasks.values()
-            if getattr(record, "status", "") in {"running", "background"}
-            and (getattr(record, "task", None) is None or not record.task.done())
-        )
-        topbar = self.query_one("#topbar", TopBar)
-        topbar.set_background_tasks(count)
+        self.query_one("#topbar", TopBar).set_background_tasks(self.background_task_count())
 
     on_control_plane_event = on_harness_event
 
