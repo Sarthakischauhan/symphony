@@ -52,7 +52,7 @@ The headless `symphony run` command requires `--unattended` to acknowledge autom
 
 ## Skills and plugins
 
-Skills are prompt files the model reads when they match the task; plugins package skills and addon code. Install and manage both from the shell or from the TUI with `symphony skills ...` / `/skills ...` and `symphony plugins ...` / `/plugins ...`; see the [CLI reference](../reference/cli.md) and the [developer guide](../developer-guide/skills-and-plugins.md). Plugin state (installed, enabled) is kept in `plugins/state.json` under the Symphony home, not in `config.json`.
+Skills are prompt files the model reads when they match the task; plugins package skills and addon code. Install and manage both from the shell or from the TUI with `symphony skills ...` / `/skills ...` and `symphony plugins ...` / `/plugins ...`; see the [plugin guide](./plugins.md), the [CLI reference](../reference/cli.md), and the [developer guide](../developer-guide/skills-and-plugins.md). Plugin state (installed, enabled) is kept in `plugins/state.json` under the Symphony home, not in `config.json`.
 
 The `skills` and `plugins` sections of `config.json`:
 
