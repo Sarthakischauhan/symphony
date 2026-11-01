@@ -36,6 +36,7 @@ from core_harness.context import (
     estimate_prompt_tokens,
 )
 from coding_agent.agent import CodingAgent
+from coding_agent.extensions import BUNDLED_SKILLS
 from coding_agent.config import CodingAgentConfig, LearningConfig, ApprovalConfig
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.chrome import SessionChrome
@@ -2620,7 +2621,7 @@ def test_reasoning_title_uses_only_a_standalone_markdown_heading(
     assert thought.title == expected_title
 
 
-def test_addon_slash_command_loads_authoring_skill_and_starts_model_turn(
+def test_addon_slash_command_points_the_model_at_the_authoring_skill(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -2630,18 +2631,13 @@ def test_addon_slash_command_loads_authoring_skill_and_starts_model_turn(
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            class _SkillTool:
-                async def execute(self, *, sink: Any, args: dict[str, str]) -> str:
-                    assert sink is None
-                    assert args == {"skill_id": "bundled/addon-authoring"}
-                    return "# skill bundled/addon-authoring\\nAuthor addons safely."
-
-            app._agent = SimpleNamespace(harness=SimpleNamespace(tools={"skill": _SkillTool()}))
+            app._agent = SimpleNamespace()
             started: list[QueuedTurn] = []
             app._start_turn = started.append  # type: ignore[method-assign]
             await app._run_slash_command("/addon make a greeting command")
             assert len(started) == 1
-            assert "# skill bundled/addon-authoring" in started[0].text
+            assert str(BUNDLED_SKILLS / "addon-authoring" / "SKILL.md") in started[0].text
+            assert "read_file" in started[0].text
             assert "make a greeting command" in started[0].text
             assert "Do not modify Symphony's built-in source" in started[0].text
 

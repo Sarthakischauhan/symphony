@@ -31,7 +31,6 @@ from coding_agent.addons import (
     JevAddon,
     LearningAddon,
     SessionMemoryAddon,
-    SkillsAddon,
     ai_compaction_from_config,
     jev_from_config,
     langfuse_from_config,
@@ -52,7 +51,7 @@ from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.config.personalities import compose_system_prompt
 from coding_agent.addons.plugins import LoadedPlugin, PluginManager
 from coding_agent.config.prompts import SYSTEM_PROMPT
-from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
+from coding_agent.addons.skills import SkillSet, SkillSource, discover_skills
 from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
 from core_harness.extensions import EMPTY_SNAPSHOT
 from coding_agent.widget_fields import EventFields
@@ -232,14 +231,6 @@ class CodingAgent:
             if self.config.learning.enabled
             else None
         )
-        skill_roots = [
-            ("bundled", bundled_skills_root()),
-            ("user", Path.home() / ".symphony" / "skills"),
-            # Shared with Codex, Pi, OpenCode, and Grok. Listed after Symphony's
-            # own root so a same-named skill there wins the duplicate check.
-            ("agents", Path.home() / ".agents" / "skills"),
-            *[("configured", root) for root in self.config.skills.roots],
-        ]
         plugin_addons = []
         self.plugin_diagnostics = ()
         self.loaded_plugins: tuple[LoadedPlugin, ...] = ()
@@ -271,11 +262,14 @@ class CodingAgent:
                     for diagnostic in self.plugin_diagnostics
                 )
                 raise ValueError(f"Plugin loading failed: {details}")
-            skill_roots.extend(plugin_skill_roots)
-        self.skill_registry, self.skill_diagnostics = SkillRegistry.discover(
-            skill_roots,
-            max_skills=self.config.skills.max_skills,
-        )
+            plugin_skill_sources = [
+                SkillSource(origin, path, origin.removeprefix("plugin/")) for origin, path in plugin_skill_roots
+            ]
+        else:
+            plugin_skill_sources = []
+        self.skills: SkillSet = discover_skills(self.workspace, self.config.skills, plugin_skill_sources)
+        self.skill_registry = self.skills.registry
+        self.skill_diagnostics = self.skills.diagnostics
         self.bash_jobs = BashJobs(
             sessions_dir(self.workspace) / "jobs",
             max_seconds=self.config.tools.bash.max_background_seconds,
@@ -313,8 +307,6 @@ class CodingAgent:
         )
         if self.artifacts is not None:
             addons.append(self.artifacts)
-        if self.config.skills.enabled:
-            addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -511,13 +503,7 @@ class CodingAgent:
 
     def apply_system_prompt(self) -> None:
         """Recompose ``harness.system_prompt`` from base, Jev, and personality."""
-        skills = ""
-        if self.config.skills.enabled and self.skill_registry.skills:
-            lines = [
-                "Skills (load a match with the skill tool before acting on that task):"
-            ]
-            lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
-            skills = "\n".join(lines)
+        skills = self.skills.catalog.text if self.config.skills.enabled else ""
         self.harness.system_prompt = compose_system_prompt(
             self.base_system_prompt,
             self.config.personality,

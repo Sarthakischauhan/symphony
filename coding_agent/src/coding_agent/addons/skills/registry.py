@@ -1,4 +1,9 @@
-"""Safe discovery and bounded access to local Markdown skills."""
+"""Safe discovery of local Markdown skills.
+
+Discovery reads front matter only. It never imports or runs anything in a skill.
+The model reads a skill's body itself, with the ordinary read tool, from the
+path the catalog gives it.
+"""
 
 from __future__ import annotations
 
@@ -7,82 +12,62 @@ from pathlib import Path
 from typing import Iterable
 
 from coding_agent.addons.skills.frontmatter import SKILL_NAME, read_front_matter
-from coding_agent.addons.skills.models import Skill, SkillDiagnostic
+from coding_agent.addons.skills.models import Skill, SkillSource
+from coding_agent.extensions import Diagnostic
 
 logger = logging.getLogger(__name__)
 MAX_SKILL_FILE_BYTES = 128_000
 MAX_SKILL_WALK_DEPTH = 4
 
 
-def bundled_skills_root() -> Path:
-    """Skills shipped in the package, so every install starts with the same habits without copying files."""
-    return Path(__file__).resolve().parent / "bundled_skills"
-
-
 class SkillRegistry:
-    """Discover skills and expose only paths within their skill roots."""
+    """The skills found across all sources; the earliest source keeps a contested name."""
 
     def __init__(self, skills: Iterable[Skill] = ()) -> None:
-        self._skills = {skill.skill_id: skill for skill in skills}
+        self._skills = {skill.name: skill for skill in skills}
 
     @property
     def skills(self) -> tuple[Skill, ...]:
-        return tuple(sorted(self._skills.values(), key=lambda skill: skill.skill_id))
+        """Sorted by name, so every consumer sees one stable order."""
+        return tuple(sorted(self._skills.values(), key=lambda skill: skill.name))
 
-    def get(self, skill_id: str) -> Skill:
-        try:
-            return self._skills[skill_id]
-        except KeyError as exc:
-            raise ValueError(f"Unknown skill id: {skill_id}") from exc
-
-    def resource_path(self, skill_id: str, relative_path: str) -> Path:
-        skill = self.get(skill_id)
-        candidate = Path(relative_path)
-        if candidate.is_absolute() or not relative_path or "" in candidate.parts:
-            raise ValueError("resource path must be relative")
-        original = skill.root / candidate
-        resolved = original.resolve()
-        if not resolved.is_relative_to(skill.root.resolve()):
-            raise ValueError("resource path escapes the skill")
-        if any(part.is_symlink() for part in _parents_from(skill.root, original)):
-            raise ValueError("symlink skill resources are not supported")
-        if not resolved.is_file():
-            raise ValueError(f"Skill resource not found: {relative_path}")
-        return resolved
+    def get(self, name: str) -> Skill | None:
+        return self._skills.get(name)
 
     @classmethod
     def discover(
         cls,
-        roots: Iterable[tuple[str, Path]],
+        sources: Iterable[SkillSource],
         *,
         max_skills: int = 100,
-    ) -> tuple["SkillRegistry", tuple[SkillDiagnostic, ...]]:
-        """Load every SKILL.md under ``roots``; a broken skill becomes a diagnostic, never a crash."""
-        found: list[Skill] = []
-        diagnostics: list[SkillDiagnostic] = []
-        seen: set[str] = set()
-        for origin, root in roots:
-            root = root.expanduser().resolve()
+    ) -> tuple["SkillRegistry", tuple[Diagnostic, ...]]:
+        """Load every SKILL.md under ``sources``; a broken skill becomes a diagnostic, never a crash."""
+        found: dict[str, Skill] = {}
+        diagnostics: list[Diagnostic] = []
+        for source in sources:
+            root = source.path.expanduser().resolve()
             if not root.is_dir():
                 continue
             for skill_root in _skill_directories(root):
                 document = skill_root / "SKILL.md"
-                if not document.is_file():
-                    continue
                 try:
-                    skill = _parse_skill(origin, skill_root, document)
-                    if skill.skill_id in seen or skill.name in seen:
-                        raise ValueError(f"duplicate skill name: {skill.name}")
-                    seen.add(skill.skill_id)
-                    seen.add(skill.name)
-                    if len(found) >= max_skills:
-                        diagnostics.append(SkillDiagnostic(str(document), "skill limit reached"))
-                        continue
-                    found.append(skill)
+                    skill = _parse_skill(source, skill_root, document)
                 except (OSError, UnicodeError, ValueError) as exc:
                     logger.warning("Skipping skill %s: %s", document, exc)
-                    diagnostics.append(SkillDiagnostic(str(document), str(exc)))
-        return cls(found), tuple(diagnostics)
+                    diagnostics.append(Diagnostic(str(document), str(exc)))
+                    continue
+                winner = found.get(skill.name)
+                if winner is not None:
+                    diagnostics.append(Diagnostic(
+                        str(document),
+                        f"skill {skill.name!r} is shadowed by the {winner.origin} skill at {winner.path}",
+                        "notice",
+                    ))
+                elif len(found) >= max_skills:
+                    diagnostics.append(Diagnostic(str(document), "skill limit reached"))
+                else:
+                    found[skill.name] = skill
+        return cls(found.values()), tuple(diagnostics)
 
 
 def _skill_directories(root: Path, *, max_depth: int = MAX_SKILL_WALK_DEPTH) -> list[Path]:
@@ -90,7 +75,7 @@ def _skill_directories(root: Path, *, max_depth: int = MAX_SKILL_WALK_DEPTH) -> 
 
     A root that is itself a skill is returned alone. Otherwise walk downward,
     bounded by ``max_depth``, so ``~/.symphony/skills/<name>`` and a nested
-    collection such as ``skills/bundled/<name>`` both load. Symlinks are skipped.
+    collection such as ``skills/team/<name>`` both load. Symlinks are skipped.
     """
     if (root / "SKILL.md").is_file():
         return [root]
@@ -112,24 +97,16 @@ def _skill_directories(root: Path, *, max_depth: int = MAX_SKILL_WALK_DEPTH) -> 
     return found
 
 
-def _parents_from(root: Path, path: Path) -> list[Path]:
-    current = root
-    parents: list[Path] = []
-    for part in path.relative_to(root).parts:
-        current = current / part
-        parents.append(current)
-    return parents
-
-
-def _parse_skill(origin: str, root: Path, document: Path) -> Skill:
+def _parse_skill(source: SkillSource, root: Path, document: Path) -> Skill:
     if not SKILL_NAME.fullmatch(root.name):
         raise ValueError("skill directory name must be one identifier segment")
     if document.stat().st_size > MAX_SKILL_FILE_BYTES:
         raise ValueError("SKILL.md exceeds the 128000 byte limit")
     text = document.read_text(encoding="utf-8").lstrip("\ufeff").replace("\r\n", "\n")
     meta = read_front_matter(text)
-    return Skill(skill_id=f"{origin}/{meta.name}", name=meta.name, description=meta.description,
-                 root=root, origin=origin, args=meta.args)
+    name = f"{source.namespace}:{meta.name}" if source.namespace else meta.name
+    return Skill(name=name, description=meta.description, path=document, origin=source.origin,
+                 invocation=meta.invocation, args=meta.args)
 
 
-__all__ = ["MAX_SKILL_FILE_BYTES", "SkillRegistry", "bundled_skills_root"]
+__all__ = ["MAX_SKILL_FILE_BYTES", "SkillRegistry"]
