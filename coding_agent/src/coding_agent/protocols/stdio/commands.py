@@ -12,6 +12,8 @@ from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.config.personalities import load_personalities
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
+from coding_agent.commands.extension_slash import COMMANDS, run_extension_slash
+from coding_agent.commands.installed import installed_report
 from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, SlashCommand
 from coding_agent.addons.manager import addons_report
 
@@ -180,10 +182,13 @@ async def execute(agent: Any, value: str) -> str:
             # Lightweight protocol hosts/tests may not expose the agent's store.
             store = LearningStore(agent.workspace)
         return store.to_markdown()
-    if command == "installed":
-        skills = [item.name for item in agent.skill_registry.skills]
-        plugins = [str(getattr(item, "name", item)) for item in agent.loaded_plugins]
-        return f"Skills: {', '.join(skills) or 'none'}\nPlugins: {', '.join(plugins) or 'none'}"
+    if command in {"installed", "extensions"}:
+        return installed_report(agent.skills, agent.plugins, agent.config.skills.max_context_tokens)
+    if command in COMMANDS:
+        outcome = await run_extension_slash(command, argument, agent.workspace, agent)
+        if not outcome.ok:
+            raise ValueError(outcome.text)
+        return outcome.text
     if command == "diff":
         return _git_diff(agent.workspace)
     if command == "dashboard":

@@ -48,10 +48,10 @@ class SkillRegistry:
             root = source.path.expanduser().resolve()
             if not root.is_dir():
                 continue
-            for skill_root in _skill_directories(root):
+            for skill_root in skill_directories(root):
                 document = skill_root / "SKILL.md"
                 try:
-                    skill = _parse_skill(source, skill_root, document)
+                    skill = parse_skill(source, skill_root, document)
                 except (OSError, UnicodeError, ValueError) as exc:
                     logger.warning("Skipping skill %s: %s", document, exc)
                     diagnostics.append(Diagnostic(str(document), str(exc)))
@@ -70,7 +70,7 @@ class SkillRegistry:
         return cls(found.values()), tuple(diagnostics)
 
 
-def _skill_directories(root: Path, *, max_depth: int = MAX_SKILL_WALK_DEPTH) -> list[Path]:
+def skill_directories(root: Path, *, max_depth: int = MAX_SKILL_WALK_DEPTH) -> list[Path]:
     """Directories under ``root`` that contain ``SKILL.md``.
 
     A root that is itself a skill is returned alone. Otherwise walk downward,
@@ -97,7 +97,7 @@ def _skill_directories(root: Path, *, max_depth: int = MAX_SKILL_WALK_DEPTH) -> 
     return found
 
 
-def _parse_skill(source: SkillSource, root: Path, document: Path) -> Skill:
+def parse_skill(source: SkillSource, root: Path, document: Path) -> Skill:
     if not SKILL_NAME.fullmatch(root.name):
         raise ValueError("skill directory name must be one identifier segment")
     if document.stat().st_size > MAX_SKILL_FILE_BYTES:
@@ -109,4 +109,4 @@ def _parse_skill(source: SkillSource, root: Path, document: Path) -> Skill:
                  invocation=meta.invocation, args=meta.args)
 
 
-__all__ = ["MAX_SKILL_FILE_BYTES", "SkillRegistry"]
+__all__ = ["MAX_SKILL_FILE_BYTES", "SkillRegistry", "parse_skill", "skill_directories"]
