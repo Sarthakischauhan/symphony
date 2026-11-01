@@ -107,7 +107,7 @@ def test_new_session_resets_top_bar_and_footer(monkeypatch: pytest.MonkeyPatch, 
     async def _run() -> None:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._agent = agent 
+            app._agent = agent
             task = await fill_session(app, harness, tmp_path)
             await pilot.pause()
 
