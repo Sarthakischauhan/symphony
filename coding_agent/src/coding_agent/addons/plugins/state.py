@@ -1,6 +1,6 @@
-"""What is installed, enabled and trusted, in ``<symphony home>/plugins/state.json``.
+"""What is installed and enabled, in ``<symphony home>/plugins/state.json``.
 
-Only this module writes the file, and only ``trust`` ever records trust.
+Only this module writes the file. Enabling a plugin is what lets its addon load.
 Layout of ``<symphony home>/plugins/``: ``state.json``, ``marketplaces/<name>/``
 (a copy of each added marketplace) and ``cache/<marketplace>/<plugin>/<version>/``
 (the installed plugins).
@@ -31,7 +31,7 @@ class PluginRecord(BaseModel):
 
     ``installed`` plugins live in the cache and carry the ``source`` they came from.
     Others are plugin directories found in place (a project's ``.symphony/plugins/x``)
-    that were enabled, disabled or trusted by hand.
+    that were enabled or disabled by hand.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -45,7 +45,6 @@ class PluginRecord(BaseModel):
     path: str = ""
     installed: bool = False
     enabled: bool = True
-    trusted_digest: str = ""
 
     @property
     def key(self) -> str:

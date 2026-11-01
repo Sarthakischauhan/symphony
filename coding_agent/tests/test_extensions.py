@@ -17,7 +17,7 @@ from coding_agent.tui.screens.modal import EmptyState
 def _plugin(base: Path, name: str, **fields: object) -> ResolvedPlugin:
     values: dict[str, object] = {
         "key": f"{name}@direct", "name": name, "version": "", "description": "", "root": base / name, "scope": "installed",
-        "enabled": True, "skill_dirs": (), "skill_count": 0, "addon_root": None, "trust": "none", "skipped": (),
+        "enabled": True, "skill_dirs": (), "skill_count": 0, "addon_root": None, "skipped": (),
     }
     return ResolvedPlugin(**{**values, **fields})  # type: ignore[arg-type]
 
@@ -50,17 +50,17 @@ def test_skill_cards_show_state_cost_args_and_path(tmp_path: Path) -> None:
     assert "3 total" in texts
 
 
-def test_plugin_cards_show_enabled_trust_skipped_parts_and_notices(tmp_path: Path) -> None:
+def test_plugin_cards_show_enabled_state_skipped_parts_and_notices(tmp_path: Path) -> None:
     plugins = (
         _plugin(tmp_path, "search", version="1.2", description="Search before opening files.",
                 skipped=(("hooks", "hooks are not supported"),)),
-        _plugin(tmp_path, "idle", enabled=False, trust="untrusted", addon_root=tmp_path / "idle" / "addons"),
+        _plugin(tmp_path, "idle", enabled=False, addon_root=tmp_path / "idle" / "addons"),
     )
     notices = (Diagnostic("/p/bad", "name: invalid"), Diagnostic("dup", "shadowed", "notice"))
     texts = _texts(ExtensionsModal(build_catalog((), settings={}, max_tokens=100), plugins, notices))
     assert {"search 1.2", "ENABLED", "Search before opening files.", "idle", "DISABLED"} <= set(texts)
     assert "skipped  hooks: hooks are not supported" in texts
-    assert "addon not loaded: untrusted (run: symphony plugins trust idle)" in texts
+    assert "addon not loaded: plugin disabled (run: symphony plugins enable idle)" in texts
     assert "error  /p/bad: name: invalid" in texts and "notice  dup: shadowed" in texts
     assert "NOTICES  ·  2" in texts and "PLUGINS  ·  2" in texts
 

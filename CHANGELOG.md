@@ -6,7 +6,7 @@
   remove, enable, disable and update skills and plugins from a path, git URL or
   marketplace. Plugins in the Codex, Claude and Cursor manifest formats load their
   skills; unsupported parts (agents, hooks, automations, MCP) are listed as skipped.
-  Plugin addon code runs only after `symphony plugins trust`.
+  Plugin addon code runs while the plugin is enabled.
 - Skills are a catalog of name, description and `SKILL.md` path that the model reads
   with `read_file`; the `skill` tool is removed. `skills.max_context_tokens` (default
   6000) bounds the catalog, and each skill can be `on`, `name-only` or `manual`.

@@ -116,6 +116,6 @@ def test_what_pstack_adds_beyond_skills_never_runs_or_loads(repos: dict[str, Pat
     plugins(["add", repos["pstack"].as_uri()], Context(workspace, tmp_path))
     agent = _agent(workspace)
     plugin = agent.plugins.find("pstack")
-    assert plugin.addon_root is None and plugin.trust == "none" and agent.plugins.addon_roots == ()
+    assert plugin.addon_root is None and agent.plugins.addon_roots == ()
     assert [label for label, _ in plugin.skipped] == ["agents", "automations"]
     assert agent.user_addons.surface.slash_commands == ()

@@ -1,4 +1,4 @@
-"""Installing plugins from a local Claude-format marketplace, direct sources and git; state, trust, update, remove."""
+"""Installing plugins from a local Claude-format marketplace, direct sources and git; state, update, remove."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from coding_agent.addons.plugins import (
     remove_plugin,
     resolve_plugins,
     set_enabled,
-    set_trust,
     update_marketplaces,
     update_plugins,
 )
@@ -40,7 +39,7 @@ def test_real_claude_format_plugin_installs_from_a_local_marketplace(tmp_path: P
     assert (root / "skills" / "alpha" / "SKILL.md").is_file() and installed.path == "cache/acme/demo/1.0.0"
     found = resolve_plugins(workspace)
     plugin = found.find("demo")
-    assert (plugin.scope, plugin.enabled, plugin.trust, plugin.skill_count) == ("installed", True, "none", 1)
+    assert (plugin.scope, plugin.enabled, plugin.addon_root, plugin.skill_count) == ("installed", True, None, 1)
     assert found.skill_sources[0].namespace == "demo" and found.skill_sources[0].path == root.resolve() / "skills"
 
 
@@ -92,52 +91,45 @@ def test_a_plugin_that_fails_validation_leaves_nothing_behind(tmp_path: Path) ->
     assert [path.name for path in plugins_dir().iterdir()] == []
 
 
-def test_install_runs_nothing_and_an_addon_installs_untrusted(tmp_path: Path, workspace: Path) -> None:
+def test_install_copies_files_and_does_not_run_addon_code(tmp_path: Path, workspace: Path) -> None:
     source = addon_plugin_tree(tmp_path / "coded")
     (source / "addons" / "hello" / "addon.py").write_text(f"open({str(tmp_path / 'ran')!r}, 'w').write('x')\n")
-    record = install_plugin(str(source), cwd=tmp_path)
+    install_plugin(str(source), cwd=tmp_path)
     plugin = resolve_plugins(workspace).find("coded")
-    assert record.trusted_digest == "" and plugin.trust == "untrusted" and not plugin.runs_addon
-    assert plugin.addon_root is not None and "symphony plugins trust coded" in plugin.addon_note
-    assert resolve_plugins(workspace).addon_roots == () and not (tmp_path / "ran").exists()
+    assert plugin.runs_addon and plugin.addon_root is not None
+    assert "addon loads while this plugin is enabled" in plugin.addon_note
+    assert resolve_plugins(workspace).addon_roots == (plugin.addon_root,)
+    assert not (tmp_path / "ran").exists()
 
 
-def test_only_trust_writes_trust_and_any_change_revokes_it(tmp_path: Path, workspace: Path) -> None:
+def test_disabling_a_plugin_stops_its_addon_and_skills(tmp_path: Path, workspace: Path) -> None:
     install_plugin(str(addon_plugin_tree(tmp_path / "coded")), cwd=tmp_path)
-    set_enabled("coded", True, workspace)
-    assert load_state().plugins["coded@direct"].trusted_digest == ""
-    set_trust("coded", True, workspace)
     plugin = resolve_plugins(workspace).find("coded")
-    assert plugin.trust == "trusted" and resolve_plugins(workspace).addon_roots == (plugin.addon_root,)
+    assert plugin.runs_addon and resolve_plugins(workspace).addon_roots == (plugin.addon_root,)
     set_enabled("coded", False, workspace)
+    disabled = resolve_plugins(workspace).find("coded")
+    assert not disabled.runs_addon and "plugin disabled" in disabled.addon_note
     assert resolve_plugins(workspace).addon_roots == () and resolve_plugins(workspace).skill_sources == ()
     set_enabled("coded", True, workspace)
-    assert plugin.addon_root is not None
-    (plugin.addon_root / "hello" / "addon.py").write_text("# changed\n")
-    changed = resolve_plugins(workspace).find("coded")
-    assert changed.trust == "changed" and "changed since trusted" in changed.addon_note and not changed.runs_addon
-    set_trust("coded", True, workspace)
-    set_trust("coded", False, workspace)
-    assert resolve_plugins(workspace).find("coded").trust == "untrusted"
+    assert resolve_plugins(workspace).find("coded").runs_addon
 
 
-def test_a_plugin_without_an_addon_has_nothing_to_trust(tmp_path: Path, workspace: Path) -> None:
+def test_a_plugin_without_an_addon_still_loads_its_skills(tmp_path: Path, workspace: Path) -> None:
     install_plugin(str(plugin_tree(tmp_path / "plain", "plain")), cwd=tmp_path)
-    with pytest.raises(ValueError, match="nothing to trust"):
-        set_trust("plain", True, workspace)
+    plugin = resolve_plugins(workspace).find("plain")
+    assert plugin.addon_root is None and plugin.addon_note == "" and plugin.skill_count == 1
 
 
-def test_update_keeps_enabled_and_trust_when_the_addon_is_unchanged_and_drops_it_when_not(tmp_path: Path, workspace: Path) -> None:
+def test_update_keeps_the_enabled_state(tmp_path: Path, workspace: Path) -> None:
     source = addon_plugin_tree(tmp_path / "coded")
     install_plugin(str(source), cwd=tmp_path)
-    set_trust("coded", True, workspace)
     set_enabled("coded", False, workspace)
     assert update_plugins("coded")[0].before == "1.0.0"
-    plugin = resolve_plugins(workspace).find("coded")
-    assert (plugin.enabled, plugin.trust) == (False, "trusted")
+    assert resolve_plugins(workspace).find("coded").enabled is False
     (source / "addons" / "hello" / "addon.py").write_text("# new code\n")
     update_plugins(None)
-    assert resolve_plugins(workspace).find("coded").trust == "changed"
+    updated = resolve_plugins(workspace).find("coded")
+    assert updated.enabled is False and not updated.runs_addon
 
 
 def test_update_moves_to_the_new_version_and_removes_the_old_directory(tmp_path: Path) -> None:

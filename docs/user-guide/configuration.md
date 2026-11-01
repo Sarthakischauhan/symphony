@@ -52,7 +52,7 @@ The headless `symphony run` command requires `--unattended` to acknowledge autom
 
 ## Skills and plugins
 
-Skills are prompt files the model reads when they match the task; plugins package skills and, once you trust them, addon code. Install and manage both from the shell or from the TUI with `symphony skills ...` / `/skills ...` and `symphony plugins ...` / `/plugins ...`; see the [CLI reference](../reference/cli.md) and the [developer guide](../developer-guide/skills-and-plugins.md). Plugin state (installed, enabled, trusted) is kept in `plugins/state.json` under the Symphony home, not in `config.json`.
+Skills are prompt files the model reads when they match the task; plugins package skills and addon code. Install and manage both from the shell or from the TUI with `symphony skills ...` / `/skills ...` and `symphony plugins ...` / `/plugins ...`; see the [CLI reference](../reference/cli.md) and the [developer guide](../developer-guide/skills-and-plugins.md). Plugin state (installed, enabled) is kept in `plugins/state.json` under the Symphony home, not in `config.json`.
 
 The `skills` and `plugins` sections of `config.json`:
 
@@ -75,7 +75,7 @@ The `skills` and `plugins` sections of `config.json`:
 - `disabled` skills are not loaded. `symphony skills disable` edits it.
 - `plugins.enabled: false` turns every plugin off.
 
-The old `plugins.entries` and `plugins.authorized_roots` keys are gone and are rejected by the schema; remove them and reinstall with `symphony plugins add`. Plugin addon code runs with your permissions: it loads only after `symphony plugins trust <name>`.
+The old `plugins.entries` and `plugins.authorized_roots` keys are gone and are rejected by the schema; remove them and reinstall with `symphony plugins add`. Plugin addon code runs with your permissions while the plugin is enabled. Disable it with `symphony plugins disable <name>`.
 
 ## Context and optional integrations
 

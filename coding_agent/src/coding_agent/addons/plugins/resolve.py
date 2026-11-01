@@ -1,8 +1,8 @@
 """Find every plugin a workspace can use, and decide what each may do.
 
 This only reads: manifests, directories, the state file. No plugin code runs.
-It answers three questions per plugin: is it enabled, which skill directories
-does it add, and does its addon (code) have the user's trust.
+It answers two questions per plugin: is it enabled, and which skill directories
+does it add. An enabled plugin's addon is loaded; disabling it is how you stop that.
 """
 
 from __future__ import annotations
@@ -12,14 +12,12 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from coding_agent.addons.plugins.manifest import LoadedManifest, read_manifest
-from coding_agent.addons.plugins.state import PluginRecord, PluginState, load_state, plugins_dir
-from coding_agent.addons.plugins.trust import addon_digest
+from coding_agent.addons.plugins.state import PluginState, load_state, plugins_dir
 from coding_agent.addons.skills.models import SkillSource
 from coding_agent.addons.skills.registry import skill_directories
 from coding_agent.extensions import Diagnostic, extension_roots
 
 Scope = Literal["project", "user", "agents", "installed"]
-Trust = Literal["none", "trusted", "untrusted", "changed"]
 _RESERVED_DIRECTORIES = frozenset({"cache", "marketplaces"})
 _DEFAULT_SKILLS = "./skills/"
 
@@ -38,21 +36,19 @@ class ResolvedPlugin:
     skill_dirs: tuple[Path, ...]
     skill_count: int
     addon_root: Path | None
-    trust: Trust
     skipped: tuple[tuple[str, str], ...]
 
     @property
     def runs_addon(self) -> bool:
-        return self.enabled and self.trust == "trusted"
+        return self.enabled and self.addon_root is not None
 
     @property
     def addon_note(self) -> str:
-        return {
-            "none": "",
-            "trusted": "addon trusted",
-            "untrusted": f"addon not loaded: untrusted (run: symphony plugins trust {self.name})",
-            "changed": f"addon not loaded: changed since trusted (review it, then: symphony plugins trust {self.name})",
-        }[self.trust]
+        if self.addon_root is None:
+            return ""
+        if self.enabled:
+            return "addon loads while this plugin is enabled"
+        return f"addon not loaded: plugin disabled (run: symphony plugins enable {self.name})"
 
     @property
     def skill_sources(self) -> tuple[SkillSource, ...]:
@@ -73,7 +69,7 @@ class PluginSet:
 
     @property
     def addon_roots(self) -> tuple[Path, ...]:
-        """Addon directories of enabled, trusted plugins, handed to the addon loader."""
+        """Addon directories of enabled plugins, handed to the addon loader."""
         return tuple(plugin.addon_root for plugin in self.plugins if plugin.runs_addon and plugin.addon_root)
 
     def find(self, reference: str) -> ResolvedPlugin:
@@ -120,14 +116,6 @@ def _skill_dirs(loaded: LoadedManifest, diagnostics: list[Diagnostic]) -> tuple[
     return tuple(found)
 
 
-def _trust(addon_root: Path | None, record: PluginRecord | None) -> Trust:
-    if addon_root is None:
-        return "none"
-    if record is None or not record.trusted_digest:
-        return "untrusted"
-    return "trusted" if record.trusted_digest == addon_digest(addon_root) else "changed"
-
-
 def resolve_plugins(workspace: str | Path, state: PluginState | None = None) -> PluginSet:
     """Resolve plugins for ``workspace``. A broken plugin is a diagnostic, never an exception."""
     workspace = Path(workspace).expanduser().resolve()
@@ -159,7 +147,7 @@ def resolve_plugins(workspace: str | Path, state: PluginState | None = None) -> 
             key=key, name=name, version=loaded.manifest.version, description=loaded.manifest.description,
             root=root, scope=scope, enabled=record.enabled if record else True,
             skill_dirs=skill_dirs, skill_count=sum(len(skill_directories(path)) for path in skill_dirs), addon_root=addon_root,
-            trust=_trust(addon_root, record), skipped=loaded.skipped,
+            skipped=loaded.skipped,
         )
     return PluginSet(tuple(plugins.values()), tuple(diagnostics))
 

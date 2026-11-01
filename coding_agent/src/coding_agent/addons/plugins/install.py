@@ -1,8 +1,9 @@
-"""Install, update, remove, enable, disable and trust plugins.
+"""Install, update, remove, enable and disable plugins.
 
 Installing copies files into the cache and records them in ``state.json``. It
-never imports, builds or runs anything from the plugin. A plugin with an addon
-installs untrusted; only ``trust`` lets its code load.
+never imports, builds or runs anything from the plugin. An enabled plugin's
+addon loads on the next start; disable it to stop that. Enabling is the trust
+decision, the same way other coding agents treat an installed plugin.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from coding_agent.addons.plugins.marketplace import PluginOrigin, plugin_origin,
 from coding_agent.addons.plugins.marketplaces import marketplace_root
 from coding_agent.addons.plugins.resolve import ResolvedPlugin, resolve_plugins
 from coding_agent.addons.plugins.state import PluginRecord, PluginState, load_state, plugins_dir, save_state
-from coding_agent.addons.plugins.trust import addon_digest
 from coding_agent.extensions.source import parse_source, stage
 
 DIRECT = "direct"
@@ -57,7 +57,7 @@ def _install(state: PluginState, origin: PluginOrigin, *, marketplace: str, via:
         revision = stage(origin.source, staged, sha=origin.sha)
         loaded = read_manifest(staged)
         name = loaded.manifest.name
-        version = _UNSAFE.sub("_", loaded.manifest.version or revision[:12] or addon_digest(staged)[:12])
+        version = _UNSAFE.sub("_", loaded.manifest.version or revision[:12] or "unversioned")
         destination = plugins_dir() / "cache" / marketplace / name / version
         if destination.exists():
             shutil.rmtree(destination)
@@ -69,7 +69,6 @@ def _install(state: PluginState, origin: PluginOrigin, *, marketplace: str, via:
         name=name, marketplace=marketplace, version=version, revision=revision, source=origin.source, via=via,
         path=destination.relative_to(plugins_dir()).as_posix(), installed=True,
         enabled=previous.enabled if previous else True,
-        trusted_digest=previous.trusted_digest if previous else "",
     )
     if previous is not None and previous.path != record.path:
         _delete_cached(previous.path)
@@ -91,7 +90,7 @@ def install_plugin(text: str, *, cwd: Path, subdir: str = "") -> PluginRecord:
 
 
 def update_plugins(name: str | None = None) -> list[UpdateResult]:
-    """Re-fetch installed plugins from where they came from; trust lapses if the addon changed."""
+    """Re-fetch installed plugins from where they came from. Enabled stays enabled."""
     state = load_state()
     installed = {key: record for key, record in sorted(state.plugins.items()) if record.installed}
     if name is not None:
@@ -136,18 +135,6 @@ def set_enabled(reference: str, enabled: bool, workspace: Path) -> ResolvedPlugi
     return plugin
 
 
-def set_trust(reference: str, trusted: bool, workspace: Path) -> ResolvedPlugin:
-    """The only writer of trust. Records a digest of the addon directory, or clears it."""
-    plugin = resolve_plugins(workspace).find(reference)
-    if plugin.addon_root is None:
-        raise ValueError(f"{plugin.name} has no addon, so there is nothing to trust. Its skills need no trust.")
-    state = load_state()
-    digest = addon_digest(plugin.addon_root) if trusted else ""
-    state.plugins[plugin.key] = _record(state, plugin).model_copy(update={"trusted_digest": digest})
-    save_state(state)
-    return plugin
-
-
 __all__ = [
-    "DIRECT", "UpdateResult", "install_plugin", "remove_plugin", "set_enabled", "set_trust", "update_plugins",
+    "DIRECT", "UpdateResult", "install_plugin", "remove_plugin", "set_enabled", "update_plugins",
 ]

@@ -309,11 +309,11 @@ class CodingAgent:
         return self.plugins.diagnostics + self.skills.diagnostics
 
     def _load_user_addons(self, reserved_names: Collection[str]) -> ExtensionSnapshot:
-        """User addons plus the addons of enabled, trusted plugins. Trust is checked in ``discover_extensions``."""
+        """User addons plus the addons of enabled plugins. Enablement is checked in ``discover_extensions``."""
         return load_user_addons(reserved_names, plugin_roots=self.plugins.addon_roots)
 
     def reload_extensions(self) -> str:
-        """Re-read plugins and skills (after install, enable, trust…), refresh the prompt, reload addons."""
+        """Re-read plugins and skills (after install, enable, disable…), refresh the prompt, reload addons."""
         saved = ensure_spawn_settings(self.workspace)
         self.config.skills, self.config.plugins = saved.skills, saved.plugins
         self.discover_extensions()

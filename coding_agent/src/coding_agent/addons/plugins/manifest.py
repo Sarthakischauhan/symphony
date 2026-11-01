@@ -34,7 +34,7 @@ PLUGIN_NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 UNSUPPORTED: dict[str, str] = {
     "agents": "plugin-defined agents are not supported",
     "commands": "plugin slash commands are not supported",
-    "hooks": "hooks are not supported; Symphony runs plugin code only as a trusted addon",
+    "hooks": "hooks are not supported; Symphony runs plugin code only as an addon",
     "automations": "automations are not supported",
     "mcpServers": "MCP servers are not supported yet",
     "apps": "apps are not supported",

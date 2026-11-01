@@ -1,6 +1,7 @@
-"""``symphony plugins`` and ``/plugins``: add, list, remove, enable, disable, update, trust, marketplace.
+"""``symphony plugins`` and ``/plugins``: add, list, remove, enable, disable, update, marketplace.
 
-Nothing here runs plugin code. ``add`` copies files; only ``trust`` lets an addon load.
+Nothing here runs plugin code. ``add`` copies files. An enabled plugin's addon
+loads the next time the agent starts; ``disable`` stops that.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from coding_agent.addons.plugins import (
     remove_plugin,
     resolve_plugins,
     set_enabled,
-    set_trust,
     update_marketplaces,
     update_plugins,
 )
@@ -27,18 +27,15 @@ from coding_agent.commands.installed import diagnostics_report, plugin_details, 
 
 
 def build_parser(prog: str = "symphony plugins") -> Parser:
-    parser = Parser(prog=prog, description="Install and manage plugins: packages of skills and, once trusted, addon code.")
+    parser = Parser(prog=prog, description="Install and manage plugins: packages of skills and addon code.")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
     add = commands.add_parser("add", help="install from a local path, git URL[@ref], owner/repo or plugin@marketplace")
     add.add_argument("source")
     add.add_argument("--path", default="", metavar="DIR", help="use this subdirectory of the source")
-    commands.add_parser("list", help="list plugins, their trust and what was skipped")
-    for name, help_text in (("remove", "uninstall a plugin"), ("enable", "load a plugin's skills (and trusted addon)"), ("disable", "stop loading a plugin")):
+    commands.add_parser("list", help="list plugins and what was skipped")
+    for name, help_text in (("remove", "uninstall a plugin"), ("enable", "load a plugin's skills and addon"), ("disable", "stop loading a plugin")):
         commands.add_parser(name, help=help_text).add_argument("name")
     commands.add_parser("update", help="fetch installed plugins again").add_argument("name", nargs="?")
-    trust = commands.add_parser("trust", help="allow a plugin's addon code to run (skills never need this)")
-    trust.add_argument("name")
-    trust.add_argument("--revoke", action="store_true", help="withdraw trust")
     marketplace = commands.add_parser("marketplace", help="manage marketplaces (catalogs of plugins)")
     actions = marketplace.add_subparsers(dest="action", metavar="ACTION", required=True)
     actions.add_parser("add", help="add a marketplace from a path, git URL[@ref] or owner/repo").add_argument("source")
@@ -108,10 +105,6 @@ def execute(arguments: argparse.Namespace, context: Context) -> Outcome:
             lines = [_update_line(item) for item in update_plugins(arguments.name)]
             lines = lines or ["No plugins were installed with 'plugins add'."]
             return Outcome("\n".join(lines), changed=True)
-        case "trust":
-            plugin = set_trust(arguments.name, not arguments.revoke, workspace)
-            verb = "Withdrew trust from" if arguments.revoke else "Trusted the addon of"
-            return Outcome(f"{verb} {plugin.name}", changed=True)
         case "marketplace":
             return _marketplace(arguments, context)
     raise ValueError(f"unknown command {arguments.command!r}")

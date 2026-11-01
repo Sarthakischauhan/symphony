@@ -6,7 +6,7 @@ Three things, three weights:
 - An **addon** is code: a folder with `addon.py` and `setup(api)`, loaded by the existing addon runtime (see the [add-on guide](./extending.md)). Addons add no tools; tools live only in `tools/`.
 - A **plugin** is a package that can carry skills and, optionally, one addon folder. Installing a plugin copies files and executes nothing.
 
-The code is split the same way: `coding_agent/addons/skills/` (parse, catalog, install), `coding_agent/addons/plugins/` (manifest, marketplace, state, resolve, install, trust) and `coding_agent/extensions/` (the root order, diagnostics and sources that both share). `symphony skills`, `symphony plugins` and the `/skills`, `/plugins` slash commands are thin layers over those public functions (`coding_agent/commands/`). The plugins package never imports or runs plugin code: it hands the roots of enabled, trusted addons to `load_user_addons`.
+The code is split the same way: `coding_agent/addons/skills/` (parse, catalog, install), `coding_agent/addons/plugins/` (manifest, marketplace, state, resolve, install) and `coding_agent/extensions/` (the root order, diagnostics and sources that both share). `symphony skills`, `symphony plugins` and the `/skills`, `/plugins` slash commands are thin layers over those public functions (`coding_agent/commands/`). The plugins package never imports or runs plugin code: it hands the addon roots of enabled plugins to `load_user_addons`.
 
 ## Where things are read from
 
@@ -17,9 +17,9 @@ One resolver (`extensions/roots.py`) orders every root, first match wins:
 3. `~/.agents` (shared with Codex, Pi, OpenCode and Grok)
 4. skills bundled with Symphony
 
-Each root has `skills/` and `plugins/`. A name found twice keeps the first one; the shadowed copy is reported as a notice in `/installed`, not an error. Project plugins are discovered in place, but their addon code needs `symphony plugins trust` like any other. Plain project skills load without trust because they are text.
+Each root has `skills/` and `plugins/`. A name found twice keeps the first one; the shadowed copy is reported as a notice in `/installed`, not an error. Project plugins are discovered in place. An enabled plugin loads its skills and its addon; `symphony plugins disable <name>` stops both. Skills are text, so a skill by itself never runs code.
 
-Discovery problems (an unreadable manifest, a bad `SKILL.md`, a corrupt `state.json`) are diagnostics, never exceptions. They show in `/installed` and in the stdio `installed` result; the rest keeps loading. A plugin whose addon is not trusted shows as `addon not loaded: untrusted (run: symphony plugins trust <name>)` while its skills still load.
+Discovery problems (an unreadable manifest, a bad `SKILL.md`, a corrupt `state.json`) are diagnostics, never exceptions. They show in `/installed` and in the stdio `installed` result; the rest keeps loading. A disabled plugin that has an addon shows as `addon not loaded: plugin disabled (run: symphony plugins enable <name>)`.
 
 ## Skills
 
@@ -79,15 +79,15 @@ The first of these that exists is read, in this order: `plugin.json`, `.codex-pl
 
 ### What loads and what does not
 
-Symphony loads **skills** and, if trusted, one **addon**. Everything else a plugin can carry is detected from manifest keys and tree markers and listed as `skipped <part>: <reason>` on install, in `symphony plugins list <name>` output and in `/installed`. Nothing is faked:
+Symphony loads **skills** and, when the plugin is enabled, one **addon**. Everything else a plugin can carry is detected from manifest keys and tree markers and listed as `skipped <part>: <reason>` on install, in `symphony plugins list <name>` output and in `/installed`. Nothing is faked:
 
 | Contribution | Status |
 | --- | --- |
 | `skills/` | loaded (namespaced `plugin:skill`) |
-| `extensions.symphony` addon | loaded only when trusted |
+| `extensions.symphony` addon | loaded while the plugin is enabled |
 | `agents/` | skipped: plugin-defined agents are not supported |
 | `commands/` | skipped: plugin slash commands are not supported |
-| `hooks/`, `hooks.json` | skipped: hooks are not supported; Symphony runs plugin code only as a trusted addon |
+| `hooks/`, `hooks.json` | skipped: hooks are not supported; Symphony runs plugin code only as an addon |
 | `automations/` | skipped: automations are not supported |
 | `mcpServers`, `.mcp.json` | skipped: MCP servers are not supported yet |
 | `.app.json`, `lspServers`, `outputStyles` | skipped |
@@ -106,20 +106,20 @@ symphony plugins add ./my-plugin
 Layout under the Symphony home:
 
 ```
-plugins/state.json                         installed, enabled and trusted records
+plugins/state.json                         installed and enabled records
 plugins/marketplaces/<marketplace>/        a copy of each added marketplace
 plugins/cache/<marketplace>/<plugin>/<version>/   installed plugins ("direct" for plugins added without a marketplace)
 ```
 
-Install stages the source in a hidden directory, validates it, then moves it into the cache; a failed install leaves nothing behind. Git sources are cloned with ext transports disabled, no hooks, no prompts, `.git` and symlinks dropped, a 64 MB cap and a 300 s timeout. `update` fetches again and keeps `enabled`; trust is kept only if the addon is byte-identical.
+Install stages the source in a hidden directory, validates it, then moves it into the cache; a failed install leaves nothing behind. Git sources are cloned with ext transports disabled, no hooks, no prompts, `.git` and symlinks dropped, a 64 MB cap and a 300 s timeout. `update` fetches again and keeps the plugin's enabled state.
 
-### Trust
+### Code
 
-**Plugin addon code runs with the same operating-system permissions as Symphony.** Trust is not a sandbox; see [Security](../../SECURITY.md). A plugin's addon is imported only if the plugin is enabled and `symphony plugins trust <name>` recorded its digest (SHA-256 over every file path and byte of the addon directory). Any change to the addon invalidates trust (`changed`) until you trust it again. Only `trust` writes trust; `add`, `update` and `enable` never do. `trust --revoke` withdraws it.
+**Plugin addon code runs with the same operating-system permissions as Symphony.** Enabling a plugin is the decision to let its code run, the same model other coding agents use for an installed plugin. It is not a sandbox; see [Security](../../SECURITY.md). Installing copies files and runs nothing. On the next start, an enabled plugin's addon is imported. `symphony plugins disable <name>` stops its skills and addon; `enable` brings them back. There is no separate trust command or content digest.
 
 ### Breaking changes
 
-- The `plugins.entries` and `plugins.authorized_roots` config keys and `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS` are removed; trust lives in `plugins/state.json`.
+- The `plugins.entries` and `plugins.authorized_roots` config keys and `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS` are removed; enabled state lives in `plugins/state.json`.
 - The old `schema_version`/`id` `plugin.json` is no longer read; use the formats above.
 - The `skill` tool is removed; skills are read with `read_file`.
 - Project `.symphony/skills` load without trust.

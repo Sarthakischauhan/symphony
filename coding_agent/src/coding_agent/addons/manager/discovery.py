@@ -1,7 +1,7 @@
 """Where user addons live and which names they may not take.
 
 ``<symphony home>/addons/<name>/`` is scanned (``SYMPHONY_HOME`` overrides the
-home), and so is the addon directory of every enabled, trusted plugin. There is
+home), and so is the addon directory of every enabled plugin. There is
 no project-local addon folder.
 """
 
@@ -26,9 +26,9 @@ def user_addons_root() -> Path:
 
 
 def load_user_addons(reserved_names: Collection[str] = (), plugin_roots: Iterable[Path] = ()) -> ExtensionSnapshot:
-    """Load ``~/.symphony/addons`` and ``plugin_roots``, the addon directories of trusted plugins.
+    """Load ``~/.symphony/addons`` and ``plugin_roots``, the addon directories of enabled plugins.
 
-    The plugins package decides which roots are trusted; this loader runs whatever it is given.
+    The plugins package decides which roots are enabled; this loader runs whatever it is given.
     """
     return load_addons(
         (user_addons_root(), *plugin_roots),

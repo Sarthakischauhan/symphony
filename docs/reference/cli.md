@@ -44,7 +44,6 @@ symphony skills mode NAME on|name-only|manual|default
 
 symphony plugins add SOURCE [--path DIR]
 symphony plugins list | remove NAME | enable NAME | disable NAME | update [NAME]
-symphony plugins trust NAME [--revoke]
 symphony plugins marketplace add SOURCE | list | update [NAME] | remove NAME
 ```
 
@@ -54,11 +53,11 @@ symphony plugins marketplace add SOURCE | list | update [NAME] | remove NAME
 | `skills mode` | Set one skill's catalog mode; see [configuration](../user-guide/configuration.md#skills-and-plugins) |
 | `skills list` | Name, mode, token cost, origin and path of each skill, plus the catalog total against `skills.max_context_tokens` |
 | `plugins add` | Install into `plugins/cache/<marketplace>/<plugin>/<version>/` and print the skills added and every unsupported part skipped |
-| `plugins trust` | Allow the plugin's addon code to run; the only command that records trust. `--revoke` withdraws it |
+| `plugins enable` / `disable` | Load or stop a plugin's skills and addon. Enabling a plugin lets its addon code run |
 | `plugins marketplace add` | Register a catalog (`.agents/plugins`, `.claude-plugin` or `.cursor-plugin` `marketplace.json`) |
-| `update` | Fetch again from the recorded source; plugin trust survives only if the addon is unchanged |
+| `update` | Fetch again from the recorded source and keep the plugin's enabled state |
 
-Details, trust and what loads: [skills and plugins](../developer-guide/skills-and-plugins.md).
+Details and what loads: [skills and plugins](../developer-guide/skills-and-plugins.md).
 
 ## Other commands
 

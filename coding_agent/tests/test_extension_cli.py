@@ -34,7 +34,7 @@ def test_every_subcommand_is_registered_and_usage_errors_never_exit(workspace: P
         outcome = run(argv, context)
         assert not outcome.ok and outcome.text.startswith("error:") and "usage:" in outcome.text
     helped = plugins_cli.run(["--help"], context)
-    assert helped.ok and {"add", "trust", "marketplace", "update"} <= set(helped.text.split())
+    assert helped.ok and {"add", "enable", "marketplace", "update"} <= set(helped.text.split())
     assert skills_cli.run([], context).text.startswith("usage:")
 
 
@@ -83,23 +83,21 @@ def test_plugin_commands_end_to_end_in_a_shell(workspace: Path, tmp_path: Path) 
     assert "disabled" in plugins_cli.run(["list"], context).text
     assert plugins_cli.run(["enable", "demo"], context).text == "Enabled demo"
     assert plugins_cli.run(["update"], context).text.startswith("demo@acme: 1.0.0 (unchanged)")
-    assert "nothing to trust" in plugins_cli.run(["trust", "demo"], context).text
     assert plugins_cli.run(["marketplace", "update"], context).text.startswith("acme: updated")
     assert plugins_cli.run(["marketplace", "remove", "acme"], context).text == "Removed marketplace acme (1 installed plugins kept)"
     assert plugins_cli.run(["remove", "demo"], context).text == "Removed demo@acme"
     assert plugins_cli.run(["list"], context).text == "Plugins (0)"
 
 
-def test_trust_and_revoke_from_the_command_line(workspace: Path, tmp_path: Path) -> None:
+def test_enable_and_disable_an_addon_from_the_command_line(workspace: Path, tmp_path: Path) -> None:
     from extension_fixtures import addon_plugin_tree
 
     context = Context(workspace, tmp_path)
     plugins_cli.run(["add", str(addon_plugin_tree(tmp_path / "coded"))], context)
-    assert "untrusted" in plugins_cli.run(["list"], context).text
-    assert plugins_cli.run(["trust", "coded"], context).text == "Trusted the addon of coded"
-    assert "addon trusted" in plugins_cli.run(["list"], context).text
-    assert plugins_cli.run(["trust", "coded", "--revoke"], context).text == "Withdrew trust from coded"
-    assert "untrusted" in plugins_cli.run(["list"], context).text
+    assert "addon loads while this plugin is enabled" in plugins_cli.run(["list"], context).text
+    assert plugins_cli.run(["disable", "coded"], context).text == "Disabled coded"
+    assert "plugin disabled" in plugins_cli.run(["list"], context).text
+    assert plugins_cli.run(["enable", "coded"], context).text == "Enabled coded"
 
 
 def test_slash_commands_in_stdio_change_the_running_agent(workspace: Path, tmp_path: Path) -> None:
@@ -149,7 +147,7 @@ def test_tui_slash_commands_install_and_the_installed_screen_shows_cost_and_skip
     assert "ON · " in joined and " tok" in joined
     assert "hello" in texts and "plug:alpha" in texts
     assert "plug 1.0.0" in texts and "ENABLED" in texts
-    assert "skipped  hooks: hooks are not supported; Symphony runs plugin code only as a trusted addon" in texts
+    assert "skipped  hooks: hooks are not supported; Symphony runs plugin code only as an addon" in texts
     assert "PLUGINS  ·  1" in texts
 
 

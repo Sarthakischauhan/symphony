@@ -1,7 +1,7 @@
 """Plugins: find them, validate them, install them, decide whether their code may load.
 
 This package executes nothing. It hands a plugin's skill directories to
-``addons/skills`` and its trusted addon directories to the addon loader.
+``addons/skills`` and the addon directories of enabled plugins to the addon loader.
 """
 
 from coding_agent.addons.plugins.install import (
@@ -9,7 +9,6 @@ from coding_agent.addons.plugins.install import (
     install_plugin,
     remove_plugin,
     set_enabled,
-    set_trust,
     update_plugins,
 )
 from coding_agent.addons.plugins.manifest import LoadedManifest, PluginManifest, read_manifest
@@ -35,7 +34,6 @@ __all__ = [
     "remove_plugin",
     "resolve_plugins",
     "set_enabled",
-    "set_trust",
     "update_marketplaces",
     "update_plugins",
 ]

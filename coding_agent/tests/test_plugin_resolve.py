@@ -1,4 +1,4 @@
-"""Finding plugins across roots, shadowing, project trust, non-fatal errors, and how an agent uses the result."""
+"""Finding plugins across roots, shadowing, non-fatal errors, and how an agent uses the result."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from coding_agent import CodingAgent
-from coding_agent.addons.plugins import install_plugin, resolve_plugins, set_enabled, set_trust
+from coding_agent.addons.plugins import install_plugin, resolve_plugins, set_enabled
 from coding_agent.config import symphony_dir
 from coding_agent.protocols.stdio import commands as stdio_commands
 from extension_fixtures import addon_plugin_tree, plugin_tree, write_json
@@ -61,13 +61,13 @@ def test_a_broken_plugin_is_a_diagnostic_and_the_rest_still_load(workspace: Path
     assert any("missing" in item.message for item in found.diagnostics)
 
 
-def test_project_plugin_addon_needs_trust_but_its_skills_do_not(workspace: Path) -> None:
+def test_project_plugin_addon_loads_with_its_skills(workspace: Path) -> None:
     addon_plugin_tree(workspace / ".symphony" / "plugins" / "coded", "coded")
     found = resolve_plugins(workspace)
     plugin = found.find("coded")
-    assert plugin.trust == "untrusted" and found.addon_roots == () and len(found.skill_sources) == 1
-    set_trust("coded", True, workspace)
-    assert resolve_plugins(workspace).addon_roots == (plugin.addon_root,)
+    assert plugin.runs_addon and found.addon_roots == (plugin.addon_root,) and len(found.skill_sources) == 1
+    set_enabled("coded", False, workspace)
+    assert resolve_plugins(workspace).addon_roots == ()
 
 
 def test_find_reports_unknown_and_ambiguous_names(tmp_path: Path, workspace: Path) -> None:
@@ -86,11 +86,9 @@ def test_an_agent_lists_plugin_skills_with_paths_in_its_prompt(tmp_path: Path, w
     assert path.is_absolute() and path.read_text().startswith("---")
 
 
-def test_a_trusted_plugin_addon_loads_into_the_agent_and_an_untrusted_one_does_not(tmp_path: Path, workspace: Path) -> None:
+def test_an_enabled_plugin_addon_loads_and_a_disabled_one_does_not(tmp_path: Path, workspace: Path) -> None:
     install_plugin(str(addon_plugin_tree(tmp_path / "coded")), cwd=tmp_path)
     agent = _agent(workspace)
-    assert agent.user_addons.surface.command("hello") is None
-    set_trust("coded", True, workspace)
     agent.reload_extensions()
     assert asyncio.run(stdio_commands.execute(agent, "/hello world")) == "hello world"
     set_enabled("coded", False, workspace)
@@ -99,12 +97,12 @@ def test_a_trusted_plugin_addon_loads_into_the_agent_and_an_untrusted_one_does_n
     assert "demo:alpha" not in agent.harness.system_prompt
 
 
-def test_a_disabled_or_unauthorized_plugin_is_shown_with_its_reason_not_raised(tmp_path: Path, workspace: Path) -> None:
+def test_a_disabled_plugin_is_shown_with_its_reason_not_raised(tmp_path: Path, workspace: Path) -> None:
     install_plugin(str(addon_plugin_tree(tmp_path / "coded")), cwd=tmp_path)
+    set_enabled("coded", False, workspace)
     agent = _agent(workspace)
     text = asyncio.run(stdio_commands.execute(agent, "/installed"))
-    assert "coded" in text and "addon not loaded: untrusted" in text
-    set_enabled("coded", False, workspace)
+    assert "coded" in text and "addon not loaded: plugin disabled" in text
     agent.reload_extensions()
     assert "disabled" in asyncio.run(stdio_commands.execute(agent, "/installed"))
 

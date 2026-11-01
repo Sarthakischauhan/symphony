@@ -31,7 +31,7 @@ def _skill_card(entry: CatalogEntry):
 
 
 def _plugin_card(plugin: ResolvedPlugin):
-    """One plugin: name, scope, enabled state, description, addon trust, skipped parts, and root."""
+    """One plugin: name, scope, enabled state, description, addon status, skipped parts, and root."""
     with Vertical(classes="extension-card"):
         with Horizontal(classes="extension-card-header"):
             yield Static(f"{plugin.name} {plugin.version}".strip(), classes="extension-name", markup=False)
