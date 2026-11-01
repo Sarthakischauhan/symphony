@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import uuid
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from core_ai import find_provider, get_model, get_provider
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
 from coding_agent.agent import build_agent
 from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.manager import addons_report, tool_change_notice
+from coding_agent.commands.extension_slash import COMMANDS, run_extension_slash
+from coding_agent.commands.installed import discover, saved_config
 from coding_agent.commands.jev_argument import parse_jev_argument
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.presentation import session_images
@@ -21,6 +23,7 @@ from coding_agent.addons.langfuse import ensure_langfuse_installed
 from textual.containers import Container
 from textual.widgets import Static
 
+from coding_agent.tui.chrome import SessionChrome
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import CONTENT_MODAL_CSS
 from coding_agent.tui.tools.images import ImageAttachment, textual_image
@@ -32,6 +35,9 @@ from coding_agent.tui.screens import (
     LearningModal,
     ProviderOnboardScreen,
 )
+if TYPE_CHECKING:
+    from coding_agent.tui.app import CodingAgentApp
+
 from coding_agent.commands.catalog import (
     EFFORT_CATALOG,
     SLASH_COMMANDS,
@@ -68,12 +74,12 @@ class SessionModal(ModalBase[None]):
             yield Static("↑↓ scroll   ·   Esc close", classes="modal-footer")
 
 
-def open_langfuse_setup(app: Any) -> None:
+def open_langfuse_setup(app: CodingAgentApp) -> None:
     """Install the optional SDK if needed, then collect Langfuse credentials."""
     app.run_worker(_open_langfuse_setup(app), exclusive=False)
 
 
-async def _open_langfuse_setup(app: Any) -> None:
+async def _open_langfuse_setup(app: CodingAgentApp) -> None:
     result = await asyncio.to_thread(ensure_langfuse_installed)
     if result.installed and not result.already_present:
         app.add_notice("Langfuse SDK installed.", "success")
@@ -82,14 +88,14 @@ async def _open_langfuse_setup(app: Any) -> None:
     app.push_screen(LangfuseSetupScreen(), lambda saved: _on_langfuse_saved(app, saved))
 
 
-def _on_langfuse_saved(app: Any, saved: bool | None) -> None:
+def _on_langfuse_saved(app: CodingAgentApp, saved: bool | None) -> None:
     app.query_one("#prompt").focus()
     if not saved:
         return
     app.run_worker(_finish_langfuse_setup(app), exclusive=False)
 
 
-async def _finish_langfuse_setup(app: Any) -> None:
+async def _finish_langfuse_setup(app: CodingAgentApp) -> None:
     """Re-check the optional SDK, then reload so the add-on can attach."""
     app.add_notice("Langfuse saved · installing SDK if needed…")
     result = await asyncio.to_thread(ensure_langfuse_installed)
@@ -105,9 +111,9 @@ async def _finish_langfuse_setup(app: Any) -> None:
     await reload_project(app)
 
 
-def toggle_jev(app: Any, argument: str = "") -> None:
+def toggle_jev(app: CodingAgentApp, argument: str = "") -> None:
     """Enable or disable critic mode without switching the chat model."""
-    current = bool(getattr(getattr(app, "config", None), "evaluation", None) and app.config.evaluation.enabled)
+    current = app.config.evaluation.enabled
     change = parse_jev_argument(current, argument)
     enabled, rule = change.enabled, change.rule
     app.enable_jev = enabled
@@ -123,7 +129,7 @@ def toggle_jev(app: Any, argument: str = "") -> None:
 
 
 # --- model_switcher.py ---
-def select_model(app: Any, argument: str) -> None:
+def select_model(app: CodingAgentApp, argument: str) -> None:
     agent = app._agent
     assert agent is not None
     selected = find_model(argument, app._model_options)
@@ -148,14 +154,14 @@ def select_model(app: Any, argument: str) -> None:
     app.add_update(f"Model switched to {selected.label} · {selected.id}")
 
 
-def show_model_picker(app: Any) -> None:
+def show_model_picker(app: CodingAgentApp) -> None:
     prompt = app.query_one("#prompt")
     prompt.value = "/model "
     prompt.cursor_position = len(prompt.value)
     app.query_one("#slash-menu").set_models(app._model_options, app._agent.harness.model_id)
 
 
-def select_personality(app: Any, argument: str) -> None:
+def select_personality(app: CodingAgentApp, argument: str) -> None:
     selected = find_personality(argument, personality_options())
     if selected is None:
         app.add_notice(
@@ -165,20 +171,18 @@ def select_personality(app: Any, argument: str) -> None:
         return
     resolved = ensure_spawn_settings(app.workspace, overrides={"personality": selected.id})
     app.config = resolved
-    agent = getattr(app, "_agent", None)
+    agent = app._agent
     if agent is not None:
         agent.config = resolved
-        apply = getattr(agent, "apply_system_prompt", None)
-        if callable(apply):
-            apply()
+        agent.apply_system_prompt()
     app.add_update(f"Personality set to {selected.label}")
 
 
-def show_personality_picker(app: Any) -> None:
+def show_personality_picker(app: CodingAgentApp) -> None:
     prompt = app.query_one("#prompt")
     prompt.value = "/personality "
     prompt.cursor_position = len(prompt.value)
-    current = getattr(getattr(app, "config", None), "personality", None) or ""
+    current = app.config.personality or ""
     app.query_one("#slash-menu").set_personalities(personality_options(), current)
 
 # --- effort_switcher.py ---
@@ -225,7 +229,7 @@ def model_supports_effort(model_id: str) -> bool:
     return bool(effort_options_for_model(model_id))
 
 
-def select_effort(app: Any, argument: str) -> None:
+def select_effort(app: CodingAgentApp, argument: str) -> None:
     value = argument.strip().lower()
     efforts = effort_options_for_model(app._agent.harness.model_id)
     supported = {option.id for option in efforts}
@@ -238,7 +242,7 @@ def select_effort(app: Any, argument: str) -> None:
     app.add_update(f"Reasoning effort set to {label}")
 
 
-def show_effort_picker(app: Any) -> None:
+def show_effort_picker(app: CodingAgentApp) -> None:
     efforts = effort_options_for_model(app._agent.harness.model_id)
     if not efforts:
         app.add_notice("The active model does not support effort settings.", "warning")
@@ -251,14 +255,23 @@ def show_effort_picker(app: Any) -> None:
 
 
 # --- reload.py ---
-async def reload_project(app: Any) -> None:
+def show_installed(app: CodingAgentApp) -> None:
+    """Open the extensions screen for the running agent, or the saved setup when there is none."""
+    agent = app._agent
+    if agent is None:
+        skills, plugins = discover(app.workspace)
+        budget = saved_config(app.workspace).skills.max_context_tokens
+    else:
+        skills, plugins, budget = agent.skills, agent.plugins, agent.config.skills.max_context_tokens
+    app.push_screen(ExtensionsModal(
+        skills.catalog, plugins.plugins, plugins.diagnostics + skills.diagnostics, budget=budget,
+    ))
+
+
+async def reload_project(app: CodingAgentApp) -> None:
     """Reload environment-backed agent configuration in the current session."""
     previous_agent = app._agent
-    previous_effort = getattr(
-        getattr(previous_agent, "harness", None),
-        "reasoning_effort",
-        None,
-    )
+    previous_effort = previous_agent.harness.reasoning_effort if previous_agent is not None else None
     session_id = previous_agent.session_id if previous_agent is not None else app.session_id
     try:
         load_provider_env(app.workspace)
@@ -270,14 +283,14 @@ async def reload_project(app: Any) -> None:
             model_id=app.model_id,
             session_id=session_id,
             enable_learning=app.enable_learning,
-            enable_jev=getattr(app, "enable_jev", None),
+            enable_jev=app.enable_jev,
             config=reloaded_config,
             client="tui",
         )
         from coding_agent.protocols.stdio.commands import load_state
 
         load_state(reloaded_agent)
-        session_rule = getattr(app, "jev_rule", "")
+        session_rule = app.jev_rule
         jev_addon = reloaded_agent.harness.find_addon(JevAddon)
         if jev_addon is not None:
             jev_addon.config.rule = session_rule
@@ -307,9 +320,7 @@ async def reload_project(app: Any) -> None:
         app._ui_state.set_context_limit(context_limit)
         app.query_one("#topbar").set_context(app.workspace, model_id)
         app._set_status("")
-        invalidate = getattr(app, "invalidate_workspace_caches", None)
-        if callable(invalidate):
-            invalidate()
+        app.invalidate_workspace_caches()
         app.add_update("Configuration reloaded.")
         surface = reloaded_agent.user_addons.surface
         app.add_notice(f"Addons: {tool_change_notice(previous_addons, surface.tool_names)}")
@@ -322,32 +333,26 @@ async def reload_project(app: Any) -> None:
 
 
 # --- session.py ---
-def start_new_session(app: Any) -> None:
+async def start_new_session(app: CodingAgentApp) -> None:
     agent = app._agent
     assert agent is not None
+    # Background jobs and subagents belong to the conversation being left. Stop
+    # them and drop their queued results so they cannot answer into the new one.
+    await agent.harness.shutdown_children()
+    agent.harness.drain_child_results()
     session_id = str(uuid.uuid4())
     app.session_id = session_id
-    agent.session_id = session_id
-    agent.harness.session_id = session_id
-    store = getattr(agent, "learning_store", None)
-    if store is not None and hasattr(store, "bind_session"):
-        persistence = getattr(agent, "persistence", None)
-        session_dir = None
-        if persistence is not None and hasattr(persistence, "session_dir"):
-            session_dir = persistence.session_dir(session_id)
-        store.bind_session(session_id, session_dir)
-    register = getattr(app, "_register_active_session", None)
-    if callable(register):
-        register()
-    app._ui_state.reset_for_run(model_id=agent.harness.model_id)
-    app._ui_state.phase = "idle"
-    app._ui_state.detail = "ready"
+    agent.bind_session(session_id)
+    app._register_active_session()
+    app._ui_state.model_id = agent.harness.model_id
+    app.reset_session_chrome(
+        SessionChrome(context_limit=agent.harness.state.context_limit(agent.harness.model_id))
+    )
     app.action_clear_transcript()
     app.add_notice(f"New conversation · {session_id[:8]}", "success")
-    app._set_status("")
 
 # --- status.py ---
-def show_status(app: Any) -> None:
+def show_status(app: CodingAgentApp) -> None:
     if app._agent is None:
         app.add_notice("Status · offline", "warning")
         return
@@ -363,7 +368,7 @@ def show_status(app: Any) -> None:
         lines.append(f"effort    {app._agent.harness.reasoning_effort or 'default'}")
     lines.extend(
         [
-            f"personality {getattr(getattr(app, 'config', None), 'personality', None) or 'stock'}",
+            f"personality {app.config.personality or 'stock'}",
             f"approval  {app._agent.approval.approvals.mode}",
             f"session   {app._agent.session_id}",
             f"context   {context}",
@@ -378,7 +383,7 @@ def show_status(app: Any) -> None:
     app.add_notice("\n".join(lines))
 
 
-async def show_context(app: Any) -> None:
+async def show_context(app: CodingAgentApp) -> None:
     if app._agent is None:
         app.add_notice("Context · offline", "warning")
         return
@@ -387,7 +392,7 @@ async def show_context(app: Any) -> None:
 
 
 # --- compact.py ---
-async def compact_context(app: Any) -> None:
+async def compact_context(app: CodingAgentApp) -> None:
     """Run the harness-mounted compactor on the saved conversation.
 
     The agent emits ``compaction_*`` events which the presenter turns into the
@@ -411,7 +416,7 @@ async def compact_context(app: Any) -> None:
 class CommandManager:
     """Parse slash commands and run the matching handler."""
 
-    def __init__(self, app: Any) -> None:
+    def __init__(self, app: CodingAgentApp) -> None:
         self.app = app
 
 
@@ -451,20 +456,14 @@ class CommandManager:
                 root = store.session_dir(app._agent.session_id) if isinstance(store, JsonlPersistence) else None
                 app.push_screen(SessionModal(await session_report(app._agent), root))
         elif command == "learning":
-            agent = getattr(app, "_agent", None)
-            try:
-                learned = agent.learning_store if agent is not None else None
-            except AttributeError:
-                learned = None
+            agent = app._agent
             app.push_screen(LearningModal(
                 app.workspace,
-                session_id=getattr(agent, "session_id", None),
-                store=learned,
+                session_id=agent.session_id if agent is not None else None,
+                store=agent.learning_store if agent is not None else None,
             ))
-        elif command in {"installed", "extensions", "plugins", "skills"}:
-            agent = app._agent
-            skills, plugins = (agent.skill_registry.skills, agent.loaded_plugins) if agent else ((), ())
-            app.push_screen(ExtensionsModal(skills, plugins))
+        elif command in {"installed", "extensions"} or (command in COMMANDS and not argument):
+            show_installed(app)
         elif command == "effort":
             if app._busy:
                 app.add_notice("/effort is unavailable while a turn is running.", "warning")
@@ -499,10 +498,13 @@ class CommandManager:
             open_langfuse_setup(app)
         elif command == "jev":
             toggle_jev(app, argument)
+        elif command in COMMANDS:
+            outcome = await run_extension_slash(command, argument, app.workspace, app._agent)
+            app.add_notice(outcome.text, "info" if outcome.ok else "error")
         elif app._agent is None:
             app.add_notice(OFFLINE_HINT, "error")
         elif command == "new":
-            start_new_session(app)
+            await start_new_session(app)
         elif command == "model":
             select_model(app, argument) if argument else show_model_picker(app)
         elif command == "personality":
@@ -517,7 +519,7 @@ class CommandManager:
             app.add_notice(f"Unknown command: /{command}. Type /help to see commands.", "warning")
 
 
-def open_provider_onboard(app: Any, argument: str = "") -> None:
+def open_provider_onboard(app: CodingAgentApp, argument: str = "") -> None:
     initial = None
     if argument:
         selected = find_provider(argument)
@@ -534,7 +536,7 @@ def open_provider_onboard(app: Any, argument: str = "") -> None:
     )
 
 
-def on_provider_onboard(app: Any, providers: tuple[str, ...] | None) -> None:
+def on_provider_onboard(app: CodingAgentApp, providers: tuple[str, ...] | None) -> None:
     if providers is None:
         app.query_one("#prompt").focus()
         return
@@ -546,7 +548,7 @@ def on_provider_onboard(app: Any, providers: tuple[str, ...] | None) -> None:
     app.run_worker(reload_after_provider(app), exclusive=False)
 
 
-async def reload_after_provider(app: Any) -> None:
+async def reload_after_provider(app: CodingAgentApp) -> None:
     from coding_agent.tui.commands.manager import reload_project
 
     await reload_project(app)

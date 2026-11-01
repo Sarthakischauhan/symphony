@@ -12,6 +12,7 @@ Find the guide for the task you came to do. Symphony is a Python workspace for b
 | --- | --- |
 | Work in the terminal UI | [TUI and controls](./user-guide/tui.md) |
 | Configure providers, models, and approvals | [Configuration](./user-guide/configuration.md) · [environment reference](./reference/environment.md) |
+| Install and write plugins | [Plugins](./user-guide/plugins.md) |
 | Understand workspace tools and access | [Tools](./user-guide/tools.md) |
 | Resume or protect saved conversations | [Sessions](./user-guide/sessions.md) |
 | Use persistent learning | [Learning and memory](./user-guide/learning.md) |

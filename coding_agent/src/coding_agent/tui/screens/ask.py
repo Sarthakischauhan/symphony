@@ -50,9 +50,8 @@ class QuestionSurface:
             prompt.value = "" if choices else default
             prompt.cursor_position = len(prompt.value)
         prompt.focus()
-        queued = getattr(self, "_queued_turns", None)
-        if queued:
-            self.query_one("#queued-prompt-row", QueuedPrompt).refresh_queue(queued)
+        if self._queued_turns:
+            self.query_one("#queued-prompt-row", QueuedPrompt).refresh_queue(self._queued_turns)
 
     async def _answer_question(self, answer: str) -> None:
         request_id = self._pending_question_id

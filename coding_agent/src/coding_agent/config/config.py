@@ -10,7 +10,6 @@ from typing import Any, Final, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core_harness.config import HarnessConfig
-from coding_agent.addons.plugins.models import PluginConfig
 from coding_agent.config.prompts import SUBAGENT_SYSTEM_PROMPT
 
 SPAWN_SETTINGS_NAME = "config.json"
@@ -110,21 +109,41 @@ class LearningConfig(BaseModel):
         return max(value, LEARNING_MIN_OUTPUT_TOKENS)
 
 
+SKILLS_CATALOG_TOKENS: Final = 6000
+
+
+SkillSetting = Literal["on", "name-only", "manual"]
+
+
 class SkillsConfig(BaseModel):
+    """Which skills the prompt lists, and how much prompt they may cost.
+
+    ``max_context_tokens`` bounds the whole catalog block (header and every line).
+    ``settings`` sets one skill's catalog mode: ``on`` (name, description, path),
+    ``name-only``, or ``manual`` (never listed; point the model at its SKILL.md yourself). A skill without a
+    setting is ``manual`` if its front matter says ``invocation: manual``, else ``on``.
+    ``disabled`` skills are not loaded at all. ``symphony skills`` edits both.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
     max_skills: int = Field(default=100, ge=1)
+    max_context_tokens: int = Field(default=SKILLS_CATALOG_TOKENS, ge=1)
     roots: list[Path] = Field(default_factory=list)
+    settings: dict[str, SkillSetting] = Field(default_factory=dict)
+    disabled: list[str] = Field(default_factory=list)
 
 
 class PluginsConfig(BaseModel):
+    """Plugins are installed with ``symphony plugins`` and recorded in ``<symphony home>/plugins/state.json``.
+
+    ``enabled`` is the master switch. Trust for plugin code is never set here.
+    """
+
     model_config = ConfigDict(extra="forbid")
-    # Installed plugins are discovered from the user-wide ``~/.symphony/plugins``
-    # directory. Their executable add-ons still require trusted authorization.
+
     enabled: bool = True
-    entries: list[PluginConfig] = Field(default_factory=list)
-    authorized_roots: list[Path] = Field(default_factory=list)
 
 
 class CompactionConfig(BaseModel):
@@ -378,6 +397,7 @@ __all__ = [
     "SPAWN_SETTINGS_NAME",
     "SearchConfig",
     "SettingsSource",
+    "SkillSetting",
     "SkillsConfig",
     "ToolsConfig",
     "UpdatesConfig",

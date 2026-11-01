@@ -111,6 +111,8 @@ SLASH_COMMANDS = (
     SlashCommand("session", "Inspect session images, compactions, memory, and recorded events"),
     SlashCommand("learning", "Browse curated memory topics and pending captures"),
     SlashCommand("installed", "View installed skills and plugins"),
+    SlashCommand("skills", "List or manage skills: add, remove, enable, disable, mode, update", "[command]"),
+    SlashCommand("plugins", "List or manage plugins: add, remove, enable, disable, update, marketplace", "[command]"),
     SlashCommand("diff", "Open the current workspace diff in a modal"),
     SlashCommand("clear", "Clear the visible transcript"),
     SlashCommand("help", "Show available slash commands"),

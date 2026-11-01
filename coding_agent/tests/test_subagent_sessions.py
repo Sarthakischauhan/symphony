@@ -252,6 +252,10 @@ def test_ten_closed_subagents_do_not_refresh_parent_cards(monkeypatch, tmp_path:
     asyncio.run(run())
 
 
+async def _no_children() -> None:
+    return None
+
+
 def test_child_journal_reopens_after_restart(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     root = tmp_path / "sessions"
@@ -273,7 +277,12 @@ def test_child_journal_reopens_after_restart(monkeypatch, tmp_path: Path) -> Non
         })
         app = CodingAgentApp(workspace=tmp_path)
         async with app.run_test() as pilot:
-            app._agent = SimpleNamespace(persistence=JsonlPersistence(root), session_id="parent-session")
+            persistence = JsonlPersistence(root)
+            app._agent = SimpleNamespace(
+                persistence=persistence, session_store=persistence, session_id="parent-session",
+                harness=SimpleNamespace(child_tasks={}, shutdown_children=_no_children),
+                shutdown_learning=_no_children,
+            )
             await app.restore_subagents()
             record = app._subagents["child"]
             assert record.status == "interrupted"

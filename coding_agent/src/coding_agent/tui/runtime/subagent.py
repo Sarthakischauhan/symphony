@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from rich.text import Text
 from textual.binding import Binding
@@ -155,8 +155,11 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
     ]
 
     def __init__(self, record: SubagentRecord | None = None, workspace: Any = None,
-                 *, child_id: str = "", parent_id: str = "") -> None:
+                 *, background_tasks: Callable[[], int], subagents: Mapping[str, SubagentRecord],
+                 child_id: str = "", parent_id: str = "") -> None:
         super().__init__()
+        self._background_tasks = background_tasks
+        self._app_subagents = subagents
         self.record = record
         self.child_id = child_id or (record.agent_id if record else "")
         self.parent_id = parent_id or (record.parent_id if record else "")
@@ -175,10 +178,11 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         self._presenter = EventPresenter(
             state=self._ui_state, view=self, set_status=self._set_status,
             workspace=str(self.workspace), schedule_flush=self._schedule_stream_flush,
+            compaction_update=lambda text: self.add_notice(text, "success"),
         )
 
     def compose(self):  # type: ignore[no-untyped-def]
-        yield TopBar(id="topbar")
+        yield TopBar(id="topbar", background_tasks=self._background_tasks)
         yield Static(id="child-heading", markup=False)
         yield TranscriptScroll(id="transcript")
         yield Static("Viewing child transcript · Esc back · Ctrl+X stop child", id="child-back")
@@ -186,13 +190,16 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
 
     def on_mount(self) -> None:
         if self.record is None:
-            self.record = getattr(self.app, "_subagents", {}).get(self.child_id)
+            self.record = self._app_subagents.get(self.child_id)
         if self.record is None or self.record.parent_id != self.parent_id:
             self.add_notice("Child session not found for this parent.", "error")
             return
         self._mount_transcript(UserMessage(self.record.prompt or "Child task"))
         self._ready = True
         self.refresh_record()
+
+    def add_update(self, text: str, hint: str = "") -> None:
+        """The child transcript has no composer banner, so banners and toasts are dropped."""
 
     def _schedule_stream_flush(self, callback: Any) -> None:
         self._stream_flush_callback = callback
@@ -377,9 +384,7 @@ class SubagentSurface:
         self._bind_spawn_widget(record)
         self._refresh_subagent_screen(record)
         self._refresh_subagent_tasks()
-        refresh = getattr(self, "_refresh_background_tasks", None)
-        if callable(refresh):
-            refresh()
+        self._refresh_background_tasks()
 
     def _on_agent_finished(self, event_type: str, payload: dict[str, Any]) -> None:
         child_id = str(payload.get("child_id") or "")
@@ -392,7 +397,7 @@ class SubagentSurface:
         record.ingest(event_type, payload)
         if len(record.events) == before:
             return
-        if getattr(self, "_pending_question_agent_id", "") == child_id:
+        if self._pending_question_agent_id == child_id:
             from coding_agent.tui.composer import PromptInput, SlashMenu
             self._pending_question_id = None
             self._pending_question_agent_id = ""
@@ -406,9 +411,7 @@ class SubagentSurface:
         self._refresh_subagent_widgets(record)
         self._refresh_subagent_screen(record)
         self._refresh_subagent_tasks()
-        refresh = getattr(self, "_refresh_background_tasks", None)
-        if callable(refresh):
-            refresh()
+        self._refresh_background_tasks()
         self.add_notice(f"Subagent {record.label} {record.status} · Ctrl+G to inspect")
 
     def _on_child_event(self, event_type: str, payload: dict[str, Any]) -> None:
@@ -462,18 +465,22 @@ class SubagentSurface:
 
     def open_subagent(self, record: SubagentRecord) -> None:
         self._subagents[record.agent_id] = record
-        self.push_screen(SubagentScreen(child_id=record.agent_id, parent_id=record.parent_id, workspace=self.workspace))
+        self.push_screen(SubagentScreen(
+            child_id=record.agent_id, parent_id=record.parent_id, workspace=self.workspace,
+            background_tasks=self.background_task_count, subagents=self._subagents,
+        ))
 
     def action_subagents(self) -> None:
-        self.push_screen(SubagentTasksScreen())
+        self.push_screen(SubagentTasksScreen(self._subagents))
 
     def _refresh_subagent_tasks(self) -> None:
         if isinstance(self.screen, SubagentTasksScreen):
             self.screen.refresh_tasks()
 
     async def cancel_subagent(self, child_id: str) -> None:
-        harness = getattr(self._agent, "harness", None)
-        record = getattr(harness, "child_tasks", {}).get(child_id)
+        if self._agent is None:
+            return
+        record = self._agent.harness.child_tasks.get(child_id)
         if record is not None and record.task is not None and not record.task.done():
             import asyncio
             record.task.cancel()
@@ -482,11 +489,10 @@ class SubagentSurface:
     async def restore_subagents(self) -> None:
         if self._agent is None:
             return
-        store = self._agent.persistence
-        load = getattr(store, "load_children", None)
-        if not callable(load):
+        store = self._agent.session_store
+        if store is None:
             return
-        for metadata in await load(parent_session_id=self._agent.session_id):
+        for metadata in await store.load_children(parent_session_id=self._agent.session_id):
             child_id = metadata["child_id"]
             if child_id in self._subagents:
                 continue
@@ -509,6 +515,10 @@ class SubagentTasksScreen(ModalBase[None]):
     #subagent-tasks { width: 90%; height: 70%; border: round #484F58; background: #0A0A0A; }
     """
 
+    def __init__(self, subagents: Mapping[str, SubagentRecord]) -> None:
+        super().__init__()
+        self._subagents = subagents
+
     def compose(self):
         yield OptionList(id="subagent-tasks")
 
@@ -521,7 +531,7 @@ class SubagentTasksScreen(ModalBase[None]):
         options = self.query_one(OptionList)
         highlighted = options.highlighted
         options.clear_options()
-        records = list(getattr(self.app, "_subagents", {}).values())
+        records = list(self._subagents.values())
         for record in records:
             color = {"running": "#d7a84b", "completed": "#72a57a"}.get(record.status, "#d66b73")
             label = Text(f"{record.status:12} ", style=color)
@@ -533,7 +543,7 @@ class SubagentTasksScreen(ModalBase[None]):
             options.highlighted = min(highlighted or 0, len(records) - 1)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        record = self.app._subagents.get(event.option.id)
+        record = self._subagents.get(event.option.id)
         if record is not None:
             from coding_agent.tui.screens.modal import dismiss_overlay
 

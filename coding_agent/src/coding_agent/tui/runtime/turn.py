@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Optional
 
 from textual import work
 
-from coding_agent.tui.chrome import TopBar, display_workspace_path, footer_hint, render_footer
+from coding_agent.addons.evaluation.addon import JevAddon
+from coding_agent.addons.evaluation.policy import PolicyDecision
+from coding_agent.tui.chrome import (
+    SessionChrome,
+    TopBar,
+    display_workspace_path,
+    footer_hint,
+    render_footer,
+    running_background_tasks,
+)
 from coding_agent.tui.composer.input import PromptInput
 from coding_agent.tui.runtime.sink import HarnessEvent
 from coding_agent.tui.screens.history import load_session_history
@@ -39,8 +48,8 @@ class TurnSurface:
             # The footer has fixed width/height; metrics only change its paint.
             layout=False,
         )
-        model_id = self._ui_state.model_id or getattr(self, "model_id", "") or ""
-        if model_id != getattr(self, "_topbar_model", None):
+        model_id = self._ui_state.model_id or self.model_id or ""
+        if model_id != self._topbar_model:
             self._topbar_model = model_id
             self.query_one("#topbar", TopBar).set_context(self.workspace, model_id)
 
@@ -49,7 +58,7 @@ class TurnSurface:
         # A structural event can drain paints before this timer fires. Keep
         # the newest generation's callback rather than stranding its updates.
         self._stream_flush_callback = callback
-        if getattr(self, "_stream_flush_timer", None) is not None:
+        if self._stream_flush_timer is not None:
             return
 
         def _run() -> None:
@@ -61,22 +70,20 @@ class TurnSurface:
 
         self._stream_flush_timer = self.set_timer(STREAM_PAINT_INTERVAL_S, _run)
 
-    def set_context_metrics(self, tokens_used: int, context_limit: int) -> None:
-        """Restore context usage for a resumed session before its first run."""
-        metrics = self._ui_state.metrics
-        metrics.tokens_used = tokens_used
-        metrics.context_limit = context_limit
-        metrics.context_left = max(context_limit - tokens_used, 0)
-        metrics.utilization = tokens_used / context_limit if context_limit else None
-        self._set_status("")
+    def reset_session_chrome(self, session: SessionChrome) -> None:
+        """Show one session's usage, spend, artifacts and background tasks in the bars.
 
-    def set_session_cost(self, costs: dict[str, float]) -> None:
-        """Restore the session price so the footer shows it before the next run."""
-        metrics = self._ui_state.metrics
-        metrics.model_costs = dict(costs)
-        metrics.session_cost = sum(costs.values())
-        if costs:
-            metrics.priced_model = next(reversed(costs))
+        The one path for ``/new`` and resume: the footer reads the run state this
+        replaces, the top bar gets the artifact and task counts, and both repaint here.
+        """
+        self._ui_state.restore_session(
+            tokens_used=session.tokens_used,
+            context_limit=session.context_limit,
+            costs=session.costs,
+        )
+        self._session_artifacts = dict(session.artifacts)
+        self.query_one("#topbar", TopBar).set_artifact_count(len(self._session_artifacts))
+        self._refresh_background_tasks()
         self._set_status("")
 
     @work(exclusive=False)
@@ -88,32 +95,42 @@ class TurnSurface:
 
     def _collect_run_events(self, payload: Mapping[str, Any]) -> None:
         """Tag mid-run journal events as collected after the final output."""
-        agent = getattr(self, "_agent", None)
-        store = getattr(agent, "persistence", None)
-        collect = getattr(store, "collect_run_events", None)
-        if not callable(collect):
+        if self._agent is None:
             return
-        session_id = str(
-            payload.get("session_id") or getattr(agent, "session_id", "") or ""
-        )
+        store = self._agent.session_store
+        if store is None:
+            return
+        session_id = str(payload.get("session_id") or self._agent.session_id or "")
         run_id = str(payload.get("run_id") or "")
         if not session_id:
             return
 
         async def _persist() -> None:
-            annotate = getattr(store, "annotate_run_completed", None)
-            if callable(annotate):
-                elapsed = payload.get("elapsed_seconds")
-                await annotate(
-                    session_id=session_id,
-                    run_id=run_id,
-                    completion_verb=str(payload.get("completion_verb") or ""),
-                    duration=str(payload.get("duration") or ""),
-                    elapsed_seconds=float(elapsed) if isinstance(elapsed, (int, float)) else None,
-                )
-            await collect(session_id=session_id, run_id=run_id or None)
+            elapsed = payload.get("elapsed_seconds")
+            await store.annotate_run_completed(
+                session_id=session_id,
+                run_id=run_id,
+                completion_verb=str(payload.get("completion_verb") or ""),
+                duration=str(payload.get("duration") or ""),
+                elapsed_seconds=float(elapsed) if isinstance(elapsed, (int, float)) else None,
+            )
+            await store.collect_run_events(session_id=session_id, run_id=run_id or None)
 
         self.run_worker(_persist, exclusive=False, group="collect_run_events")
+
+    def jev_decision(self) -> Optional[PolicyDecision]:
+        """The Jev critic's last decision on the live agent, if one is mounted."""
+        if self._agent is None:
+            return None
+        addon = self._agent.harness.find_addon(JevAddon)
+        return addon.last_decision if addon is not None else None
+
+    def saved_costs(self, session_id: str) -> dict[str, float]:
+        """Per-model cost saved for ``session_id``, or for the live session when it is empty."""
+        if self._agent is None:
+            return {}
+        session_id = session_id or self._agent.session_id
+        return self._agent.session_costs(session_id) if session_id else {}
 
     def feed_voice(self, text: str) -> None:
         from coding_agent.tui.composer.voice_mode import feed_voice
@@ -156,18 +173,14 @@ class TurnSurface:
         }:
             self._collect_run_events(payload)
 
+    def background_task_count(self) -> int:
+        """Live background jobs and subagents across the agent's sessions; 0 before an agent exists."""
+        if self._agent is None:
+            return 0
+        return running_background_tasks(self._agent.harness.child_tasks)
+
     def _refresh_background_tasks(self) -> None:
-        """Count live background jobs and subagents for the top bar."""
-        harness = getattr(self._agent, "harness", None)
-        tasks = getattr(harness, "child_tasks", {})
-        count = sum(
-            1
-            for record in tasks.values()
-            if getattr(record, "status", "") in {"running", "background"}
-            and (getattr(record, "task", None) is None or not record.task.done())
-        )
-        topbar = self.query_one("#topbar", TopBar)
-        topbar.set_background_tasks(count)
+        self.query_one("#topbar", TopBar).set_background_tasks(self.background_task_count())
 
     on_control_plane_event = on_harness_event
 
@@ -218,13 +231,12 @@ class TurnSurface:
                 self._pending_question_id = None
                 self._pending_question_default = ""
             self.sink.reset_cancel()
-            voice_addon = getattr(self, "_voice_addon", None)
-            if getattr(voice_addon, "_armed", False):
+            if self._voice_addon is not None and self._voice_addon.armed:
                 # Failed/cancelled runs do not reach the harness after_run hook.
                 from coding_agent.tui.composer.voice_mode import close_voice_addon
 
                 close_voice_addon(self)
-            if getattr(self, "_voice_active", False):
+            if self._voice_active:
                 # The composer is hidden. Leave focus alone until voice mode ends.
                 return
             prompt = self.query_one("#prompt", PromptInput)

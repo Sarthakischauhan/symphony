@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
-from coding_agent.addons.evaluation.addon import JevAddon
+from coding_agent.addons.evaluation.policy import PolicyDecision
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
 from coding_agent.addons.voice.summary import SpokenSummaryStream, split_spoken_summary
@@ -22,6 +22,9 @@ from coding_agent.tui.transcript.messages import preview_text
 
 StatusFn = Callable[[str], None]
 ScheduleFlush = Callable[[Callable[[], None]], None]
+SpeakText = Callable[[str], None]
+JevDecisionSource = Callable[[], Optional[PolicyDecision]]
+SavedCosts = Callable[[str], dict[str, float]]
 ChromeSnapshot = Tuple[Any, ...]
 
 # High-frequency events are reduced immediately but painted on one throttled UI tick.
@@ -32,25 +35,15 @@ _TOASTABLE_JEV_ACTIONS = frozenset({"replan", "retry", "review", "gather", "ask"
 _JEV_TOAST_REASON_LIMIT = 120
 
 
-def jev_recommendation_update(decision: Any) -> Optional[str]:
+def jev_recommendation_update(decision: Optional[PolicyDecision]) -> Optional[str]:
     """ComposerOverlay text for a user-facing Jev decision, else None."""
     if decision is None:
         return None
-    action = getattr(decision, "action", None)
+    action = decision.action
     if action not in _TOASTABLE_JEV_ACTIONS:
         return None
-    reason = bound_text(str(getattr(decision, "reason", "") or ""), _JEV_TOAST_REASON_LIMIT)
+    reason = bound_text(decision.reason, _JEV_TOAST_REASON_LIMIT)
     return f"Jev → {action}: {reason}" if reason else f"Jev → {action}"
-
-
-def _jev_last_decision(view: Any) -> Any:
-    """Fail-open lookup of mounted JevAddon.last_decision via the app view."""
-    agent = getattr(view, "_agent", None)
-    harness = getattr(agent, "harness", None) if agent is not None else None
-    if harness is None:
-        return None
-    addon = harness.find_addon(JevAddon)
-    return addon.last_decision if addon is not None else None
 
 
 def _clean_reasoning(text: str) -> str:
@@ -90,17 +83,6 @@ def _tool_arguments_from_protocol(raw: str) -> Optional[dict[str, Any]]:
     return arguments or None
 
 
-def _persisted_model_costs(view: Any, payload: Mapping[str, Any]) -> dict[str, float] | None:
-    agent = getattr(view, "_agent", None)
-    store = getattr(agent, "persistence", None)
-    session_id = str(payload.get("session_id") or getattr(agent, "session_id", ""))
-    costs = getattr(store, "session_costs", None)
-    if not callable(costs) or not session_id:
-        return None
-    loaded = costs(session_id)
-    return loaded if isinstance(loaded, dict) and loaded else None
-
-
 def _duration(seconds: float) -> str:
     minutes, seconds = divmod(max(0, int(seconds)), 60)
     hours, minutes = divmod(minutes, 60)
@@ -121,6 +103,18 @@ def _compaction_notice(payload: Mapping[str, Any]) -> str:
     if isinstance(tokens_before, int) and isinstance(tokens_after, int):
         text += f" · ~{tokens_before:,} → ~{tokens_after:,} tokens"
     return text
+
+
+def _no_speech(text: str) -> None:
+    """Default for a view with no voice add-on: nothing is spoken."""
+
+
+def _no_jev_decision() -> Optional[PolicyDecision]:
+    return None
+
+
+def _no_saved_costs(session_id: str) -> dict[str, float]:
+    return {}
 
 
 class TranscriptView(Protocol):
@@ -186,9 +180,19 @@ class EventPresenter:
         set_status: StatusFn,
         workspace: str = "",
         schedule_flush: Optional[ScheduleFlush] = None,
+        speak: SpeakText = _no_speech,
+        jev_decision: JevDecisionSource = _no_jev_decision,
+        saved_costs: SavedCosts = _no_saved_costs,
+        compaction_update: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.state = state
         self.view = view
+        self._speak = speak
+        self._jev_decision = jev_decision
+        self._saved_costs = saved_costs
+        # Where compaction progress shows. The app uses its composer banner; a
+        # composer-less view passes a transcript notice instead.
+        self._compaction_update = compaction_update or view.add_update
         self._set_status = set_status
         self.workspace = workspace
         self._schedule_flush = schedule_flush
@@ -213,6 +217,39 @@ class EventPresenter:
         self._model_turns: set[int] = set()
         self._tool_executions: set[str] = set()
         self._usage_estimated = False
+        self._handlers: dict[str, Callable[[Mapping[str, Any]], None]] = {
+            "artifact_created": self._on_artifact_created,
+            "artifact_updated": self._on_artifact_updated,
+            "auto_decision": self._on_auto_decision,
+            "run_started": self._on_run_started,
+            "run_completed": self._on_run_completed,
+            "run_summary": self._on_run_summary,
+            "run_failed": self._on_run_failed,
+            "run_cancelled": self._on_run_cancelled,
+            "run_limit_exceeded": self._on_run_limit_exceeded,
+            "turn_started": self._on_turn_started,
+            "turn_completed": self._on_turn_completed,
+            "model_retry_scheduled": self._on_model_retry_scheduled,
+            "text_delta": self._on_text_delta,
+            "reasoning_delta": self._on_reasoning_delta,
+            "tool_call_started": self._on_tool_call_started,
+            "tool_call_delta": self._on_tool_call_delta,
+            "tool_call_arguments": self._on_tool_call_arguments,
+            "tool_execution_started": self._on_tool_execution_started,
+            "tool_execution_output": self._on_tool_execution_output,
+            "tool_execution_completed": self._on_tool_execution_completed,
+            "usage": self._on_usage,
+            "context": self._on_context,
+            "context_warning": self._on_context_warning,
+            "compaction_started": self._on_compaction_started,
+            "compaction_completed": self._on_compaction_completed,
+            "paused": self._on_paused,
+            "resumed": self._on_resumed,
+            "message_injected": self._on_message_injected,
+            "waiting_for_children": self._on_waiting_for_children,
+            "subagent_step": self._on_subagent_step,
+            "question_asked": self._on_question_asked,
+        }
 
     def _chrome_snapshot(self) -> ChromeSnapshot:
         m = self.state.metrics
@@ -241,9 +278,7 @@ class EventPresenter:
         if built is None:
             return
         title, hint = built
-        add_update = getattr(self.view, "add_update", None)
-        if callable(add_update):
-            add_update(title, hint)
+        self.view.add_update(title, hint)
 
     def refresh_chrome(self) -> None:
         snapshot = self._chrome_snapshot()
@@ -264,7 +299,7 @@ class EventPresenter:
         if event_type not in _BUFFERED_PAINT_EVENT_TYPES and not observational:
             if event_type != "run_started":
                 self.flush_stream_paints()
-        handler = getattr(self, f"_on_{event_type}", None)
+        handler = self._handlers.get(event_type)
         if handler is None:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
@@ -463,11 +498,9 @@ class EventPresenter:
             duration=str(payload.get("duration") or ""),
         )
         self._assistant_open = False
-        toast = jev_recommendation_update(_jev_last_decision(self.view))
+        toast = jev_recommendation_update(self._jev_decision())
         if toast:
-            add_update = getattr(self.view, "add_update", None)
-            if callable(add_update):
-                add_update(toast)
+            self.view.add_update(toast)
 
     def _on_run_summary(self, payload: Mapping[str, Any]) -> None:
         summary = str(payload.get("summary") or "").strip()
@@ -579,9 +612,7 @@ class EventPresenter:
         self._assistant_open = True
         visible = self._spoken.visible(self.state.stream_text)
         self._buffer_assistant(visible, new=is_new)
-        speak = getattr(self.view, "feed_voice", None)
-        if callable(speak):
-            speak(self.state.stream_text)
+        self._speak(self.state.stream_text)
 
     def _on_reasoning_delta(self, payload: Mapping[str, Any]) -> None:
         delta = str(payload.get("delta") or "")
@@ -715,7 +746,7 @@ class EventPresenter:
     # Metrics and context
     def _on_usage(self, payload: Mapping[str, Any]) -> None:
         self._usage_estimated |= bool(payload.get("estimated", False))
-        stored = _persisted_model_costs(self.view, payload)
+        stored = self._saved_costs(str(payload.get("session_id") or ""))
         self.state.update_usage({**payload, "model_costs": stored} if stored else payload)
         self._pending_thinking = self._usage_text()
 
@@ -737,23 +768,13 @@ class EventPresenter:
         # wording while representing the in-progress state rather than claiming
         # compaction has already completed.
         before = payload.get("message_count", "?")
-        text = f"Compacted context · {before} → … messages"
-        add_update = getattr(self.view, "add_update", None)
-        if callable(add_update):
-            add_update(text)
-        else:
-            self.view.add_notice(text, "success")
+        self._compaction_update(f"Compacted context · {before} → … messages")
 
     def _on_compaction_completed(self, payload: Mapping[str, Any]) -> None:
         self.state.update_after_compaction(payload)
         if payload.get("manual"):
             self.state.detail = "ready"
-        add_update = getattr(self.view, "add_update", None)
-        if callable(add_update):
-            add_update(_compaction_notice(payload))
-        else:
-            # Keep lightweight presenter test doubles and older integrations working.
-            self.view.add_notice(_compaction_notice(payload), "success")
+        self._compaction_update(_compaction_notice(payload))
 
     def _on_paused(self, payload: Mapping[str, Any]) -> None:
         self.state.phase = "paused"

@@ -159,9 +159,11 @@ def test_resumed_child_card_opens_child_transcript(monkeypatch, tmp_path: Path):
         async with app.run_test(size=(100, 30)) as pilot:
             app._agent = SimpleNamespace(
                 artifacts=None,
-                persistence=Persistence(),
+                persistence=(store := Persistence()),
+                session_store=store,
+                session_costs=lambda _session_id: {},
                 session_id="parent-session",
-                harness=SimpleNamespace(model_id="fake", state=SimpleNamespace(context_limit=lambda _: 10000)),
+                harness=SimpleNamespace(model_id="fake", child_tasks={}, state=SimpleNamespace(context_limit=lambda _: 10000)),
             )
             await load_session_history(app._agent, app)
             await app.restore_subagents()
