@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- `symphony skills` and `symphony plugins` (and `/skills`, `/plugins`) install, list,
+  remove, enable, disable and update skills and plugins from a path, git URL or
+  marketplace. Plugins in the Codex, Claude and Cursor manifest formats load their
+  skills; unsupported parts (agents, hooks, automations, MCP) are listed as skipped.
+  Plugin addon code runs only after `symphony plugins trust`.
+- Skills are a catalog of name, description and `SKILL.md` path that the model reads
+  with `read_file`; the `skill` tool is removed. `skills.max_context_tokens` (default
+  6000) bounds the catalog, and each skill can be `on`, `name-only` or `manual`.
+- Breaking: `plugins.entries`, `plugins.authorized_roots` and
+  `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS` are removed; the old `schema_version`/`id`
+  `plugin.json` is no longer read; project `.symphony/skills` load without trust.
+- `/new` clears the footer cost and context, the top-bar artifacts and background
+  tasks, and stops the previous conversation's background jobs and subagents.
+- The terminal title is "Symphony" and the process name is `symphony`.
+
 ## 0.0.5 — 2026-10-31
 
 Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.5.

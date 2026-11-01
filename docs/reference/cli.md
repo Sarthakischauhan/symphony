@@ -33,6 +33,33 @@ uv run --package symphony-code symphony run --unattended "Fix the failing test" 
 
 `--detach` starts a background process and prints its pid, log path, and session id. Stop it with `kill <pid>`; it is not managed by a daemon service. Sessions are persisted like TUI sessions.
 
+## `symphony skills` and `symphony plugins`
+
+Manage skills and plugins without starting the TUI. A source is a local path, a git URL with an optional `@ref` (`https://github.com/o/r@v1`), `owner/repo` (GitHub), or for plugins `plugin@marketplace`. Installing copies files; it never runs plugin code. Exit code 0 on success, 1 on any error. The same commands exist as `/skills` and `/plugins` in the TUI and stdio.
+
+```sh
+symphony skills add owner/repo [--project] [--path DIR]
+symphony skills list | remove NAME | enable NAME | disable NAME | update [NAME]
+symphony skills mode NAME on|name-only|manual|default
+
+symphony plugins add SOURCE [--path DIR]
+symphony plugins list | remove NAME | enable NAME | disable NAME | update [NAME]
+symphony plugins trust NAME [--revoke]
+symphony plugins marketplace add SOURCE | list | update [NAME] | remove NAME
+```
+
+| Command | What it does |
+| --- | --- |
+| `skills add` | Install every `SKILL.md` under the source into `~/.symphony/skills/<name>`, or `.agents/skills/<name>` in the project with `--project` |
+| `skills mode` | Set one skill's catalog mode; see [configuration](../user-guide/configuration.md#skills-and-plugins) |
+| `skills list` | Name, mode, token cost, origin and path of each skill, plus the catalog total against `skills.max_context_tokens` |
+| `plugins add` | Install into `plugins/cache/<marketplace>/<plugin>/<version>/` and print the skills added and every unsupported part skipped |
+| `plugins trust` | Allow the plugin's addon code to run; the only command that records trust. `--revoke` withdraws it |
+| `plugins marketplace add` | Register a catalog (`.agents/plugins`, `.claude-plugin` or `.cursor-plugin` `marketplace.json`) |
+| `update` | Fetch again from the recorded source; plugin trust survives only if the addon is unchanged |
+
+Details, trust and what loads: [skills and plugins](../developer-guide/skills-and-plugins.md).
+
 ## Other commands
 
 ### `symphony bench`
