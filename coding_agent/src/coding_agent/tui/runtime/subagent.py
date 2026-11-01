@@ -166,6 +166,7 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         self._tool_groups = {}
         self._open_tool_group = None
         self._subagents = {}
+        self._session_artifacts = {}
         self._busy = True
         self._event_cursor = 0
         self._ready = False

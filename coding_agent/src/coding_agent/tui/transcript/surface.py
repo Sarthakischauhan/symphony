@@ -337,13 +337,13 @@ class TranscriptSurface:
         """Copy the currently selected rendered transcript text to the clipboard."""
         selected = self.screen.get_selected_text()
         if selected:
-            self.copy_to_clipboard(selected)
+            self.app.copy_to_clipboard(selected)
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
         """Copy the drag selection, then clear its highlight."""
         if self.screen.get_selected_text():
             self.action_copy_selection()
-            self.notify("Copied to clipboard!")
+            self.app.notify("Copied to clipboard!")
             self.screen.clear_selection()
 
     def action_clear_transcript(self) -> None:
