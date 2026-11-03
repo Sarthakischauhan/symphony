@@ -292,11 +292,9 @@ class AssistantMessage(SelectableStatic):
         self.set_content(content, streaming=streaming)
 
     def set_content(self, content: str, *, streaming: bool = False) -> None:
-        if (
-            not streaming
-            and not self._streaming
-            and content == self.message_text
-            and self._markdown is not None
+        if content == self.message_text and (
+            (streaming and self._streaming)
+            or (not streaming and not self._streaming and self._markdown is not None)
         ):
             return
         self.message_text = content

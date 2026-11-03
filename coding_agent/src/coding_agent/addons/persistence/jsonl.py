@@ -8,6 +8,7 @@ reconstructed from those events; no separate context file is written.
 
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import hashlib
 import json
@@ -904,9 +905,22 @@ class JsonlPersistence:
             return
         fields = self.fields
         for name, body in fields.apply(event_type, payload) if fields is not None else [(event_type, payload)]:
-            self._journal(name, body)
-            if name == "usage":
-                self._record_usage_cost(body)
+            await self._durable_thread(self._append_event_sync, name, body)
+
+    @staticmethod
+    async def _durable_thread(function: Callable[..., Any], *args: Any) -> Any:
+        write = asyncio.create_task(asyncio.to_thread(function, *args))
+        try:
+            return await asyncio.shield(write)
+        except asyncio.CancelledError:
+            # Do not leave a write running behind subsequent persistence operations.
+            await write
+            raise
+
+    def _append_event_sync(self, name: str, body: dict[str, Any]) -> None:
+        self._journal(name, body)
+        if name == "usage":
+            self._record_usage_cost(body)
 
     def _record_usage_cost(self, payload: dict[str, Any]) -> None:
         if payload.get("parent_id"):
@@ -1068,6 +1082,9 @@ class JsonlPersistence:
         session_id: str,
         messages: List[Message],
     ) -> None:
+        await self._durable_thread(self._save_conversation, session_id, list(messages))
+
+    def _save_conversation(self, session_id: str, messages: List[Message]) -> None:
         with self._lock, self._session_lock(session_id):
             self._stamp_client(session_id)
             entries = self._read_entries(session_id)
@@ -1212,16 +1229,20 @@ class JsonlPersistence:
         ]
 
     async def save_checkpoint(self, *, checkpoint: Checkpoint) -> None:
-        # The journal already holds the messages; do not dump them every turn.
+        # Capture live agent state on its owning event-loop thread.
         payload = checkpoint.model_dump(exclude={"messages"})
         payload["metadata"] = {**self.checkpoint_metadata(), **payload["metadata"]}
-        with self._lock, self._session_lock(checkpoint.session_id):
-            entries = self._read_entries(checkpoint.session_id)
+        await self._durable_thread(self._save_checkpoint, checkpoint.session_id, payload)
+
+    def _save_checkpoint(self, session_id: str, payload: dict[str, Any]) -> None:
+        # The journal already holds the messages; do not dump them every turn.
+        with self._lock, self._session_lock(session_id):
+            entries = self._read_entries(session_id)
             outgoing: List[Dict[str, Any]] = []
             if not entries:
-                outgoing.append(self._header(checkpoint.session_id))
+                outgoing.append(self._header(session_id))
             outgoing.append({"type": "checkpoint", "version": 1, **payload})
-            self._append_entries(checkpoint.session_id, outgoing)
+            self._append_entries(session_id, outgoing)
 
     def checkpoint_goal(self, session_id: str) -> str:
         """Return the latest saved goal without rebuilding the conversation."""

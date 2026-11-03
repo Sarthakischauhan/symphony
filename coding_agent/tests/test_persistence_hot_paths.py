@@ -113,6 +113,77 @@ def test_journal_and_artifacts_are_byte_identical_to_main(tmp_path: Path, monkey
     assert _bundle_files(tmp_path / SESSION) == _bundle_files(FIXTURE)
 
 
+def test_event_write_yields_and_cancellation_waits_for_durability(tmp_path: Path, monkeypatch) -> None:
+    import threading
+
+    store = JsonlPersistence(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+    original = store._journal
+
+    def slow_journal(name, body):
+        started.set()
+        assert release.wait(5)
+        original(name, body)
+
+    monkeypatch.setattr(store, "_journal", slow_journal)
+
+    async def run() -> None:
+        task = asyncio.create_task(store.append_event(event_type="run_started", payload={"session_id": "s"}))
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert (tmp_path / "s" / "transcript.jsonl").is_file()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("operation", ["conversation", "checkpoint"])
+def test_save_runs_disk_work_off_event_loop(tmp_path: Path, monkeypatch, operation: str) -> None:
+    import threading
+
+    store = JsonlPersistence(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    name = "_save_conversation" if operation == "conversation" else "_save_checkpoint"
+    original = getattr(store, name)
+
+    def slow_save(*args):
+        entered.set()
+        assert release.wait(5)
+        return original(*args)
+
+    monkeypatch.setattr(store, name, slow_save)
+
+    async def run() -> None:
+        if operation == "conversation":
+            task = asyncio.create_task(store.save_conversation(
+                session_id="s", messages=[Message(role="user", content="hello")],
+            ))
+        else:
+            task = asyncio.create_task(store.save_checkpoint(checkpoint=Checkpoint(
+                session_id="s", turn=0, messages=[], status="completed",
+            )))
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert (tmp_path / "s" / "transcript.jsonl").is_file()
+
+    asyncio.run(run())
+
+
 def test_existing_session_round_trips(recorded: Path) -> None:
     store = JsonlPersistence(recorded)
 

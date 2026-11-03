@@ -13,6 +13,16 @@ from coding_agent.tui.transcript.messages import AssistantMessage, SelectableSta
 from coding_agent.tui.transcript.surface import TranscriptSurface
 
 
+def test_unchanged_stream_does_not_invalidate_layout(monkeypatch):
+    message = AssistantMessage("visible", streaming=True)
+    invalidations = []
+    monkeypatch.setattr(message, "_invalidate_render_cache", lambda **kwargs: invalidations.append(kwargs))
+    message.set_content("visible", streaming=True)
+    assert invalidations == []
+    message.set_content("visible", streaming=False)
+    assert invalidations == [{"layout": True}]
+
+
 def test_rich_transcript_mouse_drag_highlights_and_extracts():
     class SelectionApp(App):
         CSS = "Screen .screen--selection { background: #ff00ff; color: #ffffff; }"

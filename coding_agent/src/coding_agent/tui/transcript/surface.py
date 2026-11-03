@@ -314,6 +314,17 @@ class TranscriptSurface:
         self._close_tool_group()
         if self._process is not None:
             self._process.complete(title, collapse=collapse, verb=verb, duration=duration)
+            summary = self._process.completed_summary
+            if summary is not None:
+                retained = set(self._process.timeline_items())
+                for call_id in summary.call_ids:
+                    # Old grouped widgets have also been folded away. Point
+                    # their IDs at the surviving summary rather than retaining
+                    # the detached groups for the rest of the session.
+                    self._tool_groups[call_id] = summary
+                    tool = self._tools.get(call_id)
+                    if tool is not None and tool not in retained and tool.status in {"done", "failed"}:
+                        del self._tools[call_id]
 
     def mount_transcript(self, widget: Widget) -> None:
         """Public adapter used by the persisted-history loader."""

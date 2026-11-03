@@ -45,6 +45,7 @@ IMAGE_CHIP = "[Image 1]"
 # Streamed output lines a running Bash card shows under its header; the
 # finished card's expanded body carries the result as before.
 LIVE_OUTPUT_TAIL_LINES: Final = 6
+LIVE_OUTPUT_LINE_CHARS: Final = 4096
 
 
 class BashToolHeader(Horizontal, can_focus=True):
@@ -458,15 +459,17 @@ class BashToolWidget(ToolCallWidget):
     def append_output(self, chunk: str, stream: Stream = "stdout") -> None:
         """Take one streamed output chunk; only the tail's text changes.
 
-        stderr lines render red. A stream switch ends the partial line.
+        stderr lines render red. A stream switch ends the partial line. Only
+        the newest characters of long lines are shown here; the final tool
+        result is kept separately.
         """
         if self._partial_line and stream != self._partial_stream:
             self._tail_lines.append((self._partial_stream, self._partial_line))
             self._partial_line = ""
         lines = (self._partial_line + chunk).split("\n")
-        self._partial_line = lines.pop()
+        self._partial_line = lines.pop()[-LIVE_OUTPUT_LINE_CHARS:]
         self._partial_stream = stream
-        self._tail_lines.extend((stream, line) for line in lines)
+        self._tail_lines.extend((stream, line[-LIVE_OUTPUT_LINE_CHARS:]) for line in lines[-LIVE_OUTPUT_TAIL_LINES:])
         self._refresh_tail()
 
     def _live_tail(self) -> list[tuple[Stream, str]]:

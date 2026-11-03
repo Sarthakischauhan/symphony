@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
 import shutil
 import subprocess
@@ -125,9 +126,13 @@ def load_rules(
     matchers: list[tuple[Path, tuple[Rule, ...]]] = []
     if not workspace.exists():
         return tuple(matchers)
-    for gif in workspace.rglob(".gitignore"):
-        if any(part in DEFAULT_SKIP_DIRS for part in gif.parts):
+    if any(part in DEFAULT_SKIP_DIRS for part in workspace.parts):
+        return tuple(matchers)
+    for directory, dirs, files in os.walk(workspace):
+        dirs[:] = [name for name in dirs if name not in DEFAULT_SKIP_DIRS]
+        if ".gitignore" not in files:
             continue
+        gif = Path(directory) / ".gitignore"
         try:
             rules = tuple(filter(None, (parse_line(line) for line in gif.read_text(encoding="utf-8").splitlines())))
         except (OSError, UnicodeDecodeError):
@@ -454,8 +459,16 @@ class SearchTool(WorkspaceTool):
                 sample = handle.read(self.config.binary_sniff_bytes)
             if b"\x00" in sample:
                 return
-            text = path.read_text(encoding="utf-8")
+            with path.open("r", encoding="utf-8") as handle:
+                # Preserve the existing all-or-nothing treatment of invalid UTF-8
+                # without holding the whole decoded file and its lines in memory.
+                while handle.read(64 * 1024):
+                    pass
+                handle.seek(0)
+                line_no = 0
+                for physical_line in handle:
+                    for line in physical_line.splitlines():
+                        line_no += 1
+                        yield line_no, line
         except (OSError, UnicodeDecodeError):
             return
-        for line_no, line in enumerate(text.splitlines(), start=1):
-            yield line_no, line
