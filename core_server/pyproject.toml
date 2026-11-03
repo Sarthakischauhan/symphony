@@ -10,8 +10,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "symphony-core>=0.0.5",
-    "symphony-harness>=0.0.5",
+    "symphony-core>=0.0.6",
+    "symphony-harness>=0.0.6",
     "dotenv>=0.9.9",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
