@@ -1,6 +1,6 @@
 [project]
 name = "symphony-browser"
-version = "0.1.0"
+version = "0.0.1"
 description = "Symphony browser-use agent: the core harness loop drives the page (import as browser_agent; run as symphony-browser)"
 readme = "README.md"
 license = "MIT"
