@@ -54,8 +54,9 @@ def test_earlier_root_wins_a_shared_skill_name(tmp_path: Path):
 def test_bundled_skills_all_load_with_a_valid_arg_contract():
     registry, diagnostics = SkillRegistry.discover([SkillSource("bundled", BUNDLED_SKILLS)])
     assert "addon-authoring" in {skill.name for skill in registry.skills}
+    assert "pick-model" not in {skill.name for skill in registry.skills}
     assert diagnostics == ()
-    assert len(registry.skills) == 9
+    assert len(registry.skills) == 8
     for skill in registry.skills:
         for arg in skill.args:
             assert arg.description

@@ -139,11 +139,15 @@ class PluginsConfig(BaseModel):
     """Plugins are installed with ``symphony plugins`` and recorded in ``<symphony home>/plugins/state.json``.
 
     ``enabled`` is the master switch. Trust for plugin code is never set here.
+    ``entries`` and ``authorized_roots`` are what 0.0.5 wrote. Nothing reads them;
+    they remain so a config file from that release still loads.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
+    entries: list[Any] = Field(default_factory=list)
+    authorized_roots: list[Any] = Field(default_factory=list)
 
 
 class CompactionConfig(BaseModel):

@@ -85,11 +85,14 @@ class UsageScreen(ModalBase[None]):
             for window in result.windows:
                 label = _window_label(window.label)
                 color = "#b49ad8" if "5 hours" in label.lower() else "#c7b66e" if "7 days" in label.lower() or "weekly" in label.lower() else "#738794"
-                filled = round(max(0, min(window.used_percent, 100)) * 22 / 100)
-                text.append(f"\n\n{label}\n")
-                text.append("█" * filled, style=color)
-                text.append("░" * (22 - filled), style="#484f58")
-                text.append(f"  {window.used_percent:g}% used")
+                if any(item in label.lower() for item in ("hour", "day", "week", "other")):
+                    filled = round(max(0, min(window.used_percent, 100)) * 22 / 100)
+                    text.append(f"\n\n{label}\n")
+                    text.append("█" * filled, style=color)
+                    text.append("░" * (22 - filled), style="#484f58")
+                    text.append(f"  {window.used_percent:g}% used")
+                else:
+                    text.append(f"\n{label}: ${window.used_percent:g}")
                 if window.resets_at:
                     text.append(f" · {_reset_label(window.resets_at, now)}", style="#737373")
         return text

@@ -10,9 +10,11 @@
 - Skills are a catalog of name, description and `SKILL.md` path that the model reads
   with `read_file`; the `skill` tool is removed. `skills.max_context_tokens` (default
   6000) bounds the catalog, and each skill can be `on`, `name-only` or `manual`.
-- Breaking: `plugins.entries`, `plugins.authorized_roots` and
-  `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS` are removed; the old `schema_version`/`id`
-  `plugin.json` is no longer read; project `.symphony/skills` load without trust.
+- Breaking: `plugins.entries` and `plugins.authorized_roots` are no longer read
+  (`plugins.enabled` is the switch; installs live in `plugins/state.json`), and
+  `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS` is removed. The two config keys stay in the
+  schema so a 0.0.5 `config.json` still loads. The old `schema_version`/`id`
+  `plugin.json` is no longer read. Project `.symphony/skills` load without trust.
 - `/new` clears the footer cost and context, the top-bar artifacts and background
   tasks, and stops the previous conversation's background jobs and subagents.
 - The terminal title is "Symphony" and the process name is `symphony`.

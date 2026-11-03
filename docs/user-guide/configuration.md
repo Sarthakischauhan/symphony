@@ -75,7 +75,7 @@ The `skills` and `plugins` sections of `config.json`:
 - `disabled` skills are not loaded. `symphony skills disable` edits it.
 - `plugins.enabled: false` turns every plugin off.
 
-The old `plugins.entries` and `plugins.authorized_roots` keys are gone and are rejected by the schema; remove them and reinstall with `symphony plugins add`. Plugin addon code runs with your permissions while the plugin is enabled. Disable it with `symphony plugins disable <name>`.
+`plugins.entries` and `plugins.authorized_roots` are still accepted so a config written by 0.0.5 loads, but nothing reads them. `plugins.enabled` is the switch. Install plugins with `symphony plugins add`; enabled state is kept in `plugins/state.json`. Plugin addon code runs with your permissions while the plugin is enabled. Disable it with `symphony plugins disable <name>`.
 
 ## Context and optional integrations
 

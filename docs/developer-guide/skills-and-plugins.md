@@ -119,7 +119,7 @@ Install stages the source in a hidden directory, validates it, then moves it int
 
 ### Breaking changes
 
-- The `plugins.entries` and `plugins.authorized_roots` config keys and `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS` are removed; enabled state lives in `plugins/state.json`.
+- `plugins.entries` and `plugins.authorized_roots` are still accepted so a 0.0.5 config loads, and nothing reads them. `plugins.enabled` is the switch; enabled state lives in `plugins/state.json`. `SYMPHONY_PLUGIN_AUTHORIZED_ROOTS` is removed.
 - The old `schema_version`/`id` `plugin.json` is no longer read; use the formats above.
 - The `skill` tool is removed; skills are read with `read_file`.
 - Project `.symphony/skills` load without trust.
