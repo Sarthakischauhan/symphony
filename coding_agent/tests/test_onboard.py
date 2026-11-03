@@ -290,7 +290,7 @@ def test_provider_command_opens_onboard_while_offline(tmp_path: Path) -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
             assert app._agent is None
-            await app._command_manager.run("/provider")
+            await app._command_manager.run("/login")
             await pilot.pause()
             assert isinstance(app.screen, ProviderOnboardScreen)
 
@@ -303,7 +303,7 @@ def test_provider_command_escape_closes_onboard(tmp_path: Path) -> None:
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            await app._command_manager.run("/provider")
+            await app._command_manager.run("/login")
             await pilot.pause()
             assert isinstance(app.screen, ProviderOnboardScreen)
 

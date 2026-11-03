@@ -16,6 +16,32 @@ from coding_agent.tui.transcript import AssistantMessage, UserMessage
 from coding_agent.tui.transcript.messages import Notice
 
 
+def test_clicking_subagent_opens_only_child_screen(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.add_tool("spawn", "spawn_agent")
+            app.on_harness_event(HarnessEvent("agent_spawned", {
+                "child_id": "child", "agent_id": "parent", "tool_call_id": "spawn",
+                "prompt": "Inspect files", "label": "Inspector",
+            }))
+            app._on_agent_finished("agent_completed", {
+                "child_id": "child", "agent_id": "parent",
+            })
+            await pilot.pause()
+            await pilot.click(app._tools["spawn"].query_one(".tool-call-header"))
+            await pilot.pause()
+            assert isinstance(app.screen, SubagentScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, SubagentScreen)
+            assert len(app.screen_stack) == 1
+
+    asyncio.run(run())
+
+
 def test_child_tool_argument_snapshots_replace_streamed_json() -> None:
     record = SubagentRecord(agent_id="child", parent_id="parent", label="Inspector", prompt="Inspect")
     call = {"tool_call_id": "read-1", "tool_name": "read_file"}

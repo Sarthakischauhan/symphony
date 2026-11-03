@@ -4,7 +4,7 @@ Set up a model provider, choose defaults, and decide how the coding agent asks b
 
 ## Providers and models
 
-On first launch, Symphony can help configure a provider. In the TUI, use `/provider` to add or change credentials and `/model` to choose a model. API keys can also be set in the process environment or `.env` files. Do not commit credentials. Provider priority, subscription login, local providers, and model overrides are documented in the [environment reference](../reference/environment.md).
+On first launch, Symphony can help configure a provider. In the TUI, use `/login` to add or change credentials and `/model` to choose a model. API keys can also be set in the process environment or `.env` files. Do not commit credentials. Provider priority, subscription login, local providers, and model overrides are documented in the [environment reference](../reference/environment.md).
 
 ## Settings file
 

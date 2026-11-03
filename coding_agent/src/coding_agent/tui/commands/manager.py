@@ -444,6 +444,10 @@ class CommandManager:
             show_status(app)
         elif command == "dashboard":
             app.action_dashboard()
+        elif command == "usage":
+            from coding_agent.tui.screens.usage import UsageScreen
+
+            app.push_screen(UsageScreen())
         elif command == "context":
             await show_context(app)
         elif command == "session":
@@ -492,7 +496,7 @@ class CommandManager:
             app.add_notice(f"/{command} is unavailable while a turn is running.", "warning")
         elif command == "reload":
             await reload_project(app)
-        elif command == "provider":
+        elif command in {"login", "provider"}:
             open_provider_onboard(app, argument)
         elif command == "langfuse":
             open_langfuse_setup(app)

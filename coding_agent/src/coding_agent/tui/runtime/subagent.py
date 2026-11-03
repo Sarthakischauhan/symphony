@@ -319,6 +319,9 @@ class SubagentWidget(ToolCallWidget):
         event.stop()
         self.open_screen()
 
+    def open_detail(self) -> None:
+        """Subagent cards open their transcript instead of a tool-detail modal."""
+
     def open_screen(self) -> bool:
         if self.record is None:
             self.app.notify("Child is starting; its session will be available shortly.")

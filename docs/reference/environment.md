@@ -1,10 +1,10 @@
 # Environment variables
 
-Use first-run onboarding or `/provider` to add a model provider without editing a shell profile. This page is the detailed reference for provider credentials, model selection, local endpoints, and optional integrations. For a first setup, see [Quickstart](../getting-started/quickstart.md).
+Use first-run onboarding or `/login` to add a model provider without editing a shell profile. This page is the detailed reference for provider credentials, model selection, local endpoints, and optional integrations. For a first setup, see [Quickstart](../getting-started/quickstart.md).
 
 ## Credential precedence
 
-Keys can live in `.env`. First-run onboarding and `/provider` write
+Keys can live in `.env`. First-run onboarding and `/login` write
 `~/.symphony/.env`. ChatGPT, Claude, and xAI subscription logins write
 `~/.symphony/oauth/<provider>.json` (mode `0600`). Load order for keys is
 process environment, then workspace `.env` if present, then
@@ -12,7 +12,7 @@ process environment, then workspace `.env` if present, then
 OAuth tokens, and rebuilds the registry.
 
 By default, an API key in the environment wins over a stored subscription token
-for the same provider. Choosing **Sign in with …** in `/provider` records the
+for the same provider. Choosing **Sign in with …** in `/login` records the
 subscription choice and makes it win; choosing **API key** records the reverse.
 The setting is stored as `SYMPHONY_<PROVIDER>_AUTH` in `~/.symphony/.env`.
 
@@ -32,16 +32,16 @@ and similarly for Anthropic or Grok.
 
 | Variable | Provider |
 | --- | --- |
-| `OPENAI_API_KEY` | OpenAI (platform key). Alternatively sign in with ChatGPT via `/provider`. |
-| `ANTHROPIC_API_KEY` | Anthropic. Alternatively paste a `claude setup-token` via `/provider`. |
+| `OPENAI_API_KEY` | OpenAI (platform key). Alternatively sign in with ChatGPT via `/login`. |
+| `ANTHROPIC_API_KEY` | Anthropic. Alternatively paste a `claude setup-token` via `/login`. |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini |
-| `XAI_API_KEY` | Grok (console API key at `api.x.ai`). Alternatively sign in with xAI via `/provider` (CLI chat proxy). |
+| `XAI_API_KEY` | Grok (console API key at `api.x.ai`). Alternatively sign in with xAI via `/login` (CLI chat proxy). |
 | `OPENROUTER_API_KEY` | OpenRouter |
 | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` | Vercel AI Gateway (OpenAI-compatible chat plus evaluation models such as `typesafe-ai/jev`) |
 
 ## Subscription login
 
-`/provider` (and first-run onboarding) offers **Sign in with …** for
+`/login` (and first-run onboarding) offers **Sign in with …** for
 OpenAI, Anthropic, and Grok:
 
 | Provider | What to do |
@@ -52,6 +52,11 @@ OpenAI, Anthropic, and Grok:
 
 Gemini, OpenRouter, Vercel AI Gateway, Ollama, and local servers stay API-key /
 endpoint based.
+
+`/usage` shows provider-reported subscription usage for OpenAI and Anthropic.
+It fetches asynchronously, caches results for 60 seconds, and accepts R to refresh.
+These providers' usage endpoints are unofficial and can change. Grok and API-key
+accounts currently show usage unavailable. Usage is not estimated from local tokens.
 
 ## Local providers
 
@@ -67,8 +72,8 @@ SGLang) are **opt-in**. Symphony does not probe `localhost` on startup.
 | `LOCAL_BASE_URL` | Required to register a local OpenAI-compatible server |
 | `LOCAL_API_KEY` | Optional; dummy `local` is used when unset |
 
-`/provider ollama` writes `OLLAMA_BASE_URL` (blank submit uses the default).
-`/provider local` asks for the base URL.
+`/login ollama` writes `OLLAMA_BASE_URL` (blank submit uses the default).
+`/login local` asks for the base URL.
 
 Pulled models are discovered at registry build (`/api/tags` for Ollama,
 `/v1/models` for local) and registered into the runtime catalog so `/model`

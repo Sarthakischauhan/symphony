@@ -5,7 +5,8 @@ Type `/` in the Symphony Code composer to discover commands. Select a suggestion
 | Command | Action |
 | --- | --- |
 | `/model [id]` | List configured models or switch the active model |
-| `/provider [name]` | Add or switch provider credentials |
+| `/login [name]` | Add or switch provider credentials (`/provider` remains an alias) |
+| `/usage` | View provider-reported subscription usage; press R to refresh |
 | `/effort [level]` | Set model reasoning effort when supported |
 | `/personality [id]` | Choose a prompt personality |
 | `/jev [on\|off\|rule]` | Configure the optional completion check |
