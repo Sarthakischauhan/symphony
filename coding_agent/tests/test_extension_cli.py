@@ -60,7 +60,7 @@ def test_skills_list_shows_mode_tokens_origin_and_path(workspace: Path, tmp_path
     skills_cli.run(["mode", "hello", "name-only"], context)
     listed = skills_cli.run(["list"], context).text
     lines = listed.splitlines()
-    assert lines[0].startswith("Skills (10) · catalog ") and lines[0].endswith("/6000 tokens")
+    assert lines[0].startswith("Skills (9) · catalog ") and lines[0].endswith("/6000 tokens")
     assert lines[1].split() == ["NAME", "MODE", "TOKENS", "ORIGIN", "PATH"]
     row = next(line for line in lines if line.startswith("hello"))
     assert "name only" in row and "user" in row and row.rstrip().endswith("SKILL.md")
@@ -143,7 +143,7 @@ def test_tui_slash_commands_install_and_the_installed_screen_shows_cost_and_skip
 
     texts = asyncio.run(_run())
     joined = "\n".join(texts)
-    assert any(text.startswith("SKILLS  ·  11  ·  catalog ") and text.endswith("of 6000 tokens") for text in texts)
+    assert any(text.startswith("SKILLS  ·  10  ·  catalog ") and text.endswith("of 6000 tokens") for text in texts)
     assert "ON · " in joined and " tok" in joined
     assert "hello" in texts and "plug:alpha" in texts
     assert "plug 1.0.0" in texts and "ENABLED" in texts
