@@ -10,7 +10,10 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
+
+if TYPE_CHECKING:
+    from coding_agent.tui.tools.snapshots import ToolCallSnapshot
 
 
 @dataclass(frozen=True)
@@ -63,7 +66,9 @@ def strip_activity_json(raw: str) -> str:
     return json.dumps(parsed, separators=(",", ":"))
 
 
-def same_activity_group(left: Any, right: Any) -> bool:
+def same_activity_group(
+    left: Activity | ToolCallSnapshot, right: Activity | ToolCallSnapshot
+) -> bool:
     """Whether two calls belong in the same Explored row.
 
     Group wins when either side has one. Without a group, labeled and unlabeled
@@ -76,7 +81,7 @@ def same_activity_group(left: Any, right: Any) -> bool:
     return bool(left_activity.reason) == bool(right_activity.reason)
 
 
-def explored_activity(calls: Sequence[Any]) -> Activity:
+def explored_activity(calls: Sequence[ToolCallSnapshot]) -> Activity:
     """First non-empty verb/reason/group already on an Explored row."""
     verb = reason = group = ""
     for call in calls:
@@ -89,14 +94,14 @@ def explored_activity(calls: Sequence[Any]) -> Activity:
     return Activity(verb=verb, reason=reason, group=group)
 
 
-def format_explored_duration(calls: Sequence[Any]) -> str:
+def format_explored_duration(calls: Sequence[ToolCallSnapshot]) -> str:
     """Sum snapshot durations when the row has an activity verb; else empty."""
     if not any(_activity_of(call).verb for call in calls):
         return ""
     durations = [
         duration
         for call in calls
-        if (duration := getattr(call, "duration", None)) is not None
+        if (duration := call.duration) is not None
     ]
     if not durations:
         return ""
@@ -118,10 +123,10 @@ def explored_count_label(*, tool_count: int, thought_count: int) -> str:
     return " · ".join(parts) or "0 tools"
 
 
-def explored_title(calls: Sequence[Any], *, thought_count: int = 0) -> str:
+def explored_title(calls: Sequence[ToolCallSnapshot], *, thought_count: int = 0) -> str:
     activity = explored_activity(calls)
     title = activity.verb or activity.reason or "Explored"
-    failed = sum(getattr(call, "status", "") == "failed" for call in calls)
+    failed = sum(call.status == "failed" for call in calls)
     suffix = f" · {failed} failed" if failed else ""
     duration = format_explored_duration(calls)
     timing = f" for {duration}" if duration else ""
@@ -174,11 +179,7 @@ def _activity_text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _activity_of(item: Any) -> Activity:
+def _activity_of(item: Activity | ToolCallSnapshot) -> Activity:
     if isinstance(item, Activity):
         return item
-    return Activity(
-        verb=getattr(item, "activity_verb", "") or "",
-        reason=getattr(item, "activity_reason", "") or "",
-        group=getattr(item, "activity_group", "") or "",
-    )
+    return Activity(verb=item.activity_verb, reason=item.activity_reason, group=item.activity_group)

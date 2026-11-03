@@ -6,9 +6,12 @@ import asyncio
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from textual.widgets import TextArea
 
+from addon_fakes import no_user_addons
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.commands.catalog import SLASH_COMMANDS, command_matches
 from coding_agent.tui.composer.input import Composer, PromptInput
@@ -67,6 +70,22 @@ class ScriptedTranscriber:
             index = self.calls - 1
             return self.lines[index] if index < len(self.lines) else "done"
         return self.text
+
+
+async def _no_children() -> None:
+    return None
+
+
+class _NoJobsApp(CodingAgentApp):
+    """App whose stand-in agent has no harness: no background jobs and no slash menu."""
+
+    def background_task_count(self) -> int:
+        return 0
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        # The slash menu reads the model off the harness. Stopping the default
+        # keeps the app's own handler from running for a harness-less stand-in.
+        event.prevent_default()
 
 
 def test_voice_uses_grok_oauth_when_no_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,9 +217,9 @@ def test_voice_command_is_discoverable() -> None:
 
 
 def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) -> None:
-    app = CodingAgentApp(workspace=tmp_path)
+    app = _NoJobsApp(workspace=tmp_path)
     started: list[str] = []
-    app._agent = object()
+    app._agent = SimpleNamespace(harness=None)
     app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
     capture = ScriptedCapture()
     transcriber = ScriptedTranscriber("add a voice bar")
@@ -208,7 +227,7 @@ def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) ->
     async def _run() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app._agent = object()
+            app._agent = SimpleNamespace(harness=None)
             app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
             start_voice(app, capture=capture, transcriber=transcriber)
             await pilot.pause()
@@ -239,14 +258,15 @@ def test_ctrl_a_keeps_composer_visible_and_submits_transcript(tmp_path: Path) ->
             assert composer.display is True
             assert composer.has_class("voice-light") or composer.has_class("voice-dark")
             assert not app._voice_active
+            app._agent = None  # a harness-less stand-in has nothing to shut down
 
     asyncio.run(_run())
 
 
 def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    app = CodingAgentApp(workspace=tmp_path)
+    app = _NoJobsApp(workspace=tmp_path)
     submitted: list[str] = []
-    app._agent = object()
+    app._agent = SimpleNamespace(harness=None)
     app._start_turn = lambda turn: submitted.append(turn.text)  # type: ignore[method-assign]
     from coding_agent.tui.composer import voice as voice_module
 
@@ -257,7 +277,7 @@ def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.Mo
     async def _run() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app._agent = object()
+            app._agent = SimpleNamespace(harness=None)
             app._start_turn = lambda turn: submitted.append(turn.text)  # type: ignore[method-assign]
             await app._run_slash_command("/voice")
             await pilot.pause()
@@ -275,6 +295,7 @@ def test_slash_voice_uses_the_same_toggle(tmp_path: Path, monkeypatch: pytest.Mo
                 if submitted:
                     break
             assert submitted == ["fix the footer"]
+            app._agent = None  # a harness-less stand-in has nothing to shut down
 
     asyncio.run(_run())
 
@@ -285,8 +306,17 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
 
     app = CodingAgentApp(workspace=tmp_path)
     started: list[str] = []
-    harness = SimpleNamespace(addons=[], register_addon=lambda addon: harness.addons.append(addon))
-    app._agent = SimpleNamespace(harness=harness)
+    harness = SimpleNamespace(
+        addons=[],
+        child_tasks={},
+        model_id="",
+        register_addon=lambda addon: harness.addons.append(addon),
+        shutdown_children=_no_children,
+        submit=lambda op: False,
+    )
+    app._agent = SimpleNamespace(
+        harness=harness, shutdown_learning=_no_children, user_addons=no_user_addons()
+    )
     app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
 
     class LiveStream:
@@ -322,7 +352,9 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
     async def _run() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app._agent = SimpleNamespace(harness=harness)
+            app._agent = SimpleNamespace(
+        harness=harness, shutdown_learning=_no_children, user_addons=no_user_addons()
+    )
             app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
             start_voice(app, stream=stream)
             await pilot.pause()
@@ -367,9 +399,9 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
 
 
 def test_escape_leaves_voice_mode_without_a_turn(tmp_path: Path) -> None:
-    app = CodingAgentApp(workspace=tmp_path)
+    app = _NoJobsApp(workspace=tmp_path)
     started: list[str] = []
-    app._agent = object()
+    app._agent = SimpleNamespace(harness=None)
     app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
 
     capture = ScriptedCapture(b"")
@@ -388,6 +420,7 @@ def test_escape_leaves_voice_mode_without_a_turn(tmp_path: Path) -> None:
             capture.release()
             await pilot.pause(0.2)
             assert started == []
+            app._agent = None  # a harness-less stand-in has nothing to shut down
 
     asyncio.run(_run())
 

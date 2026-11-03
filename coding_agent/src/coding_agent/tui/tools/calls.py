@@ -114,6 +114,8 @@ class ToolCallWidget(Collapsible):
     # mounted as their own transcript entry instead of becoming a row in an
     # Explored group; either way the widget is mounted once and updated.
     keep_in_transcript = False
+    # Set by cards that resolve paths against the workspace (generate_image).
+    workspace: Path | None = None
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._body = self._make_body()

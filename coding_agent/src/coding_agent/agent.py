@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, Collection, List, Optional, Union
 
 from core_ai.content import text_from_content
 from core_ai.models import list_models
@@ -31,7 +30,6 @@ from coding_agent.addons import (
     JevAddon,
     LearningAddon,
     SessionMemoryAddon,
-    SkillsAddon,
     ai_compaction_from_config,
     jev_from_config,
     langfuse_from_config,
@@ -50,11 +48,12 @@ from coding_agent.addons.learning import LearningLoop, LearningStore
 from coding_agent.tools.memory import MemoryGetTool, MemorySearchTool, MemoryTool
 from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.config.personalities import compose_system_prompt
-from coding_agent.addons.plugins import LoadedPlugin, PluginManager
+from coding_agent.addons.plugins import PluginSet, resolve_plugins
 from coding_agent.config.prompts import SYSTEM_PROMPT
-from coding_agent.addons.skills import SkillRegistry, bundled_skills_root
+from coding_agent.addons.skills import SkillRegistry, discover_skills
+from coding_agent.extensions import Diagnostic
 from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
-from core_harness.extensions import EMPTY_SNAPSHOT
+from core_harness.extensions import EMPTY_SNAPSHOT, ExtensionSnapshot
 from coding_agent.widget_fields import EventFields
 from coding_agent.tools import BashJobs, build_tools
 
@@ -217,8 +216,7 @@ class CodingAgent:
             self.workspace,
             session_id=self.session_id,
             max_lessons=self.config.learning.max_lessons,
-            session_dir=(self.persistence.session_dir(self.session_id)
-                         if isinstance(self.persistence, JsonlPersistence) else None),
+            session_dir=self._session_dir(self.session_id),
         )
         self.learning_loop = (
             LearningLoop(
@@ -232,50 +230,7 @@ class CodingAgent:
             if self.config.learning.enabled
             else None
         )
-        skill_roots = [
-            ("bundled", bundled_skills_root()),
-            ("user", Path.home() / ".symphony" / "skills"),
-            # Shared with Codex, Pi, OpenCode, and Grok. Listed after Symphony's
-            # own root so a same-named skill there wins the duplicate check.
-            ("agents", Path.home() / ".agents" / "skills"),
-            *[("configured", root) for root in self.config.skills.roots],
-        ]
-        plugin_addons = []
-        self.plugin_diagnostics = ()
-        self.loaded_plugins: tuple[LoadedPlugin, ...] = ()
-        if self.config.plugins.enabled:
-            # Global config must not be able to authorize executable code.
-            # Authorization is supplied by the trusted process environment;
-            # config may only select already-authorized plugins.
-            trusted_roots = [
-                Path(value)
-                for value in os.environ.get("SYMPHONY_PLUGIN_AUTHORIZED_ROOTS", "").split(os.pathsep)
-                if value
-            ]
-            plugin_manager = PluginManager(self.workspace, authorized_roots=trusted_roots)
-            configured_plugins = tuple(self.config.plugins.entries)
-            discovered_plugins = plugin_manager.discover()
-            # Explicit entries override auto-discovered paths by resolved path;
-            # this keeps the installed layout convenient without losing settings.
-            configured_paths = {entry.path.expanduser().resolve() for entry in configured_plugins}
-            plugin_entries = configured_plugins + tuple(
-                entry for entry in discovered_plugins
-                if entry.path.expanduser().resolve() not in configured_paths
-            )
-            plugin_addons, plugin_skill_roots, self.loaded_plugins, self.plugin_diagnostics = (
-                plugin_manager.load(plugin_entries)
-            )
-            if self.plugin_diagnostics:
-                details = "; ".join(
-                    f"{diagnostic.source}: {diagnostic.message}"
-                    for diagnostic in self.plugin_diagnostics
-                )
-                raise ValueError(f"Plugin loading failed: {details}")
-            skill_roots.extend(plugin_skill_roots)
-        self.skill_registry, self.skill_diagnostics = SkillRegistry.discover(
-            skill_roots,
-            max_skills=self.config.skills.max_skills,
-        )
+        self.discover_extensions()
         self.bash_jobs = BashJobs(
             sessions_dir(self.workspace) / "jobs",
             max_seconds=self.config.tools.bash.max_background_seconds,
@@ -313,8 +268,6 @@ class CodingAgent:
         )
         if self.artifacts is not None:
             addons.append(self.artifacts)
-        if self.config.skills.enabled:
-            addons.append(SkillsAddon(str(self.workspace), self.skill_registry))
         self.harness = CoreHarness(
             registry=registry,
             model_id=model_id,
@@ -324,7 +277,7 @@ class CodingAgent:
             sink=self.sink,
             session_id=self.session_id,
             agent_id=self.session_id,
-            addons=addons + plugin_addons,
+            addons=addons,
         )
         self.bash_jobs.bind(self.harness)
         # User addons come last so built-in names (tools, commands, addons) win
@@ -332,12 +285,40 @@ class CodingAgent:
         self.user_addons = UserAddonRuntime(
             builtin_tool_names=tuple(self.harness.tools),
             reserved_names=tuple(addon.name for addon in self.harness.addons),
-            loader=load_user_addons if include_subagent else lambda _names: EMPTY_SNAPSHOT,
+            loader=self._load_user_addons if include_subagent else lambda _names: EMPTY_SNAPSHOT,
         )
         self._install_addon_tools()
         self._unsubscribe_addons = self.sink.subscribe(self.user_addons.on_event)
         self._active_runs = 0
         self.apply_system_prompt()
+
+    def discover_extensions(self) -> None:
+        """Find plugins, then skills (plugin skills included). Reads files only; runs no plugin code."""
+        self.plugins = (
+            resolve_plugins(self.workspace) if self.config.plugins.enabled else PluginSet()
+        )
+        self.skills = discover_skills(self.workspace, self.config.skills, self.plugins.skill_sources)
+
+    @property
+    def skill_registry(self) -> SkillRegistry:
+        return self.skills.registry
+
+    @property
+    def extension_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Problems and notices from plugins and skills, shown by /installed."""
+        return self.plugins.diagnostics + self.skills.diagnostics
+
+    def _load_user_addons(self, reserved_names: Collection[str]) -> ExtensionSnapshot:
+        """User addons plus the addons of enabled plugins. Enablement is checked in ``discover_extensions``."""
+        return load_user_addons(reserved_names, plugin_roots=self.plugins.addon_roots)
+
+    def reload_extensions(self) -> str:
+        """Re-read plugins and skills (after install, enable, disable…), refresh the prompt, reload addons."""
+        saved = ensure_spawn_settings(self.workspace)
+        self.config.skills, self.config.plugins = saved.skills, saved.plugins
+        self.discover_extensions()
+        self.apply_system_prompt()
+        return self.reload_user_addons()
 
     def _install_addon_tools(self) -> None:
         for tool in self.user_addons.surface.tools:
@@ -394,6 +375,27 @@ class CodingAgent:
             addon_factory=self._child_addons,
         )
 
+    @property
+    def session_store(self) -> Optional[JsonlPersistence]:
+        """The on-disk store behind this agent; None for a store that keeps nothing on disk."""
+        return self.persistence if isinstance(self.persistence, JsonlPersistence) else None
+
+    def _session_dir(self, session_id: str) -> Optional[Path]:
+        """Where ``session_id`` keeps its files; None for a store that is not on disk."""
+        store = self.session_store
+        return store.session_dir(session_id) if store is not None else None
+
+    def session_costs(self, session_id: str) -> dict[str, float]:
+        """The saved per-model cost of ``session_id``; empty for a store that does not record cost."""
+        store = self.session_store
+        return store.session_costs(session_id) if store is not None else {}
+
+    def bind_session(self, session_id: str) -> None:
+        """Make ``session_id`` the active session for this agent, its harness and its learning store."""
+        self.session_id = session_id
+        self.harness.session_id = session_id
+        self.learning_store.bind_session(session_id, self._session_dir(session_id))
+
     def _child_addons(self, parent: CoreHarness) -> list:
         addons = default_addons(
             persistence=self.persistence, harness_config=parent.config,
@@ -403,8 +405,7 @@ class CodingAgent:
         addons.append(SessionMemoryAddon(
             lambda session_id: LearningStore(
                 self.workspace, max_lessons=self.config.learning.max_lessons,
-                session_dir=(self.persistence.session_dir(session_id)
-                             if isinstance(self.persistence, JsonlPersistence) else None),
+                session_dir=self._session_dir(session_id),
             ),
             context_limit=self.config.learning.context_limit,
             context_max_chars=self.config.learning.context_max_chars,
@@ -426,9 +427,7 @@ class CodingAgent:
         from coding_agent.addons.persistence.compatibility import validate_session_workflow
 
         effective_session = session_id or self.session_id
-        directory = (self.persistence.session_dir(effective_session)
-                     if isinstance(self.persistence, JsonlPersistence) else None)
-        await asyncio.to_thread(validate_session_workflow, directory, effective_session)
+        await asyncio.to_thread(validate_session_workflow, self._session_dir(effective_session), effective_session)
         self._active_runs += 1
         try:
             return await self._run_turns(user_input, conversation=conversation, session_id=session_id)
@@ -511,13 +510,7 @@ class CodingAgent:
 
     def apply_system_prompt(self) -> None:
         """Recompose ``harness.system_prompt`` from base, Jev, and personality."""
-        skills = ""
-        if self.config.skills.enabled and self.skill_registry.skills:
-            lines = [
-                "Skills (load a match with the skill tool before acting on that task):"
-            ]
-            lines.extend(skill.catalog_line() for skill in self.skill_registry.skills)
-            skills = "\n".join(lines)
+        skills = self.skills.catalog.text if self.config.skills.enabled else ""
         self.harness.system_prompt = compose_system_prompt(
             self.base_system_prompt,
             self.config.personality,

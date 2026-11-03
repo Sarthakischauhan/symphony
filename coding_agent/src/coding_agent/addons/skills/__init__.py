@@ -1,28 +1,37 @@
-"""Local skill discovery and resource access."""
+"""Skills: discovery, the prompt catalog, and (``install``) adding and removing them."""
 
-from __future__ import annotations
-
-from typing import Any
-
-from coding_agent._lazy import resolve
 from coding_agent.addons.skills.args import ExtensionArg, render_args
-from coding_agent.addons.skills.models import Skill, SkillDiagnostic
-from coding_agent.addons.skills.registry import SkillRegistry, bundled_skills_root
-
-_ADDON_EXPORTS = {
-    "SkillsAddon": ("coding_agent.addons.skills.addon", "SkillsAddon"),
-}
+from coding_agent.addons.skills.catalog import CatalogEntry, SkillCatalog, build_catalog
+from coding_agent.addons.skills.discovery import SkillSet, discover_skills
+from coding_agent.addons.skills.install import (
+    InstalledSkill,
+    SkillUpdate,
+    add_skills,
+    remove_skill,
+    set_skill_enabled,
+    set_skill_mode,
+    update_skills,
+)
+from coding_agent.addons.skills.models import Skill, SkillMode, SkillSource
+from coding_agent.addons.skills.registry import SkillRegistry
 
 __all__ = [
+    "CatalogEntry",
     "ExtensionArg",
+    "InstalledSkill",
     "Skill",
-    "SkillDiagnostic",
+    "SkillCatalog",
+    "SkillMode",
     "SkillRegistry",
-    "SkillsAddon",
-    "bundled_skills_root",
+    "SkillSet",
+    "SkillSource",
+    "SkillUpdate",
+    "add_skills",
+    "build_catalog",
+    "discover_skills",
+    "remove_skill",
     "render_args",
+    "set_skill_enabled",
+    "set_skill_mode",
+    "update_skills",
 ]
-
-
-def __getattr__(name: str) -> Any:
-    return resolve(globals(), name, _ADDON_EXPORTS)

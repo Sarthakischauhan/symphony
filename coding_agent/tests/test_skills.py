@@ -7,7 +7,9 @@ import pytest
 
 from coding_agent.addons.skills.args import ExtensionArg, render_args
 from coding_agent.addons.skills.frontmatter import read_front_matter
-from coding_agent.addons.skills.registry import SkillRegistry, bundled_skills_root
+from coding_agent.addons.skills.models import SkillSource
+from coding_agent.addons.skills.registry import SkillRegistry
+from coding_agent.extensions import BUNDLED_SKILLS
 
 
 def _write_skill(root: Path, name: str, front: str, body: str = "Do the thing.\n") -> None:
@@ -18,9 +20,9 @@ def _write_skill(root: Path, name: str, front: str, body: str = "Do the thing.\n
 
 def test_discovery_finds_a_nested_collection(tmp_path: Path):
     _write_skill(tmp_path / "team", "review", "name: review\ndescription: Review a diff.")
-    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    registry, diagnostics = SkillRegistry.discover([SkillSource("user", tmp_path)])
     assert diagnostics == ()
-    assert registry.get("user/review").description == "Review a diff."
+    assert registry.get("review").description == "Review a diff."
 
 
 def test_discovery_does_not_walk_past_the_depth_cap(tmp_path: Path):
@@ -29,7 +31,7 @@ def test_discovery_does_not_walk_past_the_depth_cap(tmp_path: Path):
         "too-deep",
         "name: too-deep\ndescription: Past the cap.",
     )
-    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    registry, diagnostics = SkillRegistry.discover([SkillSource("user", tmp_path)])
     assert diagnostics == ()
     assert registry.skills == ()
 
@@ -40,16 +42,18 @@ def test_earlier_root_wins_a_shared_skill_name(tmp_path: Path):
     _write_skill(symphony, "review", "name: review\ndescription: From symphony.")
     _write_skill(shared, "review", "name: review\ndescription: From agents.")
     _write_skill(shared, "deploy", "name: deploy\ndescription: From agents only.")
-    registry, diagnostics = SkillRegistry.discover([("user", symphony), ("agents", shared)])
-    assert [item.message for item in diagnostics] == ["duplicate skill name: review"]
-    assert registry.get("user/review").description == "From symphony."
-    assert registry.get("agents/deploy").description == "From agents only."
-    assert "agents/review" not in {skill.skill_id for skill in registry.skills}
+    registry, diagnostics = SkillRegistry.discover([SkillSource("user", symphony), SkillSource("agents", shared)])
+    assert [(item.level, item.message) for item in diagnostics] == [
+        ("notice", f"skill 'review' is shadowed by the user skill at {symphony.resolve() / 'review' / 'SKILL.md'}")
+    ]
+    assert registry.get("review").description == "From symphony."
+    assert registry.get("deploy").description == "From agents only."
+    assert registry.get("review").origin == "user"
 
 
 def test_bundled_skills_all_load_with_a_valid_arg_contract():
-    registry, diagnostics = SkillRegistry.discover([("bundled", bundled_skills_root())])
-    assert "bundled/addon-authoring" in {skill.skill_id for skill in registry.skills}
+    registry, diagnostics = SkillRegistry.discover([SkillSource("bundled", BUNDLED_SKILLS)])
+    assert "addon-authoring" in {skill.name for skill in registry.skills}
     assert diagnostics == ()
     assert len(registry.skills) == 9
     for skill in registry.skills:
@@ -75,9 +79,9 @@ args:
     default: sketch
 """.strip(),
     )
-    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    registry, diagnostics = SkillRegistry.discover([SkillSource("user", tmp_path)])
     assert diagnostics == ()
-    skill = registry.get("user/orient")
+    skill = registry.get("orient")
     assert skill.description == "Folded line still one description."
     assert skill.args[0].options == ("sketch", "thorough")
     assert skill.args[0].default == "sketch"
@@ -102,7 +106,7 @@ def test_malformed_skills_are_skipped_and_valid_skills_remain(tmp_path: Path):
     _write_skill(tmp_path, "bad-enum", bad_enum)
     _write_skill(tmp_path, "bad-yaml", "name: bad-yaml\ndescription: [unclosed")
     _write_skill(tmp_path, "ok-skill", "name: ok-skill\ndescription: This one still loads.\nargs: []")
-    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    registry, diagnostics = SkillRegistry.discover([SkillSource("user", tmp_path)])
     assert [skill.name for skill in registry.skills] == ["ok-skill"]
     assert sorted(Path(d.source).parent.name for d in diagnostics) == ["bad-enum", "bad-yaml"]
     assert any("invalid YAML front matter" in d.message for d in diagnostics)
@@ -170,6 +174,6 @@ def test_invalid_front_matter_is_rejected(front: str, error: str):
 def test_alias_bomb_is_rejected_quickly(tmp_path: Path):
     _write_skill(tmp_path, "bomb", _BOMB + "name: bomb\ndescription: Alias bomb.")
     started = time.monotonic()
-    registry, diagnostics = SkillRegistry.discover([("user", tmp_path)])
+    registry, diagnostics = SkillRegistry.discover([SkillSource("user", tmp_path)])
     assert time.monotonic() - started < 1
     assert registry.skills == () and len(diagnostics) == 1

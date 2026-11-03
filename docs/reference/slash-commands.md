@@ -5,13 +5,16 @@ Type `/` in the Symphony Code composer to discover commands. Select a suggestion
 | Command | Action |
 | --- | --- |
 | `/model [id]` | List configured models or switch the active model |
-| `/provider [name]` | Add or switch provider credentials |
+| `/login [name]` | Add or switch provider credentials (`/provider` remains an alias) |
+| `/usage` | View provider-reported subscription usage; press R to refresh |
 | `/effort [level]` | Set model reasoning effort when supported |
 | `/personality [id]` | Choose a prompt personality |
 | `/jev [on\|off\|rule]` | Configure the optional completion check |
 | `/langfuse` | Configure optional Langfuse tracing |
 | `/voice` | Start voice input; available when voice support is configured |
-| `/installed` | View installed skills and plugins |
+| `/installed` | View installed skills (state and token cost) and plugins (enabled state, skipped parts, notices) |
+| `/skills [command]` | `list` (default), `add <source>`, `remove`, `enable`, `disable`, `mode <name> on\|name-only\|manual\|default`, `update [name]`; with no argument opens the installed screen |
+| `/plugins [command]` | `list` (default), `add <source>`, `remove`, `enable`, `disable`, `update [name]`, `marketplace add\|list\|update\|remove`; with no argument opens the installed screen |
 | `/compact` | Summarize older conversation context |
 | `/context` | Inspect context usage |
 | `/status` | Show session and model information |
@@ -26,4 +29,4 @@ Type `/` in the Symphony Code composer to discover commands. Select a suggestion
 | `/help` | Show available commands |
 | `/quit` | Exit the application (`/exit` also works) |
 
-The installed command and TUI keyboard controls are documented in the [CLI reference](./cli.md) and [TUI guide](../user-guide/tui.md).
+`/skills` and `/plugins` take the same arguments as `symphony skills` and `symphony plugins` and reload the running session after a change (they are unavailable while a turn is running). The installed command and TUI keyboard controls are documented in the [CLI reference](./cli.md) and [TUI guide](../user-guide/tui.md).

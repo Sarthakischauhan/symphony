@@ -424,7 +424,7 @@ class OnboardApp(App[tuple[str, ...]]):
 
 
 class ProviderOnboardScreen(ModalBase[tuple[str, ...] | None]):
-    """In-session overlay for `/provider`."""
+    """In-session overlay for `/login`."""
 
     CSS = PROVIDER_MODAL_CSS
 

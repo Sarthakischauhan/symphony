@@ -9,16 +9,18 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from rich.cells import cell_len
 from rich.table import Table
 from rich.text import Text
 from textual import events
+from textual.timer import Timer
 from textual.widgets import Static
 
 from coding_agent.config.personalities import project_root
 from coding_agent.tui.theme import SYMPHONY_COLORS
+from core_harness.addons.subagent.background import ChildTask
 
 CLUSTER_GAP = " " * 4
 BRANCH_ICON = "⎇"
@@ -105,10 +107,23 @@ def topbar_text(*, branch: str = "", model: str = "") -> Text:
     return Text(CLUSTER_GAP.join(clusters), no_wrap=True)
 
 
-class TopBar(Static):
-    """Header with the branch on the left and the lab mark plus model on the right."""
+def running_background_tasks(tasks: Mapping[str, ChildTask]) -> int:
+    """How many background jobs and subagents are still live."""
+    return sum(
+        1
+        for record in tasks.values()
+        if record.status in {"running", "background"} and (record.task is None or not record.task.done())
+    )
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+
+class TopBar(Static):
+    """Header with the branch on the left and the lab mark plus model on the right.
+
+    ``background_tasks`` reports the live background job count; the bar polls it.
+    """
+
+    def __init__(self, *args: Any, background_tasks: Callable[[], int], **kwargs: Any) -> None:
+        self._background_tasks = background_tasks
         self._branch = ""
         self._dirty = False
         self._model = ""
@@ -117,7 +132,9 @@ class TopBar(Static):
         self._label = ""
         self._auth = ""
         self._workspace: Optional[Path] = None
-        self._branch_timer = None
+        self._branch_timer: Optional[Timer] = None
+        self._dirty_timer: Optional[Timer] = None
+        self._tasks_timer: Optional[Timer] = None
         self._dirty_probe = False
         super().__init__(*args, **kwargs)
 
@@ -136,24 +153,15 @@ class TopBar(Static):
         if self._branch_timer is not None:
             self._branch_timer.stop()
             self._branch_timer = None
-        dirty_timer = getattr(self, "_dirty_timer", None)
-        if dirty_timer is not None:
-            dirty_timer.stop()
+        if self._dirty_timer is not None:
+            self._dirty_timer.stop()
             self._dirty_timer = None
-        tasks_timer = getattr(self, "_tasks_timer", None)
-        if tasks_timer is not None:
-            tasks_timer.stop()
+        if self._tasks_timer is not None:
+            self._tasks_timer.stop()
             self._tasks_timer = None
 
     def _refresh_background_tasks(self) -> None:
-        agent = getattr(self.app, "_agent", None)
-        harness = getattr(agent, "harness", None)
-        tasks = getattr(harness, "child_tasks", {})
-        self.set_background_tasks(sum(
-            1 for record in tasks.values()
-            if getattr(record, "status", "") in {"running", "background"}
-            and (getattr(record, "task", None) is None or not record.task.done())
-        ))
+        self.set_background_tasks(self._background_tasks())
 
     def _refresh_branch(self) -> None:
         if self._workspace is None:
@@ -291,9 +299,7 @@ class TopBar(Static):
         if not self._model or event.x < width - cell_len(short_model_name(self._model)):
             return
         event.stop()
-        show = getattr(self.app, "show_model_picker", None)
-        if callable(show):
-            show()
+        self.app.show_model_picker()
 
     def _render_row(self, width: int) -> Table:
         """Text row. Width budgets keep a narrow terminal from cropping the header."""

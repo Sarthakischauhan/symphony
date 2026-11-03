@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from rich.console import Group
 from rich.text import Text
-from textual import events
 from textual.containers import Container, Horizontal
 from textual.widgets import Input, Static
 
@@ -89,13 +88,8 @@ class ToolCallModal(ModalBase[None]):
         self.query_one("#tool-detail", Static).update(self._body())
 
     def action_copy_detail(self) -> None:
-        copy = getattr(self.app, "copy_to_clipboard", None)
-        if not callable(copy):
-            return
-        copy(self.tool.detail_plain())
-        notify = getattr(self.app, "notify", None)
-        if callable(notify):
-            notify("Copied tool details.")
+        self.app.copy_to_clipboard(self.tool.detail_plain())
+        self.app.notify("Copied tool details.")
 
     def _body(self) -> object:
         rows = self.tool.detail_rows(wrap=self._wrap) or [Text("No details yet.", style="#686868")]
@@ -110,8 +104,8 @@ class ToolCallModal(ModalBase[None]):
         return "  ·  ".join(parts)
 
     def _jump_targets(self) -> tuple[str, ...]:
-        workspace = getattr(self.tool, "workspace", None)
-        if not isinstance(workspace, Path):
+        workspace = self.tool.workspace
+        if workspace is None:
             return ()
         candidates = [str(self.tool.arguments.get("path") or "")]
         candidates.extend(_FILE_TOKEN.findall(self.tool._summary()))
@@ -126,12 +120,3 @@ class ToolCallModal(ModalBase[None]):
             if len(found) == 4:
                 break
         return tuple(found)
-
-    def on_click(self, event: events.Click) -> None:
-        target = getattr(event.widget, "classes", None)
-        if target is None or "jump-chip" not in target:
-            return
-        path = str(event.widget.render())
-        opener = getattr(self.app, "open_file_preview", None)
-        if callable(opener):
-            opener(path)

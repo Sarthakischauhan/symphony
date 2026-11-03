@@ -10,9 +10,12 @@ from typing import Any, Protocol
 from coding_agent.addons.artifacts import Manifest
 from coding_agent.agent import CodingAgent
 from coding_agent.protocols.stdio.requests import artifact_list
+from coding_agent.tui.chrome import SessionChrome, artifact_key
+from coding_agent.tui.chrome.session import ArtifactEntry
 from coding_agent.addons.persistence.collection import COLLECTABLE_EVENT_TYPES, is_collected
 from coding_agent.tui.runtime.events import _duration
 from coding_agent.tui.tools.activity import choose_completion_verb
+from coding_agent.tui.tools.calls import ToolCallWidget
 from coding_agent.tui.tools.images import display_from_content
 from coding_agent.tui.tools.snapshots import (
     CompletedRunSummary,
@@ -27,13 +30,13 @@ from core_harness.context import COMPACTED_CONTEXT_MARK, estimate_prompt_tokens
 
 
 class HistoryView(Protocol):
+    _tools: dict[str, ToolCallWidget]
+
     def add_notice(self, text: str, tone: str = "info") -> None: ...
 
-    def mount_transcript(self, widget: Any) -> None: ...
+    def mount_transcript_batch(self, widgets: list[Any]) -> None: ...
 
-    def set_context_metrics(self, tokens_used: int, context_limit: int) -> None: ...
-
-    def set_session_cost(self, costs: dict[str, float]) -> None: ...
+    def reset_session_chrome(self, session: SessionChrome) -> None: ...
 
     def finalize_transcript_history(self) -> None: ...
 
@@ -46,45 +49,40 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     # Footer usage describes the active context projection, matching /context
     # and the messages the next request will send.
     context_limit = agent.harness.state.context_limit(agent.harness.model_id)
-    view.set_context_metrics(estimate_prompt_tokens(context_messages), context_limit)
+    view.reset_session_chrome(
+        SessionChrome(
+            context_limit=context_limit,
+            tokens_used=estimate_prompt_tokens(context_messages),
+            costs=agent.session_costs(agent.session_id),
+            artifacts=session_artifacts(agent),
+        )
+    )
     view.add_notice(f"Resumed session · {agent.session_id}")
 
-    load_events = getattr(agent.persistence, "load_events", None)
-    events = await load_events(session_id=agent.session_id) if callable(load_events) else []
-    set_cost = getattr(view, "set_session_cost", None)
-    costs = getattr(agent.persistence, "session_costs", None)
-    stored = costs(agent.session_id) if callable(costs) else {}
-    if callable(set_cost) and stored:
-        set_cost(stored)
+    store = agent.session_store
+    events = await store.load_events(session_id=agent.session_id) if store is not None else []
     restored = _history_widgets(messages, events)
-    tools = getattr(view, "_tools", None)
-    if isinstance(tools, dict):
-        from coding_agent.tui.tools.calls import ToolCallWidget
-
-        tools.update((widget.call_id, widget) for widget in restored if isinstance(widget, ToolCallWidget))
-    mount_batch = getattr(view, "mount_transcript_batch", None)
-    if callable(mount_batch):
-        mount_batch(restored)
-    else:
-        for widget in restored:
-            view.mount_transcript(widget)
-    restore_artifacts(agent, view)
+    view._tools.update((widget.call_id, widget) for widget in restored if isinstance(widget, ToolCallWidget))
+    view.mount_transcript_batch(restored)
     view.finalize_transcript_history()
 
 
-def restore_artifacts(agent: CodingAgent, view: HistoryView) -> None:
-    """One ``Artifact`` row per artifact of the session, from ``artifacts_list``."""
+def session_artifacts(agent: CodingAgent) -> dict[Path, ArtifactEntry]:
+    """The session's artifacts, one entry per artifact, from ``artifacts_list``."""
     if agent.artifacts is None:
-        return
+        return {}
     store = agent.artifacts.store
     reply = artifact_list(agent, "tui-resume", agent.session_id)
     rows = reply.get("artifacts")
+    found: dict[Path, ArtifactEntry] = {}
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
         manifest = Manifest.from_json(row)
         detail = f"{manifest.kind.value} · v{manifest.version}"
-        view.add_artifact(manifest.title, detail, store.folder(agent.session_id, manifest.id) / manifest.entry)
+        path = store.folder(agent.session_id, manifest.id) / manifest.entry
+        found[artifact_key(path)] = (manifest.title, detail, path)
+    return found
 
 
 def _history_widgets(

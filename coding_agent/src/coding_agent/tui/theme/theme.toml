@@ -1307,6 +1307,11 @@ ExtensionsModal {
     color: #f2d675;
     text-style: bold;
 }
+.extension-origin {
+    margin-right: 2;
+    color: #707070;
+    text-style: none;
+}
 .extension-status.disabled {
     color: #a06b6b;
 }

@@ -17,7 +17,15 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Collapsible, Static
 
-from coding_agent.tui.transcript.messages import SelectableStatic, return_composer_focus
+from coding_agent.tui.transcript.artifact import ArtifactRow
+from coding_agent.tui.transcript.messages import (
+    AssistantMessage,
+    Notice,
+    RunSummary,
+    SelectableStatic,
+    UserMessage,
+    return_composer_focus,
+)
 from coding_agent.tui.transcript.thinking_markdown import StreamingThinkingRenderer, render_thinking
 
 
@@ -199,10 +207,8 @@ class RunProcess(Container):
     def _remember_entry(self, widget: Widget) -> None:
         from coding_agent.tui.tools.snapshots import ToolCallSummary
 
-        expanded = bool(getattr(widget, "is_expanded", not getattr(widget, "collapsed", True)))
-        self.entries.append(
-            TimelineEntry(self._next_entry_id, type(widget).__name__, widget, expanded and isinstance(widget, ToolCallSummary))
-        )
+        expanded = isinstance(widget, ToolCallSummary) and widget.is_expanded
+        self.entries.append(TimelineEntry(self._next_entry_id, type(widget).__name__, widget, expanded))
         self._next_entry_id += 1
 
     def add_item(self, widget: Widget) -> None:
@@ -317,10 +323,8 @@ class RunProcess(Container):
                 chunks.append(item.snapshot().as_text())
             elif isinstance(item, ToolCallSummary):
                 chunks.append(item.archive_text())
-            else:
-                archive = getattr(item, "archive_text", None)
-                if callable(archive):
-                    chunks.append(str(archive()))
+            elif isinstance(item, (AssistantMessage, UserMessage, Notice, RunSummary, ArtifactRow)):
+                chunks.append(item.archive_text())
         return "\n\n".join(chunk for chunk in chunks if chunk)
 
 

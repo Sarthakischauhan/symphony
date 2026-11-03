@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
+from textual.timer import Timer
 
+from coding_agent.addons.voice import VoiceAddon
 from coding_agent.agent import CodingAgent, build_agent
 from coding_agent.config import ensure_spawn_settings
 from coding_agent.config.credentials import OFFLINE_HINT, load_provider_env
@@ -25,6 +27,8 @@ from coding_agent.tui.composer import (
     SlashMenu,
 )
 from coding_agent.tui.composer.surface import ComposerSurface
+from coding_agent.tui.composer.voice import VoiceCapture, VoiceTranscriber
+from coding_agent.tui.composer.voice_mode import VoiceSession
 from coding_agent.tui.runtime import (
     EventPresenter,
     SubagentRecord,
@@ -35,7 +39,9 @@ from coding_agent.tui.runtime.subagent import SubagentSurface
 from coding_agent.tui.runtime.turn import TurnSurface
 from coding_agent.tui.screens.ask import QuestionSurface
 from coding_agent.tui.screens.file_selector import WorkspaceFileIndex
+from coding_agent.tui.screens.modal import ModalBase
 from coding_agent.tui.screens.onboard import OnboardApp
+from coding_agent.tui.terminal_title import TerminalTitleSurface
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
 from coding_agent.tui.theme.load import ThemeConfigError, apply_theme, load_theme, theme_signature
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
@@ -83,6 +89,7 @@ class CodingAgentApp(
     QuestionSurface,
     ComposerSurface,
     TurnSurface,
+    TerminalTitleSurface,
     App[None],
 ):
     """Full-screen chat transcript backed by core_harness events."""
@@ -171,15 +178,22 @@ class CodingAgentApp(
         self._pending_question_default = ""
         self._model_options = model_options()
         self._command_manager = CommandManager(self)
-        self._stream_flush_timer = None
+        self._stream_flush_timer: Optional[Timer] = None
+        self._stream_flush_callback: Optional[Callable[[], None]] = None
         self._run_generation = 0
         self._topbar_model: Optional[str] = None
         self._theme_signature = theme_signature()
         self._theme_timer = None
         self._voice_active = False
-        self._voice_timer = None
-        self._voice_addon = None
-        self._voice_session = None
+        self._voice_finish = False
+        self._voice_text = ""
+        self._voice_parts: list[str] = []
+        self._voice_border_light = True
+        self._voice_timer: Optional[Timer] = None
+        self._voice_addon: Optional[VoiceAddon] = None
+        self._voice_session: Optional[VoiceSession] = None
+        self._voice_capture: Optional[VoiceCapture] = None
+        self._voice_transcriber: Optional[VoiceTranscriber] = None
 
     async def on_event(self, event: events.Event) -> None:
         # Textual delivers paste only to the focused widget, so a drop on the
@@ -216,12 +230,12 @@ class CodingAgentApp(
         return True
 
     def compose(self) -> ComposeResult:
-        yield TopBar(id="topbar")
+        yield TopBar(id="topbar", background_tasks=self.background_task_count)
         with TranscriptScroll(id="transcript"):
             yield Welcome(self.workspace)
         yield SlashMenu(id="slash-menu")
         yield ComposerOverlay()
-        yield Composer(id="composer")
+        yield Composer(id="composer", voice_active=lambda: self._voice_active)
         # Keep approval choices in their own full-width surface.
         yield SlashMenu(id="approval-menu")
         yield StatusBar(id="status")
@@ -235,6 +249,9 @@ class CodingAgentApp(
             set_status=self._set_status,
             workspace=str(self.workspace),
             schedule_flush=self._schedule_stream_flush,
+            speak=self.feed_voice,
+            jev_decision=self.jev_decision,
+            saved_costs=self.saved_costs,
         )
         topbar = self.query_one("#topbar", TopBar)
         topbar.set_context(self.workspace, self.model_id or os.getenv("OPENAI_MODEL", ""))
@@ -275,9 +292,9 @@ class CodingAgentApp(
         self._ui_state.phase = "idle"
         self._ui_state.detail = "ready"
         self.session_id = self._agent.session_id
-        persistence = getattr(self._agent, "persistence", None)
-        if persistence is not None:
-            persistence.client = "tui"
+        store = self._agent.session_store
+        if store is not None:
+            store.client = "tui"
         self._register_active_session()
         topbar.set_context(self.workspace, self._ui_state.model_id)
         self._presenter.refresh_chrome()
@@ -285,6 +302,10 @@ class CodingAgentApp(
         if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
+
+    def on_status_bar_cost_breakdown_requested(self, message: StatusBar.CostBreakdownRequested) -> None:
+        message.stop()
+        self.show_cost_breakdown()
 
     def show_cost_breakdown(self) -> None:
         """Open the per-model spend for this session, from a click on the cost."""
@@ -337,9 +358,8 @@ class CodingAgentApp(
 
     def submit_op(self, op: Op) -> bool:
         """Send one operation to the agent's harness. True when it landed."""
-        submit = getattr(getattr(self._agent, "harness", None), "submit", None)
-        if callable(submit):
-            return bool(submit(op))
+        if self._agent is not None:
+            return bool(self._agent.harness.submit(op))
         # No agent yet: a question can still be waiting on the TUI's own port.
         if isinstance(op, Answer):
             return self.sink.interaction.answer(op.request_id, op.value)
@@ -358,12 +378,10 @@ class CodingAgentApp(
                 worker.cancel()
 
     def action_cancel_run(self) -> None:
-        if isinstance(self.screen, ModalScreen):
-            close = getattr(self.screen, "action_close_modal", None)
-            if callable(close):
-                close()
-            else:
-                self.screen.dismiss(None)
+        if isinstance(self.screen, ModalBase):
+            self.screen.action_close_modal()
+        elif isinstance(self.screen, ModalScreen):
+            self.screen.dismiss(None)
             return
         menu = self.query_one("#slash-menu", SlashMenu)
         approval_menu = self.query_one("#approval-menu", SlashMenu)
@@ -404,7 +422,7 @@ class CodingAgentApp(
 
     def action_cancel_voice(self) -> None:
         """Escape leaves voice mode. When voice is off, cancel the run instead."""
-        if not getattr(self, "_voice_active", False):
+        if not self._voice_active:
             self.action_cancel_run()
             return
         from coding_agent.tui.composer.voice_mode import stop_voice
@@ -424,7 +442,7 @@ class CodingAgentApp(
             agent.session_id,
             workspace=self.workspace,
             kind="tui",
-            model_id=getattr(agent.harness, "model_id", "") or "",
+            model_id=agent.harness.model_id or "",
         )
 
     async def on_unmount(self) -> None:
@@ -437,15 +455,12 @@ class CodingAgentApp(
         # devices instead of leaving them to interpreter shutdown.
         close_voice_addon(self, timeout=2.0)
         release_active()
-        harness = getattr(self._agent, "harness", None)
-        shutdown_children = getattr(harness, "shutdown_children", None)
-        if callable(shutdown_children):
-            await shutdown_children()
+        if self._agent is not None:
+            await self._agent.harness.shutdown_children()
         if self._busy:
             self._cancel_active_run("quit")
-        shutdown = getattr(self._agent, "shutdown_learning", None)
-        if callable(shutdown):
-            await shutdown()
+        if self._agent is not None:
+            await self._agent.shutdown_learning()
 
 
 def run_tui(

@@ -37,6 +37,6 @@ def grok_voice_credentials() -> tuple[str, dict[str, str]]:
     runtime = oauth_runtime_for("grok")
     if runtime is None or not runtime.api_key:
         raise UnavailableVoice(
-            "Voice mode needs a Grok sign-in. Run /provider and choose xAI, or set XAI_API_KEY."
+            "Voice mode needs a Grok sign-in. Run /login and choose xAI, or set XAI_API_KEY."
         )
     return runtime.api_key, dict(runtime.extra_headers)

@@ -14,9 +14,11 @@ from rich.segment import Segment
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
+from textual import events
 from textual.selection import Selection
 from textual.strip import Strip
-from textual.widgets import Static
+from textual.widget import Widget
+from textual.widgets import Static, TextArea
 
 from coding_agent.tui.screens.modal import ContentModal
 from coding_agent.tui.theme import SYMPHONY_COLORS, themed_markdown
@@ -29,7 +31,7 @@ USER_PROMPT_GLYPH = ">"
 USER_PROMPT_GUTTER = 3
 
 
-def return_composer_focus(widget: Any) -> None:
+def return_composer_focus(widget: Widget) -> None:
     """Give the prompt its caret back after a transcript click.
 
     Tool and thought headers are focusable so Enter and Space can toggle them.
@@ -37,10 +39,10 @@ def return_composer_focus(widget: Any) -> None:
     caret until ``#prompt`` is focused again. Keyboard focus is left alone.
     """
     try:
-        prompt = widget.app.query_one("#prompt")
+        prompt = widget.app.query_one("#prompt", TextArea)
     except Exception:
         return
-    if getattr(prompt, "disabled", False) or not getattr(prompt, "display", True):
+    if prompt.disabled or not prompt.display:
         return
     prompt.focus()
 
@@ -285,6 +287,7 @@ class AssistantMessage(SelectableStatic):
     ) -> None:
         self._streaming = False
         self._markdown = None
+        self.message_text = ""
         super().__init__(classes="message assistant-message")
         self.set_content(content, streaming=streaming)
 
@@ -292,7 +295,7 @@ class AssistantMessage(SelectableStatic):
         if (
             not streaming
             and not self._streaming
-            and content == getattr(self, "message_text", None)
+            and content == self.message_text
             and self._markdown is not None
         ):
             return
@@ -308,7 +311,7 @@ class AssistantMessage(SelectableStatic):
         self._invalidate_render_cache(layout=True)
         self.update(Group(body))
 
-    def on_click(self, event: Any) -> None:
+    def on_click(self, event: events.Click) -> None:
         """Open the http(s) link under the pointer. Other clicks select text."""
         href = _link_at(self.message_text, event)
         if href is None:
@@ -329,16 +332,16 @@ class AssistantMessage(SelectableStatic):
 _LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)|(https?://[^\s)]+)")
 
 
-def _link_at(content: str, event: Any) -> str | None:
+def _link_at(content: str, event: events.Click) -> str | None:
     """Return the http(s) target on the clicked line, if the pointer is on it."""
-    line_index = getattr(event, "y", None)
+    line_index = event.y
     lines = (content or "").splitlines()
-    if not isinstance(line_index, int) or not 0 <= line_index < len(lines):
+    if not 0 <= line_index < len(lines):
         # A click without a row still opens the only link in a short message.
         found = [match.group(2) or match.group(3) for match in _LINK.finditer(content or "")]
         return found[0] if len(found) == 1 else None
     line = lines[line_index]
-    column = int(getattr(event, "x", 0) or 0)
+    column = event.x
     for match in _LINK.finditer(line):
         if match.start() <= column <= match.end():
             return match.group(2) or match.group(3)

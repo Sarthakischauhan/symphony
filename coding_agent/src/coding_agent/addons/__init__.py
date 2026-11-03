@@ -15,7 +15,6 @@ from coding_agent.addons.learning.addon import (
     inject_memory,
     strip_memory_context,
 )
-from coding_agent.addons.skills.addon import SkillsAddon
 
 __all__ = [
     "AiCompactionAddon",
@@ -26,7 +25,6 @@ __all__ = [
     "LangfuseAddon",
     "LearningAddon",
     "SessionMemoryAddon",
-    "SkillsAddon",
     "ai_compaction_from_config",
     "inject_memory",
     "jev_from_config",

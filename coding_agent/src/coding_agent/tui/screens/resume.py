@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
 from rich.cells import cell_len
 from rich.console import Group
@@ -17,6 +16,7 @@ from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
 from coding_agent.addons.persistence.active import active_session_ids
+from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.tui.theme import RESUME_CSS, SYMPHONY_RICH_THEME
 from core_ai.content import text_from_content
 from core_harness.context import COMPACTED_CONTEXT_MARK
@@ -46,7 +46,7 @@ def _relative_time(value: str) -> str:
 
 
 async def load_session_options(
-    persistence: Any,
+    persistence: JsonlPersistence,
     *,
     closed_only: bool = True,
 ) -> list[SessionOption]:
@@ -63,12 +63,11 @@ async def load_session_options(
             continue
         # JsonlPersistence computes these cheap row fields while scanning each
         # file. Avoid reparsing every transcript when opening the picker.
-        if getattr(session, "message_count", 0) or getattr(session, "first_message", ""):
-            first_message = getattr(session, "first_message", "") or "Untitled conversation"
-            message_count = getattr(session, "message_count", 0)
+        if session.message_count or session.first_message:
+            first_message = session.first_message or "Untitled conversation"
+            message_count = session.message_count
         else:
-            loader = getattr(persistence, "load_transcript", persistence.load_conversation)
-            messages = await loader(session_id=session.session_id)
+            messages = await persistence.load_transcript(session_id=session.session_id)
             first_message = next(
                 (
                     text_from_content(message.content).strip()
