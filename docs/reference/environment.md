@@ -53,10 +53,12 @@ OpenAI, Anthropic, and Grok:
 Gemini, OpenRouter, Vercel AI Gateway, Ollama, and local servers stay API-key /
 endpoint based.
 
-`/usage` shows provider-reported subscription usage for OpenAI and Anthropic.
-It fetches asynchronously, caches results for 60 seconds, and accepts R to refresh.
-These providers' usage endpoints are unofficial and can change. Grok and API-key
-accounts currently show usage unavailable. Usage is not estimated from local tokens.
+`/usage` shows provider-reported usage. OpenAI and Anthropic use their subscription
+login. OpenRouter and Vercel use their API key and return spend or credit values,
+not quota percentages. Gemini, Grok, Ollama, and local providers do not expose an
+account usage endpoint to the configured credential. It fetches asynchronously,
+caches results for 60 seconds, and accepts R to refresh. Usage is not estimated
+from local tokens.
 
 ## Local providers
 

@@ -53,6 +53,30 @@ def _date(value: Any) -> datetime | None:
     return None
 
 
+def _amount(value: Any) -> float | None:
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0 else None
+
+
+def parse_openrouter(payload: Any) -> tuple[QuotaWindow, ...]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return ()
+    labels = (("usage_daily", "Today"), ("usage_weekly", "This week"), ("usage_monthly", "This month"), ("usage", "Total"))
+    return tuple(QuotaWindow(label, amount) for key, label in labels if (amount := _amount(data.get(key))) is not None)
+
+
+def parse_vercel(payload: Any) -> tuple[QuotaWindow, ...]:
+    if not isinstance(payload, dict):
+        return ()
+    labels = (("balance", "Balance"), ("total_used", "Total used"))
+    return tuple(QuotaWindow(label, amount) for key, label in labels if (amount := _amount(payload.get(key))) is not None)
+
+
 def parse_anthropic(payload: Any) -> tuple[QuotaWindow, ...]:
     if not isinstance(payload, dict):
         return ()
@@ -108,13 +132,36 @@ class QuotaService:
         self.transport = transport
         self._cache: dict[str, tuple[str, float, QuotaResult]] = {}
 
+    async def _api_key_usage(self, provider: str, key: str, *, refresh: bool) -> QuotaResult:
+        fingerprint = hashlib.sha256(key.encode()).hexdigest()
+        cached = self._cache.get(provider)
+        if not refresh and cached and cached[0] == fingerprint and time.monotonic() - cached[1] < 60:
+            return cached[2]
+        url = "https://openrouter.ai/api/v1/key" if provider == "openrouter" else "https://ai-gateway.vercel.sh/v1/credits"
+        headers = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
+        try:
+            async with httpx.AsyncClient(transport=self.transport, timeout=10, follow_redirects=False) as client:
+                response = await client.get(url, headers=headers)
+            if response.status_code in (401, 403):
+                result = QuotaResult(provider, message="API key rejected; update it with /login.")
+            else:
+                response.raise_for_status()
+                windows = parse_openrouter(response.json()) if provider == "openrouter" else parse_vercel(response.json())
+                result = QuotaResult(provider, windows, "" if windows else "Usage unavailable in provider response.")
+        except (httpx.HTTPError, ValueError):
+            result = QuotaResult(provider, message="Unable to fetch provider usage.")
+        self._cache[provider] = (fingerprint, time.monotonic(), result)
+        return result
+
     async def get(self, provider: str, *, refresh: bool = False) -> QuotaResult:
-        if provider not in {"openai", "anthropic"}:
-            return QuotaResult(provider, message="Usage unavailable for this provider.")
         spec = get_provider(provider)
         preference = await asyncio.to_thread(provider_auth_preference, spec)
-        if preference == "key" or (preference == "auto" and provider_api_key(spec)):
-            return QuotaResult(provider, message="Usage unavailable for API-key accounts.")
+        key = provider_api_key(spec)
+        if provider in {"openrouter", "vercel"} and key:
+            return await self._api_key_usage(provider, key, refresh=refresh)
+        if provider not in {"openai", "anthropic"} or preference == "key" or (preference == "auto" and key):
+            message = "Usage is available in the provider dashboard, not through this credential." if provider in {"gemini", "grok"} else "Usage unavailable for this provider."
+            return QuotaResult(provider, message=message)
         try:
             stored = await asyncio.to_thread(load_token, provider)
         except (ValueError, OSError, TypeError):

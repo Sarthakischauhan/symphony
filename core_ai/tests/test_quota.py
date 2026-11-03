@@ -47,12 +47,43 @@ def test_fetch_and_cache(monkeypatch, status, payload, expected):
     asyncio.run(run())
 
 
+def test_api_key_usage_and_unsupported_providers(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-secret")
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "vercel-secret")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if request.url.host == "openrouter.ai":
+            assert request.headers["authorization"] == "Bearer or-secret"
+            return httpx.Response(200, json={"data": {"usage": 1.5, "usage_daily": 0.25, "usage_weekly": 1, "usage_monthly": 1.5}})
+        if request.url.host == "ai-gateway.vercel.sh":
+            assert request.headers["authorization"] == "Bearer vercel-secret"
+            return httpx.Response(200, json={"balance": "95.50", "total_used": "4.50"})
+        raise AssertionError(request.url)
+
+    async def run():
+        service = QuotaService(transport=httpx.MockTransport(handler))
+        openrouter = await service.get("openrouter")
+        vercel = await service.get("vercel")
+        gemini = await service.get("gemini")
+        assert [(item.label, item.used_percent) for item in openrouter.windows] == [("Today", 0.25), ("This week", 1), ("This month", 1.5), ("Total", 1.5)]
+        assert [(item.label, item.used_percent) for item in vercel.windows] == [("Balance", 95.5), ("Total used", 4.5)]
+        assert "dashboard" in gemini.message.lower()
+        assert not any(request.url.host == "generativelanguage.googleapis.com" for request in calls)
+        assert await service.get("ollama")
+        assert "unavailable" in (await service.get("local")).message.lower()
+
+    asyncio.run(run())
+
+
 def test_missing_and_expired_credentials(monkeypatch):
     monkeypatch.setattr("core_ai.quota.load_token", lambda _: None)
     async def run():
         service = QuotaService()
         assert "subscription login" in (await service.get("openai")).message
-        assert "unavailable" in (await service.get("grok")).message
+        assert "dashboard" in (await service.get("grok")).message.lower()
         monkeypatch.setattr("core_ai.quota.load_token", lambda _: OAuthToken(access_token="expired"))
         monkeypatch.setattr("core_ai.quota.load_valid_token", lambda _: None)
         assert "expired" in (await service.get("openai")).message
