@@ -59,6 +59,15 @@ symphony plugins marketplace add SOURCE | list | update [NAME] | remove NAME
 
 Details and what loads: [skills and plugins](../developer-guide/skills-and-plugins.md).
 
+## `symphony themes`
+
+List the themes your plugins provide and choose one. Choosing saves `theme` in `config.json`; Symphony applies it at the next start, or at once with `/theme`. See [themes](../user-guide/themes.md).
+
+```sh
+symphony themes list
+symphony themes use NAME|default
+```
+
 ## Other commands
 
 ### `symphony bench`

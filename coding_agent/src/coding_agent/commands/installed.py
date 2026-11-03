@@ -52,8 +52,10 @@ def plugin_state(plugin: ResolvedPlugin) -> str:
 
 
 def plugin_details(plugin: ResolvedPlugin) -> list[str]:
-    """Indented lines under a plugin row: whether its addon loads, and each skipped contribution."""
+    """Indented lines under a plugin row: its themes, whether its addon loads, and each skipped contribution."""
     lines = [f"    {plugin.addon_note}"] if plugin.addon_note else []
+    if plugin.themes:
+        lines.append("    themes: " + ", ".join(theme.qualified_name for theme in plugin.themes))
     lines += [f"    skipped {label}: {reason}" for label, reason in plugin.skipped]
     return lines
 

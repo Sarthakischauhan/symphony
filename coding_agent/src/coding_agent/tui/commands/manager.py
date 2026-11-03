@@ -24,6 +24,7 @@ from textual.containers import Container
 from textual.widgets import Static
 
 from coding_agent.tui.chrome import SessionChrome
+from coding_agent.tui.commands.theme import select_theme, show_theme_picker
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import CONTENT_MODAL_CSS
 from coding_agent.tui.tools.images import ImageAttachment, textual_image
@@ -502,6 +503,8 @@ class CommandManager:
             open_langfuse_setup(app)
         elif command == "jev":
             toggle_jev(app, argument)
+        elif command == "theme":
+            select_theme(app, argument) if argument else show_theme_picker(app)
         elif command in COMMANDS:
             outcome = await run_extension_slash(command, argument, app.workspace, app._agent)
             app.add_notice(outcome.text, "info" if outcome.ok else "error")

@@ -10,6 +10,7 @@ import pytest
 
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_COLORS, themed_markdown
 from coding_agent.tui.theme.load import (
+    OPTIONAL_COLOR_KEYS,
     SYMPHONY_COLOR_KEYS,
     ThemeConfigError,
     load_theme,
@@ -30,8 +31,8 @@ def test_default_theme_toml_loads() -> None:
 
 def test_required_color_keys_present() -> None:
     theme = load_theme(packaged_theme_path())
-    assert tuple(theme.colors) == SYMPHONY_COLOR_KEYS
-    for key in SYMPHONY_COLOR_KEYS:
+    assert tuple(theme.colors) == (*SYMPHONY_COLOR_KEYS, *OPTIONAL_COLOR_KEYS)
+    for key in theme.colors:
         assert theme.colors[key].startswith("#")
 
 
@@ -50,6 +51,7 @@ def test_app_css_includes_accent_and_background() -> None:
 def test_home_theme_overrides_packaged_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("SYMPHONY_HOME", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))

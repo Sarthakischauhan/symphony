@@ -22,7 +22,8 @@ from coding_agent.tui.theme.load import (
 from coding_agent.tui.theme.style import (
     SYMPHONY_CODE_THEME,
     SYMPHONY_RICH_THEME,
-    SymphonyCodeStyle,
+    PaletteSyntaxTheme,
+    restyle,
     themed_markdown,
 )
 
@@ -43,7 +44,8 @@ __all__ = [
     "SYMPHONY_CODE_THEME",
     "SYMPHONY_COLORS",
     "SYMPHONY_RICH_THEME",
-    "SymphonyCodeStyle",
+    "PaletteSyntaxTheme",
     "TOOLS_CSS",
+    "restyle",
     "themed_markdown",
 ]

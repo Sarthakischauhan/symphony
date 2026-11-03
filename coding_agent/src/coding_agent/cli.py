@@ -1,7 +1,7 @@
 """The ``symphony`` command: route subcommands, else open the TUI.
 
 Each subcommand is imported only when chosen, so ``web``, ``stdio``, ``acp``,
-``bench``, ``run``, ``skills`` and ``plugins`` never load Textual or ``coding_agent.tui``.
+``bench``, ``run``, ``skills``, ``plugins`` and ``themes`` never load Textual or ``coding_agent.tui``.
 """
 
 from __future__ import annotations
@@ -51,6 +51,10 @@ def main() -> None:
         from coding_agent.commands.plugins_cli import main as plugins_main
 
         raise SystemExit(plugins_main(sys.argv[2:]))
+    if command == "themes":
+        from coding_agent.commands.themes_cli import main as themes_main
+
+        raise SystemExit(themes_main(sys.argv[2:]))
     from coding_agent.tui.__main__ import main as tui_main
 
     tui_main()

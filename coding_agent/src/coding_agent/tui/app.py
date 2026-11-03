@@ -43,7 +43,9 @@ from coding_agent.tui.screens.modal import ModalBase
 from coding_agent.tui.screens.onboard import OnboardApp
 from coding_agent.tui.terminal_title import TerminalTitleSurface
 from coding_agent.tui.theme import APP_CSS, SYMPHONY_RICH_THEME
-from coding_agent.tui.theme.load import ThemeConfigError, apply_theme, load_theme, theme_signature
+from coding_agent.tui.theme.active import effective_palette, load_active_theme, publish_theme, selected_palette
+from coding_agent.tui.theme.load import ThemeConfigError, ThemeDocument, theme_signature
+from coding_agent.tui.theme.plugin_palette import ThemePalette
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.tools.images import dropped_image_paths
 from coding_agent.tui.transcript import (
@@ -184,6 +186,8 @@ class CodingAgentApp(
         self._topbar_model: Optional[str] = None
         self._theme_signature = theme_signature()
         self._theme_timer = None
+        self._palette: ThemePalette | None = None
+        self._applied_css = APP_CSS
         self._voice_active = False
         self._voice_finish = False
         self._voice_text = ""
@@ -242,6 +246,7 @@ class CodingAgentApp(
 
     def on_mount(self) -> None:
         self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)
+        self._restore_selected_theme()
         self.sink.bind(self)
         self._presenter = EventPresenter(
             state=self._ui_state,
@@ -332,6 +337,26 @@ class CodingAgentApp(
             return
         show_model_picker(self)
 
+    def _restore_selected_theme(self) -> None:
+        """Apply the theme saved in config. One that no longer exists falls back to the default with a notice."""
+        try:
+            palette = selected_palette(self.config, self.workspace)
+        except ValueError as exc:
+            self.add_notice(f"Theme {self.config.theme!r} is unavailable ({exc}); using the default.", "warning")
+            return
+        if palette is not None:
+            self.show_theme(palette)
+
+    def show_theme(self, palette: ThemePalette | None) -> None:
+        """Repaint the TUI with a plugin theme's palette (None is Symphony's default).
+
+        The user's own theme.toml still wins, so this may change nothing on screen.
+        Text already in the transcript keeps the colors it was written with.
+        """
+        self._palette = palette
+        self._apply_document(load_active_theme(palette))
+        self._theme_signature = theme_signature()
+
     def _reload_theme_if_changed(self) -> None:
         """Repaint when ~/.symphony/theme.toml (or the packaged fallback) changes.
 
@@ -342,17 +367,31 @@ class CodingAgentApp(
         if signature is None or signature == self._theme_signature:
             return
         try:
-            document = load_theme()
+            document = load_active_theme(self._palette)
         except (OSError, ThemeConfigError):
             return
-        apply_theme(document)
+        self._apply_document(document)
         self._theme_signature = signature
-        # reparse() rereads whatever is already stored. Replace that source
-        # first, or an edit to the CSS body never reaches the widgets.
-        self.stylesheet.source.clear()
+
+    def _apply_document(self, document: ThemeDocument) -> None:
+        publish_theme(document)
+        # ANSI themes hand their terminal colors to the terminal; others convert them to RGB.
+        palette = effective_palette(self._palette)
+        self.ansi_color = palette is not None and palette.ansi
+        # A console copies a theme's styles when it is pushed, so push the updated one again.
+        self.console.pop_theme()
+        self.console.push_theme(SYMPHONY_RICH_THEME, inherit=True)
+        # reparse() rereads whatever is already stored. Replace the app's source
+        # first, or an edit to the CSS body never reaches the widgets. Widget and
+        # screen sources stay: an open picker keeps its own styles.
+        sources = self.stylesheet.source
+        for key in [key for key, source in sources.items() if source.content == self._applied_css]:
+            del sources[key]
         self.stylesheet.add_source(document.app_css, is_default_css=True)
+        self._applied_css = document.app_css
         self.stylesheet.reparse()
-        self.stylesheet.update(self.screen)
+        for screen in self.screen_stack:
+            self.stylesheet.update(screen)
         self.refresh(repaint=True, layout=True)
         self._set_status("")
 
