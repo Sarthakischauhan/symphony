@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.6 — 2026-11-03
+
+Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.6.
+
 - `symphony skills` and `symphony plugins` (and `/skills`, `/plugins`) install, list,
   remove, enable, disable and update skills and plugins from a path, git URL or
   marketplace. Plugins in the Codex, Claude and Cursor manifest formats load their
