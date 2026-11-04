@@ -40,7 +40,7 @@ Find the guide for the task you came to do. Symphony is a Python workspace for b
 | Add product behavior to the harness | [Extending the harness](./developer-guide/extending.md) |
 | Consume or change the event contract | [Event overview](./developer-guide/events.md) · [complete payload catalog](../core_harness/docs/events.md) |
 | Work on learning or local extensions | [Learning pipeline](./developer-guide/learning-flow.md) · [Skills and plugins](./developer-guide/skills-and-plugins.md) |
-| Work on terminal interface internals | [TUI architecture](../coding_agent/TUI_ARCHITECTURE.md) · [performance investigation](./developer-guide/tui-performance.md) |
+| Work on terminal interface internals | [TUI architecture](../coding_agent/TUI_ARCHITECTURE.md) · [TUI performance](./developer-guide/tui-performance.md) |
 | Contribute, run checks, or report a security issue | [AGENTS.md](../AGENTS.md) · [Security policy](../SECURITY.md) |
 
 ## Reference and project history

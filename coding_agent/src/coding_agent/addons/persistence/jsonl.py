@@ -167,6 +167,7 @@ class _SessionIndex:
         self.event_keys: set[tuple[str, int]] = set()
         self.collected: set[tuple[str, int]] = set()
         self.collectable: Dict[str, List[tuple[str, int]]] = {}
+        self.collectable_keys: set[tuple[str, int]] = set()
         self.run_started: set[str] = set()
         self.latest_terminal_run = ""
         self.messages: List[Dict[str, Any]] = []
@@ -232,8 +233,9 @@ class _SessionIndex:
             return
         if run_id in self.run_started and event_type in COLLECTABLE_EVENT_TYPES:
             bucket = self.collectable.setdefault(run_id, [])
-            if key not in self.collected and key not in set(bucket):
+            if key not in self.collected and key not in self.collectable_keys:
                 bucket.append(key)
+                self.collectable_keys.add(key)
 
     def _note_message(self, entry: Dict[str, Any], seq: int) -> None:
         payload = JsonlPersistence._message_payload_from_entry(entry)
@@ -892,8 +894,18 @@ class JsonlPersistence:
         saved = self._read_listing(session_id, size)
         if saved is not None:
             return saved
-        self._read_entries(session_id)
-        return self._refresh_listing(session_id)
+        # Older bundles may not have a listing yet. Building a display row
+        # must not hydrate every message/image or repair every artifact in the
+        # journal; those are only needed when this session is actually opened.
+        with self._session_lock(session_id):
+            self._sync_legacy(session_id)
+            self._require_version(session_id)
+            path = self._path(session_id)
+            size = self._mark(path)
+            listing = self._listing_from_entries(self._load_transcript(path))
+            listing["transcript_size"] = size
+            refresh_snapshot(self._listing_path(session_id), listing)
+            return listing
 
     def _transcript_messages(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Return every persisted message, including messages before compaction."""

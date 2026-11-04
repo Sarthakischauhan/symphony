@@ -332,12 +332,16 @@ class TranscriptSurface:
 
     def mount_transcript_batch(self, widgets: list[Widget]) -> None:
         """Mount restored history in one layout pass instead of one per row."""
+        self.prepend_transcript_batch(widgets)
+
+    def prepend_transcript_batch(self, widgets: list[Widget]) -> None:
+        """Insert older history above what is already visible, preserving scroll."""
         if not widgets:
             return
         transcript = self.query_one("#transcript", VerticalScroll)
         for welcome in self.query(".welcome"):
             welcome.remove()
-        transcript.mount(*widgets)
+        transcript.mount(*widgets, before=0)
 
     def action_copy_selection(self) -> None:
         """Copy the currently selected rendered transcript text to the clipboard."""
