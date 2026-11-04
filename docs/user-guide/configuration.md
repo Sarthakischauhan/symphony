@@ -50,6 +50,10 @@ Patterns match the bash command or the file path. A web search is matched as `we
 
 The headless `symphony run` command requires `--unattended` to acknowledge automatic approvals. Deny rules still apply, but they are not a containment mechanism. Use a disposable environment for tasks you cannot trust. See the [CLI reference](../reference/cli.md#symphony-run-headless-coding-run).
 
+## Theme
+
+`theme` in `config.json` is `"default"` or the name of a plugin theme such as `"dracula:Dracula"`. Set it with `/theme` or `symphony themes use`; see [themes](./themes.md).
+
 ## Skills and plugins
 
 Skills are prompt files the model reads when they match the task; plugins package skills and addon code. Install and manage both from the shell or from the TUI with `symphony skills ...` / `/skills ...` and `symphony plugins ...` / `/plugins ...`; see the [plugin guide](./plugins.md), the [CLI reference](../reference/cli.md), and the [developer guide](../developer-guide/skills-and-plugins.md). Plugin state (installed, enabled) is kept in `plugins/state.json` under the Symphony home, not in `config.json`.

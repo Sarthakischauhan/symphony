@@ -122,7 +122,7 @@ class LearningAddon(Addon):
     async def before_run(self, **payload: Any) -> None:
         self.task = next((text_from_content(m.content) for m in reversed(payload.get("messages") or [])
                           if isinstance(m, Message) and m.role == "user"), str(payload.get("task") or ""))
-        self.loop.resume()
+        self.loop.begin_run()
 
     async def after_turn(self, **payload: Any) -> None:
         if self.should_review():
@@ -174,7 +174,7 @@ class SessionMemoryAddon(Addon):
         self.task = next((text_from_content(m.content) for m in reversed(payload.get("messages") or [])
                           if isinstance(m, Message) and m.role == "user"), str(payload.get("task") or ""))
         if self.should_inject:
-            self.loop.resume()
+            self.loop.begin_run()
 
     async def after_turn(self, **payload: Any) -> None:
         if self.should_inject:

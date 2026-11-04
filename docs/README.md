@@ -13,6 +13,7 @@ Find the guide for the task you came to do. Symphony is a Python workspace for b
 | Work in the terminal UI | [TUI and controls](./user-guide/tui.md) |
 | Configure providers, models, and approvals | [Configuration](./user-guide/configuration.md) · [environment reference](./reference/environment.md) |
 | Install and write plugins | [Plugins](./user-guide/plugins.md) |
+| Change the colors | [Themes](./user-guide/themes.md) |
 | Understand workspace tools and access | [Tools](./user-guide/tools.md) |
 | Resume or protect saved conversations | [Sessions](./user-guide/sessions.md) |
 | Use persistent learning | [Learning and memory](./user-guide/learning.md) |
@@ -39,7 +40,7 @@ Find the guide for the task you came to do. Symphony is a Python workspace for b
 | Add product behavior to the harness | [Extending the harness](./developer-guide/extending.md) |
 | Consume or change the event contract | [Event overview](./developer-guide/events.md) · [complete payload catalog](../core_harness/docs/events.md) |
 | Work on learning or local extensions | [Learning pipeline](./developer-guide/learning-flow.md) · [Skills and plugins](./developer-guide/skills-and-plugins.md) |
-| Work on terminal interface internals | [TUI architecture](../coding_agent/TUI_ARCHITECTURE.md) · [performance investigation](./developer-guide/tui-performance.md) |
+| Work on terminal interface internals | [TUI architecture](../coding_agent/TUI_ARCHITECTURE.md) · [TUI performance](./developer-guide/tui-performance.md) |
 | Contribute, run checks, or report a security issue | [AGENTS.md](../AGENTS.md) · [Security policy](../SECURITY.md) |
 
 ## Reference and project history

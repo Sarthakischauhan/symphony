@@ -206,8 +206,9 @@ class EventPresenter:
         self._pending_assistant: Optional[tuple[str, bool]] = None
         self._pending_reasoning: Optional[tuple[str, bool]] = None
         self._pending_tool_paints: dict[str, None] = {}
-        self._pending_tool_output: dict[str, list[tuple[Stream, str]]] = {}
+        self._pending_tool_output: dict[str, list[tuple[Stream, list[str]]]] = {}
         self._pending_thinking: Optional[str] = None
+        self._pending_chrome = False
         self._flush_scheduled = False
         self._stream_generation = 0
         self._last_chrome: Optional[ChromeSnapshot] = None
@@ -304,11 +305,14 @@ class EventPresenter:
             self.view.add_notice(f"{event_type} · {preview_text(payload)}")
         else:
             handler(payload)
-        if event_type in _BUFFERED_PAINT_EVENT_TYPES or observational:
-            self._request_stream_flush()
         after = self._chrome_snapshot()
         if after != before:
-            self.refresh_chrome()
+            if observational:
+                self._pending_chrome = True
+            else:
+                self.refresh_chrome()
+        if event_type in _BUFFERED_PAINT_EVENT_TYPES or observational:
+            self._request_stream_flush()
 
     def _on_artifact_created(self, payload: Mapping[str, Any]) -> None:
         self.show_artifact(payload, updated=False)
@@ -340,6 +344,9 @@ class EventPresenter:
         self._flush_scheduled = False
         # Invalidate callbacks left queued after a structural event drains us.
         self._stream_generation += 1
+        if self._pending_chrome:
+            self._pending_chrome = False
+            self.refresh_chrome()
         pending_thinking = self._pending_thinking
         self._pending_thinking = None
         pending_output = self._pending_tool_output
@@ -361,8 +368,8 @@ class EventPresenter:
         for call_id in pending_tools:
             self._paint_pending_tool(call_id)
         for call_id, chunks in pending_output.items():
-            for stream, text in chunks:
-                self.view.append_tool_output(call_id, text, stream)
+            for stream, fragments in chunks:
+                self.view.append_tool_output(call_id, "".join(fragments), stream)
 
     def _paint_pending_tool(self, call_id: str) -> None:
         """Mount/update a buffered tool paint only when the real name is known."""
@@ -387,6 +394,7 @@ class EventPresenter:
             and not self._pending_tool_paints
             and not self._pending_tool_output
             and self._pending_thinking is None
+            and not self._pending_chrome
         ):
             return
         if self._schedule_flush is None:
@@ -451,6 +459,7 @@ class EventPresenter:
         self._pending_tool_paints.clear()
         self._pending_tool_output.clear()
         self._pending_thinking = None
+        self._pending_chrome = False
         self._flush_scheduled = False
         self._stream_generation += 1
         self.view.set_thinking("Thinking…")
@@ -724,9 +733,9 @@ class EventPresenter:
             stream: Stream = "stderr" if payload.get("stream") == "stderr" else "stdout"
             pending = self._pending_tool_output.setdefault(call_id, [])
             if pending and pending[-1][0] == stream:
-                pending[-1] = (stream, pending[-1][1] + chunk)
+                pending[-1][1].append(chunk)
             else:
-                pending.append((stream, chunk))
+                pending.append((stream, [chunk]))
 
     def _on_tool_execution_completed(self, payload: Mapping[str, Any]) -> None:
         call_id = str(payload.get("tool_call_id") or "tool")

@@ -9,8 +9,19 @@ from textual.containers import VerticalScroll
 
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.runtime.subagent import SubagentRecord, SubagentScreen
+from coding_agent.tui.theme import SYMPHONY_COLORS
 from coding_agent.tui.transcript.messages import AssistantMessage, SelectableStatic, UserMessage
 from coding_agent.tui.transcript.surface import TranscriptSurface
+
+
+def test_unchanged_stream_does_not_invalidate_layout(monkeypatch):
+    message = AssistantMessage("visible", streaming=True)
+    invalidations = []
+    monkeypatch.setattr(message, "_invalidate_render_cache", lambda **kwargs: invalidations.append(kwargs))
+    message.set_content("visible", streaming=True)
+    assert invalidations == []
+    message.set_content("visible", streaming=False)
+    assert invalidations == [{"layout": True}]
 
 
 def test_rich_transcript_mouse_drag_highlights_and_extracts():
@@ -37,6 +48,7 @@ def test_rich_transcript_mouse_drag_highlights_and_extracts():
             selected_segment = next(segment for segment in after if segment.text.startswith("Hello"))
             assert selected_segment.style.color == list(before)[0].style.color
             assert selected_segment.style.bgcolor is not None
+            assert selected_segment.style.bgcolor.name == SYMPHONY_COLORS["overlay"]
             code_y = next(y for y in range(message.size.height) if "print" in message.render_line(y).text)
             code = message.render_line(code_y).text
             x = code.index("print")

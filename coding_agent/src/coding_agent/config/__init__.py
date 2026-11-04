@@ -5,6 +5,7 @@ from coding_agent.config.config import (
     BashConfig,
     CodingAgentConfig,
     CompactionConfig,
+    DEFAULT_THEME,
     EvaluationConfig,
     LEARNING_MIN_OUTPUT_TOKENS,
     LangfuseConfig,
@@ -16,6 +17,7 @@ from coding_agent.config.config import (
     SkillSetting,
     SkillsConfig,
     SettingsSource,
+    THEME_FILE,
     ToolsConfig,
     UpdatesConfig,
     WebSearchConfig,
@@ -25,6 +27,7 @@ from coding_agent.config.config import (
     resolve_coding_agent_config,
     spawn_settings_path,
     symphony_dir,
+    user_theme_path,
 )
 
 __all__ = [
@@ -32,6 +35,7 @@ __all__ = [
     "BashConfig",
     "CodingAgentConfig",
     "CompactionConfig",
+    "DEFAULT_THEME",
     "EvaluationConfig",
     "LangfuseConfig",
     "LEARNING_MIN_OUTPUT_TOKENS",
@@ -43,6 +47,7 @@ __all__ = [
     "SkillSetting",
     "SkillsConfig",
     "SettingsSource",
+    "THEME_FILE",
     "ToolsConfig",
     "UpdatesConfig",
     "WebSearchConfig",
@@ -52,4 +57,5 @@ __all__ = [
     "resolve_coding_agent_config",
     "spawn_settings_path",
     "symphony_dir",
+    "user_theme_path",
 ]

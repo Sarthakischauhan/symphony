@@ -16,8 +16,9 @@ the same algorithmic behavior, not a rewrite in another language.
 
 ## Still open
 
-- Move session writes off the UI event loop without reordering or weakening
-  durability.
+- Move remaining session operations off the UI event loop without reordering or
+  weakening durability. Journal events, conversation saves, and checkpoint
+  saves are offloaded and awaited; other operations may still block.
 - Keep a bounded rendered tail for the live assistant message so layout work
   does not grow with the whole answer.
 - Render or retain only the visible transcript region for long restored

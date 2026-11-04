@@ -177,6 +177,56 @@ def test_session_listing_survives_restart_and_detects_growth(tmp_path: Path, mon
     asyncio.run(_run())
 
 
+def test_event_index_does_not_rescan_collectable_events(tmp_path: Path) -> None:
+    from coding_agent.addons.persistence.jsonl import _SessionIndex
+
+    class NoScanList(list):
+        def __iter__(self):
+            raise AssertionError("indexing an event must not scan earlier events")
+
+    index = _SessionIndex(tmp_path)
+    index._note_event({"event_type": "run_started", "payload": {"run_id": "r", "seq": 1}})
+    event = {"event_type": "tool_call_started", "payload": {"run_id": "r", "seq": 2}}
+    index._note_event(event)
+    index.collectable["r"] = NoScanList(index.collectable["r"])
+    index._note_event(event)
+    index._note_event({"event_type": "tool_call_started", "payload": {"run_id": "r", "seq": 3}})
+    assert index.collectable["r"] == [("r", 2), ("r", 3)]
+
+
+def test_missing_listing_does_not_build_runtime_index(tmp_path: Path, monkeypatch) -> None:
+    store = JsonlPersistence(tmp_path / "sessions")
+
+    async def _run() -> None:
+        await store.save_conversation(
+            session_id="parent", messages=[Message(role="user", content="original title")],
+        )
+        await store.save_conversation(
+            session_id="child", messages=[Message(role="user", content="child title")],
+        )
+        await store.append_event(
+            event_type="agent_spawned",
+            payload={"session_id": "parent", "child_session_id": "child", "seq": 2, "run_id": "run"},
+        )
+        store._listing_path("parent").unlink()
+        restarted = JsonlPersistence(store.root)
+
+        def unexpected(*args, **kwargs):
+            raise AssertionError("listing must not hydrate messages or repair runtime artifacts")
+
+        monkeypatch.setattr(restarted, "_read_entries", unexpected)
+        monkeypatch.setattr(restarted, "_artifacts", unexpected)
+        sessions = await restarted.list_sessions()
+        assert [session.session_id for session in sessions] == ["parent"]
+        assert sessions[0].first_message == "original title"
+        assert sessions[0].message_count == 1
+        assert not restarted._indexes
+        monkeypatch.setattr(restarted, "_load_transcript", unexpected)
+        assert await restarted.list_sessions() == sessions
+
+    asyncio.run(_run())
+
+
 def test_resume_loads_history_and_context_together(tmp_path: Path, monkeypatch) -> None:
     store = JsonlPersistence(tmp_path / "sessions")
     messages = [Message(role="user", content="hello"), Message(role="assistant", content="world")]

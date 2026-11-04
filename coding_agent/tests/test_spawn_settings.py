@@ -49,6 +49,9 @@ def test_ensure_spawn_settings_keeps_user_overrides(tmp_path: Path) -> None:
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["harness"]["max_turns"] == 5
     assert saved["harness"]["max_tool_calls"] is None
+    # Configurations written by older releases have no theme field.
+    assert config.theme == "default"
+    assert saved["theme"] == "default"
 
 
 def test_ensure_spawn_settings_migrates_legacy_values(tmp_path: Path) -> None:

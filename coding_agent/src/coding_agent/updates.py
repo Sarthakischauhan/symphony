@@ -223,11 +223,13 @@ def startup_update_check(
     settings = config.get("updates") if isinstance(config.get("updates"), Mapping) else {}
     if enabled is None:
         enabled = os.environ.get("SYMPHONY_NO_UPDATE_CHECK", "").strip().lower() not in {"1", "true", "yes"}
+    enabled = enabled and settings.get("enabled", True) is not False
+    current_version = current() if enabled else None
     decision = check_for_update(
-        current=current(),
-        latest=latest() if enabled else None,
+        current=current_version,
+        latest=latest() if enabled and current_version is not None else None,
         auto=bool(settings.get("auto")),
-        enabled=enabled and settings.get("enabled", True) is not False,
+        enabled=enabled,
     )
     if decision.action == "continue":
         return decision
