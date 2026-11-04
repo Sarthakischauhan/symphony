@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 import base64
 import io
 import json
-import os
 from pathlib import Path
 
 from types import SimpleNamespace
@@ -1855,13 +1854,13 @@ def test_workspace_file_index_scans_once(
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "turn.py").write_text("pass\n", encoding="utf-8")
     walks = {"n": 0}
-    real_walk = os.walk
+    from coding_agent.tui.screens.file_selector import _scan_workspace
 
-    def counting_walk(*args: object, **kwargs: object):
+    def counting_scan(*args: object, **kwargs: object):
         walks["n"] += 1
-        yield from real_walk(*args, **kwargs)
+        return _scan_workspace(*args, **kwargs)
 
-    monkeypatch.setattr("coding_agent.tui.screens.file_selector.os.walk", counting_walk)
+    monkeypatch.setattr("coding_agent.tui.screens.file_selector._scan_workspace", counting_scan)
     index = WorkspaceFileIndex(tmp_path)
     first = file_matches(tmp_path, "turn", index=index)
     second = file_matches(tmp_path, "turn", index=index)

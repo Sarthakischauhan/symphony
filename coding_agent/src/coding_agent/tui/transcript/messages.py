@@ -81,7 +81,7 @@ class SelectableStatic(Static):
             start, end = span
             if end == -1:
                 end = len(line.text)
-            highlight = Style(bgcolor="#3a3a3a")
+            highlight = Style(bgcolor=SYMPHONY_COLORS["overlay"])
             segments = []
             offset = 0
             for segment in line:
@@ -225,7 +225,7 @@ class UserMessage(SelectableStatic):
                     Text(
                         f"[{len(displayed_chunk):,} chars]",
                         style=Style(
-                            color="#87b5b1",
+                            color=SYMPHONY_COLORS["function"],
                             bold=True,
                             underline=True,
                             meta={"@click": f"open_content('{key}')"},
@@ -249,7 +249,7 @@ class UserMessage(SelectableStatic):
                     Text(
                         match.group(0),
                         style=Style(
-                            color="#87b5b1",
+                            color=SYMPHONY_COLORS["function"],
                             bold=True,
                             underline=True,
                             meta={"@click": f"open_image('{number}')"},

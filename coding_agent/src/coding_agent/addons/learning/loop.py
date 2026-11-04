@@ -112,6 +112,7 @@ class LearningLoop:
         self.context_limit = context_limit
         self.context_max_chars = context_max_chars
         self._worker: asyncio.Task[None] | None = None
+        self._last_capture_job: str | None = None
         self._recaps: dict[str, Emit] = {}
         # Control-plane emit for capture notices; bound by ``LearningAddon``.
         self.emit: Emit | None = None
@@ -121,11 +122,18 @@ class LearningLoop:
         job_id = self.store.enqueue_capture(
             sanitize_task(task), _capture_messages(messages), self.store.session_id,
         )
-        self.resume()
+        if job_id != self._last_capture_job:
+            self._last_capture_job = job_id
+            self.resume()
         return job_id
 
+    def begin_run(self) -> None:
+        """Allow pending captures to retry on a subsequent run."""
+        self._last_capture_job = None
+        self.resume()
+
     def resume(self) -> None:
-        """Resume durable pending jobs before a run (also safe outside an event loop)."""
+        """Resume durable pending jobs (also safe outside an event loop)."""
         if self._worker is not None and not self._worker.done():
             return
         try:

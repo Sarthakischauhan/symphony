@@ -9,7 +9,10 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, Mapping
 
-THEME_FILE = "theme.toml"
+from coding_agent.config import THEME_FILE, user_theme_path
+from coding_agent.tui.theme.ansi_colors import textual_color
+from coding_agent.tui.theme.picker_css import THEME_PICKER_CSS
+
 PACKAGE_NAME = "coding_agent.tui.theme"
 
 SYMPHONY_COLOR_KEYS = (
@@ -36,6 +39,9 @@ SYMPHONY_COLOR_KEYS = (
     "overlay",
     "subtext",
 )
+
+# Read by chrome, tools and syntax when present. A theme.toml without them still loads.
+OPTIONAL_COLOR_KEYS = ("panel_edge_focus", "diff_added", "diff_removed")
 
 SPACING_PREFIX = "space-"
 
@@ -79,12 +85,7 @@ class ThemeDocument:
 
     @property
     def app_css(self) -> str:
-        return glue_css(glue_css(self.chrome_css, self.tools_css), self.composer_css)
-
-
-def user_theme_path() -> Path:
-    """Runtime theme file: ~/.symphony/theme.toml."""
-    return Path.home() / ".symphony" / THEME_FILE
+        return glue_css(glue_css(glue_css(self.chrome_css, self.tools_css), self.composer_css), THEME_PICKER_CSS)
 
 
 def packaged_theme_path() -> Path:
@@ -110,11 +111,21 @@ def resolve_theme_path(path: Path | None = None) -> Path:
     )
 
 
-def load_theme(path: Path | None = None) -> ThemeDocument:
-    """Parse theme.toml and assemble the public color/CSS surface."""
-    source, raw = _read_theme(path)
+def load_theme(path: Path | None = None, *, palette: Mapping[str, str] | None = None) -> ThemeDocument:
+    """Parse theme.toml and assemble the public color/CSS surface.
+
+    ``palette`` replaces the ``[colors]`` of the packaged theme.toml, which then
+    supplies the CSS. It is how a plugin theme reaches the TUI; the user's own
+    ``~/.symphony/theme.toml`` is not consulted in that case.
+    """
+    if palette is not None:
+        source, raw = _read_packaged_theme()
+    else:
+        source, raw = _read_theme(path)
     document = _parse_toml(source, raw)
     colors = color_tokens(document)
+    if palette is not None:
+        colors = {**colors, **palette}
     css = _table(document, "css", source=source)
     variables = _string_table(_table(css, "variables", source=source, label="css.variables"))
     spacing = spacing_tokens(css)
@@ -125,7 +136,7 @@ def load_theme(path: Path | None = None) -> ThemeDocument:
     base = modal_css["base"]
     return ThemeDocument(
         source=source,
-        colors={key: colors[key] for key in SYMPHONY_COLOR_KEYS},
+        colors={key: colors[key] for key in (*SYMPHONY_COLOR_KEYS, *OPTIONAL_COLOR_KEYS) if key in colors},
         spacing=spacing,
         chrome_css=chrome,
         tools_css=sections["tools"],
@@ -171,7 +182,7 @@ def textual_variable_block(colors: Mapping[str, str], variables: Mapping[str, st
     for name, token in variables.items():
         if token not in colors:
             raise ThemeConfigError(f"[css.variables].{name} refers to unknown color {token!r}")
-        lines.append(f"${name}: {colors[token]};")
+        lines.append(f"${name}: {textual_color(colors[token])};")
     return "\n".join(lines) + "\n\n"
 
 
@@ -202,9 +213,16 @@ def spacing_variable_block(spacing: Mapping[str, int]) -> str:
 
 
 def _read_theme(path: Path | None) -> tuple[str, str]:
-    if path is not None or user_theme_path().is_file() or packaged_theme_path().is_file():
+    if path is not None or user_theme_path().is_file():
         resolved = resolve_theme_path(path)
         return str(resolved), resolved.read_text(encoding="utf-8")
+    return _read_packaged_theme()
+
+
+def _read_packaged_theme() -> tuple[str, str]:
+    packaged = packaged_theme_path()
+    if packaged.is_file():
+        return str(packaged), packaged.read_text(encoding="utf-8")
     resource = files(PACKAGE_NAME).joinpath(THEME_FILE)
     return f"package:{THEME_FILE}", resource.read_text(encoding="utf-8")
 

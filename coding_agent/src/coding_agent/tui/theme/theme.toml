@@ -35,6 +35,9 @@ surface = "#171717"
 overlay = "#262626"
 subtext = "#A3A3A3"
 panel_edge_focus = "#484F58"
+# Backgrounds of added and removed lines in diffs.
+diff_added = "#19301d"
+diff_removed = "#321c20"
 
 [css.variables]
 background = "background"

@@ -24,4 +24,4 @@ Use `/new` to start a fresh session. From the shell, launch with `--resume` to c
 
 ## Commands and configuration
 
-Type `/` to discover commands, or consult the [slash-command reference](../reference/slash-commands.md). Change provider credentials and approval defaults in [Configuration](./configuration.md).
+Type `/` to discover commands, or consult the [slash-command reference](../reference/slash-commands.md). Change colors with `/theme` ([themes](./themes.md)). Change provider credentials and approval defaults in [Configuration](./configuration.md).

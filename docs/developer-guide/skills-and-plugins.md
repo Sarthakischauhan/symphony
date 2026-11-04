@@ -85,6 +85,7 @@ Symphony loads **skills** and, when the plugin is enabled, one **addon**. Everyt
 | --- | --- |
 | `skills/` | loaded (namespaced `plugin:skill`) |
 | `extensions.symphony` addon | loaded while the plugin is enabled |
+| `themes/` | loaded as data (`*.json` Claude format, `*.toml` Symphony format), namespaced `plugin:Theme`; see [themes](../user-guide/themes.md) |
 | `agents/` | skipped: plugin-defined agents are not supported |
 | `commands/` | skipped: plugin slash commands are not supported |
 | `hooks/`, `hooks.json` | skipped: hooks are not supported; Symphony runs plugin code only as an addon |
