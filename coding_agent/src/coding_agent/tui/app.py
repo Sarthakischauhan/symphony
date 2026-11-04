@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import traceback
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -198,6 +199,24 @@ class CodingAgentApp(
         self._voice_session: Optional[VoiceSession] = None
         self._voice_capture: Optional[VoiceCapture] = None
         self._voice_transcriber: Optional[VoiceTranscriber] = None
+
+    def _fatal_error(self) -> None:
+        """Exit with one line instead of Textual's full traceback and locals.
+
+        The traceback stays in the dev console. The terminal the user returns
+        to shows the exception type and message only.
+        """
+        error = self._exception
+        if error is None:
+            summary = "Symphony crashed."
+        else:
+            detail = str(error).strip().splitlines()
+            message = detail[0] if detail else ""
+            summary = f"Symphony crashed: {type(error).__name__}"
+            if message:
+                summary = f"{summary}: {message}"
+            self.log.error(traceback.format_exc())
+        self.panic(summary)
 
     async def on_event(self, event: events.Event) -> None:
         # Textual delivers paste only to the focused widget, so a drop on the

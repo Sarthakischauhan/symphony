@@ -47,6 +47,30 @@ def return_composer_focus(widget: Widget) -> None:
     prompt.focus()
 
 
+def _extract_selection(lines: list[str], selection: Selection) -> str:
+    """Extract a selection from rendered lines.
+
+    ``Selection.extract`` indexes ``start.y`` with no bounds check. Both ends
+    of a drag can sit on the row below a one-line widget (a collapsed tool
+    summary), and that raises ``IndexError``. That span overlaps no rendered
+    line, so it is empty. Every other span is Textual's.
+    """
+    if not lines:
+        return ""
+    start, end = selection
+    # extract indexes start.y unchecked once it equals the clamped end.y.
+    # That is a drag whose offsets both sit on the row below the rendered
+    # lines (a collapsed one-line tool summary). It overlaps nothing.
+    if (
+        start is not None
+        and end is not None
+        and start.y >= len(lines)
+        and end.y >= len(lines)
+    ):
+        return ""
+    return selection.extract("\n".join(lines))
+
+
 class SelectableStatic(Static):
     """Selectable Rich content using Textual's dirty-region render cache."""
 
@@ -69,7 +93,7 @@ class SelectableStatic(Static):
         if self._dirty_regions:
             self._render_content()
         lines = [line.text.rstrip() for line in self._render_cache.lines]
-        return selection.extract("\n".join(lines)), "\n"
+        return _extract_selection(lines, selection), "\n"
 
     def render_line(self, y: int) -> Strip:
         """Attach Textual's selection offsets to every rendered cell."""

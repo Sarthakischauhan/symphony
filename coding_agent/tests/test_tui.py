@@ -4194,6 +4194,44 @@ def test_assistant_markdown_is_selectable_as_rendered_text(tmp_path: Path) -> No
     asyncio.run(_run())
 
 
+def test_fatal_error_exits_with_one_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._exception = RuntimeError("selection failed\nline two")
+            app._fatal_error()
+
+    with pytest.raises(RuntimeError, match="selection failed"):
+        asyncio.run(_run())
+
+    captured = capsys.readouterr()
+    rendered = captured.err + captured.out
+    assert "Symphony crashed: RuntimeError: selection failed" in rendered
+    assert "Traceback" not in rendered
+    assert "line two" not in rendered
+
+
+def test_selection_below_one_line_tool_summary_is_empty(tmp_path: Path) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            tool = make_tool_widget("read-0", "read_file")
+            tool.set_arguments({"path": "notes.md"})
+            tool.set_result("ok")
+            summary = ToolCallSummary([tool.snapshot()])
+            app.mount_transcript(summary)
+            await pilot.pause()
+
+            selected = summary.get_selection(Selection(Offset(12, 1), Offset(71, 1)))
+            assert selected == ("", "\n")
+
+    asyncio.run(_run())
+
+
 def test_finalized_history_keeps_full_conversation_visible(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
