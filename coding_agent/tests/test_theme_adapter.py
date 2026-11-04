@@ -16,6 +16,8 @@ from coding_agent.tui.theme.base_palettes import ANSI_BASES, base_palette
 from coding_agent.tui.theme.claude_slots import SYNTAX_MAPPINGS, UI_MAPPINGS
 from coding_agent.tui.theme.load import OPTIONAL_COLOR_KEYS, SYMPHONY_COLOR_KEYS, load_theme, packaged_theme_path
 from coding_agent.tui.theme.plugin_palette import palette_for
+from coding_agent.tui.screens.diff import _numbered_diff
+from coding_agent.tui.theme import SYMPHONY_COLORS
 from coding_agent.tui.theme.style import PaletteSyntaxTheme
 
 DRACULA = Path(__file__).parent / "fixtures" / "claude-themes" / "dracula"
@@ -95,8 +97,21 @@ def test_the_slot_table_maps_claude_slots_to_symphony_tokens() -> None:
         "accent": "#050505", "string": "#060606", "keyword": "#070707", "number": "#080808",
     }
     assert colors["type_keywords"] == "#070707"
+    assert colors["subtext"] == "#020202"
+    assert colors["panel_edge_focus"] == "#040404"
     assert (colors["diff_added"], colors["diff_removed"]) == ("#090909", "#0a0a0a")
     assert (colors["overlay"], colors["surface"], colors["background"]) == ("#0b0b0b", "#0c0c0c", "#0d0d0d")
+
+
+def test_diff_rows_use_active_theme_colors(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(SYMPHONY_COLORS, "string", "#123456")
+    monkeypatch.setitem(SYMPHONY_COLORS, "keyword", "#654321")
+    monkeypatch.setitem(SYMPHONY_COLORS, "diff_added", "#112233")
+    monkeypatch.setitem(SYMPHONY_COLORS, "diff_removed", "#332211")
+    rendered = _numbered_diff("@@ -1 +1 @@\n-old\n+new")
+    styles = [span.style for span in rendered.spans]
+    assert "#123456 on #112233" in styles
+    assert "#654321 on #332211" in styles
 
 
 def test_the_background_slot_is_a_task_accent_and_never_fills_the_screen() -> None:

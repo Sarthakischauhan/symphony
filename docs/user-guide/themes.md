@@ -53,4 +53,4 @@ A theme whose base ends in `-ansi` uses your terminal's own palette, so it looks
 
 ## Limits
 
-A theme recolors the top bar, composer, footer, transcript and code. Text already in the transcript keeps the colors it was written with. Some dialogs use fixed colors and do not follow the theme.
+A theme recolors the top bar, composer, footer, transcript and code, as well as diff lines and transcript selection. Text already in the transcript keeps the colors it was written with. Some dialogs and other Rich-rendered elements still use fixed colors and do not follow the theme. Claude themes do not define every Symphony or syntax color, so missing colors are derived from available slots or the base palette rather than being an exact one-to-one match.

@@ -16,6 +16,7 @@ from coding_agent.commands.installed import saved_config
 from coding_agent.commands.themes_cli import choose_theme
 from coding_agent.config import user_theme_path
 from coding_agent.tui.app import CodingAgentApp
+from coding_agent.tui.chrome import TopBar
 from coding_agent.tui.screens.theme_picker import ThemePickerScreen
 from coding_agent.tui.theme import SYMPHONY_COLORS
 from coding_agent.tui.theme.active import publish_theme
@@ -85,6 +86,24 @@ def test_moving_the_highlight_previews_the_theme_and_escape_restores_the_old_one
         assert SYMPHONY_COLORS["background"] == DEFAULT_BACKGROUND
         assert app.ansi_color is False
         assert saved_config(workspace).theme == "default"
+
+    drive(workspace, scenario)
+
+
+def test_topbar_recolors_immediately_on_preview_and_cancel(workspace: Path) -> None:
+    async def scenario(app: CodingAgentApp, pilot: Pilot[None]) -> None:
+        topbar = app.query_one(TopBar)
+        topbar.set_context(workspace, "provider:model")
+        assert topbar._model_text(80).spans[-1].style == "bold " + SYMPHONY_COLORS["accent"]
+        await app._command_manager.run("/theme")
+        await pilot.pause()
+        await pilot.press("down")
+        await pilot.pause()
+        assert SYMPHONY_COLORS["accent"] == "#ffb86c"
+        assert topbar.content.columns[1]._cells[0].spans[-1].style == "bold #ffb86c"
+        await pilot.press("escape")
+        await pilot.pause()
+        assert topbar.content.columns[1]._cells[0].spans[-1].style == "bold " + SYMPHONY_COLORS["accent"]
 
     drive(workspace, scenario)
 

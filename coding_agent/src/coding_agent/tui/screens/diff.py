@@ -14,7 +14,7 @@ from textual.widgets import Static
 from textual.worker import get_current_worker
 
 from coding_agent.tui.screens.modal import EmptyState, ModalBase, ModalCloseButton, ModalScroll
-from coding_agent.tui.theme import DIFF_MODAL_CSS
+from coding_agent.tui.theme import DIFF_MODAL_CSS, SYMPHONY_COLORS
 from coding_agent.tui.tools.calls import diff_stats
 
 
@@ -95,8 +95,8 @@ def _numbered_diff(body: str) -> Text:
             new_line = int(match.group(3))
             # Keep the hunk marker aligned with the source below it. The section
             # name is retained because it is useful when scanning a large file.
-            rendered.append(" " * (number_width + 5), style="#687e8b")
-            rendered.append(source, style="bold #83a9bd")
+            rendered.append(" " * (number_width + 5), style=SYMPHONY_COLORS["muted"])
+            rendered.append(source, style="bold " + SYMPHONY_COLORS["function"])
             rendered.append("\n")
             continue
 
@@ -104,22 +104,22 @@ def _numbered_diff(body: str) -> Text:
             line_number = new_line
             new_line += 1
             marker = "+"
-            style = "#a8d58d on #19301d"
+            style = SYMPHONY_COLORS["string"] + " on " + SYMPHONY_COLORS.get("diff_added", SYMPHONY_COLORS["surface"])
         elif source.startswith("-"):
             line_number = old_line
             old_line += 1
             marker = "-"
-            style = "#e49a9d on #321c20"
+            style = SYMPHONY_COLORS["keyword"] + " on " + SYMPHONY_COLORS.get("diff_removed", SYMPHONY_COLORS["overlay"])
         elif source.startswith(" "):
             line_number = new_line
             old_line += 1
             new_line += 1
             marker = " "
-            style = "#b8bec1"
+            style = SYMPHONY_COLORS["foreground"]
         else:
             line_number = 0
             marker = " "
-            style = "#737b7f"
+            style = SYMPHONY_COLORS["muted"]
 
         number = str(line_number) if line_number else ""
         gutter = f"{number:>{number_width}} {marker} │ "

@@ -393,6 +393,8 @@ class CodingAgentApp(
         for screen in self.screen_stack:
             self.stylesheet.update(screen)
         self.refresh(repaint=True, layout=True)
+        for topbar in self.query(TopBar):
+            topbar.refresh_theme()
         self._set_status("")
 
     def submit_op(self, op: Op) -> bool:
