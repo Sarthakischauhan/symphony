@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.0.7 — 2026-11-13
+
+Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.7.
+
+- Pending merge of #180: each provider keeps one HTTP connection pool for its
+  lifetime and reads SSE streams to the end after `[DONE]`, so back-to-back
+  requests reuse a connection instead of a new TCP and TLS handshake.
+  `BaseProvider.aclose()` and `ModelRegistry.aclose()` close it.
+- Pending merge of #180: OpenAI requests send a `prompt_cache_key` derived from
+  the model, system prompt and tools; Anthropic requests mark the system prompt
+  and the last tool with `cache_control`. `StreamEvent` reports
+  `cache_read_tokens` and `cache_write_tokens` for OpenAI, Anthropic and
+  Gemini, Anthropic `prompt_tokens` counts the whole prompt, and `turn_cost`
+  bills cache reads and writes at their catalog rates.
+- Pending merge of #180: `bench/run.py` benchmarks the provider layer against a
+  local mock (`--mock`) or the OpenAI API with a spend cap (`--live`).
+
 ## 0.0.6 — 2026-11-03
 
 Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.6.
