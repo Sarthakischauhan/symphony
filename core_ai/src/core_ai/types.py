@@ -35,7 +35,12 @@ class StreamEvent(BaseModel):
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
     tool_call_metadata: Optional[Dict[str, Any]] = None
+    # ``prompt_tokens`` is the whole prompt. ``cache_read_tokens`` and
+    # ``cache_write_tokens`` are the parts of it the provider read from or
+    # wrote to its prompt cache.
     prompt_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None
     total_tokens: Optional[int] = None

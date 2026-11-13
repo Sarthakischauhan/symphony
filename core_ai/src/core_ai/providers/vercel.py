@@ -49,6 +49,7 @@ class VercelProvider(OpenAIProvider):
 
     include_stream_options = True
     max_tokens_field = "max_tokens"
+    sends_prompt_cache_key = False
 
     def __init__(
         self,
@@ -84,7 +85,7 @@ class VercelProvider(OpenAIProvider):
                     base_url=self.base_url,
                     tools=tools,
                     reasoning_effort=reasoning_effort,
-                    transport=self.transport,
+                    client=self._client,
                     extra_headers=self.extra_headers,
                 )
             ):

@@ -31,7 +31,12 @@ def turn_cost(
     cache_write_tokens: int = 0,
     reasoning_tokens: int = 0,
 ) -> float:
-    """USD for one response. Cache reads are not billed again as input.
+    """USD for one response.
+
+    ``input_tokens`` is the whole prompt, as ``StreamEvent.prompt_tokens``
+    reports it. ``cache_read_tokens`` and ``cache_write_tokens`` are parts of
+    that prompt, billed at the cache read and write rates instead of the
+    input rate.
 
     Gemini bills ``thoughtsTokenCount`` on top of ``candidatesTokenCount``,
     both at the output rate. Other providers already fold reasoning into
@@ -41,7 +46,8 @@ def turn_cost(
     if price is None:
         return 0.0
     cached = max(cache_read_tokens, 0)
-    fresh = max(input_tokens - cached, 0)
+    written = max(cache_write_tokens, 0)
+    fresh = max(input_tokens - cached - written, 0)
     read_rate = price.input if price.cache_read is None else price.cache_read
     write_rate = price.input if price.cache_write is None else price.cache_write
     return (
@@ -49,7 +55,7 @@ def turn_cost(
         + max(output_tokens, 0) * price.output
         + max(reasoning_tokens, 0) * price.output
         + cached * read_rate
-        + max(cache_write_tokens, 0) * write_rate
+        + written * write_rate
     ) / MILLION
 
 

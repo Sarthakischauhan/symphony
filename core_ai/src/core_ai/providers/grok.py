@@ -10,6 +10,8 @@ from core_ai.types import Message, StreamEvent
 class GrokProvider(OpenAIProvider):
     """xAI Grok via the OpenAI-compatible Chat Completions API."""
 
+    sends_prompt_cache_key = False
+
     def __init__(
         self,
         api_key: str,
