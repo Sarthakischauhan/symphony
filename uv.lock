@@ -1425,6 +1425,7 @@ version = "0.0.6"
 source = { editable = "core_ai" }
 dependencies = [
     { name = "dotenv" },
+    { name = "httpcore" },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "websockets" },
@@ -1439,6 +1440,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dotenv", specifier = ">=0.9.9" },
+    { name = "httpcore", specifier = ">=1.0.9,<2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "websockets", specifier = ">=13.0" },

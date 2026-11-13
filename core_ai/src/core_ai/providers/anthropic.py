@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from core_ai.content import to_anthropic_blocks
 from core_ai.providers.base import BaseProvider
 from core_ai.providers.http import (
+    PooledTransport,
     apply_refreshed_credentials,
     is_auth_failure,
     iter_sse_json,
@@ -39,7 +40,7 @@ class AnthropicProvider(BaseProvider):
         self.base_url = base_url.rstrip("/")
         # One client per provider, so back-to-back requests reuse a pooled
         # connection instead of a new TCP and TLS handshake each time.
-        self._client = httpx.AsyncClient(transport=transport)
+        self._client = httpx.AsyncClient(transport=transport or PooledTransport())
         self.api_version = api_version
         self.extra_headers = dict(extra_headers or {})
         self.use_bearer = use_bearer
