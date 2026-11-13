@@ -16,6 +16,21 @@ Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.7
   `cache_read_tokens` and `cache_write_tokens` for OpenAI, Anthropic and
   Gemini, Anthropic `prompt_tokens` counts the whole prompt, and `turn_cost`
   bills cache reads and writes at their catalog rates.
+- Pending merge of #180: concurrent streams on a provider each get their own
+  pooled connection. httpcore 1.0.9's pool handed one idle connection to every
+  waiting request, so a burst of streams ran a few at a time over the
+  connections left from the last burst; at 100 concurrent streams the first
+  event arrived after about 3.6 s (median). `core_ai` now ships its own pool and
+  keeps up to 100 connections warm until the 5 s keep-alive expiry.
+  `httpcore>=1.0.9,<2` is a direct dependency of `symphony-core`.
+- Pending merge of #180: OpenAI reasoning parameters follow the model catalog's
+  reasoning flag and effort levels instead of the `gpt-5` name prefix; an
+  effort the model doesn't list is omitted.
+- Pending merge of #180: an OpenAI Responses `response.incomplete` stream
+  reports its usage and then an `incomplete` event with `incomplete_reason`.
+- Pending merge of #180: the footer cost bills cached input at the cached rate.
+- Pending merge of #180: the TUI on exit and `symphony run` after its task close
+  the providers' HTTP connections (`CodingAgent.shutdown()`).
 - Pending merge of #180: `bench/run.py` benchmarks the provider layer against a
   local mock (`--mock`) or the OpenAI API with a spend cap (`--live`).
 
