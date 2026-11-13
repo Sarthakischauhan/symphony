@@ -60,8 +60,8 @@ def live_md(lv):
     if lv.get("skipped"):
         return f"## Live\n\nSkipped: {lv['reason']}."
     out = ["## Live (OpenAI Responses API, interleaved)", "",
-           f"Budget ${lv['budget_usd']}, spent **${lv['spent_usd']:.4f}** (computed from returned usage tokens; Symphony does not "
-           "surface cached tokens, so its share is an upper bound)."]
+           f"Budget ${lv['budget_usd']}, spent **${lv['spent_usd']:.4f}** (computed from returned usage tokens, "
+           "cached input at the cached rate)."]
     for mres in lv["models"]:
         f = mres["facts"]
         out += ["", f"### {mres['model']}  (price $/1M in/out/cached: {mres['price_per_1m']})", "",
