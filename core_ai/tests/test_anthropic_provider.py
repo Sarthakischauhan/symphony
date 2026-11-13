@@ -19,8 +19,11 @@ def test_anthropic_streams_text_tools_and_usage() -> None:
         payload = json.loads(request.content)
         assert payload["model"] == "claude-sonnet-5"
         assert payload["max_tokens"] == 900
-        assert payload["system"] == "Be brief"
+        assert payload["system"] == [
+            {"type": "text", "text": "Be brief", "cache_control": {"type": "ephemeral"}}
+        ]
         assert payload["tools"][0]["name"] == "read_file"
+        assert payload["tools"][-1]["cache_control"] == {"type": "ephemeral"}
         assert payload["tools"][0]["input_schema"]["type"] == "object"
         assert payload["messages"][0]["role"] == "user"
         body = _sse(

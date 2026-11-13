@@ -280,14 +280,23 @@ async def stream_with_retries(
 
 
 async def iter_sse_json(response: httpx.Response) -> AsyncGenerator[Dict[str, Any], None]:
-    """Yield JSON SSE data, raising centrally for provider error frames."""
+    """Yield JSON SSE data, raising centrally for provider error frames.
+
+    ``[DONE]`` ends the data, but the body is still read to its end. Leaving
+    early leaves the chunked terminator unread, and httpcore then closes the
+    connection instead of returning it to the pool.
+    """
+    done = False
     async for line in response.aiter_lines():
+        if done:
+            continue
         line = line.strip()
         if not line.startswith("data: "):
             continue
         raw = line[6:]
         if raw == "[DONE]":
-            break
+            done = True
+            continue
         if not raw:
             continue
         try:

@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from core_ai.content import split_text_and_images, to_gemini_parts
 from core_ai.models.registry import get_model
 from core_ai.providers.base import BaseProvider
+from core_ai.providers.connection_pool import provider_client
 from core_ai.providers.http import iter_sse_json, stream_with_retries
 from core_ai.types import Message, StreamEvent
 
@@ -25,7 +26,12 @@ class GeminiProvider(BaseProvider):
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
-        self.transport = transport
+        # One client per provider, so back-to-back requests reuse a pooled
+        # connection instead of a new TCP and TLS handshake each time.
+        self._client = provider_client(transport)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def stream(
         self,
@@ -60,18 +66,18 @@ class GeminiProvider(BaseProvider):
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
         }
-        async with httpx.AsyncClient(transport=self.transport, timeout=120.0) as client:
-            response = await client.post(
-                f"{self.base_url}/models/{model_id}:generateContent",
-                headers={
-                    "x-goog-api-key": self.api_key,
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            if response.status_code >= 400:
-                raise RuntimeError(_http_error(response))
-            body = response.json()
+        response = await self._client.post(
+            f"{self.base_url}/models/{model_id}:generateContent",
+            headers={
+                "x-goog-api-key": self.api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120.0,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(_http_error(response))
+        body = response.json()
         return _first_inline_image(body)
 
     async def _stream_once(
@@ -107,29 +113,28 @@ class GeminiProvider(BaseProvider):
         model_id = model_name.removeprefix("models/")
         tool_index = 0
         latest_usage: Optional[StreamEvent] = None
-        async with httpx.AsyncClient(transport=self.transport) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/models/{model_id}:streamGenerateContent",
-                params={"alt": "sse"},
-                json=payload,
-                headers=self._headers,
-                timeout=60.0,
-            ) as response:
-                if response.status_code >= 400:
-                    await response.aread()
-                    raise httpx.HTTPStatusError(
-                        _http_error(response),
-                        request=response.request,
-                        response=response,
-                    )
-                async for data in iter_sse_json(response):
-                    events, tool_index = self._translate(data, tool_index)
-                    for event in events:
-                        if event.type == "usage":
-                            latest_usage = event
-                            continue
-                        yield event
+        async with self._client.stream(
+            "POST",
+            f"{self.base_url}/models/{model_id}:streamGenerateContent",
+            params={"alt": "sse"},
+            json=payload,
+            headers=self._headers,
+            timeout=60.0,
+        ) as response:
+            if response.status_code >= 400:
+                await response.aread()
+                raise httpx.HTTPStatusError(
+                    _http_error(response),
+                    request=response.request,
+                    response=response,
+                )
+            async for data in iter_sse_json(response):
+                events, tool_index = self._translate(data, tool_index)
+                for event in events:
+                    if event.type == "usage":
+                        latest_usage = event
+                        continue
+                    yield event
         if latest_usage is not None:
             yield latest_usage
         yield StreamEvent(type="done", content_index=0)
@@ -194,6 +199,7 @@ class GeminiProvider(BaseProvider):
                 StreamEvent(
                     type="usage",
                     prompt_tokens=usage.get("promptTokenCount"),
+                    cache_read_tokens=usage.get("cachedContentTokenCount"),
                     completion_tokens=usage.get("candidatesTokenCount"),
                     reasoning_tokens=usage.get("thoughtsTokenCount"),
                     total_tokens=usage.get("totalTokenCount"),

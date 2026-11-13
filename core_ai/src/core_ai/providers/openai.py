@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import json
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
@@ -8,6 +10,7 @@ from core_ai.content import split_text_and_images, text_from_content, to_openai_
 from core_ai.models import get_model
 from core_ai.oauth.openai_codex import is_codex_base_url
 from core_ai.providers.base import BaseProvider
+from core_ai.providers.connection_pool import provider_client
 from core_ai.providers.http import (
     apply_refreshed_credentials,
     is_auth_failure,
@@ -41,6 +44,11 @@ class OpenAIProvider(BaseProvider):
 
     include_stream_options = True
     max_tokens_field = "max_completion_tokens"
+    # OpenAI routes requests with the same ``prompt_cache_key`` to the same
+    # prompt cache. Compatible servers that don't document it leave this off.
+    sends_prompt_cache_key = True
+    # Catalog provider whose reasoning flag and effort levels apply.
+    catalog_provider = "openai"
 
     def __init__(
         self,
@@ -52,7 +60,9 @@ class OpenAIProvider(BaseProvider):
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
-        self.transport = transport
+        # One client per provider, so back-to-back requests reuse a pooled
+        # connection instead of a new TCP and TLS handshake each time.
+        self._client = provider_client(transport)
         self.extra_headers = dict(extra_headers or {})
         self.credential_refresher = credential_refresher
 
@@ -99,6 +109,9 @@ class OpenAIProvider(BaseProvider):
             return False
         return apply_refreshed_credentials(self, refreshed)
 
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
 
     async def _stream_chat(
         self,
@@ -120,67 +133,72 @@ class OpenAIProvider(BaseProvider):
         if max_output_tokens is not None:
             payload[self.max_tokens_field] = max_output_tokens
         if self._is_reasoning_model(model_name):
-            payload["reasoning_effort"] = reasoning_effort or "medium"
+            effort = self._effort_value(model_name, reasoning_effort)
+            if effort is not None:
+                payload["reasoning_effort"] = effort
+        if self.sends_prompt_cache_key:
+            payload["prompt_cache_key"] = prompt_cache_key(model_name, messages, tools)
 
-        async with httpx.AsyncClient(transport=self.transport) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=self._headers,
-                timeout=60.0,
-            ) as response:
-                await _raise_if_http_error(response)
-                async for data in iter_sse_json(response):
-                    usage = data.get("usage")
-                    if usage:
-                        # OpenAI nests this under completion_tokens_details. xAI's
-                        # compatible API has returned it both there and as a
-                        # top-level field across model/API versions, so accept
-                        # both forms (and its older thinking_tokens spelling).
-                        details = usage.get("completion_tokens_details") or {}
-                        reasoning_tokens = (
-                            details.get("reasoning_tokens")
-                            or details.get("thinking_tokens")
-                            or usage.get("reasoning_tokens")
-                            or usage.get("thinking_tokens")
-                        )
+        async with self._client.stream(
+            "POST",
+            f"{self.base_url}/chat/completions",
+            json=payload,
+            headers=self._headers,
+            timeout=60.0,
+        ) as response:
+            await _raise_if_http_error(response)
+            async for data in iter_sse_json(response):
+                usage = data.get("usage")
+                if usage:
+                    # OpenAI nests this under completion_tokens_details. xAI's
+                    # compatible API has returned it both there and as a
+                    # top-level field across model/API versions, so accept
+                    # both forms (and its older thinking_tokens spelling).
+                    details = usage.get("completion_tokens_details") or {}
+                    reasoning_tokens = (
+                        details.get("reasoning_tokens")
+                        or details.get("thinking_tokens")
+                        or usage.get("reasoning_tokens")
+                        or usage.get("thinking_tokens")
+                    )
+                    prompt_details = usage.get("prompt_tokens_details") or {}
+                    yield StreamEvent(
+                        type="usage",
+                        prompt_tokens=usage.get("prompt_tokens"),
+                        cache_read_tokens=prompt_details.get("cached_tokens"),
+                        completion_tokens=usage.get("completion_tokens"),
+                        reasoning_tokens=reasoning_tokens,
+                        total_tokens=usage.get("total_tokens"),
+                    )
+                if not data.get("choices"):
+                    continue
+                delta = data["choices"][0].get("delta", {})
+                index = data["choices"][0].get("index", 0)
+                reasoning = delta.get("reasoning_content")
+                if reasoning is None:
+                    reasoning = delta.get("thinking")
+                if reasoning is not None:
+                    yield StreamEvent(
+                        type="reasoning_delta", content_index=index, delta=reasoning
+                    )
+                if delta.get("content") is not None:
+                    yield StreamEvent(type="text_delta", content_index=index, delta=delta["content"])
+                for tool_call in delta.get("tool_calls", []):
+                    tool_index = tool_call.get("index", 0)
+                    function = tool_call.get("function", {})
+                    if "name" in function:
                         yield StreamEvent(
-                            type="usage",
-                            prompt_tokens=usage.get("prompt_tokens"),
-                            completion_tokens=usage.get("completion_tokens"),
-                            reasoning_tokens=reasoning_tokens,
-                            total_tokens=usage.get("total_tokens"),
+                            type="toolcall_start",
+                            content_index=tool_index,
+                            tool_call_id=tool_call.get("id"),
+                            tool_name=function["name"],
                         )
-                    if not data.get("choices"):
-                        continue
-                    delta = data["choices"][0].get("delta", {})
-                    index = data["choices"][0].get("index", 0)
-                    reasoning = delta.get("reasoning_content")
-                    if reasoning is None:
-                        reasoning = delta.get("thinking")
-                    if reasoning is not None:
+                    if "arguments" in function:
                         yield StreamEvent(
-                            type="reasoning_delta", content_index=index, delta=reasoning
+                            type="toolcall_delta",
+                            content_index=tool_index,
+                            delta=function["arguments"],
                         )
-                    if delta.get("content") is not None:
-                        yield StreamEvent(type="text_delta", content_index=index, delta=delta["content"])
-                    for tool_call in delta.get("tool_calls", []):
-                        tool_index = tool_call.get("index", 0)
-                        function = tool_call.get("function", {})
-                        if "name" in function:
-                            yield StreamEvent(
-                                type="toolcall_start",
-                                content_index=tool_index,
-                                tool_call_id=tool_call.get("id"),
-                                tool_name=function["name"],
-                            )
-                        if "arguments" in function:
-                            yield StreamEvent(
-                                type="toolcall_delta",
-                                content_index=tool_index,
-                                delta=function["arguments"],
-                            )
         yield StreamEvent(type="done", content_index=0)
 
     async def _stream_responses(
@@ -205,110 +223,123 @@ class OpenAIProvider(BaseProvider):
             payload["include"] = ["reasoning.encrypted_content"]
             if instructions:
                 payload["instructions"] = instructions
-        if model_name.startswith("gpt-5"):
+        if self._is_reasoning_model(model_name):
             # OpenAI exposes a reasoning *summary*, not private chain of
             # thought. Request the detailed form so the UI receives more than
             # a one-line heading when the model supports it.
-            payload["reasoning"] = {
-                "effort": reasoning_effort or "medium",
-                "summary": "detailed",
-            }
+            reasoning: Dict[str, Any] = {"summary": "detailed"}
+            effort = self._effort_value(model_name, reasoning_effort)
+            if effort is not None:
+                reasoning["effort"] = effort
+            payload["reasoning"] = reasoning
         if max_output_tokens is not None and not codex:
             payload["max_output_tokens"] = max_output_tokens
         if tools:
             payload["tools"] = [{"type": "function", **tool} for tool in tools]
+        if self.sends_prompt_cache_key:
+            payload["prompt_cache_key"] = prompt_cache_key(model_name, messages, tools)
 
         tool_indexes: Dict[str, int] = {}
         tool_ids: Dict[str, str] = {}
         tool_names: Dict[str, str] = {}
-        async with httpx.AsyncClient(transport=self.transport) as client:
-            async with client.stream(
-                "POST", f"{self.base_url}/responses", json=payload,
-                headers=self._headers, timeout=60.0,
-            ) as response:
-                await _raise_if_http_error(response)
-                async for data in iter_sse_json(response):
-                    event_type = data.get("type")
-                    if event_type == "response.reasoning_summary_text.delta":
+        async with self._client.stream(
+            "POST", f"{self.base_url}/responses", json=payload,
+            headers=self._headers, timeout=60.0,
+        ) as response:
+            await _raise_if_http_error(response)
+            async for data in iter_sse_json(response):
+                event_type = data.get("type")
+                if event_type == "response.reasoning_summary_text.delta":
+                    yield StreamEvent(
+                        type="reasoning_delta",
+                        content_index=data.get("summary_index", 0),
+                        delta=data.get("delta", ""),
+                    )
+                elif event_type == "response.output_text.delta":
+                    yield StreamEvent(
+                        type="text_delta",
+                        content_index=data.get("content_index", 0),
+                        delta=data.get("delta", ""),
+                    )
+                elif event_type == "response.output_item.added":
+                    item = data.get("item") or {}
+                    if item.get("type") == "function_call":
+                        item_id = str(item.get("id") or "")
+                        index = int(data.get("output_index", 0))
+                        tool_indexes[item_id] = index
+                        tool_ids[item_id] = str(item.get("call_id") or item_id)
+                        tool_names[item_id] = str(item.get("name") or "")
                         yield StreamEvent(
-                            type="reasoning_delta",
-                            content_index=data.get("summary_index", 0),
-                            delta=data.get("delta", ""),
+                            type="toolcall_start",
+                            content_index=index,
+                            tool_call_id=tool_ids[item_id],
+                            tool_name=item.get("name"),
                         )
-                    elif event_type == "response.output_text.delta":
+                elif event_type == "response.function_call_arguments.delta":
+                    item_id = str(data.get("item_id") or "")
+                    yield StreamEvent(
+                        type="toolcall_delta",
+                        content_index=tool_indexes.get(item_id, int(data.get("output_index", 0))),
+                        tool_call_id=tool_ids.get(item_id),
+                        delta=data.get("delta", ""),
+                    )
+                elif event_type == "response.function_call_arguments.done":
+                    # The done event carries the authoritative complete JSON.
+                    # Some gateways omit or truncate delta events, so use it
+                    # when available as a replacement, not an appended fragment.
+                    item_id = str(data.get("item_id") or "")
+                    arguments = data.get("arguments")
+                    if isinstance(arguments, str):
                         yield StreamEvent(
-                            type="text_delta",
-                            content_index=data.get("content_index", 0),
-                            delta=data.get("delta", ""),
+                            type="toolcall_arguments",
+                            content_index=tool_indexes.get(item_id, int(data.get("output_index", 0))),
+                            tool_call_id=tool_ids.get(item_id),
+                            delta=arguments,
                         )
-                    elif event_type == "response.output_item.added":
-                        item = data.get("item") or {}
-                        if item.get("type") == "function_call":
-                            item_id = str(item.get("id") or "")
+                elif event_type == "response.output_item.done":
+                    item = data.get("item") or {}
+                    if item.get("type") == "function_call":
+                        item_id = str(item.get("id") or "")
+                        if item_id not in tool_indexes:
                             index = int(data.get("output_index", 0))
                             tool_indexes[item_id] = index
                             tool_ids[item_id] = str(item.get("call_id") or item_id)
                             tool_names[item_id] = str(item.get("name") or "")
                             yield StreamEvent(
-                                type="toolcall_start",
-                                content_index=index,
-                                tool_call_id=tool_ids[item_id],
-                                tool_name=item.get("name"),
+                                type="toolcall_start", content_index=index,
+                                tool_call_id=tool_ids[item_id], tool_name=tool_names[item_id],
                             )
-                    elif event_type == "response.function_call_arguments.delta":
-                        item_id = str(data.get("item_id") or "")
-                        yield StreamEvent(
-                            type="toolcall_delta",
-                            content_index=tool_indexes.get(item_id, int(data.get("output_index", 0))),
-                            tool_call_id=tool_ids.get(item_id),
-                            delta=data.get("delta", ""),
-                        )
-                    elif event_type == "response.function_call_arguments.done":
-                        # The done event carries the authoritative complete JSON.
-                        # Some gateways omit or truncate delta events, so use it
-                        # when available as a replacement, not an appended fragment.
-                        item_id = str(data.get("item_id") or "")
-                        arguments = data.get("arguments")
+                        arguments = item.get("arguments")
                         if isinstance(arguments, str):
                             yield StreamEvent(
                                 type="toolcall_arguments",
-                                content_index=tool_indexes.get(item_id, int(data.get("output_index", 0))),
-                                tool_call_id=tool_ids.get(item_id),
-                                delta=arguments,
+                                content_index=tool_indexes[item_id],
+                                tool_call_id=tool_ids[item_id], delta=arguments,
                             )
-                    elif event_type == "response.output_item.done":
-                        item = data.get("item") or {}
-                        if item.get("type") == "function_call":
-                            item_id = str(item.get("id") or "")
-                            if item_id not in tool_indexes:
-                                index = int(data.get("output_index", 0))
-                                tool_indexes[item_id] = index
-                                tool_ids[item_id] = str(item.get("call_id") or item_id)
-                                tool_names[item_id] = str(item.get("name") or "")
-                                yield StreamEvent(
-                                    type="toolcall_start", content_index=index,
-                                    tool_call_id=tool_ids[item_id], tool_name=tool_names[item_id],
-                                )
-                            arguments = item.get("arguments")
-                            if isinstance(arguments, str):
-                                yield StreamEvent(
-                                    type="toolcall_arguments",
-                                    content_index=tool_indexes[item_id],
-                                    tool_call_id=tool_ids[item_id], delta=arguments,
-                                )
-                    elif event_type in {"response.failed", "error"}:
-                        error = data.get("error") or (data.get("response") or {}).get("error") or {}
-                        message = error.get("message") if isinstance(error, dict) else str(error)
-                        raise RuntimeError(str(message or "OpenAI Responses stream failed"))
-                    elif event_type == "response.completed":
-                        usage = (data.get("response") or {}).get("usage") or {}
-                        details = usage.get("output_tokens_details") or {}
+                elif event_type in {"response.failed", "error"}:
+                    error = data.get("error") or (data.get("response") or {}).get("error") or {}
+                    message = error.get("message") if isinstance(error, dict) else str(error)
+                    raise RuntimeError(str(message or "OpenAI Responses stream failed"))
+                elif event_type in {"response.completed", "response.incomplete"}:
+                    # An incomplete response stopped early (for example at
+                    # max_output_tokens) but still used and billed tokens.
+                    result = data.get("response") or {}
+                    usage = result.get("usage") or {}
+                    details = usage.get("output_tokens_details") or {}
+                    input_details = usage.get("input_tokens_details") or {}
+                    yield StreamEvent(
+                        type="usage",
+                        prompt_tokens=usage.get("input_tokens"),
+                        cache_read_tokens=input_details.get("cached_tokens"),
+                        completion_tokens=usage.get("output_tokens"),
+                        reasoning_tokens=details.get("reasoning_tokens"),
+                        total_tokens=usage.get("total_tokens"),
+                    )
+                    if event_type == "response.incomplete":
+                        reason = (result.get("incomplete_details") or {}).get("reason")
                         yield StreamEvent(
-                            type="usage",
-                            prompt_tokens=usage.get("input_tokens"),
-                            completion_tokens=usage.get("output_tokens"),
-                            reasoning_tokens=details.get("reasoning_tokens"),
-                            total_tokens=usage.get("total_tokens"),
+                            type="incomplete",
+                            incomplete_reason=str(reason) if reason else None,
                         )
         yield StreamEvent(type="done", content_index=0)
 
@@ -333,19 +364,19 @@ class OpenAIProvider(BaseProvider):
             body["output_format"] = output_format
         else:
             body["response_format"] = "b64_json"
-        async with httpx.AsyncClient(transport=self.transport, timeout=120.0) as client:
-            response = await client.post(
-                f"{self.base_url}/images/generations",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    **self.extra_headers,
-                },
-                json=body,
-            )
-            if response.status_code >= 400:
-                raise RuntimeError(_http_error(response))
-            payload = response.json()
+        response = await self._client.post(
+            f"{self.base_url}/images/generations",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                **self.extra_headers,
+            },
+            json=body,
+            timeout=120.0,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(_http_error(response))
+        payload = response.json()
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, list) or not data:
             raise RuntimeError("provider returned no image data")
@@ -357,11 +388,10 @@ class OpenAIProvider(BaseProvider):
         url = str(item.get("url") or "")
         if not url:
             raise RuntimeError("provider returned no image data")
-        async with httpx.AsyncClient(transport=self.transport, timeout=120.0) as client:
-            downloaded = await client.get(url)
-            if downloaded.status_code >= 400:
-                raise RuntimeError(_http_error(downloaded))
-            return downloaded.content, media_type
+        downloaded = await self._client.get(url, timeout=120.0)
+        if downloaded.status_code >= 400:
+            raise RuntimeError(_http_error(downloaded))
+        return downloaded.content, media_type
 
     @property
     def _headers(self) -> Dict[str, str]:
@@ -392,7 +422,25 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _is_reasoning_model(model_name: str) -> bool:
-        return model_name.startswith(("gpt-5", "o1", "o3", "o4"))
+        model = get_model("openai", model_name)
+        return model is not None and model.reasoning
+
+    def _effort_value(self, model_name: str, requested: Optional[str]) -> Optional[str]:
+        """The effort to send, or None to leave it to the API.
+
+        ``requested`` is a Symphony level (``off``, ``low`` ...) or the
+        provider's own value (``none``). The catalog maps levels to values and
+        marks the ones this model doesn't take; without catalog levels the
+        request is sent as given.
+        """
+        wanted = requested or "medium"
+        model = get_model(self.catalog_provider, model_name)
+        if model is None or not model.thinking_level_map:
+            return wanted
+        levels = dict(model.thinking_level_map)
+        if wanted in levels:
+            return levels[wanted]
+        return wanted if wanted in levels.values() else None
 
     @staticmethod
     def _chat_messages(messages: List[Message]) -> List[Dict[str, Any]]:
@@ -537,6 +585,27 @@ class OpenAIProvider(BaseProvider):
             and str(message.tool_call_id) == expected
             for message in messages
         )
+
+
+def prompt_cache_key(
+    model_name: str,
+    messages: List[Message],
+    tools: Optional[List[Dict[str, Any]]],
+) -> str:
+    """A key that stays the same while the model, system prompt and tools do.
+
+    Every turn of a session sends the same prefix, so its requests share one
+    key and land on the cache that already holds that prefix.
+    """
+    prefix = {
+        "model": model_name,
+        "system": [message.content for message in messages if message.role == "system"],
+        "tools": tools or [],
+    }
+    digest = hashlib.sha256(
+        json.dumps(prefix, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"symphony-{digest[:32]}"
 
 
 def _http_error(response: httpx.Response) -> str:

@@ -460,7 +460,7 @@ class CodingAgentApp(
         if self._busy:
             self._cancel_active_run("quit")
         if self._agent is not None:
-            await self._agent.shutdown_learning()
+            await self._agent.shutdown()
 
 
 def run_tui(

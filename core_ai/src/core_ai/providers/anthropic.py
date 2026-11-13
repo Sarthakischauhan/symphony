@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from core_ai.content import to_anthropic_blocks
 from core_ai.providers.base import BaseProvider
+from core_ai.providers.connection_pool import provider_client
 from core_ai.providers.http import (
     apply_refreshed_credentials,
     is_auth_failure,
@@ -17,6 +18,8 @@ from core_ai.types import Message, StreamEvent
 load_dotenv(override=True)
 
 DEFAULT_MAX_TOKENS = 8192
+# A cache breakpoint caches the prompt up to and including its block.
+_EPHEMERAL = {"type": "ephemeral"}
 Content = Union[str, List[Dict[str, Any]]]
 
 
@@ -35,7 +38,9 @@ class AnthropicProvider(BaseProvider):
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
-        self.transport = transport
+        # One client per provider, so back-to-back requests reuse a pooled
+        # connection instead of a new TCP and TLS handshake each time.
+        self._client = provider_client(transport)
         self.api_version = api_version
         self.extra_headers = dict(extra_headers or {})
         self.use_bearer = use_bearer
@@ -85,6 +90,9 @@ class AnthropicProvider(BaseProvider):
             return False
         return apply_refreshed_credentials(self, refreshed)
 
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
     async def _stream_once(
         self,
         model_name: str,
@@ -99,8 +107,13 @@ class AnthropicProvider(BaseProvider):
             "stream": True,
             "messages": payload_messages,
         }
+        # Tools come before the system prompt in Anthropic's cache order, so
+        # the breakpoint on the system block caches both. The one on the last
+        # tool keeps the tools cached when the system prompt changes.
         if system:
-            payload["system"] = system
+            payload["system"] = [
+                {"type": "text", "text": system, "cache_control": _EPHEMERAL}
+            ]
         if tools:
             payload["tools"] = [
                 {
@@ -110,20 +123,20 @@ class AnthropicProvider(BaseProvider):
                 }
                 for tool in tools
             ]
+            payload["tools"][-1]["cache_control"] = _EPHEMERAL
 
-        async with httpx.AsyncClient(transport=self.transport) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/v1/messages",
-                json=payload,
-                headers=self._headers,
-                timeout=60.0,
-            ) as response:
-                response.raise_for_status()
-                async for data in iter_sse_json(response):
-                    event = self._translate(data)
-                    if event is not None:
-                        yield event
+        async with self._client.stream(
+            "POST",
+            f"{self.base_url}/v1/messages",
+            json=payload,
+            headers=self._headers,
+            timeout=60.0,
+        ) as response:
+            response.raise_for_status()
+            async for data in iter_sse_json(response):
+                event = self._translate(data)
+                if event is not None:
+                    yield event
         yield StreamEvent(type="done", content_index=0)
 
     def _translate(self, data: Dict[str, Any]) -> Optional[StreamEvent]:
@@ -173,9 +186,16 @@ class AnthropicProvider(BaseProvider):
         if event_type == "message_start":
             usage = (data.get("message") or {}).get("usage") or {}
             if "input_tokens" in usage:
+                # ``input_tokens`` counts only the uncached part of the prompt.
+                cache_read = usage.get("cache_read_input_tokens")
+                cache_write = usage.get("cache_creation_input_tokens")
                 return StreamEvent(
                     type="usage",
-                    prompt_tokens=usage.get("input_tokens"),
+                    prompt_tokens=(usage.get("input_tokens") or 0)
+                    + (cache_read or 0)
+                    + (cache_write or 0),
+                    cache_read_tokens=cache_read,
+                    cache_write_tokens=cache_write,
                 )
             return None
         return None

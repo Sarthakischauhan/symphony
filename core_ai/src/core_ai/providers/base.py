@@ -23,6 +23,9 @@ class BaseProvider(ABC):
         # Need a yield statement to make it an async generator for type checkers
         yield StreamEvent(type="done", content_index=0)
 
+    async def aclose(self) -> None:
+        """Release the provider's connections. Providers without any keep this default."""
+
     async def generate_image(
         self,
         model_name: str,

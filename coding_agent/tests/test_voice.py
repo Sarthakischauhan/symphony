@@ -315,7 +315,7 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
         submit=lambda op: False,
     )
     app._agent = SimpleNamespace(
-        harness=harness, shutdown_learning=_no_children, user_addons=no_user_addons()
+        harness=harness, shutdown=_no_children, user_addons=no_user_addons()
     )
     app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
 
@@ -353,7 +353,7 @@ def test_live_transcript_shows_immediately_and_enter_submits(tmp_path: Path) -> 
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             app._agent = SimpleNamespace(
-        harness=harness, shutdown_learning=_no_children, user_addons=no_user_addons()
+        harness=harness, shutdown=_no_children, user_addons=no_user_addons()
     )
             app._start_turn = lambda turn: started.append(turn.text)  # type: ignore[method-assign]
             start_voice(app, stream=stream)
