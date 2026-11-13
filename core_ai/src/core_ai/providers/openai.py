@@ -47,6 +47,8 @@ class OpenAIProvider(BaseProvider):
     # OpenAI routes requests with the same ``prompt_cache_key`` to the same
     # prompt cache. Compatible servers that don't document it leave this off.
     sends_prompt_cache_key = True
+    # Catalog provider whose reasoning flag and effort levels apply.
+    catalog_provider = "openai"
 
     def __init__(
         self,
@@ -131,7 +133,9 @@ class OpenAIProvider(BaseProvider):
         if max_output_tokens is not None:
             payload[self.max_tokens_field] = max_output_tokens
         if self._is_reasoning_model(model_name):
-            payload["reasoning_effort"] = reasoning_effort or "medium"
+            effort = self._effort_value(model_name, reasoning_effort)
+            if effort is not None:
+                payload["reasoning_effort"] = effort
         if self.sends_prompt_cache_key:
             payload["prompt_cache_key"] = prompt_cache_key(model_name, messages, tools)
 
@@ -219,14 +223,15 @@ class OpenAIProvider(BaseProvider):
             payload["include"] = ["reasoning.encrypted_content"]
             if instructions:
                 payload["instructions"] = instructions
-        if model_name.startswith("gpt-5"):
+        if self._is_reasoning_model(model_name):
             # OpenAI exposes a reasoning *summary*, not private chain of
             # thought. Request the detailed form so the UI receives more than
             # a one-line heading when the model supports it.
-            payload["reasoning"] = {
-                "effort": reasoning_effort or "medium",
-                "summary": "detailed",
-            }
+            reasoning: Dict[str, Any] = {"summary": "detailed"}
+            effort = self._effort_value(model_name, reasoning_effort)
+            if effort is not None:
+                reasoning["effort"] = effort
+            payload["reasoning"] = reasoning
         if max_output_tokens is not None and not codex:
             payload["max_output_tokens"] = max_output_tokens
         if tools:
@@ -408,7 +413,25 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _is_reasoning_model(model_name: str) -> bool:
-        return model_name.startswith(("gpt-5", "o1", "o3", "o4"))
+        model = get_model("openai", model_name)
+        return model is not None and model.reasoning
+
+    def _effort_value(self, model_name: str, requested: Optional[str]) -> Optional[str]:
+        """The effort to send, or None to leave it to the API.
+
+        ``requested`` is a Symphony level (``off``, ``low`` ...) or the
+        provider's own value (``none``). The catalog maps levels to values and
+        marks the ones this model doesn't take; without catalog levels the
+        request is sent as given.
+        """
+        wanted = requested or "medium"
+        model = get_model(self.catalog_provider, model_name)
+        if model is None or not model.thinking_level_map:
+            return wanted
+        levels = dict(model.thinking_level_map)
+        if wanted in levels:
+            return levels[wanted]
+        return wanted if wanted in levels.values() else None
 
     @staticmethod
     def _chat_messages(messages: List[Message]) -> List[Dict[str, Any]]:
