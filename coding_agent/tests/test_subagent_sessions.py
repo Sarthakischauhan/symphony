@@ -307,7 +307,7 @@ def test_child_journal_reopens_after_restart(monkeypatch, tmp_path: Path) -> Non
             app._agent = SimpleNamespace(
                 persistence=persistence, session_store=persistence, session_id="parent-session",
                 harness=SimpleNamespace(child_tasks={}, shutdown_children=_no_children),
-                shutdown_learning=_no_children,
+                shutdown=_no_children,
             )
             await app.restore_subagents()
             record = app._subagents["child"]

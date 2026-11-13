@@ -157,7 +157,7 @@ def test_tui_escape_stops_in_flight_turn(
             class FakeAgent:
                 user_addons = no_user_addons()
                 learning_store = None
-                async def shutdown_learning(self) -> None:
+                async def shutdown(self) -> None:
                     return None
 
                 harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
@@ -194,7 +194,7 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
     class FakeAgent:
         user_addons = no_user_addons()
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
@@ -250,7 +250,7 @@ def test_queued_follow_up_starts_after_current_run_finishes(
     class FakeAgent:
         user_addons = no_user_addons()
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
@@ -294,7 +294,7 @@ def test_escape_keeps_queued_follow_up(
     class FakeAgent:
         user_addons = no_user_addons()
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
@@ -392,7 +392,7 @@ def test_tui_quit_cancels_pending_learning(
         harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
         learning_loop = FakeLearning()
 
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             await self.learning_loop.shutdown()
 
     async def _run() -> None:
@@ -806,7 +806,7 @@ def test_pasted_prompt_is_compacted_without_changing_agent_input(
     class FakeAgent:
         user_addons = no_user_addons()
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
@@ -898,7 +898,7 @@ def test_dropped_image_becomes_clickable_chip(
     class FakeAgent:
         user_addons = no_user_addons()
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         learning_loop = None
@@ -1985,7 +1985,7 @@ def test_tui_run_agent_turn_delegates_to_agent(tmp_path: Path) -> None:
     class FakeAgent:
         user_addons = no_user_addons()
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         def __init__(self) -> None:
@@ -2701,7 +2701,7 @@ def test_addon_slash_command_points_the_model_at_the_authoring_skill(
 
             app._agent = SimpleNamespace(
                 harness=SimpleNamespace(child_tasks={}, shutdown_children=_no_children, submit=_no_submit),
-                shutdown_learning=_no_children,
+                shutdown=_no_children,
             )
             started: list[QueuedTurn] = []
             app._start_turn = started.append  # type: ignore[method-assign]
@@ -3062,7 +3062,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
             submit=_no_submit,
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
-        shutdown_learning=_no_children,
+        shutdown=_no_children,
         learning_loop=None,
         user_addons=no_user_addons(),
     )
@@ -3087,7 +3087,7 @@ def test_reload_refreshes_config_without_clearing_conversation(
                 harness=SimpleNamespace(
                     reasoning_effort="high", shutdown_children=_no_children, submit=_no_submit
                 ),
-                shutdown_learning=_no_children,
+                shutdown=_no_children,
                 user_addons=no_user_addons(),
                 dispose_user_addons=lambda: None,
             )
@@ -3156,7 +3156,7 @@ def test_slash_menu_and_commands(
 
     class FakeAgent:
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         def __init__(self) -> None:
@@ -3320,7 +3320,7 @@ def test_slash_compact_refreshes_footer_from_compaction_event(tmp_path: Path) ->
     class FakeAgent:
         user_addons = no_user_addons()
         learning_store = None
-        async def shutdown_learning(self) -> None:
+        async def shutdown(self) -> None:
             return None
 
         def __init__(self, plane: TextualEventSink) -> None:
