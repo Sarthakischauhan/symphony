@@ -4,6 +4,7 @@ usage: python mock_server.py <http_port> <https_port> <cert.pem> <key.pem> [work
 """
 import asyncio
 import multiprocessing as mp
+import signal
 import ssl
 import sys
 
@@ -72,5 +73,12 @@ if __name__ == "__main__":
     procs = [mp.Process(target=worker, args=(counter, http_port, https_port, cert, key)) for _ in range(workers)]
     for p in procs:
         p.start()
+
+    def _stop(signum, frame):  # run.py terminates us; take the workers down too
+        for p in procs:
+            p.terminate()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _stop)
     for p in procs:
         p.join()
