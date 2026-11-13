@@ -10,8 +10,8 @@ from core_ai.content import split_text_and_images, text_from_content, to_openai_
 from core_ai.models import get_model
 from core_ai.oauth.openai_codex import is_codex_base_url
 from core_ai.providers.base import BaseProvider
+from core_ai.providers.connection_pool import provider_client
 from core_ai.providers.http import (
-    PooledTransport,
     apply_refreshed_credentials,
     is_auth_failure,
     is_retryable_http_status,
@@ -62,7 +62,7 @@ class OpenAIProvider(BaseProvider):
         self.base_url = base_url.rstrip("/")
         # One client per provider, so back-to-back requests reuse a pooled
         # connection instead of a new TCP and TLS handshake each time.
-        self._client = httpx.AsyncClient(transport=transport or PooledTransport())
+        self._client = provider_client(transport)
         self.extra_headers = dict(extra_headers or {})
         self.credential_refresher = credential_refresher
 

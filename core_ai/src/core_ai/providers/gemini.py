@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from core_ai.content import split_text_and_images, to_gemini_parts
 from core_ai.models.registry import get_model
 from core_ai.providers.base import BaseProvider
-from core_ai.providers.http import PooledTransport, iter_sse_json, stream_with_retries
+from core_ai.providers.connection_pool import provider_client
+from core_ai.providers.http import iter_sse_json, stream_with_retries
 from core_ai.types import Message, StreamEvent
 
 load_dotenv(override=True)
@@ -27,7 +28,7 @@ class GeminiProvider(BaseProvider):
         self.base_url = base_url.rstrip("/")
         # One client per provider, so back-to-back requests reuse a pooled
         # connection instead of a new TCP and TLS handshake each time.
-        self._client = httpx.AsyncClient(transport=transport or PooledTransport())
+        self._client = provider_client(transport)
 
     async def aclose(self) -> None:
         await self._client.aclose()
