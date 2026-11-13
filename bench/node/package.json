@@ -1,0 +1,6 @@
+{
+  "name": "symphony-provider-bench-node",
+  "private": true,
+  "type": "module",
+  "dependencies": { "ai": "7.0.172", "@ai-sdk/openai": "4.0.117", "@ai-sdk/anthropic": "4.0.104" }
+}

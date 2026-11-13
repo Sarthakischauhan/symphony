@@ -79,3 +79,35 @@ while read -r id; do
     --n-concurrent 1
 done < bench/smoke_ids.txt
 ```
+
+## Provider benchmark
+
+`run.py` measures Symphony's `core_ai` providers against openai-python,
+anthropic-python, google-genai, LiteLLM and, optionally, the Vercel AI SDK. It
+benchmarks whichever `core_ai` is importable, so check out another revision to
+compare. Nothing in the repo is modified.
+
+```sh
+uv sync --all-packages
+uv pip install -r bench/requirements.txt
+uv run --no-sync python bench/run.py --mock --quick     # ~2 min, no network, no keys
+uv run --no-sync python bench/run.py --mock --with-node # full mock matrix; `npm install` in bench/node first
+OPENAI_API_KEY=... uv run --no-sync python bench/run.py --live --model gpt-4o-mini --budget-usd 0.05
+```
+
+- **Mock.** `mock_server.py` replays the streams in `fixtures.py` (OpenAI,
+  Anthropic and Gemini SSE: 2,000 text deltas, a 150-chunk tool call and usage)
+  over HTTP and TLS. The TLS certificate is generated into a temp dir for each
+  run. Each client runs in its own process (`mock_worker.py`), which reports
+  TTFE, total time, events/s, CPU per 1k tokens, 10 and 100 concurrent streams,
+  peak RSS and new TCP connections counted by the server. `rttproxy.py` adds
+  emulated round-trip time and `coldstart.py` measures imports.
+- **Live.** `live.py` uses the OpenAI Responses API only. It reads
+  `OPENAI_API_KEY` from the environment, never prints or stores it, and skips
+  live mode when it is unset. Before every request it checks the worst-case
+  cost against `--budget-usd` and stops instead of going over.
+- **Output.** `bench/results/<UTC timestamp>/` (or `--out DIR`) gets
+  `results.json`, `report.md` and `report.png`. `bench/results/` is ignored by git.
+
+`core_ai/tests/test_bench_smoke.py` runs the Symphony clients against the
+fixture streams in CI.
