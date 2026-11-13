@@ -28,6 +28,7 @@ class StreamEvent(BaseModel):
         "toolcall_arguments",
         "retry",
         "usage",
+        "incomplete",
         "done",
     ]
     content_index: int = 0
@@ -48,3 +49,6 @@ class StreamEvent(BaseModel):
     retry_attempt: Optional[int] = None
     retry_reason: Optional[str] = None
     retry_resets_stream: bool = False
+    # Set on ``incomplete``: why the provider stopped before finishing, as it
+    # reported it (OpenAI Responses: ``max_output_tokens``, ``content_filter``).
+    incomplete_reason: Optional[str] = None

@@ -320,8 +320,11 @@ class OpenAIProvider(BaseProvider):
                     error = data.get("error") or (data.get("response") or {}).get("error") or {}
                     message = error.get("message") if isinstance(error, dict) else str(error)
                     raise RuntimeError(str(message or "OpenAI Responses stream failed"))
-                elif event_type == "response.completed":
-                    usage = (data.get("response") or {}).get("usage") or {}
+                elif event_type in {"response.completed", "response.incomplete"}:
+                    # An incomplete response stopped early (for example at
+                    # max_output_tokens) but still used and billed tokens.
+                    result = data.get("response") or {}
+                    usage = result.get("usage") or {}
                     details = usage.get("output_tokens_details") or {}
                     input_details = usage.get("input_tokens_details") or {}
                     yield StreamEvent(
@@ -332,6 +335,12 @@ class OpenAIProvider(BaseProvider):
                         reasoning_tokens=details.get("reasoning_tokens"),
                         total_tokens=usage.get("total_tokens"),
                     )
+                    if event_type == "response.incomplete":
+                        reason = (result.get("incomplete_details") or {}).get("reason")
+                        yield StreamEvent(
+                            type="incomplete",
+                            incomplete_reason=str(reason) if reason else None,
+                        )
         yield StreamEvent(type="done", content_index=0)
 
     async def generate_image(
