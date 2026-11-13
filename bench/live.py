@@ -84,7 +84,7 @@ def model_facts(model):
              "catalog_reasoning": info.reasoning if info else None,
              "symphony_routes_to": "chat_completions" if OpenAIProvider._uses_chat_completions(model) else "responses",
              "symphony_is_reasoning_model": OpenAIProvider._is_reasoning_model(model),
-             "symphony_sends_reasoning_param": model.startswith("gpt-5")}  # openai.py:208 gate in _stream_responses
+             "symphony_sends_reasoning_param": OpenAIProvider._is_reasoning_model(model)}  # gate in _stream_responses
     return facts
 
 
