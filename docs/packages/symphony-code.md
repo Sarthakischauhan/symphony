@@ -37,3 +37,17 @@ The application manages provider setup, workspace tools, approval behavior, sess
 - [Configuration and approvals](../user-guide/configuration.md) · [tools](../user-guide/tools.md)
 - [Sessions and resume](../user-guide/sessions.md) · [learning](../user-guide/learning.md)
 - [CLI reference](../reference/cli.md) · [Security policy](../../SECURITY.md)
+
+## Sandboxed runs (macOS)
+
+`symphony run` and `symphony stdio` take `--sandbox`: the command runs again inside a Seatbelt
+(`sandbox-exec`) profile. It can write only the workspace, the Symphony home, `~/.symphony/oauth`
+and the temp directory. It reads your home only for toolchains, Symphony's install and keys,
+`~/.agents` and git config. The keychain, AppleEvents, LaunchServices, `osascript`, `open` and
+`launchctl` are out of reach, and every tool, `bash` included, runs inside it.
+`--sandbox-github` also lets it read the GitHub CLI's login (its config and the keychain), so
+`git push` and `gh pr create` work; approval prompts still decide whether they run.
+
+The Symphony home stays writable, so a sandboxed command can change `config.json` for later runs.
+A host that relies on approvals (for example Osmo, over `symphony stdio --client osmo`) points
+`SYMPHONY_HOME` at its own directory and writes that config before each launch.

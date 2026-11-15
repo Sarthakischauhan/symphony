@@ -29,7 +29,7 @@ from coding_agent.protocols.stdio.transport import PROTOCOL_VERSION, StdioSink
 if TYPE_CHECKING:
     from coding_agent.agent import CodingAgent
 
-CLIENTS = ("zeron", "web")
+CLIENTS = ("zeron", "web", "osmo")
 
 # Look these up on the package so tests can patch ``stdio.write_frame`` and
 # ``stdio.build_agent`` without reaching into the implementation modules.
@@ -225,7 +225,13 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--session-id")
     parser.add_argument("--unattended", action="store_true", help="Auto-approve tools subject to Symphony deny rules")
     parser.add_argument("--client", choices=CLIENTS, default="zeron", help="Host product that owns the sessions")
+    parser.add_argument("--sandbox", action="store_true", help="Run inside the macOS sandbox (see coding_agent.run.sandbox)")
+    parser.add_argument("--sandbox-github", action="store_true", help="--sandbox, and let it use the GitHub CLI's login")
     args = parser.parse_args(argv)
+    from coding_agent.run.sandbox import reexec_sandboxed, wants_sandbox
+
+    if wants_sandbox(argv):
+        reexec_sandboxed("stdio", argv, Path(args.workspace).expanduser().resolve())
     # Libraries may print diagnostics; stdout belongs exclusively to JSONL.
     sys.stdout = sys.stderr
     return asyncio.run(serve(

@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=None, help="provider:model id")
     parser.add_argument("--workspace", default=".", help="Working directory (default: .)")
     parser.add_argument("--session-id", default=None, help="Session id to write (default: new)")
+    parser.add_argument("--sandbox", action="store_true", help="Run inside the macOS sandbox (see coding_agent.run.sandbox)")
+    parser.add_argument("--sandbox-github", action="store_true", help="--sandbox, and let it use the GitHub CLI's login")
     return parser
 
 
@@ -94,6 +96,10 @@ def main(argv: Sequence[str]) -> int:
     argv = list(argv)
     args = build_parser().parse_args(argv)
     workspace = Path(args.workspace).expanduser().resolve()
+    from coding_agent.run.sandbox import reexec_sandboxed, wants_sandbox
+
+    if wants_sandbox(argv) and not args.detach:
+        reexec_sandboxed("run", argv, workspace)
     if args.detach:
         return detach([arg for arg in argv if arg != "--detach"], workspace)
     return run_task(workspace, args.task, model=args.model, session_id=args.session_id)
