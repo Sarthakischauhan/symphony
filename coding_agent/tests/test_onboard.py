@@ -349,7 +349,7 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
             submit=_no_submit,
         ),
         registry=SimpleNamespace(namespaces=lambda: ("openai",)),
-        shutdown_learning=_no_children,
+        shutdown=_no_children,
         learning_loop=None,
         set_mode=lambda _mode: None,
         user_addons=no_user_addons(),
@@ -374,7 +374,7 @@ def test_provider_onboard_reloads_agent_after_existing_provider_changes(
                     reasoning_effort=None, child_tasks={}, shutdown_children=_no_children, submit=_no_submit
                 ),
                 registry=SimpleNamespace(namespaces=lambda: ("openai",)),
-                shutdown_learning=_no_children,
+                shutdown=_no_children,
                 learning_loop=None,
                 user_addons=no_user_addons(),
                 dispose_user_addons=lambda: None,

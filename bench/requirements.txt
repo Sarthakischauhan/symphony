@@ -1,0 +1,7 @@
+# core_ai (symphony-core) must be importable: run from the repo with `uv run` or `pip install -e core_ai`.
+openai>=3.50
+anthropic>=2.8
+google-genai>=3.3
+litellm>=1.109
+aiohttp>=3.10
+matplotlib>=3.8

@@ -93,30 +93,29 @@ async def stream_evaluation_model(
     messages: List[Message],
     api_key: str,
     base_url: str,
+    client: httpx.AsyncClient,
     tools: Optional[List[Dict[str, Any]]] = None,
     reasoning_effort: Optional[str] = None,
-    transport: Optional[httpx.AsyncBaseTransport] = None,
     extra_headers: Optional[dict[str, str]] = None,
 ) -> AsyncGenerator[StreamEvent, None]:
-    """POST ``/v4/ai/evaluation-model`` and yield harness-compatible events."""
+    """POST ``/v4/ai/evaluation-model`` on ``client`` and yield harness-compatible events."""
     payload = evaluation_request_body(
         messages,
         tools=tools,
         reasoning_effort=reasoning_effort,
     )
-    async with httpx.AsyncClient(transport=transport) as client:
-        response = await client.post(
-            evaluation_model_url(base_url),
-            json=payload,
-            headers=evaluation_request_headers(
-                model_name,
-                api_key=api_key,
-                extra_headers=extra_headers,
-            ),
-            timeout=60.0,
-        )
-        await _raise_if_http_error(response)
-        body = response.json()
+    response = await client.post(
+        evaluation_model_url(base_url),
+        json=payload,
+        headers=evaluation_request_headers(
+            model_name,
+            api_key=api_key,
+            extra_headers=extra_headers,
+        ),
+        timeout=60.0,
+    )
+    await _raise_if_http_error(response)
+    body = response.json()
     if not isinstance(body, dict):
         raise RuntimeError("evaluation model returned a non-object response")
     async for event in _evaluation_events(body, tools or []):

@@ -24,6 +24,7 @@ class OllamaProvider(OpenAIProvider):
 
     include_stream_options = False
     max_tokens_field = "max_tokens"
+    sends_prompt_cache_key = False
 
     def __init__(
         self,

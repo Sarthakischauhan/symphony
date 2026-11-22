@@ -33,6 +33,9 @@ class ScriptedRegistry:
         self.calls: list[list[Message]] = []
         self.steps: dict[str, int] = {}
 
+    async def aclose(self) -> None:
+        return None
+
     async def stream(self, model_id, messages, tools=None, **kwargs):
         del model_id, tools, kwargs
         if messages and messages[0].content == COMPACTION_SYSTEM_PROMPT:
