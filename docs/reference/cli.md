@@ -13,7 +13,8 @@ uv run --package symphony-code symphony [options]
 | Option | What it does |
 | --- | --- |
 | `--workspace PATH` | Choose the project working directory (default: current directory) |
-| `--model ID` | Select a `provider:model` id |
+| `--model ID` | Select a `provider:model` id; overrides the profile model |
+| `--profile NAME` | Load a named agent profile (also supported by `symphony run`) |
 | `--resume` | Choose a saved session |
 | `--resume --continue` | Continue the latest interrupted session unattended |
 | `--unattended` | Run without human prompts; see [Security](../../SECURITY.md) |

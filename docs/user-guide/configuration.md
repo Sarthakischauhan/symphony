@@ -1,5 +1,22 @@
 # Configure Symphony Code
 
+## Agent profiles
+
+Select a named profile with `symphony --profile reviewer` or `symphony run --unattended --profile reviewer "Review the changes"`. Profiles live at `.symphony/agents/NAME.yaml` (or `.yml`) in the workspace, or under `~/.symphony/agents/`; a project profile takes precedence. `SYMPHONY_HOME` overrides the user directory. Names contain only letters, numbers, `_`, and `-`.
+
+```yaml
+name: reviewer
+model: anthropic:claude-sonnet-4-6
+instructions: |
+  Review changes for correctness and missing tests.
+tools:
+  - read_file
+  - search
+```
+
+All fields are optional; if supplied, `name` must match the filename. `model` is a default, overridden by `--model`. `instructions` supplement the base prompt. `tools` is an exact allowlist of registered tools, including addon tools and `spawn_agent`; omit it to keep the normal tool set. Unknown tools and fields are errors. An allowlist is not a sandbox: tools such as `bash` can perform arbitrary actions with your permissions. Profiles do not change approvals or child-agent security policy. Profiles are selected explicitly and are not saved with a session; select the same profile when resuming. `--resume --continue` does not accept a profile.
+
+
 Set up a model provider, choose defaults, and decide how the coding agent asks before acting. For workspace setup, start with the [quickstart](../getting-started/quickstart.md); the complete environment-variable list is in the [environment reference](../reference/environment.md).
 
 ## Providers and models

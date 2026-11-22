@@ -31,12 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--detach", action="store_true", help="Run in the background; print pid, log, session id")
     parser.add_argument("--model", default=None, help="provider:model id")
+    parser.add_argument("--profile", default=None, help="Named agent profile")
     parser.add_argument("--workspace", default=".", help="Working directory (default: .)")
     parser.add_argument("--session-id", default=None, help="Session id to write (default: new)")
     return parser
 
 
-def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session_id: Optional[str] = None) -> int:
+def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session_id: Optional[str] = None, profile_name: Optional[str] = None) -> int:
     """Headless unattended run with JSONL persistence and the user's ~/.symphony config and rules."""
     load_provider_env(workspace)
     if not has_configured_provider():
@@ -49,6 +50,7 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
         session_id=session_id,
         config=ensure_spawn_settings(workspace, overrides={"unattended": True}),
         client="run",
+        profile_name=profile_name,
     )
     print(f"session {agent.session_id}", flush=True)
     register_active(
@@ -96,4 +98,4 @@ def main(argv: Sequence[str]) -> int:
     workspace = Path(args.workspace).expanduser().resolve()
     if args.detach:
         return detach([arg for arg in argv if arg != "--detach"], workspace)
-    return run_task(workspace, args.task, model=args.model, session_id=args.session_id)
+    return run_task(workspace, args.task, model=args.model, session_id=args.session_id, profile_name=args.profile)
