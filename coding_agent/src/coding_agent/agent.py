@@ -581,6 +581,8 @@ class CodingAgent:
     async def context_report(self) -> ContextReport:
         """Stored conversation vs the payload that would be sent to the model."""
         messages = await self.persistence.load_conversation(session_id=self.session_id)
+        messages = [Message(role="system", content=self.harness.system_prompt),
+                    *(message for message in messages if message.role != "system")]
         return build_context_report(
             messages,
             context_limit=self.harness.state.context_limit(self.harness.model_id),

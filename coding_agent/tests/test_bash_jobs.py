@@ -40,13 +40,20 @@ def test_background_job_outlives_foreground_cap_and_wakes_the_loop_once(tmp_path
         sink=sink,
         config=config,
     )
-    started = time.monotonic()
-    result = asyncio.run(agent.run("build it"))
-    assert time.monotonic() - started >= 2
-    assert result.output_text == "all done"
+    async def run() -> None:
+        started = time.monotonic()
+        result = await agent.run("build it")
+        assert time.monotonic() - started < 2
+        assert result.output_text == "all done"
+        (job,) = agent.harness.child_tasks.values()
+        assert not job.task.done()
+        await job.task
+        await agent.run("follow up")
+
+    asyncio.run(run())
 
     types = [event.event_type for event in sink.events]
-    assert "waiting_for_children" in types
+    assert "waiting_for_children" not in types
     bash_calls = [
         e for e in sink.events if e.event_type == "tool_execution_started" and e.payload["tool_name"] == "bash"
     ]

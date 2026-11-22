@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
 from core_ai import find_provider, get_model, get_provider
 from core_ai.providers.catalog import PROVIDERS, configured_provider_ids
+from core_harness.context import estimate_text_tokens
 from coding_agent.agent import build_agent
 from coding_agent.addons.evaluation.addon import JevAddon
 from coding_agent.addons.manager import addons_report, tool_change_notice
@@ -389,7 +391,17 @@ async def show_context(app: CodingAgentApp) -> None:
         app.add_notice("Context · offline", "warning")
         return
     report = await app._agent.context_report()
-    app.push_screen(ContextModal(report))
+    agent = app._agent
+    catalog = getattr(getattr(agent, "skills", None), "catalog", None)
+    skills_enabled = getattr(getattr(getattr(agent, "config", None), "skills", None), "enabled", True)
+    skills = tuple(entry.skill.name for entry in catalog.entries if entry.line) if catalog and skills_enabled else ()
+    skill_tokens = catalog.tokens if catalog and skills_enabled else 0
+    plugins = tuple(plugin.name for plugin in getattr(getattr(agent, "plugins", None), "plugins", ()) if plugin.enabled)
+    schema_source = getattr(agent.harness, "tool_schemas", None)
+    schemas = schema_source() if callable(schema_source) else []
+    tool_tokens = estimate_text_tokens(json.dumps(schemas, ensure_ascii=False)) if schemas else 0
+    app.push_screen(ContextModal(report, skills=skills, skill_tokens=skill_tokens, plugins=plugins,
+                                 tool_tokens=tool_tokens, tool_count=len(schemas)))
 
 
 # --- compact.py ---

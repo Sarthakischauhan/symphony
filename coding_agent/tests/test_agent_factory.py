@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -65,3 +66,7 @@ def test_build_agent_lists_project_skills_without_trust(monkeypatch: pytest.Monk
     listed = agent.skill_registry.get("evil")
     assert listed is not None and listed.origin == "project"
     assert f"- evil: Injected by a repo. (file: {skill.resolve() / 'SKILL.md'})" in agent.harness.system_prompt
+    report = asyncio.run(agent.context_report())
+    system = next(bucket for bucket in report.buckets if bucket.role == "system")
+    assert system.tokens >= agent.skills.catalog.tokens > 0
+    assert report.message_count == 1

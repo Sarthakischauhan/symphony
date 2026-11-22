@@ -69,6 +69,9 @@ class PromptInput(TextArea):
     def on_key(self, event: events.Key) -> None:
         """Submit on Enter; preserve Shift+Enter for inserting a newline."""
         if event.key == "shift+enter":
+            self.insert("\n")
+            event.prevent_default()
+            event.stop()
             return
         if event.key != "enter":
             return
@@ -203,7 +206,9 @@ class QueuedPrompt(Container):
         if self.display != visible:
             self.display = visible
         if queued:
-            self.query_one("#queued-prompt-text", Static).update(queued[0].text)
+            count = f" ({len(queued)})" if len(queued) > 1 else ""
+            preview = " ".join(queued[0].text.splitlines())
+            self.query_one("#queued-prompt-text", Static).update(f"Queued{count}: {preview}")
 
 
 class Composer(Container):
@@ -214,7 +219,6 @@ class Composer(Container):
         self._voice_active = voice_active
 
     def compose(self):  # type: ignore[no-untyped-def]
-        yield QueuedPrompt(id="queued-prompt-row")
         with Horizontal(id="composer-row"):
             yield PromptInput(
                 placeholder=PROMPT_PLACEHOLDER,

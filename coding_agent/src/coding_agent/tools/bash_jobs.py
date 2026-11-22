@@ -1,9 +1,9 @@
 """Background bash jobs that wake the agent through the harness child inbox.
 
 Each job is registered in ``harness.child_tasks`` as a ``ChildTask`` whose task
-is the exit watcher, so the run loop emits ``waiting_for_children`` and sleeps
-until it ends. On exit one bounded message lands in ``harness._child_results``
-and is injected on the next turn; the model never has to poll.
+is the exit watcher. On exit one bounded message lands in
+``harness._child_results`` and is injected on the next turn; live jobs do not
+hold the current run open.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ class BashJobs:
         await asyncio.sleep(0)  # enter the watcher so a cancel always reaches its cleanup
         return (
             f"started background job {job_id}\nlog: {log_path}\n"
-            "You will get its exit status and output tail when it ends; do not poll."
+            "Its exit status and output tail will be delivered on the next turn after it ends; do not poll."
         )
 
     def output(self, job_id: str, cap: int) -> str:

@@ -1,6 +1,6 @@
 """TUI screens: modal host plus resume, history, file selector, and inspectors."""
 
-from coding_agent.tui.screens.context import ContextBucketChip, ContextModal
+from coding_agent.tui.screens.context import ContextModal
 from coding_agent.tui.screens.diff import DiffFileCard, DiffModal
 from coding_agent.tui.screens.extensions import ExtensionsModal
 from coding_agent.tui.screens.file_selector import (
@@ -26,7 +26,6 @@ from coding_agent.tui.tools.images import ImageModal
 
 __all__ = [
     "ContentModal",
-    "ContextBucketChip",
     "ContextModal",
     "DiffFileCard",
     "DiffModal",

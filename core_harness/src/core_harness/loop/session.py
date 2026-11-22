@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
 
-from core_harness.addons.subagent.background import wait_for_child_result
 from core_harness.errors import HarnessCancelled, HarnessLimitExceeded
 from core_harness.models import HarnessResult, ToolCall, UsageTotals
 from core_harness.timing import mono_now, wall_now, with_ended, with_started
@@ -170,16 +169,7 @@ async def run_session(
                 )
                 continue
             if not result.tool_calls:
-                children = [record.child_id for record in harness.child_tasks.values()
-                            if record.task is not None and not record.task.done()]
-                if children or harness._child_results:
-                    if children and not harness._child_results:
-                        await harness.emit("waiting_for_children", {"turn": turn, "child_ids": children})
-                        await wait_for_child_result(
-                            harness,
-                            None if deadline is None else max(0.0, deadline - mono_now()),
-                        )
-                    _raise_if_limit(harness, "max_runtime_seconds", mono_now() - started_mono)
+                if harness._child_results:
                     await _deliver_child_results(harness, messages, turn)
                     await harness._persist_state(
                         session_id=active_session, turn=turn, messages=messages,
