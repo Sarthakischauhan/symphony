@@ -177,6 +177,29 @@ def apply_update(target: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, text=True, capture_output=True)
 
 
+def update_main(argv: list[str] | None = None) -> int:
+    """Explicitly update a PyPI uv tool without loading the user config."""
+    import argparse
+
+    argparse.ArgumentParser(description="Update the installed Symphony uv tool from PyPI").parse_args(argv)
+    current = installed_version()
+    if current is None or not pypi_tool_install():
+        print("Cannot update: this is not a PyPI symphony-code uv tool install.")
+        return 1
+    latest = latest_version()
+    if latest is None:
+        print("Cannot update: could not determine the latest PyPI release.")
+        return 1
+    if not is_newer(latest, current):
+        print(f"symphony-code {current} is already up to date.")
+        return 0
+    decision = startup_update_check(
+        {"updates": {"auto": True}}, current=lambda: current, latest=lambda: latest,
+        enabled=True, pypi_install=lambda: True,
+    )
+    return 0 if decision.action == "updated" else 1
+
+
 def _screen_prompt(current: str, latest: str) -> bool:
     from coding_agent.tui.screens.update import ask_to_update
 

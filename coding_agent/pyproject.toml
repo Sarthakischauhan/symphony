@@ -13,7 +13,7 @@ dependencies = [
     "symphony-core>=0.0.6",
     "symphony-harness>=0.0.6",
     "pillow>=12.3.0",
-    "pydantic>=2.0.0",
+    "pydantic>=2.12.0",
     # coding_agent.tls: stdlib HTTPS on uv-managed Pythons without a CA store.
     "certifi>=2024.2.2",
     "pyyaml>=6.0.3",
