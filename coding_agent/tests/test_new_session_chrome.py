@@ -87,7 +87,7 @@ def test_new_session_resets_top_bar_and_footer(monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = CodingAgentApp(workspace=tmp_path)
     harness = FakeHarness()
-    async def shutdown_learning() -> None:
+    async def shutdown() -> None:
         return None
 
     agent = SimpleNamespace(
@@ -95,7 +95,7 @@ def test_new_session_resets_top_bar_and_footer(monkeypatch: pytest.MonkeyPatch, 
         harness=harness,
         learning_loop=None,
         session_costs=lambda _session_id: {},
-        shutdown_learning=shutdown_learning,
+        shutdown=shutdown,
     )
 
     def bind_session(session_id: str) -> None:

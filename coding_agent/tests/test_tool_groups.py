@@ -393,6 +393,21 @@ def test_thought_snapshot_keeps_collapsed_preview() -> None:
     assert "Private reasoning body" in expanded
 
 
+def test_bash_tail_bounds_long_unbroken_output() -> None:
+    async def _run() -> None:
+        async with App().run_test():
+            card = BashToolWidget("bash-long", "bash")
+            card.set_running({"command": "produce output"})
+            for _ in range(100):
+                card.append_output("x" * 10000)
+            assert len(card._partial_line) <= 4096
+            assert card._live_tail()[-1][1].endswith("x" * 100)
+            card.append_output("\nnext")
+            assert card._live_tail()[-1] == ("stdout", "next")
+
+    asyncio.run(_run())
+
+
 def test_bash_tail_joins_partial_lines_and_keeps_the_newest() -> None:
     async def _run() -> None:
         # Static.update needs an active app to build its visual.

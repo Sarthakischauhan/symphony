@@ -48,6 +48,20 @@ def test_matching_or_unknown_versions_continue() -> None:
     assert check_for_update(current="0.0.1", latest="0.0.2", auto=False, enabled=False).action == "continue"
 
 
+@pytest.mark.parametrize(
+    ("settings", "enabled", "version"),
+    [({"enabled": False}, True, "0.0.1"), ({}, False, "0.0.1"), ({}, True, None)],
+)
+def test_startup_skips_unnecessary_network_checks(settings, enabled, version) -> None:
+    decision = startup_update_check(
+        {"updates": settings},
+        current=lambda: version,
+        latest=lambda: pytest.fail("startup must not contact PyPI"),
+        enabled=enabled,
+    )
+    assert decision.action == "continue"
+
+
 def test_auto_updates_and_manual_mode_asks() -> None:
     auto = check_for_update(current="0.0.1", latest="0.0.2", auto=True)
     manual = check_for_update(current="0.0.1", latest="0.0.2", auto=False)

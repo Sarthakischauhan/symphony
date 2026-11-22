@@ -17,6 +17,11 @@ class ModelRegistry:
     def register(self, namespace: str, provider: BaseProvider):
         self._providers[namespace] = provider
 
+    async def aclose(self) -> None:
+        """Close every registered provider's connections."""
+        for provider in self._providers.values():
+            await provider.aclose()
+
     def namespaces(self) -> tuple[str, ...]:
         return tuple(self._providers)
 

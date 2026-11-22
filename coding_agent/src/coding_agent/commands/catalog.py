@@ -95,6 +95,7 @@ EFFORTS = tuple(option.id for option in EFFORT_CATALOG)
 SLASH_COMMANDS = (
     SlashCommand("model", "View or switch the active model", "[model]"),
     SlashCommand("personality", "View or switch the agent personality", "[id]"),
+    SlashCommand("theme", "Preview and switch the color theme", "[name]"),
     SlashCommand("voice", "Talk until you say done or press Ctrl+A again", ""),
     SlashCommand("effort", "Set model reasoning effort", "[level]"),
     SlashCommand("login", "Sign in or add a model provider", "[name]"),

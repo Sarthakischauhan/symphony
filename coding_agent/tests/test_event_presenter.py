@@ -590,6 +590,44 @@ def test_turn_surface_reads_the_jev_decision_from_the_live_harness() -> None:
     assert TurnSurface.jev_decision(SimpleNamespace(_agent=None)) is None
 
 
+def test_tool_output_burst_preserves_stream_order() -> None:
+    scheduled: list = []
+    presenter, view, _ = _presenter(schedule=scheduled)
+    for stream, chunk in [("stdout", "a"), ("stdout", "b"), ("stderr", "c"), ("stdout", "d")]:
+        presenter.handle("tool_execution_output", {"tool_call_id": "bash", "stream": stream, "delta": chunk})
+    assert len(scheduled) == 1
+    scheduled[0]()
+    assert view.tool_output == [("bash", "ab"), ("bash", "c"), ("bash", "d")]
+    assert view.streams == [("bash", "stdout"), ("bash", "stderr"), ("bash", "stdout")]
+
+
+def test_context_only_schedules_footer_paint() -> None:
+    scheduled: list = []
+    presenter, _view, chrome = _presenter(schedule=scheduled)
+    presenter.handle("run_started")
+    chrome.clear()
+    presenter.handle("context", {"tokens_used": 42, "context_limit": 100})
+    assert chrome == []
+    assert len(scheduled) == 1
+    scheduled[0]()
+    assert len(chrome) == 1
+    assert presenter.state.metrics.tokens_used == 42
+
+
+def test_usage_burst_coalesces_footer_repaints() -> None:
+    scheduled: list = []
+    presenter, _view, chrome = _presenter(schedule=scheduled)
+    presenter.handle("run_started")
+    chrome.clear()
+    for count in range(100):
+        presenter.handle("usage", {"prompt_tokens": 10, "completion_tokens": count})
+    assert chrome == []
+    assert len(scheduled) == 1
+    scheduled[0]()
+    assert len(chrome) == 1
+    assert presenter.state.metrics.completion_tokens == 99
+
+
 @pytest.mark.parametrize("stream", ["text", "reasoning"])
 def test_observations_share_one_tick_with_stream_paints(stream: str) -> None:
     scheduled: list = []

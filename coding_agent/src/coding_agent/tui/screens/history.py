@@ -36,6 +36,8 @@ class HistoryView(Protocol):
 
     def mount_transcript_batch(self, widgets: list[Any]) -> None: ...
 
+    def prepend_transcript_batch(self, widgets: list[Any]) -> None: ...
+
     def reset_session_chrome(self, session: SessionChrome) -> None: ...
 
     def finalize_transcript_history(self) -> None: ...
@@ -63,8 +65,43 @@ async def load_session_history(agent: CodingAgent, view: HistoryView) -> None:
     events = await store.load_events(session_id=agent.session_id) if store is not None else []
     restored = _history_widgets(messages, events)
     view._tools.update((widget.call_id, widget) for widget in restored if isinstance(widget, ToolCallWidget))
-    view.mount_transcript_batch(restored)
+    slices = history_slices(restored)
+    view.mount_transcript_batch(slices[-1] if slices else [])
     view.finalize_transcript_history()
+    return slices[:-1]
+
+
+def history_slices(
+    widgets: list[Any],
+    *,
+    initial_turns: int = 1,
+    slice_turns: int = 1,
+) -> list[list[Any]]:
+    """Split restored widgets so the newest turn can paint before older turns.
+
+    A user message starts a turn. The returned slices are oldest-first, and the
+    last one contains the newest ``initial_turns`` turns. This matches Codex's
+    bounded resume: the terminal becomes usable after the latest turn, while
+    the stored transcript and model context stay complete.
+    """
+    if initial_turns < 1 or slice_turns < 1:
+        raise ValueError("history slices must contain at least one turn")
+    boundaries = [
+        index for index, widget in enumerate(widgets)
+        if type(widget).__name__ == "UserMessage"
+    ]
+    if len(boundaries) <= initial_turns:
+        return [widgets] if widgets else []
+    selected = boundaries[-initial_turns]
+    older_boundaries = boundaries[:-initial_turns]
+    slices: list[list[Any]] = []
+    for offset in range(0, len(older_boundaries), slice_turns):
+        start = older_boundaries[offset]
+        next_offset = offset + slice_turns
+        end = older_boundaries[next_offset] if next_offset < len(older_boundaries) else selected
+        slices.append(widgets[start:end])
+    slices.append(widgets[selected:])
+    return slices
 
 
 def session_artifacts(agent: CodingAgent) -> dict[Path, ArtifactEntry]:
@@ -153,6 +190,13 @@ def _history_widgets(
         elif collected_runs:
             collecting = bool(run_id and run_id in collected_runs)
         arguments = fields.get("arguments") or {}
+        if collecting and fields["tool_name"] == "bash" and not arguments.get("background"):
+            # A collected foreground Bash call is folded into the run summary.
+            # Keep its snapshot directly. Uncollected calls stay widgets because
+            # they are mounted and Textual requires widget ids.
+            flush_batch()
+            add_visible(snapshot_from_call(**{key: value for key, value in fields.items() if key != "run_id"}))
+            return
         if fields["tool_name"] in {"spawn_agent", "bash"}:
             flush_batch()
             widget = make_tool_widget(str(fields["call_id"]), str(fields["tool_name"]))
@@ -452,6 +496,8 @@ def _fold_collected_run(
                     summary.add_thought(entry.title, entry.content, layout=False)
                 else:
                     summary.add_call(entry, layout=False)
+        elif isinstance(item, ToolCallSnapshot):
+            summary.add_call(item, layout=False)
         elif _folds_on_completion(item):
             summary.add_call(item.snapshot(), layout=False)
         else:

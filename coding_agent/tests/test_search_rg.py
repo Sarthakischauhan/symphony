@@ -52,6 +52,33 @@ def test_search_skips_same_paths_with_either_backend(tmp_path: Path, backend: st
     assert search.run(query="nothing-here").startswith("no content matches")
 
 
+def test_ignore_discovery_prunes_skipped_directories(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "node_modules" / "dep").mkdir(parents=True)
+    (tmp_path / "node_modules" / "dep" / ".gitignore").write_text("ignored\n")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / ".gitignore").write_text("ignored\n")
+    real_walk = search_module.os.walk
+    visited: list[Path] = []
+
+    def recording_walk(*args, **kwargs):
+        for directory, dirs, files in real_walk(*args, **kwargs):
+            visited.append(Path(directory))
+            yield directory, dirs, files
+
+    monkeypatch.setattr(search_module.os, "walk", recording_walk)
+    rules = search_module.load_rules(tmp_path)
+    assert [base for base, _ in rules] == [tmp_path / "src"]
+    assert tmp_path / "node_modules" not in visited
+
+
+def test_python_search_preserves_line_splitting_and_invalid_utf8(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(search_module, "find_rg", lambda: None)
+    (tmp_path / "valid.txt").write_bytes("first\vhit\r\nhit\u2028last".encode())
+    (tmp_path / "invalid.txt").write_bytes(b"hit\n" + b"x" * 70000 + b"\xff")
+    result = SearchTool(tmp_path).run(query="hit")
+    assert result.splitlines()[1:] == ["valid.txt:2:hit", "valid.txt:3:hit"]
+
+
 def test_search_caps_results_and_line_length(tmp_path: Path, backend: str) -> None:
     (tmp_path / "many.txt").write_text("".join(f"hit {i} {'x' * 50}\n" for i in range(20)), encoding="utf-8")
     result = SearchTool(tmp_path).run(query="hit", max_results=3, max_line_chars=10)

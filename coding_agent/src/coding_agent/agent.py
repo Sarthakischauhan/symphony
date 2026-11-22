@@ -529,6 +529,11 @@ class CodingAgent:
         if self.learning_loop is not None:
             await self.learning_loop.shutdown()
 
+    async def shutdown(self) -> None:
+        """Stop learning capture, then close the providers' pooled connections."""
+        await self.shutdown_learning()
+        await self.registry.aclose()
+
     async def compact_conversation(self) -> tuple[int, int]:
         """Compact the persisted conversation through the harness-mounted compactor.
 

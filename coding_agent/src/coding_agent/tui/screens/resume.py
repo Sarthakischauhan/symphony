@@ -93,10 +93,14 @@ def _fit(text: str, width: int) -> str:
         return text
     if width == 1:
         return "…"
-    kept = text
-    while kept and cell_len(kept) > width - 1:
-        kept = kept[:-1]
-    return f"{kept}…"
+    cells = 0
+    end = 0
+    for character in text:
+        cells += cell_len(character)
+        if cells > width - 1:
+            break
+        end += 1
+    return f"{text[:end]}…"
 
 
 def _row(session: SessionOption, width: int) -> Option:

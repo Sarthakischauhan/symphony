@@ -60,9 +60,12 @@ def run_task(workspace: Path, task: str, *, model: Optional[str] = None, session
     )
 
     async def _run() -> str:
-        result = await agent.run(task)
-        await agent.wait_for_learning()
-        return result.output_text
+        try:
+            result = await agent.run(task)
+            await agent.wait_for_learning()
+            return result.output_text
+        finally:
+            await agent.shutdown()
 
     try:
         print(asyncio.run(_run()), flush=True)

@@ -9,6 +9,7 @@ Type `/` in the Symphony Code composer to discover commands. Select a suggestion
 | `/usage` | View provider-reported subscription usage; press R to refresh |
 | `/effort [level]` | Set model reasoning effort when supported |
 | `/personality [id]` | Choose a prompt personality |
+| `/theme [name]` | Preview and choose a color theme from plugins; with a name, switch directly |
 | `/jev [on\|off\|rule]` | Configure the optional completion check |
 | `/langfuse` | Configure optional Langfuse tracing |
 | `/voice` | Start voice input; available when voice support is configured |

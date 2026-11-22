@@ -34,6 +34,37 @@ def _app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> CodingAgentApp:
     return CodingAgentApp(workspace=tmp_path)
 
 
+def test_completed_run_releases_folded_tool_widgets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def run() -> None:
+        async with app.run_test(size=SIZE) as pilot:
+            app.set_thinking("Working")
+            _read(app, "read")
+            old_group = app._tool_groups["read"]
+            app.add_tool("bash", "bash")
+            app.update_tool("bash", arguments={"command": "echo ok"}, status="running")
+            app.update_tool("bash", status="done", result="ok")
+            app.set_assistant("Done", new=True)
+            app.finish_assistant()
+            await pilot.pause()
+            card = app._tools["bash"]
+            assert card.is_attached
+            app.finish_process("done")
+            await pilot.pause()
+            assert not card.is_attached
+            assert "bash" not in app._tools
+            summary = app.query_one(CompletedRunSummary)
+            assert "bash" in summary.call_ids
+            assert app._tool_groups["read"] is summary
+            assert old_group is not summary and not old_group.is_attached
+            app.update_tool("bash", status="done", result="duplicate")
+            assert "bash" not in app._tools
+            assert summary.call_ids.count("bash") == 1
+
+    asyncio.run(run())
+
+
 def _read(app: CodingAgentApp, call_id: str, status: str = "done") -> None:
     app.add_tool(call_id, "read_file")
     app.update_tool(call_id, arguments={"path": f"src/{call_id}.py"}, status="running")
