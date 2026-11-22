@@ -3587,7 +3587,7 @@ def test_manual_compaction_persists_recent_messages(tmp_path: Path) -> None:
     assert completed["context_limit"] == agent.harness.state.context_limit("openai:gpt-4o-mini")
 
 
-def test_context_modal_filters_buckets() -> None:
+def test_context_modal_shows_breakdown_and_extensions() -> None:
     report = build_context_report(
         [
             Message(role="system", content="sys"),
@@ -3610,26 +3610,38 @@ def test_context_modal_filters_buckets() -> None:
 
     class Host(App):
         def on_mount(self) -> None:
-            self.push_screen(ContextModal(report))
+            self.push_screen(ContextModal(report, skills=("review",), skill_tokens=1, plugins=("example",),
+                                          tool_tokens=40, tool_count=2))
 
     async def _run() -> None:
         async with Host().run_test() as pilot:
             await pilot.pause()
             modal = pilot.app.screen
             assert isinstance(modal, ContextModal)
-            listing = str(modal.query_one("#context-list").render())
-            assert "hello there" in listing
-            modal.set_filter("tool")
-            await pilot.pause()
-            filtered = str(modal.query_one("#context-list").render())
-            assert "hello there" not in filtered
-            assert "bash" in filtered
-            assert "full" in filtered.lower()
-            assert "command output" in filtered.lower()
-            meta = str(modal.query_one("#context-meta").render())
-            assert "tool only" in meta
+            overview = str(modal.query_one("#context-meters").render())
+            assert f"~{report.stored_tokens + 40:,} / 128,000 tokens" in overview
+            assert "Tool results" in overview and "Tool schemas   ~40" in overview
+            assert "Remaining" in overview and overview.count("□") > 0
+            assert "■ review" in overview and "Skills" in overview
+            assert "□ example" in overview and "1 enabled" in overview
+            assert "token cost unavailable" in overview
+            assert "exclude tool schemas" not in overview
+            assert not modal.query("#context-list")
+            assert not modal.query("#context-buckets")
 
     asyncio.run(_run())
+
+
+def test_context_overview_handles_unknown_and_exceeded_limits() -> None:
+    unknown = ContextModal(build_context_report([Message(role="user", content="hello")]))
+    assert "limit unknown" in unknown._render_meters().plain
+    assert "Remaining" not in unknown._render_meters().plain
+
+    exceeded = ContextModal(build_context_report([Message(role="user", content="x" * 80)], context_limit=10))
+    text = exceeded._render_meters().plain
+    assert "200.0%" in text
+    assert "Remaining       ~0" in text
+    assert text.count("■ ") == 101  # 100 grid cells and one category legend
 
 
 def test_patch_events_render_a_diff_card_in_place(
