@@ -586,10 +586,10 @@ composer = '''
 
 #queued-prompt-row {
     display: none;
-    width: 100%;
+    width: 1fr;
     height: 1;
     min-height: 1;
-    margin: 0;
+    margin: 0 $space-page;
     padding: 0;
     border: none;
     background: $background;

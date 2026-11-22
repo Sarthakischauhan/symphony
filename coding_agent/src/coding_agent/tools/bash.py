@@ -61,8 +61,8 @@ class BashArgs(ToolArgsModel):
         default=False,
         description=(
             "Run detached and return a job id plus log path at once (for long builds or "
-            "test suites). When it exits you are sent its status and output tail "
-            "automatically; do not poll. The run cannot finish while a job is alive."
+            "test suites). Its status and output tail are delivered on the next agent "
+            "turn after it exits; do not poll."
         ),
     )
     action: Literal["run", "output", "stop"] = Field(
@@ -83,7 +83,7 @@ class BashTool(WorkspaceTool):
         "A non-zero exit is a tool error starting with exit=N and includes the output. "
         "Output is capped, so filter noisy commands. timeout is seconds and kills the "
         "process group. For a long build or test suite set background=true; do not "
-        "append &. You are notified when it exits; do not poll. "
+        "append &. Its result is delivered on the next turn after it exits; do not poll. "
         "Use this for tests, git, builds, and other commands. Read files with read_file, "
         "search with search, and edit with patch or write_file, not cat, grep, find, "
         "sed, or heredocs."

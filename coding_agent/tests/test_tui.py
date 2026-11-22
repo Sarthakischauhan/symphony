@@ -135,12 +135,30 @@ def test_tui_escape_cancels_busy_run_and_restores_composer(
             prompt.disabled = True
             await pilot.press("escape")
             await pilot.pause()
+            assert not app.sink.cancelled
+            await pilot.press("escape")
+            await pilot.pause()
             assert app.sink.cancelled
             assert app.sink.cancel_reason == "user_cancel"
             assert not prompt.disabled
             assert prompt.has_focus
 
     asyncio.run(_run())
+
+
+def test_shift_enter_inserts_newline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            prompt = app.query_one("#prompt", PromptInput)
+            prompt.focus()
+            await pilot.press("a", "shift+enter", "b")
+            assert prompt.text == "a\nb"
+
+    asyncio.run(run())
 
 
 def test_tui_escape_stops_in_flight_turn(
@@ -169,7 +187,7 @@ def test_tui_escape_stops_in_flight_turn(
             app._busy = True
             app.run_agent("hang")
             await pilot.pause()
-            await pilot.press("escape")
+            await pilot.press("escape", "escape")
             for _ in range(20):
                 await pilot.pause()
                 if not app._busy:
@@ -312,7 +330,7 @@ def test_escape_keeps_queued_follow_up(
             app.run_agent("first")
             await pilot.pause()
             app.queue_turn(QueuedTurn("second", "second", (), ()))
-            await pilot.press("escape")
+            await pilot.press("escape", "escape")
             for _ in range(20):
                 await pilot.pause()
                 if not app._busy:
@@ -1046,6 +1064,7 @@ def test_modal_escape_closes_when_scroll_has_focus(
     async def _run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
+            app._busy = True
             app.push_screen(ContentModal("long content\n" * 50))
             await pilot.pause()
             scroll = app.screen.query_one("#content-body", VerticalScroll)
@@ -1053,6 +1072,8 @@ def test_modal_escape_closes_when_scroll_has_focus(
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, ContentModal)
+            assert app._busy and not app.sink.cancelled
+            app._busy = False
 
     asyncio.run(_run())
 
@@ -2693,7 +2714,7 @@ def test_reasoning_and_queued_prompt_render_markup_literally(
 
             thought = app.query_one(ReasoningWidget)
             assert _thought_text(thought.query_one(".reasoning-text")) == content
-            assert str(app.query_one("#queued-prompt-text", Static).render()) == content
+            assert str(app.query_one("#queued-prompt-text", Static).render()) == f"Queued: {content}"
 
             updated = content + " another [/]"
             thought.set_content(updated)

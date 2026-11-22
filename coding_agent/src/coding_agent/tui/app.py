@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import traceback
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -147,6 +148,7 @@ class CodingAgentApp(
         self.sink = TextualEventSink(workspace=self.workspace)
         self._agent: Optional[CodingAgent] = None
         self._busy = False
+        self._escape_confirm_until = 0.0
         self._reload_queued = False
         # Prompts submitted while a turn is running are dispatched FIFO.
         self._queued_turns: list[QueuedTurn] = []
@@ -258,6 +260,7 @@ class CodingAgentApp(
             yield Welcome(self.workspace)
         yield SlashMenu(id="slash-menu")
         yield ComposerOverlay()
+        yield QueuedPrompt(id="queued-prompt-row")
         yield Composer(id="composer", voice_active=lambda: self._voice_active)
         # Keep approval choices in their own full-width surface.
         yield SlashMenu(id="approval-menu")
@@ -440,6 +443,7 @@ class CodingAgentApp(
     def action_cancel_run(self) -> None:
         if isinstance(self.screen, ModalBase):
             self.screen.action_close_modal()
+            return
         elif isinstance(self.screen, ModalScreen):
             self.screen.dismiss(None)
             return
@@ -482,8 +486,20 @@ class CodingAgentApp(
 
     def action_cancel_voice(self) -> None:
         """Escape leaves voice mode. When voice is off, cancel the run instead."""
-        if not self._voice_active:
+        if isinstance(self.screen, ModalScreen):
+            self._escape_confirm_until = 0.0
             self.action_cancel_run()
+            return
+        if not self._voice_active:
+            if not self._busy:
+                self._escape_confirm_until = 0.0
+                self.action_cancel_run()
+            elif time.monotonic() > self._escape_confirm_until:
+                self._escape_confirm_until = time.monotonic() + 3.0
+                self.add_update("Press Esc again to cancel the run", "Esc again within 3 seconds")
+            else:
+                self._escape_confirm_until = 0.0
+                self.action_cancel_run()
             return
         from coding_agent.tui.composer.voice_mode import stop_voice
 

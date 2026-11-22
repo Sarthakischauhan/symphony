@@ -73,6 +73,7 @@ class ComposerSurface:
 
     def _start_turn(self, turn: QueuedTurn) -> None:
         self._run_generation += 1
+        self._escape_confirm_until = 0.0
         self.sink.reset_cancel()
         self._assistant = None
         self._thinking = None
@@ -98,6 +99,9 @@ class ComposerSurface:
             return
         prompt = self.query_one("#prompt", PromptInput)
         if event.button.id == "queued-edit":
+            if prompt.text:
+                self.add_notice("Clear the composer before editing a queued message.")
+                return
             prompt.load_text(self.pop_queued_turn().text)
             prompt.submit_on_enter = True
             prompt.disabled = False
