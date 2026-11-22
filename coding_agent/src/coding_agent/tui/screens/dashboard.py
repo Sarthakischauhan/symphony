@@ -65,7 +65,7 @@ class AgentDashboard(ModalBase[None]):
         task_count = 0
         if self.harness is not None:
             for record in self.harness.child_tasks.values():
-                if record.status not in {"running", "background"} or record.task is None or record.task.done():
+                if record.status not in {"running", "background"} or (record.task is not None and record.task.done()):
                     continue
                 kind = "job" if record.status == "background" else "subagent"
                 label = record.label.removeprefix("bash:") if kind == "job" else record.label

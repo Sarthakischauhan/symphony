@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.chrome import TopBar, running_background_tasks
+from coding_agent.tui.screens.dashboard import AgentDashboard
+from rich.cells import cell_len
 from core_harness.addons.subagent.background import ChildTask
 from test_new_session_chrome import bars
 
@@ -59,3 +61,36 @@ def test_the_top_bar_polls_the_source_it_was_given(tmp_path: Path) -> None:
 
     with_job, without = asyncio.run(_run())
     assert "1 Background task" in with_job and "Background" not in without
+
+
+def test_click_background_task_opens_dashboard(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("coding_agent.tui.screens.dashboard.list_active", lambda: [])
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 25)) as pilot:
+            await pilot.pause()
+            task = asyncio.create_task(asyncio.sleep(60))
+            record = _record("job12345", "background", task)
+            record.label = "bash:pytest -q"
+            app._agent = SimpleNamespace(harness=SimpleNamespace(child_tasks={record.child_id: record}))
+            topbar = app.query_one("#topbar", TopBar)
+            topbar.set_context(tmp_path, "openai:gpt-test")
+            topbar._refresh_background_tasks()
+            text = topbar._model_text(topbar.content_size.width).plain
+            x = topbar.content_size.width - cell_len(text) + 2
+            await pilot.click(topbar, offset=(x, 0))
+            await pilot.pause()
+            assert isinstance(app.screen, AgentDashboard)
+            options = app.screen.query_one("#agent-dashboard")
+            assert "pytest -q" in options.get_option_at_index(0).prompt.plain
+            app._busy = True
+            await pilot.press("escape")
+            assert not isinstance(app.screen, AgentDashboard)
+            assert not app.sink.cancelled
+            app._busy = False
+            app._agent = None
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())

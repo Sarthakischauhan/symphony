@@ -63,7 +63,7 @@ def test_dashboard_lists_only_live_background_tasks(monkeypatch) -> None:
         await finished
         harness = SimpleNamespace(child_tasks={
             "job": SimpleNamespace(status="background", task=running, label="bash:pytest -q", child_id="job12345"),
-            "agent": SimpleNamespace(status="running", task=running, label="review", child_id="agent123"),
+            "agent": SimpleNamespace(status="running", task=None, label="review", child_id="agent123"),
             "done": SimpleNamespace(status="background", task=finished, label="bash:done", child_id="done1234"),
         })
         app = Host()
@@ -78,6 +78,7 @@ def test_dashboard_lists_only_live_background_tasks(monkeypatch) -> None:
                 assert "subagent" in options.get_option_at_index(1).prompt.plain
                 running.cancel()
                 await asyncio.gather(running, return_exceptions=True)
+                harness.child_tasks["agent"].status = "completed"
                 app.screen.refresh_agents()
                 assert "No agents are running" in str(options.get_option_at_index(0).prompt)
         finally:

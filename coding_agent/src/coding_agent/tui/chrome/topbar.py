@@ -285,13 +285,17 @@ class TopBar(Static):
         return right
 
     def on_click(self, event: events.Click) -> None:
-        """The model name is the right-hand cluster. Clicking it opens /model.
-
-        The branch occupies the left of the row, so a click past the midpoint
-        is the model. Opening the existing picker avoids a second modal.
-        """
+        """Open the dashboard, artifacts, or model picker for the clicked label."""
         width = self.content_size.width
         model = self._model_text(width).plain
+        if self._tasks and width >= 60:
+            label = f"{self._tasks} {'Background task' if self._tasks == 1 else 'Background tasks'}"
+            index = model.find(label)
+            start = width - cell_len(model) + cell_len(model[:index])
+            if index >= 0 and start <= event.x < start + cell_len(label):
+                event.stop()
+                self.app.action_dashboard()
+                return
         if self._artifacts and width >= 60:
             label = f"{self._artifacts} {'artifact' if self._artifacts == 1 else 'artifacts'}"
             index = model.find(label)
