@@ -21,7 +21,7 @@ Configuration is loaded and maintained as a complete settings file. The TUI crea
 }
 ```
 
-The schema is validated and rejects unrecognized or invalid settings. Keep other existing settings when editing the file.
+Known settings are validated. Unrecognized settings are ignored when the file is loaded and removed the next time Symphony refreshes it, including settings added by a newer version. Keep a backup if you switch between versions and want to preserve those settings.
 
 ## Updates
 
@@ -36,7 +36,9 @@ Before the TUI starts, an installed `symphony-code` release is compared with the
 }
 ```
 
-`updates.enabled: false` skips the check. `SYMPHONY_NO_UPDATE_CHECK=1` skips it for one process. An unattended command updates only when `auto` is already true; otherwise it keeps the installed version instead of prompting. After a successful update, restart `symphony`. A failed download or install leaves the current version running.
+`updates.enabled: false` skips the check. `SYMPHONY_NO_UPDATE_CHECK=1` skips it for one process. An unattended command updates only when `auto` is already true; otherwise it keeps the installed version instead of prompting. Run `symphony update` to update explicitly without reading the config. After a successful update, restart `symphony`. A failed download or install leaves the current version running.
+
+Older Symphony releases can reject settings written by a newer release, including `theme`. If that older release does not support `symphony update`, upgrade it directly with `uv tool install --upgrade symphony-code`. This preserves the config file. Removing an unrecognized setting is also possible, but loses that setting.
 
 ## Tool approvals
 

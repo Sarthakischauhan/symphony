@@ -128,6 +128,36 @@ def test_auto_install_failure_keeps_current_version() -> None:
     assert any("network down" in message for message in messages)
 
 
+def test_explicit_update_ignores_incompatible_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SYMPHONY_HOME", str(tmp_path))
+    config = tmp_path / "config.json"
+    config.write_text('{"theme": "default", "future_setting": true}', encoding="utf-8")
+    monkeypatch.setattr(updates, "installed_version", lambda: "0.0.1")
+    monkeypatch.setattr(updates, "pypi_tool_install", lambda: True)
+    monkeypatch.setattr(updates, "latest_version", lambda: "0.0.2")
+    seen = []
+    monkeypatch.setattr(updates, "startup_update_check", lambda settings, **kwargs: seen.append(settings) or UpdateDecision("updated"))
+    assert updates.update_main([]) == 0
+    assert seen == [{"updates": {"auto": True}}]
+    assert json.loads(config.read_text(encoding="utf-8"))["future_setting"] is True
+
+
+def test_cli_routes_update_without_starting_tui(monkeypatch) -> None:
+    from coding_agent import cli
+
+    monkeypatch.setattr(sys, "argv", ["symphony", "update"])
+    monkeypatch.setattr(updates, "update_main", lambda args: 0 if args == [] else 1)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+
+
+def test_explicit_update_rejects_non_pypi_install(monkeypatch) -> None:
+    monkeypatch.setattr(updates, "installed_version", lambda: None)
+    monkeypatch.setattr(updates, "latest_version", lambda: pytest.fail("must not contact PyPI"))
+    assert updates.update_main([]) == 1
+
+
 def test_config_defaults_ask_before_updating(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("SYMPHONY_HOME", str(tmp_path))
     config = ensure_spawn_settings(tmp_path)

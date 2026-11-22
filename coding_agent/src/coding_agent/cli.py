@@ -23,6 +23,10 @@ def main() -> None:
             value = "unknown"
         print(f"symphony {value}")
         return
+    if command == "update":
+        from coding_agent.updates import update_main
+
+        raise SystemExit(update_main(sys.argv[2:]))
     if command == "web":
         from coding_agent.web.server import main as web_main
 
