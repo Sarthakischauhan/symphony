@@ -50,6 +50,7 @@ from coding_agent.addons.persistence import JsonlPersistence, sessions_dir
 from coding_agent.config.personalities import compose_system_prompt
 from coding_agent.addons.plugins import PluginSet, resolve_plugins
 from coding_agent.config.prompts import SYSTEM_PROMPT
+from coding_agent.config.agent_profiles import AgentProfile, load_agent_profile
 from coding_agent.addons.skills import SkillRegistry, discover_skills
 from coding_agent.extensions import Diagnostic
 from coding_agent.addons.manager import UserAddonRuntime, load_user_addons
@@ -197,6 +198,7 @@ class CodingAgent:
         session_id: Optional[str] = None,
         system_prompt: str = SYSTEM_PROMPT,
         tools: Optional[List[Tool]] = None,
+        profile: Optional[AgentProfile] = None,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -210,7 +212,10 @@ class CodingAgent:
         self.goal = ""
         if isinstance(self.persistence, JsonlPersistence):
             self.persistence.checkpoint_metadata = self._checkpoint_metadata
+        self.profile = profile
         self.base_system_prompt = system_prompt.rstrip()
+        if profile and profile.instructions:
+            self.base_system_prompt += "\n\nAgent profile instructions:\n" + profile.instructions
         self.unattended = self.config.unattended
         self.learning_store = LearningStore(
             self.workspace,
@@ -288,6 +293,13 @@ class CodingAgent:
             loader=self._load_user_addons if include_subagent else lambda _names: EMPTY_SNAPSHOT,
         )
         self._install_addon_tools()
+        if profile and profile.tools is not None:
+            unknown = set(profile.tools) - set(self.harness.tools)
+            if unknown:
+                raise ValueError(f"unknown profile tools: {', '.join(sorted(unknown))}")
+            allowed = set(profile.tools)
+            self.harness.tools = {name: tool for name, tool in self.harness.tools.items() if name in allowed}
+            self.tools[:] = [tool for tool in self.tools if tool.name in allowed]
         self._unsubscribe_addons = self.sink.subscribe(self.user_addons.on_event)
         self._active_runs = 0
         self.apply_system_prompt()
@@ -322,6 +334,8 @@ class CodingAgent:
 
     def _install_addon_tools(self) -> None:
         for tool in self.user_addons.surface.tools:
+            if self.profile and self.profile.tools is not None and tool.name not in self.profile.tools:
+                continue
             self.harness.register_tool(tool)
             self.tools.append(tool)
 
@@ -599,6 +613,7 @@ def build_agent(
     enable_jev: Optional[bool] = None,
     config: Optional[SettingsSource] = None,
     client: str = "",
+    profile_name: Optional[str] = None,
 ) -> CodingAgent:
     """Build a coding agent from whatever provider credentials are available."""
     from core_ai import build_default_registry, default_model_id
@@ -615,10 +630,12 @@ def build_agent(
         config=loaded,
         overrides=overrides or None,
     )
+    profile = load_agent_profile(workspace, profile_name) if profile_name else None
     store = JsonlPersistence(sessions_dir(workspace, client=client))
     agent = CodingAgent(
         registry=registry,
-        model_id=default_model_id(registry, model_id or resolved.last_model),
+        model_id=default_model_id(registry, model_id or (profile.model if profile else "") or resolved.last_model),
+        profile=profile,
         workspace=workspace,
         sink=sink,
         session_id=session_id,
