@@ -247,6 +247,10 @@ class TopBar(Static):
         content_width = max(event.size.width - self.styles.gutter.width, 1)
         self.update(self._render_row(content_width))
 
+    def refresh_theme(self) -> None:
+        """Rebuild Rich text after the shared theme palette changes."""
+        self.update(self._render_row(max(self.content_size.width, 1)))
+
     def _branch_text(self) -> Text:
         branch_label = self._branch
         if self._label:

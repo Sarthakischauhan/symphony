@@ -216,6 +216,10 @@ class UpdatesConfig(BaseModel):
     auto: bool = False
 
 
+DEFAULT_THEME = "default"
+THEME_FILE = "theme.toml"
+
+
 class CodingAgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -232,6 +236,9 @@ class CodingAgentConfig(BaseModel):
     last_model: str | None = None
     # Default "direct" inserts that catalog segment. null = stock prompt only.
     personality: str | None = "direct"
+    # "default" is Symphony's own dark palette; otherwise "<plugin>:<Theme Name>"
+    # from an enabled plugin. A ~/.symphony/theme.toml still overrides it.
+    theme: str = DEFAULT_THEME
     # Runtime-only (--unattended): never written back to config.json.
     unattended: bool = Field(default=False, exclude=True)
 
@@ -312,6 +319,11 @@ def symphony_dir() -> Path:
     return (Path.home() / ".symphony").expanduser().resolve()
 
 
+def user_theme_path() -> Path:
+    """The user's own ``theme.toml`` in the Symphony home. When it exists it overrides every other theme."""
+    return symphony_dir() / THEME_FILE
+
+
 def spawn_settings_path(workspace: str | Path | None = None) -> Path:
     """Return the user-wide config file path.
 
@@ -388,6 +400,7 @@ def ensure_spawn_settings(
 
 
 __all__ = [
+    "DEFAULT_THEME",
     "ApprovalConfig",
     "BashConfig",
     "CodingAgentConfig",
@@ -399,6 +412,7 @@ __all__ = [
     "PluginsConfig",
     "ReadFileConfig",
     "SPAWN_SETTINGS_NAME",
+    "THEME_FILE",
     "SearchConfig",
     "SettingsSource",
     "SkillSetting",
@@ -410,4 +424,5 @@ __all__ = [
     "load_coding_agent_config",
     "resolve_coding_agent_config",
     "spawn_settings_path",
+    "user_theme_path",
 ]

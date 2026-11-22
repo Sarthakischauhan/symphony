@@ -20,6 +20,7 @@ HEADLESS_MODULES = (
     "coding_agent.web.server",
     "coding_agent.web.worker",
     "coding_agent.cli",
+    "coding_agent.commands.themes_cli",
     "coding_agent.addons.voice.addon",
     "coding_agent.addons.voice.speak",
     "coding_agent.addons.voice.stream",

@@ -93,6 +93,10 @@ Symphony puts the skill's name, description, and path in the prompt. The model r
 
 An addon is a directory under the declared addon root. It contains `addon.py` with a `setup(api)` function. See [Extending the harness](../developer-guide/extending.md) for the addon API. An addon runs with your permissions; enabling the plugin is the decision to allow that. Symphony does not sandbox it.
 
+## Themes
+
+A `themes/` directory holds color themes: `*.json` in the Claude theme format, or `*.toml` in Symphony's `theme.toml` shape. They are named `my-plugin:Theme Name` and chosen with `/theme` or `symphony themes use`. See [Themes](./themes.md).
+
 ## What else is ignored
 
 Symphony does not load every part another coding agent might ship in a plugin. Agents, slash commands, hooks, automations, MCP servers, apps, language servers, and output styles are skipped. `symphony plugins list` and `/installed` show each skipped part and why. The plugin's skills and Symphony addon still load.

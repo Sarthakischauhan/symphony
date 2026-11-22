@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Plugins can ship color themes in a `themes/` directory: Claude-format `*.json`
+  (as published by the claude-themes marketplace) and Symphony-format `*.toml`.
+  `/theme` previews them live and `symphony themes list|use` manages them; the
+  choice is saved as `theme` in `config.json` (default `"default"`). A
+  `~/.symphony/theme.toml` still overrides it. ANSI themes use the terminal's palette.
+- `theme.toml` is now read from `$SYMPHONY_HOME` as well as `~/.symphony`.
+
 ## 0.0.6 — 2026-11-03
 
 Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.6.

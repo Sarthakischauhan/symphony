@@ -2,7 +2,7 @@
 
 This only reads: manifests, directories, the state file. No plugin code runs.
 It answers two questions per plugin: is it enabled, and which skill directories
-does it add. An enabled plugin's addon is loaded; disabling it is how you stop that.
+and themes does it add. An enabled plugin's addon is loaded; disabling it is how you stop that.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from typing import Iterable, Literal
 
 from coding_agent.addons.plugins.manifest import LoadedManifest, read_manifest
 from coding_agent.addons.plugins.state import PluginState, load_state, plugins_dir
+from coding_agent.addons.plugins.themes import PluginTheme, discover_plugin_themes
 from coding_agent.addons.skills.models import SkillSource
 from coding_agent.addons.skills.registry import skill_directories
 from coding_agent.extensions import Diagnostic, extension_roots
@@ -37,6 +38,7 @@ class ResolvedPlugin:
     skill_count: int
     addon_root: Path | None
     skipped: tuple[tuple[str, str], ...]
+    themes: tuple[PluginTheme, ...] = ()
 
     @property
     def runs_addon(self) -> bool:
@@ -66,6 +68,11 @@ class PluginSet:
     def skill_sources(self) -> tuple[SkillSource, ...]:
         """Skill directories of enabled plugins, handed to ``addons/skills``."""
         return tuple(source for plugin in self.plugins if plugin.enabled for source in plugin.skill_sources)
+
+    @property
+    def themes(self) -> tuple[PluginTheme, ...]:
+        """Themes of enabled plugins, offered by ``/theme`` and ``symphony themes``."""
+        return tuple(theme for plugin in self.plugins if plugin.enabled for theme in plugin.themes)
 
     @property
     def addon_roots(self) -> tuple[Path, ...]:
@@ -143,11 +150,13 @@ def resolve_plugins(workspace: str | Path, state: PluginState | None = None) -> 
             diagnostics.append(Diagnostic(str(root), "extensions.symphony.addons leaves the plugin"))
             continue
         skill_dirs = _skill_dirs(loaded, diagnostics)
+        themes, theme_diagnostics = discover_plugin_themes(name, root)
+        diagnostics.extend(theme_diagnostics)
         plugins[name] = ResolvedPlugin(
             key=key, name=name, version=loaded.manifest.version, description=loaded.manifest.description,
             root=root, scope=scope, enabled=record.enabled if record else True,
             skill_dirs=skill_dirs, skill_count=sum(len(skill_directories(path)) for path in skill_dirs), addon_root=addon_root,
-            skipped=loaded.skipped,
+            skipped=loaded.skipped, themes=themes,
         )
     return PluginSet(tuple(plugins.values()), tuple(diagnostics))
 

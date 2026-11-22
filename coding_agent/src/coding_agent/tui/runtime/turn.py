@@ -90,7 +90,14 @@ class TurnSurface:
     async def load_session_history(self) -> None:
         if self._agent is None:
             return
-        await load_session_history(self._agent, self)
+        older_slices = await load_session_history(self._agent, self)
+        # The loader has painted the newest turn. Add the rest in one update
+        # so Textual does not repaint an intermediate transcript for every turn.
+        if older_slices:
+            with self.batch_update():
+                for older in older_slices:
+                    self.prepend_transcript_batch(older)
+                self.finalize_transcript_history()
         await self.restore_subagents()
 
     def _collect_run_events(self, payload: Mapping[str, Any]) -> None:

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 import base64
 import io
 import json
-import os
 from pathlib import Path
 
 from types import SimpleNamespace
@@ -1108,6 +1107,98 @@ def test_resume_app_selects_with_arrow_keys() -> None:
     asyncio.run(_run())
 
 
+def test_history_loader_returns_older_turns_and_mounts_only_latest() -> None:
+    class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = [
+                Message(role="user", content="old task"),
+                Message(role="assistant", content="old answer"),
+                Message(role="user", content="latest task"),
+                Message(role="assistant", content="latest answer"),
+            ]
+            return messages, messages
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
+
+        def reset_session_chrome(self, session: SessionChrome) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        artifacts=None,
+        persistence=Persistence(),
+        session_store=None,
+        session_costs=lambda _session_id: {},
+        session_id="session",
+        harness=SimpleNamespace(
+            model_id="model",
+            state=SimpleNamespace(context_limit=lambda _: 100),
+        ),
+    )
+    view = View()
+    older = asyncio.run(load_session_history(agent, view))
+
+    assert [widget.message_text for widget in view.mounted] == ["latest task", "latest answer"]
+    assert [[widget.message_text for widget in group] for group in older] == [["old task", "old answer"]]
+
+
+def test_uncollected_foreground_bash_stays_mountable() -> None:
+    class Persistence:
+        async def load_resume(self, *, session_id: str):
+            messages = [
+                Message(role="user", content="Run a command"),
+                Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=[{"id": "bash-1", "function": {"name": "bash", "arguments": '{"command":"pwd"}'}}],
+                ),
+                Message(role="tool", content="ok", tool_call_id="bash-1"),
+            ]
+            return messages, messages
+
+    class View:
+        def __init__(self) -> None:
+            self.mounted: list[Any] = []
+
+        def add_notice(self, text: str, tone: str = "info") -> None:
+            pass
+
+        _tools: dict[str, Any] = {}
+
+        def mount_transcript_batch(self, widgets: list[Any]) -> None:
+            self.mounted.extend(widgets)
+
+        def reset_session_chrome(self, session: SessionChrome) -> None:
+            pass
+
+        def finalize_transcript_history(self) -> None:
+            pass
+
+    agent = SimpleNamespace(
+        artifacts=None,
+        persistence=Persistence(),
+        session_store=None,
+        session_costs=lambda _session_id: {},
+        session_id="session",
+        harness=SimpleNamespace(model_id="model", state=SimpleNamespace(context_limit=lambda _: 100)),
+    )
+    view = View()
+    asyncio.run(load_session_history(agent, view))
+    assert all(hasattr(widget, "id") for widget in view.mounted)
+
+
 def test_history_hides_compaction_summary() -> None:
     class Persistence:
         async def load_resume(self, *, session_id: str):
@@ -1855,13 +1946,13 @@ def test_workspace_file_index_scans_once(
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "turn.py").write_text("pass\n", encoding="utf-8")
     walks = {"n": 0}
-    real_walk = os.walk
+    from coding_agent.tui.screens.file_selector import _scan_workspace
 
-    def counting_walk(*args: object, **kwargs: object):
+    def counting_scan(*args: object, **kwargs: object):
         walks["n"] += 1
-        yield from real_walk(*args, **kwargs)
+        return _scan_workspace(*args, **kwargs)
 
-    monkeypatch.setattr("coding_agent.tui.screens.file_selector.os.walk", counting_walk)
+    monkeypatch.setattr("coding_agent.tui.screens.file_selector._scan_workspace", counting_scan)
     index = WorkspaceFileIndex(tmp_path)
     first = file_matches(tmp_path, "turn", index=index)
     second = file_matches(tmp_path, "turn", index=index)
@@ -1895,6 +1986,27 @@ def test_resume_options_use_existing_persistence_api() -> None:
 
     assert options[0].first_message == "Fix the login flow"
     assert options[0].message_count == 4
+
+
+def test_resume_title_clipping_has_linear_measurement_cost(monkeypatch) -> None:
+    from coding_agent.tui.screens import resume
+
+    original = resume.cell_len
+    measured = 0
+
+    def counting(text: str) -> int:
+        nonlocal measured
+        measured += len(text)
+        return original(text)
+
+    monkeypatch.setattr(resume, "cell_len", counting)
+    title = "x" * 50_000
+    assert resume._fit(title, 80) == "x" * 79 + "…"
+    assert measured <= len(title) + 80
+    assert resume._fit("界界界", 5) == "界界…"
+    assert resume._fit("abc", 0) == ""
+    assert resume._fit("abc", 1) == "…"
+    assert resume._fit("abc", 3) == "abc"
 
 
 def test_resume_rows_keep_metadata_on_second_line() -> None:
@@ -4191,6 +4303,44 @@ def test_assistant_markdown_is_selectable_as_rendered_text(tmp_path: Path) -> No
             assert selected is not None
             assert selected[0].startswith("answer bold\n\n")
             assert "item" in selected[0]
+
+    asyncio.run(_run())
+
+
+def test_fatal_error_exits_with_one_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._exception = RuntimeError("selection failed\nline two")
+            app._fatal_error()
+
+    with pytest.raises(RuntimeError, match="selection failed"):
+        asyncio.run(_run())
+
+    captured = capsys.readouterr()
+    rendered = captured.err + captured.out
+    assert "Symphony crashed: RuntimeError: selection failed" in rendered
+    assert "Traceback" not in rendered
+    assert "line two" not in rendered
+
+
+def test_selection_below_one_line_tool_summary_is_empty(tmp_path: Path) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            tool = make_tool_widget("read-0", "read_file")
+            tool.set_arguments({"path": "notes.md"})
+            tool.set_result("ok")
+            summary = ToolCallSummary([tool.snapshot()])
+            app.mount_transcript(summary)
+            await pilot.pause()
+
+            selected = summary.get_selection(Selection(Offset(12, 1), Offset(71, 1)))
+            assert selected == ("", "\n")
 
     asyncio.run(_run())
 
