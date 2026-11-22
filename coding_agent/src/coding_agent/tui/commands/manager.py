@@ -287,6 +287,7 @@ async def reload_project(app: CodingAgentApp) -> None:
             enable_jev=app.enable_jev,
             config=reloaded_config,
             client="tui",
+            profile_name=app.profile_name,
         )
         from coding_agent.protocols.stdio.commands import load_state
 

@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Model id (default: SYMPHONY_MODEL, OPENAI_MODEL, or first available provider)",
     )
+    parser.add_argument("--profile", default=None, help="Named agent profile in .symphony/agents")
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -75,6 +76,8 @@ def main() -> None:
     if args.continue_run:
         if not args.resume:
             parser.error("--continue requires --resume")
+        if args.profile:
+            parser.error("--profile is not supported with --continue")
         from coding_agent.run.cli import continue_interrupted
 
         raise SystemExit(continue_interrupted(workspace, model=args.model))
@@ -94,6 +97,7 @@ def main() -> None:
         enable_learning=args.enable_learning,
         enable_jev=args.enable_jev,
         unattended=args.unattended,
+        profile_name=args.profile,
     )
 
 

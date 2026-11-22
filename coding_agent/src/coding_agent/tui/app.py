@@ -125,8 +125,10 @@ class CodingAgentApp(
         enable_learning: Optional[bool] = None,
         enable_jev: Optional[bool] = None,
         unattended: bool = False,
+        profile_name: Optional[str] = None,
     ) -> None:
         super().__init__()
+        self.profile_name = profile_name
         self.workspace = Path(workspace).resolve()
         self.model_id = model_id
         self.session_id = session_id
@@ -291,6 +293,7 @@ class CodingAgentApp(
                 enable_jev=self.enable_jev,
                 config=self.config,
                 client="tui",
+                profile_name=self.profile_name,
             )
             from coding_agent.protocols.stdio.commands import load_state
 
@@ -531,6 +534,7 @@ def run_tui(
     enable_learning: Optional[bool] = None,
     enable_jev: Optional[bool] = None,
     unattended: bool = False,
+    profile_name: Optional[str] = None,
 ) -> None:
     """Load environment configuration and launch the terminal UI."""
     workspace = Path(workspace).resolve()
@@ -545,4 +549,5 @@ def run_tui(
         enable_learning=enable_learning,
         enable_jev=enable_jev,
         unattended=unattended,
+        profile_name=profile_name,
     ).run()
