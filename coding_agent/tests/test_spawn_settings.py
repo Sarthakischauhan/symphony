@@ -54,6 +54,30 @@ def test_ensure_spawn_settings_keeps_user_overrides(tmp_path: Path) -> None:
     assert saved["theme"] == "default"
 
 
+def test_unknown_file_settings_are_ignored_and_removed(tmp_path: Path) -> None:
+    path = spawn_settings_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"future": 1, "tools": {"bash": {"future": 2, "default_timeout_seconds": 42}}}), encoding="utf-8")
+
+    assert load_coding_agent_config(path=path).tools.bash.default_timeout_seconds == 42
+    assert "future" in json.loads(path.read_text(encoding="utf-8"))
+    assert ensure_spawn_settings(tmp_path).tools.bash.default_timeout_seconds == 42
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert "future" not in saved
+    assert "future" not in saved["tools"]["bash"]
+
+
+def test_invalid_known_settings_and_unknown_overrides_still_fail(tmp_path: Path) -> None:
+    path = spawn_settings_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text('{"tools": {"bash": {"default_timeout_seconds": -1}}}', encoding="utf-8")
+    with pytest.raises(ValueError):
+        ensure_spawn_settings(tmp_path)
+    path.write_text('{}', encoding="utf-8")
+    with pytest.raises(ValueError):
+        ensure_spawn_settings(tmp_path, overrides={"unknown": True})
+
+
 def test_ensure_spawn_settings_migrates_legacy_values(tmp_path: Path) -> None:
     path = spawn_settings_path(tmp_path)
     path.parent.mkdir(parents=True)

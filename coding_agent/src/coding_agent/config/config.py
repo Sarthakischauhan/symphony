@@ -282,7 +282,7 @@ def _normalize_legacy_config(payload: dict[str, Any]) -> dict[str, Any]:
             bash = dict(bash)
             for key in ("default_timeout_seconds", "max_timeout_seconds"):
                 if bash.get(key) is None:
-                    bash.pop(key)
+                    bash.pop(key, None)
             tools = dict(normalized["tools"])
             tools["bash"] = bash
             normalized["tools"] = tools
@@ -350,7 +350,7 @@ def load_coding_agent_config(
         raise ValueError(f"Config file does not exist: {source}")
     payload = _normalize_legacy_config(_read_json(source))
     payload = _merge(CodingAgentConfig().model_dump(mode="json"), payload)
-    config = CodingAgentConfig.model_validate(payload)
+    config = CodingAgentConfig.model_validate(payload, extra="ignore")
     _validate_tools(config)
     return config
 
@@ -383,6 +383,7 @@ def ensure_spawn_settings(
     elif path.exists():
         payload = _normalize_legacy_config(_read_json(path))
         payload = _merge(CodingAgentConfig().model_dump(mode="json"), payload)
+        payload = CodingAgentConfig.model_validate(payload, extra="ignore").model_dump(mode="json")
     else:
         payload = CodingAgentConfig().model_dump(mode="json")
 

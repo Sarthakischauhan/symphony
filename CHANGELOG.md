@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.0.8 — 2026-11-22
+
+Hotfix for `symphony-code`; core and harness remain at 0.0.7.
+
+- Unknown config fields, including nested fields, are discarded on load and removed
+  when startup refreshes the config. Known settings still undergo validation.
+- Partial `tools.bash` settings no longer crash legacy config migration.
+- `symphony update` updates a PyPI uv tool install without reading the config.
+  Users on older releases blocked at startup can recover with
+  `uv tool install --upgrade symphony-code`.
+
 ## 0.0.7 — 2026-11-22
 
 Release notes for `symphony-code`, `symphony-core`, and `symphony-harness` 0.0.7.
