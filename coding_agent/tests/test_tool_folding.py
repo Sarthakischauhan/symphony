@@ -89,14 +89,15 @@ def test_a_long_run_folds_its_older_rows_behind_a_counted_header(
             hidden = [card.call_id for card in cards if not card.display]
             # Twelve rows, ten shown: the two oldest fold behind the header.
             assert hidden == ["c0", "e0"]
-            assert fold.render().plain == "Ran 1 command, Edited 1 file  show"
+            # Like a group header, the fold does not list what it hides.
+            assert fold.render().plain == "2 earlier steps  show"
             # The header sits above the rows it hides.
             assert fold.region.y < cards[0].region.y or not cards[0].display
 
             fold.toggle()
             await pilot.pause()
             assert all(card.display for card in app.query(ToolCallWidget))
-            assert fold.render().plain.endswith("hide")
+            assert fold.render().plain == "Hide 2 earlier steps"
 
             app.set_assistant("Done.", new=True)
             await pilot.pause()

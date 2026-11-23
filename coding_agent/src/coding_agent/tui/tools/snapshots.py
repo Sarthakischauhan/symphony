@@ -27,6 +27,9 @@ from coding_agent.tui.transcript.thinking_markdown import thinking_plain_text
 
 
 LIVE_STATUSES = frozenset({"preparing", "running"})
+# The running heading's shimmer: the same warm sweep as the "Thinking…" status.
+SHIMMER_COLORS = ("#6f5930", "#94733a", "#bd9145", "#e2b85f", "#f0d58a", "#d7a84b", "#a77f3d")
+SHIMMER_SECONDS = 0.12
 # Style meta key on a group row: the index of the entry it draws. A click there
 # opens that call's details; anywhere else on the group toggles it.
 ROW_META = "tool_row"
@@ -232,6 +235,9 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         self.user_expanded = False
         # Entry index of the clickable row under the pointer.
         self._hover: int | None = None
+        # Animates the heading while a member runs; stopped once none does.
+        self._shimmer_step = 0
+        self._shimmer_timer = None
         super().__init__(classes="tool-call-summary", markup=False)
         # Restored/completed runs can contain thousands of entries. Build once
         # rather than rescanning the growing group for every snapshot.
@@ -249,19 +255,47 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
     def _thought_count(self) -> int:
         return sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
 
+    def heading(self) -> tuple[str, str]:
+        """(verb, reason) the header leads with: the model's own words for its latest step.
+
+        The rows under the header already show each call, so the header says
+        why, not what: "Searching · Find the rendering path". Calls the model
+        did not label fall back to counting the work: "Read 3 files".
+        """
+        for call in reversed(self.calls):
+            if call.activity_verb or call.activity_reason:
+                return call.activity_verb, call.activity_reason
+        label, _running, _failed = counted_label(call.counted() for call in self.calls)
+        return label or explored_count_label(tool_count=0, thought_count=self._thought_count()), ""
+
+    @property
+    def running(self) -> bool:
+        return any(call.status in LIVE_STATUSES for call in self.calls)
+
     def _summary_title(self) -> str:
-        label, _running, failed = counted_label(call.counted() for call in self.calls)
-        return f"{label} · {failed} failed" if failed else label
+        verb, reason = self.heading()
+        title = " · ".join(part for part in (verb, reason) if part)
+        failed = sum(call.status == "failed" for call in self.calls)
+        return f"{title} · {failed} failed" if failed else title
 
     def accepts(self, snapshot: ToolCallSnapshot) -> bool:
         """A group folds a run of exploring calls, whatever activity the model gave them."""
         return is_exploring(snapshot.tool_name) and all(is_exploring(call.tool_name) for call in self.calls)
 
     def render(self) -> Text:
-        label, running, failed = counted_label(call.counted() for call in self.calls)
+        verb, reason = self.heading()
+        failed = sum(call.status == "failed" for call in self.calls)
         text = Text()
-        heading = label or explored_count_label(tool_count=0, thought_count=self._thought_count()) or "Thinking"
-        text.append(clip_text(heading, 160), style="bold #d7a84b" if running else "bold #8ab4cf")
+        verb = clip_text(verb, 60)
+        if self.running:
+            for index, character in enumerate(verb):
+                color = SHIMMER_COLORS[(index + self._shimmer_step) % len(SHIMMER_COLORS)]
+                text.append(character, style=f"bold {color}")
+        else:
+            text.append(verb, style="bold #8ab4cf")
+        if reason:
+            text.append(" · " if verb else "", style="#a2adb8")
+            text.append(clip_text(reason, 120), style="#a2adb8")
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")
         if not self.is_expanded:
@@ -318,6 +352,7 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
             self.entries.append(snapshot)
         self.title = self._summary_title()
         self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        self._sync_shimmer()
         if layout and self.is_mounted:
             self.refresh(layout=True)
 
@@ -325,15 +360,35 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         """Swap in a call's newer snapshot; a status change only re-renders text."""
         index = self.call_ids.index(snapshot.call_id)
         previous = self.calls[index]
+        previous_title = self.title
         self.calls[index] = snapshot
         self.entries[self.entries.index(previous)] = snapshot
         self.title = self._summary_title()
         self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        self._sync_shimmer()
         reshaped = (
             (previous.label, previous.detail) != (snapshot.label, snapshot.detail)
             or (previous.status == "failed") != (snapshot.status == "failed")
+            or previous_title != self.title
         )
         self.refresh(layout=reshaped)
+
+    def on_mount(self) -> None:
+        self._sync_shimmer()
+
+    def _sync_shimmer(self) -> None:
+        """Run the heading's shimmer exactly while a member is running."""
+        if not self.is_mounted:
+            return
+        if self.running and self._shimmer_timer is None:
+            self._shimmer_timer = self.set_interval(SHIMMER_SECONDS, self._advance_shimmer)
+        elif not self.running and self._shimmer_timer is not None:
+            self._shimmer_timer.stop()
+            self._shimmer_timer = None
+
+    def _advance_shimmer(self) -> None:
+        self._shimmer_step = (self._shimmer_step + 1) % len(SHIMMER_COLORS)
+        self.refresh()
 
     def remove_call(self, call_id: str) -> None:
         index = self.call_ids.index(call_id)

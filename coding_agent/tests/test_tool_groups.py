@@ -110,6 +110,31 @@ def test_remove_call_drops_the_row() -> None:
     assert summary.title == "Read 1 file"
 
 
+def test_header_leads_with_the_latest_step_and_falls_back_to_counting() -> None:
+    first = _call("a", activity_verb="Reading", activity_reason="Find the loader")
+    later = _call("b", label="Search", tool_name="search", activity_verb="Searching", activity_reason="Trace its callers")
+    summary = ToolCallSummary((first,))
+    assert summary.render().plain == "Reading · Find the loader"
+    summary.add_call(later)
+    # The header follows the model's latest step; earlier steps are in the rows.
+    assert summary.render().plain == "Searching · Trace its callers"
+    assert summary.title == "Searching · Trace its callers"
+    # Unlabelled calls fall back to counting the work.
+    assert ToolCallSummary((_call("c"), _call("d"))).render().plain == "Read 2 files"
+
+
+def test_running_heading_shimmers_and_settles_when_done() -> None:
+    summary = ToolCallSummary((_call("a", status="running", activity_verb="Reading"),))
+    assert summary.running
+    colors = {span.style for span in summary.render().spans if span.end <= len("Reading")}
+    assert len(colors) > 1  # a gradient across the verb
+    summary._advance_shimmer()
+    assert {span.style for span in summary.render().spans if span.end <= len("Reading")} != colors or len(colors) > 1
+    summary.update_call(_call("a", activity_verb="Reading"))
+    assert not summary.running
+    assert {str(span.style) for span in summary.render().spans} == {"bold #8ab4cf"}
+
+
 def test_groups_fold_exploring_calls_whatever_their_activity() -> None:
     inspect = _call("a", activity_reason="Inspect UI", activity_group="inspect")
     summary = ToolCallSummary((inspect,))
@@ -285,9 +310,9 @@ def test_activity_reason_labels_tool_and_group() -> None:
 
     widget.status = "done"
     summary = ToolCallSummary((widget.snapshot(),))
-    # The activity is kept on the call, but the header counts the work.
-    assert summary.title == "Read 1 file"
-    assert summary.render().plain == "Read 1 file"
+    # The header says why, in the model's words; the row below says what.
+    assert summary.title == "Trace the task UI"
+    assert summary.render().plain == "Trace the task UI"
 
 
 def test_flattened_activity_aliases_are_accepted_and_stripped() -> None:
@@ -326,7 +351,7 @@ def test_snapshot_extracts_activity_without_showing_it_as_tool_arguments() -> No
     assert snapshot.activity_reason == "Find the rendering path"
     assert snapshot.activity_group == "task-ui"
     summary = ToolCallSummary((snapshot,))
-    assert summary.title == "Searched 1 pattern"
+    assert summary.title == "Find the rendering path"
 
 
 def test_completed_run_summary_renders_unbracketed_verb_and_duration() -> None:

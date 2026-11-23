@@ -202,21 +202,27 @@ class RunFold(Static, can_focus=True):
 
     def render(self) -> Text:
         from coding_agent.tui.tools.calls import ToolCallWidget
-        from coding_agent.tui.tools.kinds import counted_label
         from coding_agent.tui.tools.snapshots import ToolCallSummary
 
-        calls = []
+        # Like a group header, the fold does not list what it hides: opening it
+        # shows the rows. It says how many steps are folded and whether any failed.
+        steps = failed = 0
         for item in self.hidden:
             if isinstance(item, ToolCallSummary):
-                calls.extend(call.counted() for call in item.calls)
+                steps += item.count
+                failed += sum(call.status == "failed" for call in item.calls)
             elif isinstance(item, ToolCallWidget):
-                calls.append(item.snapshot().counted())
-        label, _running, failed = counted_label(calls)
+                steps += 1
+                failed += item.status == "failed"
         text = Text()
-        text.append(label or f"{len(self.hidden)} more", style="bold #8ab4cf")
+        if self.is_expanded:
+            text.append(f"Hide {steps} earlier {'step' if steps == 1 else 'steps'}", style="bold #8ab4cf")
+        else:
+            text.append(f"{steps} earlier {'step' if steps == 1 else 'steps'}", style="bold #8ab4cf")
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")
-        text.append("  hide" if self.is_expanded else "  show", style="#5f6b75")
+        if not self.is_expanded:
+            text.append("  show", style="#5f6b75")
         return text
 
     def on_click(self, event: events.Click) -> None:
