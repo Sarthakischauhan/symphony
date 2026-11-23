@@ -59,7 +59,7 @@ def test_background_child_does_not_hold_parent_and_keeps_run_identity() -> None:
         assert child.status == "completed"
         assert child.output_text == "Child result"
         assert [call.name for call in first.tool_calls] == ["spawn_agent"]
-        assert list(parent.tools) == ["spawn_agent"]
+        assert list(parent.tools) == ["spawn_agent", "message_agent"]
         assert sum(message.role == "user" and "Child result" in str(message.content)
                    for message in result.messages) == 1
         assert parent.drain_child_results() == []
@@ -67,6 +67,53 @@ def test_background_child_does_not_hold_parent_and_keeps_run_identity() -> None:
         assert len(identities) == len(set(identities))
         await parent.shutdown_children()
 
+    asyncio.run(run())
+
+
+def test_message_running_and_continue_completed_child() -> None:
+    async def run():
+        registry = GatedRegistry()
+        parent = CoreHarness(registry=registry, model_id="fake:parent", system_prompt="Parent",
+                             config=HarnessConfig(), addons=[SubagentAddon(background=True)])
+        response = json.loads(await parent.tools["spawn_agent"].execute(
+            sink=parent.sink, args={"prompt": "task", "model_id": "fake:child"}))
+        child = parent.child_tasks[response["child_id"]]
+        await registry.started.wait()
+        tool = parent.tools["message_agent"]
+        assert await tool.execute(sink=parent.sink, args={"child_id": child.child_id, "message": "Focus on tests"}) == "Message queued"
+        assert child.child.drain_user_inputs() == ["Focus on tests"]
+        assert json.loads(await tool.execute(sink=parent.sink, args={"child_id": ""}))[0]["status"] == "running"
+        registry.release.set()
+        await child.task
+        assert await tool.execute(sink=parent.sink, args={"child_id": child.child_id, "message": "Follow up"}) == "Child continued"
+        await child.task
+        assert child.status == "completed"
+        assert any("Follow up" in str(m.content) for m in registry.requests[-1])
+        assert any("Child result" in str(m.content) for m in registry.requests[-1])
+        assert await tool.execute(sink=parent.sink, args={"child_id": "bad", "message": "hi"}) == "error: unknown child"
+        await parent.shutdown_children()
+    asyncio.run(run())
+
+
+def test_stalled_child_wakes_waiting_parent(monkeypatch) -> None:
+    async def run():
+        import core_harness.addons.subagent.background as background
+        monkeypatch.setattr(background, "STALL_SECONDS", 0.02)
+        monkeypatch.setattr(background, "STALL_POLL_SECONDS", 0.01)
+        registry = GatedRegistry()
+        parent = CoreHarness(registry=registry, model_id="fake:parent", system_prompt="Parent",
+                             config=HarnessConfig(), addons=[SubagentAddon(background=True)])
+        response = json.loads(await parent.tools["spawn_agent"].execute(
+            sink=parent.sink, args={"prompt": "task", "model_id": "fake:child"}))
+        child = parent.child_tasks[response["child_id"]]
+        await registry.started.wait()
+        await child.child.emit("tool_execution_started", {"tool_name": "bash", "tool_call_id": "shell"})
+        await asyncio.wait_for(background.wait_for_child_result(parent, None), 1)
+        assert child.snapshot()["stalled"] is True
+        assert child.snapshot()["current_tool"] == "bash"
+        assert "no output" in str(parent.drain_child_results()[0].content)
+        assert any(e.event_type == "child_progress" for e in parent.sink.events)
+        await parent.shutdown_children()
     asyncio.run(run())
 
 

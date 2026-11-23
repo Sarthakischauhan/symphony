@@ -248,6 +248,7 @@ class EventPresenter:
             "resumed": self._on_resumed,
             "message_injected": self._on_message_injected,
             "waiting_for_children": self._on_waiting_for_children,
+            "child_progress": lambda payload: self.view.add_notice(str(payload.get("message") or "Child progress"), "warning"),
             "subagent_step": self._on_subagent_step,
             "question_asked": self._on_question_asked,
         }

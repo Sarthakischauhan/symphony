@@ -1,5 +1,8 @@
 # Harness events
 
+Background child stall monitoring emits the existing `child_progress` event with child ID, model, status, elapsed seconds, current tool, and a message when a bash command has no output for 120 seconds. A matching progress message is delivered to the parent agent.
+
+
 Detailed harness event schema and payload catalog. For a consumer-oriented summary of the lifecycle and guidance, see the [control-plane event overview](../../docs/developer-guide/events.md).
 
 `CoreHarness` emits ordered control-plane events with an `event_type` and a

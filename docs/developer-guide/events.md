@@ -14,7 +14,7 @@ A client normally observes:
 4. Exactly one terminal event: `run_completed`, `run_cancelled`, `run_limit_exceeded`, or `run_failed`
 5. `run_summary` after a terminal outcome
 
-Some event families are conditional: tool events only occur when tools are requested; compaction events require compaction; child events require subagent work. Product add-ons may publish additional product-specific event names.
+Some event families are conditional: tool events only occur when tools are requested; compaction events require compaction; child events require subagent work. Product add-ons may publish additional product-specific event names. A `child_progress` event reports a child bash command with no output for 120 seconds, including the child ID, model, elapsed time, and current tool; the parent also receives a progress message.
 
 ## Consumer guidance
 
