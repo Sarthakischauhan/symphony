@@ -167,6 +167,69 @@ class ThinkingStatus(Static):
         self.update(line, layout=layout)
 
 
+class RunFold(Static, can_focus=True):
+    """Hides the older rows of a long run of tool calls behind one header.
+
+    Grok Build calls this group truncation: once a dense run passes
+    ``kinds.VISIBLE_ROWS`` rows, the oldest rows fold behind a header that
+    counts what they did, "Edited 8 files, Ran 3 commands", and the newest
+    rows stay visible. A click or Enter shows or hides the folded rows.
+    """
+
+    def __init__(self) -> None:
+        self.hidden: list[Widget] = []
+        self.is_expanded = False
+        super().__init__(classes="run-fold", markup=False)
+
+    def set_hidden(self, items: list[Widget]) -> None:
+        self.hidden = items
+        self._apply()
+
+    def toggle(self) -> None:
+        self.is_expanded = not self.is_expanded
+        self._apply()
+
+    def release(self) -> None:
+        """Show every row again, as when the run folds into its summary."""
+        for item in self.hidden:
+            item.display = True
+        self.hidden = []
+
+    def _apply(self) -> None:
+        for item in self.hidden:
+            item.display = self.is_expanded
+        self.refresh(layout=True)
+
+    def render(self) -> Text:
+        from coding_agent.tui.tools.calls import ToolCallWidget
+        from coding_agent.tui.tools.kinds import counted_label
+        from coding_agent.tui.tools.snapshots import ToolCallSummary
+
+        calls = []
+        for item in self.hidden:
+            if isinstance(item, ToolCallSummary):
+                calls.extend(call.counted() for call in item.calls)
+            elif isinstance(item, ToolCallWidget):
+                calls.append(item.snapshot().counted())
+        label, _running, failed = counted_label(calls)
+        text = Text()
+        text.append(label or f"{len(self.hidden)} more", style="bold #8ab4cf")
+        if failed:
+            text.append(f" · {failed} failed", style="bold #d66b73")
+        text.append("  hide" if self.is_expanded else "  show", style="#5f6b75")
+        return text
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.toggle()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"enter", "space"}:
+            event.stop()
+            event.prevent_default()
+            self.toggle()
+
+
 @dataclass(frozen=True)
 class TimelineEntry:
     """Shared identity and display state for one timeline row."""
@@ -193,6 +256,10 @@ class RunProcess(Container):
         self._thinking = thinking
         self._completed = False
         self.completed_summary = None
+        # The current dense run of tool rows (cards and groups) and the header
+        # that folds its older rows once it outgrows ``VISIBLE_ROWS``.
+        self._stretch: list[Widget] = []
+        self._fold: RunFold | None = None
         super().__init__(classes="run-process")
 
     def compose(self):  # type: ignore[no-untyped-def]
@@ -212,10 +279,47 @@ class RunProcess(Container):
         self._next_entry_id += 1
 
     def add_item(self, widget: Widget) -> None:
+        # A card is placed on every update until its mount completes (callers
+        # check ``is_attached``, which turns true only then). Place it once.
+        if widget in self._items:
+            return
         self._items.append(widget)
         self._remember_entry(widget)
         if self.is_mounted:
             self.mount(widget)
+        self._track_stretch(widget)
+
+    def _track_stretch(self, widget: Widget) -> None:
+        """Extend the dense run with a tool row, or end it with anything else."""
+        from coding_agent.tui.tools.calls import ToolCallWidget
+        from coding_agent.tui.tools.kinds import VISIBLE_ROWS
+        from coding_agent.tui.tools.snapshots import CompletedRunSummary, ToolCallSummary
+
+        is_row = isinstance(widget, ToolCallWidget) or (
+            isinstance(widget, ToolCallSummary) and not isinstance(widget, CompletedRunSummary)
+        )
+        if not is_row:
+            if widget is not self._thinking:
+                self._stretch = []
+                self._fold = None
+            return
+        self._stretch.append(widget)
+        overflow = len(self._stretch) - VISIBLE_ROWS
+        if overflow <= 0:
+            return
+        if self._fold is None:
+            self._fold = RunFold()
+            self._insert_before(self._fold, self._stretch[0])
+        self._fold.set_hidden(self._stretch[:overflow])
+
+    def _insert_before(self, widget: Widget, anchor: Widget) -> None:
+        index = self._items.index(anchor)
+        self._items.insert(index, widget)
+        position = next(i for i, entry in enumerate(self.entries) if entry.widget is anchor)
+        self.entries.insert(position, TimelineEntry(self._next_entry_id, type(widget).__name__, widget))
+        self._next_entry_id += 1
+        if anchor.is_attached:
+            self.mount(widget, before=anchor)
 
     def place_thinking_last(self) -> None:
         """Keep the live status below the work it is describing, without remounting it."""
@@ -251,8 +355,13 @@ class RunProcess(Container):
         self.add_item(ProcessComplete(title))
 
     def fold_into_summary(self, *, verb: str = "", duration: str = "") -> None:
-        """Collect tool/thought snapshots, including finished bash and update cards."""
-        from coding_agent.tui.tools.calls import BashToolWidget, PatchDiffWidget, ToolCallWidget
+        """Collect tool/thought snapshots, including finished action cards.
+
+        Subagents, generated images and background jobs stay: each is still
+        something to open or watch after the reply.
+        """
+        from coding_agent.tui.runtime.subagent import SubagentWidget
+        from coding_agent.tui.tools.calls import BashToolWidget, GenerateImageWidget, ToolCallWidget
         from coding_agent.tui.tools.snapshots import (
             CompletedRunSummary,
             ThoughtSnapshot,
@@ -264,17 +373,22 @@ class RunProcess(Container):
         assistants = [item for item in self._items if isinstance(item, AssistantMessage)]
         final_assistant = assistants[-1] if assistants else None
         removed: list[Widget] = []
+        for fold in [item for item in self._items if isinstance(item, RunFold)]:
+            fold.release()
+        self._stretch = []
+        self._fold = None
         for item in self._items:
             if isinstance(item, ReasoningWidget):
                 snapshots.append(ThoughtSnapshot(item.title, item.reasoning_text))
             elif isinstance(item, ToolCallSummary):
                 snapshots.extend(item.entries)
-            elif isinstance(item, ToolCallWidget) and (
-                not item.keep_in_transcript
-                or isinstance(item, PatchDiffWidget)
-                or isinstance(item, BashToolWidget) and not item.arguments.get("background")
+            elif isinstance(item, ToolCallWidget) and not (
+                isinstance(item, (SubagentWidget, GenerateImageWidget))
+                or isinstance(item, BashToolWidget) and item.arguments.get("background")
             ):
                 snapshots.append(item.snapshot())
+            elif isinstance(item, RunFold):
+                pass
             elif not (isinstance(item, AssistantMessage) and item is not final_assistant):
                 continue
             removed.append(item)

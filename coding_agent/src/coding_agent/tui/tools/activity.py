@@ -1,8 +1,9 @@
-"""Activity metadata for live tool cards and Explored folds.
+"""Activity metadata the model attaches to tool calls.
 
-Explored partitioning keys on ``activity.group``. Without a group, different
-reasons still fold together via ``bool(reason)``: the reason is a label, not a
-partition key.
+Each call may carry ``activity.verb`` / ``reason`` / ``group``. They are
+stripped from the arguments before display and kept on the card and its
+snapshot. Grouping no longer keys on them: folds count kinds of work instead
+(see ``kinds``).
 """
 
 from __future__ import annotations
@@ -10,10 +11,7 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
-
-if TYPE_CHECKING:
-    from coding_agent.tui.tools.snapshots import ToolCallSnapshot
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -66,53 +64,6 @@ def strip_activity_json(raw: str) -> str:
     return json.dumps(parsed, separators=(",", ":"))
 
 
-def same_activity_group(
-    left: Activity | ToolCallSnapshot, right: Activity | ToolCallSnapshot
-) -> bool:
-    """Whether two calls belong in the same Explored row.
-
-    Group wins when either side has one. Without a group, labeled and unlabeled
-    calls stay apart, but distinct reasons still fold together.
-    """
-    left_activity = _activity_of(left)
-    right_activity = _activity_of(right)
-    if left_activity.group or right_activity.group:
-        return left_activity.group == right_activity.group
-    return bool(left_activity.reason) == bool(right_activity.reason)
-
-
-def explored_activity(calls: Sequence[ToolCallSnapshot]) -> Activity:
-    """First non-empty verb/reason/group already on an Explored row."""
-    verb = reason = group = ""
-    for call in calls:
-        activity = _activity_of(call)
-        verb = verb or activity.verb
-        reason = reason or activity.reason
-        group = group or activity.group
-        if verb and reason and group:
-            break
-    return Activity(verb=verb, reason=reason, group=group)
-
-
-def format_explored_duration(calls: Sequence[ToolCallSnapshot]) -> str:
-    """Sum snapshot durations when the row has an activity verb; else empty."""
-    if not any(_activity_of(call).verb for call in calls):
-        return ""
-    durations = [
-        duration
-        for call in calls
-        if (duration := call.duration) is not None
-    ]
-    if not durations:
-        return ""
-    seconds = sum(durations)
-    if seconds < 1:
-        return "<1s"
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    return f"{seconds / 60:.1f}m"
-
-
 def explored_count_label(*, tool_count: int, thought_count: int) -> str:
     parts: list[str] = []
     if tool_count:
@@ -123,29 +74,6 @@ def explored_count_label(*, tool_count: int, thought_count: int) -> str:
     return " · ".join(parts) or "0 tools"
 
 
-def explored_title(calls: Sequence[ToolCallSnapshot], *, thought_count: int = 0) -> str:
-    activity = explored_activity(calls)
-    title = activity.verb or activity.reason or "Explored"
-    failed = sum(call.status == "failed" for call in calls)
-    suffix = f" · {failed} failed" if failed else ""
-    duration = format_explored_duration(calls)
-    timing = f" for {duration}" if duration else ""
-    return (
-        f"{_clip_title(title)} · "
-        f"{explored_count_label(tool_count=len(calls), thought_count=thought_count)}"
-        f"{timing}{suffix}"
-    )
-
-
-def _clip_title(title: str) -> str:
-    text = title.strip()
-    if len(text) <= 96:
-        return text
-    return f"{text[:96].rstrip()}…"
-
-
-# Playful past-tense completion verbs in the spirit of Claude Code's spinner
-# words. Shown as-is on the folded run collection: "Stargazed for 2m 2s".
 COMPLETION_VERBS = (
     "Stargazed",
     "Cooked",
@@ -177,9 +105,3 @@ def choose_completion_verb() -> str:
 
 def _activity_text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
-
-
-def _activity_of(item: Activity | ToolCallSnapshot) -> Activity:
-    if isinstance(item, Activity):
-        return item
-    return Activity(verb=item.activity_verb, reason=item.activity_reason, group=item.activity_group)

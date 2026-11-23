@@ -7,11 +7,8 @@ import asyncio
 import pytest
 from textual.app import App
 
-from coding_agent.tui.tools.activity import (
-    COMPLETION_VERBS,
-    format_explored_duration,
-    same_activity_group,
-)
+from coding_agent.tui.tools.activity import COMPLETION_VERBS
+from coding_agent.tui.tools.kinds import CountedCall, counted_label
 from coding_agent.tui.tools.calls import (
     LIVE_OUTPUT_TAIL_LINES,
     BashToolWidget,
@@ -30,6 +27,7 @@ from coding_agent.tui.transcript.messages import AssistantMessage
 
 
 def _call(call_id: str, label: str = "Read", status: str = "done", **fields: str) -> ToolCallSnapshot:
+    fields.setdefault("tool_name", "read_file")
     return ToolCallSnapshot(call_id, label=label, detail=f"{call_id}.py", status=status, **fields)
 
 
@@ -60,8 +58,8 @@ def test_bulk_summary_builds_metadata_once_and_preserves_entry_order(monkeypatch
 
 def test_group_line_uses_subtle_explored_and_muted_count() -> None:
     summary = ToolCallSummary((_call("read-0"), _call("read-1")))
-    assert summary.title == "Explored · 2 tools"
-    assert summary.render().plain == "Explored · 2 tools"
+    assert summary.title == "Read 2 files"
+    assert summary.render().plain == "Read 2 files"
 
 
 def test_live_group_starts_expanded_and_folds_on_close() -> None:
@@ -72,7 +70,7 @@ def test_live_group_starts_expanded_and_folds_on_close() -> None:
 
     summary.close()
     assert not summary.is_expanded
-    assert summary.render().plain == "Explored · 1 tool"
+    assert summary.render().plain == "Reading 1 file"
 
 
 def test_close_never_folds_a_group_the_reader_opened() -> None:
@@ -109,25 +107,19 @@ def test_remove_call_drops_the_row() -> None:
     summary = ToolCallSummary((_call("read-0"), _call("read-1")))
     summary.remove_call("read-0")
     assert summary.call_ids == ["read-1"]
-    assert summary.title == "Explored · 1 tool"
+    assert summary.title == "Read 1 file"
 
 
-def test_accepts_and_rejects_last_follow_activity_groups() -> None:
+def test_groups_fold_exploring_calls_whatever_their_activity() -> None:
     inspect = _call("a", activity_reason="Inspect UI", activity_group="inspect")
-    validate = _call("b", activity_reason="Run checks", activity_group="validate")
     summary = ToolCallSummary((inspect,))
 
-    assert summary.accepts(_call("c", activity_reason="Look", activity_group="inspect"))
-    assert not summary.accepts(validate)
-    assert ToolCallSummary().accepts(validate)
-
-    # The newest call's activity arrived late and no longer matches the group.
-    look = _call("c", activity_reason="Look", activity_group="inspect")
-    summary.add_call(look)
-    assert not summary.rejects_last(look)
-    assert summary.rejects_last(_call("c", activity_reason="Run", activity_group="validate"))
-    # Only the newest call can leave; earlier rows stay where they are.
-    assert not summary.rejects_last(_call("a", activity_reason="Run", activity_group="validate"))
+    # Activity no longer splits a run of reads and searches.
+    assert summary.accepts(_call("b", label="Search", tool_name="search", activity_group="validate"))
+    # Actions keep their own card, so a group never takes one.
+    assert not summary.accepts(_call("c", label="Update", tool_name="patch"))
+    assert not summary.accepts(_call("d", label="Bash", tool_name="bash"))
+    assert ToolCallSummary().accepts(_call("e"))
 
 
 def test_read_header_uses_protocol_path_without_slash() -> None:
@@ -153,7 +145,7 @@ def test_group_discloses_call_snapshots_only_when_expanded() -> None:
     summary.toggle()
 
     rendered = summary.render().plain
-    assert rendered.startswith("Explored · 1 tool")
+    assert rendered.startswith("Read 1 file")
     assert "Read app.py" in rendered
     assert "Read 2 lines (17 bytes)" not in rendered
     assert summary.snapshot_text() == "✓  Read  src/app.py\n   Read 2 lines (17 bytes)"
@@ -162,16 +154,16 @@ def test_group_discloses_call_snapshots_only_when_expanded() -> None:
 def test_expanded_summary_rows_hang_off_an_fx_tree_guide() -> None:
     summary = ToolCallSummary(
         (
-            ToolCallSnapshot("read-1", label="Read", detail="src/app.py"),
+            ToolCallSnapshot("read-1", tool_name="read_file", label="Read", detail="src/app.py"),
             ThoughtSnapshot(title="Thought 1.2s", content="Checking the loader."),
-            ToolCallSnapshot("grep-1", label="Search", detail="loader", status="running"),
-            ToolCallSnapshot("bash-1", label="Bash", detail="pytest -q", status="failed"),
+            ToolCallSnapshot("grep-1", tool_name="search", label="Search", detail="loader", status="running"),
+            ToolCallSnapshot("bash-1", tool_name="bash", label="Bash", detail="pytest -q", status="failed"),
         )
     )
     summary.toggle()
 
     header, *rows = summary.render().plain.split("\n")
-    assert header.startswith("Explored")
+    assert header == "Reading 1 file, Searching 1 pattern, Running 1 command · 1 failed"
     # The guide sits at the header's left edge: "├" per row, "│" under a
     # continued row, "└" on the last row; then verb and args, no status dot.
     assert rows == [
@@ -293,8 +285,9 @@ def test_activity_reason_labels_tool_and_group() -> None:
 
     widget.status = "done"
     summary = ToolCallSummary((widget.snapshot(),))
-    assert summary.title == "Trace the task UI · 1 tool"
-    assert summary.render().plain == "Trace the task UI · 1 tool"
+    # The activity is kept on the call, but the header counts the work.
+    assert summary.title == "Read 1 file"
+    assert summary.render().plain == "Read 1 file"
 
 
 def test_flattened_activity_aliases_are_accepted_and_stripped() -> None:
@@ -333,20 +326,7 @@ def test_snapshot_extracts_activity_without_showing_it_as_tool_arguments() -> No
     assert snapshot.activity_reason == "Find the rendering path"
     assert snapshot.activity_group == "task-ui"
     summary = ToolCallSummary((snapshot,))
-    assert summary.title == "Find the rendering path · 1 tool"
-
-
-def test_same_activity_group_keys_on_group_then_bool_reason() -> None:
-    inspect = ToolCallSnapshot("a", activity_reason="Inspect UI", activity_group="inspect")
-    validate = ToolCallSnapshot("b", activity_reason="Run checks", activity_group="validate")
-    reason_a = ToolCallSnapshot("c", activity_reason="Inspect UI")
-    reason_b = ToolCallSnapshot("d", activity_reason="Run checks")
-    plain = ToolCallSnapshot("e")
-
-    assert not same_activity_group(inspect, validate)
-    assert same_activity_group(reason_a, reason_b)
-    assert not same_activity_group(reason_a, plain)
-    assert same_activity_group(plain, ToolCallSnapshot("f"))
+    assert summary.title == "Searched 1 pattern"
 
 
 def test_completed_run_summary_renders_unbracketed_verb_and_duration() -> None:
@@ -364,19 +344,22 @@ def test_completed_run_summary_picks_a_claude_style_verb() -> None:
     assert rendered[: -len(" for 10s")] in COMPLETION_VERBS
 
 
-def test_explored_title_appends_duration_only_when_verb_is_set() -> None:
-    with_verb = ToolCallSnapshot(
-        "search",
-        activity_verb="Searching",
-        activity_reason="Find the path",
-        duration=1.5,
-    )
-    reason_only = ToolCallSnapshot("read", activity_reason="Find the path", duration=1.5)
-
-    assert ToolCallSummary((with_verb,)).title == "Searching · 1 tool for 1.5s"
-    assert ToolCallSummary((reason_only,)).title == "Find the path · 1 tool"
-    assert format_explored_duration((with_verb,)) == "1.5s"
-    assert format_explored_duration((reason_only,)) == ""
+def test_counted_label_names_kinds_in_order_and_counts_distinct_files() -> None:
+    calls = [
+        CountedCall("read_file", path="a.py"),
+        CountedCall("read_file", path="a.py"),
+        CountedCall("read_file", path="b.py"),
+        CountedCall("search"),
+        CountedCall("patch", path="a.py"),
+        CountedCall("patch", path="a.py"),
+        CountedCall("bash", failed=True),
+    ]
+    assert counted_label(calls) == ("Read 2 files, Searched 1 pattern, Edited 1 file, Ran 1 command", False, 1)
+    # Present tense while anything in the run is still going.
+    running = [CountedCall("read_file", path="a.py"), CountedCall("bash", running=True)]
+    assert counted_label(running)[0] == "Reading 1 file, Running 1 command"
+    # A tool without its own words still counts.
+    assert counted_label([CountedCall("mcp__notes__find")])[0] == "Ran 1 tool"
 
 
 def test_thought_snapshot_keeps_collapsed_preview() -> None:

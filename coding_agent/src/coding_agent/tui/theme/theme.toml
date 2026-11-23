@@ -311,8 +311,9 @@ tools = '''
 }
 
 .tool-call-header {
-    width: auto;
-    height: 1;
+    /* Full row width so a long header wraps instead of running off screen. */
+    width: 100%;
+    height: auto;
     padding: 0 0 0 $space-gutter;
     background: transparent;
     pointer: pointer;
@@ -329,8 +330,8 @@ tools = '''
 }
 
 .tool-call-label {
-    width: auto;
-    height: 1;
+    width: 1fr;
+    height: auto;
     color: #9aa7b2;
     background: transparent;
     overflow: hidden;
@@ -376,8 +377,9 @@ tools = '''
 }
 
 .bash-tool-header {
-    width: auto;
-    height: 1;
+    /* Full row width so a long header wraps instead of running off screen. */
+    width: 100%;
+    height: auto;
     padding: 0 0 0 $space-gutter;
     background: transparent;
     pointer: pointer;
@@ -394,8 +396,8 @@ tools = '''
 }
 
 .bash-tool-label {
-    width: auto;
-    height: 1;
+    width: 1fr;
+    height: auto;
     color: #9aa7b2;
     background: transparent;
     overflow: hidden;
@@ -472,6 +474,23 @@ tools = '''
 
 .tool-call-summary:hover,
 .tool-call-summary:focus {
+    background: transparent;
+    text-style: bold;
+}
+
+/* The header that folds the older rows of a long run of tool calls
+   ("Edited 8 files, Ran 3 commands"). Spaced and inset like a group row. */
+.run-fold {
+    width: 1fr;
+    height: auto;
+    margin: $space-block 0;
+    padding: 0 0 0 $space-gutter;
+    background: transparent;
+    pointer: pointer;
+}
+
+.run-fold:hover,
+.run-fold:focus {
     background: transparent;
     text-style: bold;
 }

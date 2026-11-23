@@ -33,7 +33,9 @@ from coding_agent.tui.tools.labels import (
     tool_label,
 )
 from coding_agent.tui.tools.modal import ToolCallModal
+from coding_agent.tui.tools.records import ToolCallRecord
 from coding_agent.tui.tools.code_view import code_view
+from coding_agent.tui.tools.kinds import is_exploring
 from coding_agent.tui.tools.snapshots import LIVE_STATUSES, ToolCallSnapshot
 from coding_agent.tui.transcript.messages import (
     SelectableStatic,
@@ -48,20 +50,29 @@ LIVE_OUTPUT_TAIL_LINES: Final = 6
 
 
 class BashToolHeader(Horizontal, can_focus=True):
-    """Focusable Bash timeline header that toggles its output."""
+    """Focusable card header. A click or Enter opens the card in place; a
+    double-click or ``o`` opens its full details."""
 
     class Toggle(Message):
-        pass
+        def __init__(self, *, full: bool = False, undo_first_click: bool = False) -> None:
+            self.full = full
+            # A double-click's first click already toggled the card in place.
+            self.undo_first_click = undo_first_click
+            super().__init__()
 
     def _on_click(self, event: events.Click) -> None:
         event.stop()
-        self.post_message(self.Toggle())
+        double = event.chain >= 2
+        self.post_message(self.Toggle(full=double, undo_first_click=double))
         self.app.call_after_refresh(return_composer_focus, self)
 
     def _on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:
             event.stop()
             self.post_message(self.Toggle())
+        elif event.key == "o":
+            event.stop()
+            self.post_message(self.Toggle(full=True))
 
 
 @dataclass(frozen=True)
@@ -110,10 +121,13 @@ def _count(value: Any) -> int | None:
 class ToolCallWidget(Collapsible):
     """A collapsible tool lifecycle card that updates as arguments/results arrive."""
 
-    # Cards (image preview, child transcript, Bash output, patch diff) stay
-    # mounted as their own transcript entry instead of becoming a row in an
-    # Explored group; either way the widget is mounted once and updated.
-    keep_in_transcript = False
+    # Exploring calls (reads, searches) fold into a counted group row; every
+    # other call keeps a one-line card of its own that expands in place. See
+    # ``kinds`` for the rule.
+    @property
+    def keep_in_transcript(self) -> bool:
+        return not is_exploring(self.tool_name)
+
     # Set by cards that resolve paths against the workspace (generate_image).
     workspace: Path | None = None
 
@@ -135,6 +149,9 @@ class ToolCallWidget(Collapsible):
         self.activity_group = ""
         self._body_dirty = True
         self._header_values: tuple[str, str, str] | None = None
+        # Cells in the painted header. The label sizes and wraps to its text, so
+        # a change in length needs a relayout; a status-only recolor does not.
+        self._header_cells = -1
         self._styled_status: str | None = None
         super().__init__(
             self._body,
@@ -162,7 +179,12 @@ class ToolCallWidget(Collapsible):
         event.stop()
         if self.status in LIVE_STATUSES:
             return
-        self.open_detail()
+        if event.undo_first_click:
+            self.collapsed = not self.collapsed
+        if event.full:
+            self.open_detail()
+            return
+        self.collapsed = not self.collapsed
 
     def open_detail(self) -> None:
         """Open a finished call in a card. Live calls stay in the transcript."""
@@ -278,8 +300,10 @@ class ToolCallWidget(Collapsible):
         values = (label, target, self.status)
         if values == self._header_values:
             return
-        self._tool_label.update(tool_header_text(label, target, self.status), layout=False)
+        header = tool_header_text(label, target, self.status)
+        self._tool_label.update(header, layout=header.cell_length != self._header_cells)
         self._header_values = values
+        self._header_cells = header.cell_length
 
     def _refresh_body(self) -> None:
         if self.collapsed or not self._body_dirty:
@@ -310,7 +334,35 @@ class ToolCallWidget(Collapsible):
             activity_reason=self.activity_reason,
             activity_group=self.activity_group,
             duration=self._duration,
+            path=str(self.arguments.get("path") or ""),
+            record=self.to_record() if self.status not in LIVE_STATUSES else None,
         )
+
+    def to_record(self) -> ToolCallRecord:
+        """This call as plain data, so a folded row can reopen its details."""
+        return ToolCallRecord(
+            call_id=self.call_id,
+            tool_name=self.tool_name,
+            arguments=dict(self.arguments),
+            raw_arguments=self.raw_arguments,
+            result=self.result,
+            status=self.status,
+            summary=self.summary,
+            exit_code=self.exit_code,
+            duration=self._duration,
+        )
+
+    def restore(self, record: ToolCallRecord) -> None:
+        """Put an unmounted card into a recorded call's final state."""
+        self.arguments = dict(record.arguments)
+        self.raw_arguments = record.raw_arguments
+        self.result = record.result
+        self.status = record.status
+        self.summary = record.summary
+        self.exit_code = record.exit_code
+        self._duration = record.duration
+        self._body_dirty = True
+        self.refresh_content()
 
 
 class ImageChipBody(Static):
@@ -434,8 +486,6 @@ class BashToolWidget(ToolCallWidget):
     of its streamed output; once finished, the collapsible command-and-result
     body. Output chunks and status changes only update text in place."""
 
-    keep_in_transcript = True
-
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._bash_label = Static(classes="bash-tool-label", markup=False)
         self._tail = Static(classes="bash-tool-tail", markup=False)
@@ -512,19 +562,20 @@ class BashToolWidget(ToolCallWidget):
         )
         values = ("Bash", target, f"{self.status} {facts}")
         if values != self._header_values:
-            # Facts widen the label once, at completion; tail updates stay layout-free.
-            self._bash_label.update(tool_header_text("Bash", target, self.status, facts), layout=bool(facts))
+            # The command streams in and facts arrive at completion: relayout only when
+            # the text length changes, so output-tail ticks stay layout-free.
+            header = tool_header_text("Bash", target, self.status, facts)
+            self._bash_label.update(header, layout=header.cell_length != self._header_cells)
             self._header_values = values
+            self._header_cells = header.cell_length
         self._refresh_status_class()
         self._refresh_tail()
         self._refresh_body()
 
 
 class PatchDiffWidget(ToolCallWidget):
-    """Patch card: an Update header with the path and diff stats, expanding to
-    the unified diff. Argument and status changes update it in place."""
-
-    keep_in_transcript = True
+    """Patch card: an Update header with the path and diff stats, expanding in
+    place to the unified diff. Argument and status changes update it in place."""
     MAX_DIFF_LINES = 80
 
     def _tool_title(self) -> tuple[str, str]:
@@ -543,7 +594,9 @@ class PatchDiffWidget(ToolCallWidget):
         summary = patch_summary(path, self._diff())
         if summary:
             return summary
-        return path or header_target(self.raw_arguments)
+        # Never the raw JSON: while old_str/new_str stream in before the path, the
+        # header is just "Update" until there is a path or a diff to show.
+        return path
 
     def __init__(self, call_id: str, tool_name: str) -> None:
         self._diff_key: tuple[str, str, str, int] | None = None
