@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
-from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from rich.align import Align
 from rich.console import Group
 from rich.segment import Segment
 from rich.style import Style
@@ -142,44 +139,6 @@ def preview_text(value: Any, limit: int = 180) -> str:
     """Trim an event value for a short notice message."""
     text = str(value)
     return text if len(text) <= limit else f"{text[:limit]}…"
-
-class Welcome(Static):
-    def __init__(self, workspace: Path) -> None:
-        config = workspace / ".symphony" / "dashboard.toml"
-        if not config.is_file():
-            config = workspace / "dashboard.toml"
-        settings: dict[str, Any] = {}
-        try:
-            with config.open("rb") as stream:
-                settings = tomllib.load(stream)
-        except (OSError, tomllib.TOMLDecodeError):
-            pass
-
-        art = settings.get("art", [
-            " ███████╗██╗   ██╗███╗   ███╗██████╗ ██╗  ██╗ ██████╗ ███╗   ██╗██╗   ██╗",
-            " ██╔════╝╚██╗ ██╔╝████╗ ████║██╔══██╗██║  ██║██╔═══██╗████╗  ██║╚██╗ ██╔╝",
-            " ███████╗ ╚████╔╝ ██╔████╔██║██████╔╝███████║██║   ██║██╔██╗ ██║ ╚████╔╝ ",
-            " ╚════██║  ╚██╔╝  ██║╚██╔╝██║██╔═══╝ ██╔══██║██║   ██║██║╚██╗██║  ╚██╔╝  ",
-            " ███████║   ██║   ██║ ╚═╝ ██║██║     ██║  ██║╚██████╔╝██║ ╚████║   ██║   ",
-            " ╚══════╝   ╚═╝   ╚═╝     ╚═╝╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ",
-        ])
-        if not isinstance(art, list) or not all(isinstance(line, str) for line in art):
-            art = []
-        rainbow = ("#ff5f5f", "#ffaf5f", "#ffff5f", "#5fff5f", "#5fffff", "#5fafff", "#af5fff")
-        logo_width = max((len(line) for line in art), default=1)
-        lines = []
-        for line in art:
-            colored_line = Text()
-            for index, character in enumerate(line):
-                if character != " ":
-                    color_index = round(index * (len(rainbow) - 1) / max(logo_width - 1, 1))
-                    colored_line.append(character, style=rainbow[color_index])
-                else:
-                    colored_line.append(character)
-            lines.append(colored_line)
-        lines.append(Text(str(workspace), style=SYMPHONY_COLORS["muted_dim"]))
-        body = Align.center(Group(*lines), vertical="middle")
-        super().__init__(body, classes="welcome")
 
 class UserMessage(SelectableStatic):
     """A user prompt with long pasted chunks and images hidden behind compact links."""

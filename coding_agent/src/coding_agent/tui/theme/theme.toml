@@ -103,8 +103,15 @@ Screen {
     height: 1fr;
     min-height: 10;
     margin: 0;
-    padding: 0 $space-inset-wide;
+    /* The card shares the composer's left and right edges. */
+    padding: 0;
     color: $muted;
+    /* Recent conversations are click targets. */
+    link-color: $foreground;
+    link-style: none;
+    link-color-hover: $accent;
+    link-background-hover: $panel-light;
+    link-style-hover: none;
 }
 
 .message {

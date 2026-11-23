@@ -2,6 +2,7 @@
 
 Each subcommand is imported only when chosen, so ``web``, ``stdio``, ``acp``,
 ``bench``, ``run``, ``skills``, ``plugins`` and ``themes`` never load Textual or ``coding_agent.tui``.
+``doctor`` loads the theme parser only when ``~/.symphony/theme.toml`` exists.
 """
 
 from __future__ import annotations
@@ -27,6 +28,10 @@ def main() -> None:
         from coding_agent.updates import update_main
 
         raise SystemExit(update_main(sys.argv[2:]))
+    if command == "doctor":
+        from coding_agent.doctor import main as doctor_main
+
+        raise SystemExit(doctor_main(sys.argv[2:]))
     if command == "web":
         from coding_agent.web.server import main as web_main
 

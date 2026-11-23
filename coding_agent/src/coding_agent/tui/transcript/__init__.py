@@ -5,7 +5,6 @@ from coding_agent.tui.transcript.messages import (
     Notice,
     RunSummary,
     UserMessage,
-    Welcome,
     clip_text,
     compact_json,
     preview_text,
@@ -17,6 +16,7 @@ from coding_agent.tui.transcript.process import (
     ThinkingStatus,
 )
 from coding_agent.tui.transcript.surface import TranscriptScroll, TranscriptSurface
+from coding_agent.tui.transcript.welcome import Welcome
 
 __all__ = [
     "AssistantMessage",

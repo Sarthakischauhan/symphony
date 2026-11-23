@@ -69,6 +69,28 @@ symphony themes list
 symphony themes use NAME|default
 ```
 
+## `symphony doctor`
+
+Check the Symphony install and repair what can be repaired. It never loads plugin, skill or addon code.
+
+```sh
+symphony doctor [--fix | --check] [--offline] [--workspace PATH]
+```
+
+It reports one line per check: ✓ fine, · worth knowing, ! warning, ✗ broken. In a terminal it then offers to apply every available fix. Without a terminal it only reports, and `--fix` applies the fixes without asking. `--check` only reports. `--offline` skips the PyPI update check. Exit code 1 means something is still broken.
+
+| Check | What a fix does |
+| --- | --- |
+| Install | Offers the newer PyPI release with `uv tool install` (the same step as `symphony update`); names TLS certificate failures |
+| Home | Creates `~/.symphony` (or `SYMPHONY_HOME`) when it is missing |
+| Config | Renames a `config.json` that does not load to `config.json.broken-<time>` and writes defaults; resets a theme no enabled plugin provides |
+| Theme | Renames a `~/.symphony/theme.toml` that does not load, so the built-in theme applies |
+| Sign-in | Renames an unreadable OAuth token; an expired one that cannot refresh asks you to run `/login` |
+| Secrets | Restricts `~/.symphony/.env` and OAuth tokens to your user (`chmod 600`) |
+| Sessions | Removes records left by crashed sessions and unfinished writes older than an hour, tidies unused lock files once they pile up, and moves a legacy `<workspace>/.sessions` into the home |
+
+It also reports, without changing anything, the Python version, configured providers, skill and plugin problems, whether `git` and `ripgrep` are on `PATH`, and terminal color support. A replaced file is renamed, never deleted.
+
 ## Other commands
 
 ### `symphony bench`
