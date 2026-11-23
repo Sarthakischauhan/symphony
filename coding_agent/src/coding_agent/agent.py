@@ -368,6 +368,7 @@ class CodingAgent:
         label: str = "",
         model_id: Optional[str] = None,
         max_turns: Optional[int] = None,
+        profile: str = "",
         **_: Any,
     ) -> ChildConfig:
         """Children share the parent sink and skip ApprovalAddon (deny-only fork when unattended).
@@ -378,10 +379,27 @@ class CodingAgent:
         """
         del prompt, label
         turns = max(1, int(max_turns)) if max_turns else None
-        requested = str(model_id).strip() if model_id else ""
+        child_profile = load_agent_profile(self.workspace, profile) if profile else None
+        requested = str(model_id or (child_profile.model if child_profile else "")).strip()
         mid = _bounded_child_model(self.model_id, requested)
+        provider = getattr(self.registry, "_providers", {}).get((mid or self.model_id).partition(":")[0])
+        is_subscription = getattr(provider, "_uses_codex_responses", None)
+        if callable(is_subscription) and is_subscription() and mid and mid != self.model_id and not requested:
+            raise ValueError(f"Cannot verify that {mid} is available on this ChatGPT subscription. Select a supported child model in an agent profile; no higher-cost fallback was used.")
+        selected_provider = (mid or self.model_id).partition(":")[0]
+        namespaces = getattr(self.registry, "namespaces", lambda: ())()
+        if namespaces and selected_provider not in namespaces:
+            raise ValueError(f"Child provider {selected_provider!r} is not configured; no fallback was used.")
+        if child_profile and requested and (mid or self.model_id) != requested:
+            raise ValueError(f"Child model {requested} is not permitted by the cheaper-model policy; choose {mid or self.model_id} or omit the model.")
+        if child_profile and child_profile.tools is not None:
+            unavailable = set(child_profile.tools) - (set(self.harness.tools) - {"spawn_agent", "message_agent"})
+            if unavailable:
+                raise ValueError(f"child profile requests unavailable tools: {', '.join(sorted(unavailable))}")
         return ChildConfig(
             model_id=mid or None,
+            system_prompt=(self.config.harness.subagent_system_prompt + "\n\n" + child_profile.instructions) if child_profile and child_profile.instructions else None,
+            tool_names=child_profile.tools if child_profile else None,
             max_turns=turns,
             sink=self.sink,
             # addon_factory replaces fork_for_child. Omit learning (and Jev):

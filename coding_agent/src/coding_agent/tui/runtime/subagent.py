@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from rich.text import Text
 from textual.binding import Binding
-from textual.widgets import Static, OptionList
+from textual.widgets import Static, OptionList, Input
 from textual.widgets.option_list import Option
 
 from coding_agent.addons.persistence.collection import is_collected
@@ -185,7 +185,8 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         yield TopBar(id="topbar", background_tasks=self._background_tasks)
         yield Static(id="child-heading", markup=False)
         yield TranscriptScroll(id="transcript")
-        yield Static("Viewing child transcript · Esc back · Ctrl+X stop child", id="child-back")
+        yield Input(placeholder="Message or continue this child", id="child-message")
+        yield Static("Enter sends · Esc back · Ctrl+X stop child", id="child-back")
         yield Static(id="status")
 
     def on_mount(self) -> None:
@@ -197,6 +198,7 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         self._mount_transcript(UserMessage(self.record.prompt or "Child task"))
         self._ready = True
         self.refresh_record()
+        self.set_interval(1, self.refresh_record)
 
     def add_update(self, text: str, hint: str = "") -> None:
         """The child transcript has no composer banner, so banners and toasts are dropped."""
@@ -222,6 +224,22 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
             self._ui_state, hint="esc back", workspace=display_workspace_path(self.workspace),
         ), layout=False)
 
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        message = event.value.strip()
+        if not message:
+            return
+        agent = self.app._agent
+        tool = agent.harness.tools.get("message_agent") if agent else None
+        if tool is None:
+            self.add_notice("Child messaging unavailable.", "error")
+            return
+        result = await tool.execute(sink=agent.sink, args={"child_id": self.child_id, "message": message})
+        self.add_notice(str(result))
+        if not str(result).startswith("error:"):
+            self._mount_transcript(UserMessage(message))
+            event.input.value = ""
+
     async def action_stop_child(self) -> None:
         await self.app.cancel_subagent(self.child_id)
 
@@ -236,8 +254,16 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
             label=record.label,
         )
 
+        runtime = None
+        agent = self.app._agent
+        if agent is not None:
+            runtime = agent.harness.child_tasks.get(record.agent_id)
+        status = runtime.snapshot() if runtime is not None else {}
+        detail = f" · {status.get('elapsed_seconds', 0)}s · {status.get('current_tool') or 'idle'}" if status else ""
+        if status.get("stalled"):
+            detail += " · no output for 120s"
         self.query_one("#child-heading", Static).update(
-            f"{record.label} · {record.status} · {record.model_id}\n"
+            f"{record.label} · {record.status} · {record.model_id}{detail}\n"
             f"child {record.agent_id[:8]} ← parent {record.parent_id[:8]}"
         )
         for event_type, payload in record.events[self._event_cursor:]:

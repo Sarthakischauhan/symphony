@@ -8,7 +8,7 @@ coding_agent enables background execution. The model can override it per call.
 The harness owns each background task, its result, and shutdown. Children use
 independent harness/session instances; the maximum number of active background
 children is `max_parallel_tool_calls`. Waiting and result delivery are runtime
-operations, not additional model tools. Hosts must await
+operations. `message_agent` lists children (empty child ID), queues input to a running child, or continues a completed child with its prior conversation. Reuse is in-process only; cancelled and failed children cannot be continued. Hosts must await
 `harness.shutdown_children()` on shutdown.
 
 Completed child results enter an inbox drained before the parent's next model

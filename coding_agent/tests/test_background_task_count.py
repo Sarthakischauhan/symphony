@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 from coding_agent.tui.app import CodingAgentApp
 from coding_agent.tui.chrome import TopBar, running_background_tasks
-from coding_agent.tui.screens.dashboard import AgentDashboard
+from coding_agent.tui.screens.dashboard import AgentDashboard, JobLogScreen
+from textual.widgets import TextArea
 from rich.cells import cell_len
 from core_harness.addons.subagent.background import ChildTask
 from test_new_session_chrome import bars
@@ -73,7 +74,12 @@ def test_click_background_task_opens_dashboard(tmp_path: Path, monkeypatch) -> N
             task = asyncio.create_task(asyncio.sleep(60))
             record = _record("job12345", "background", task)
             record.label = "bash:pytest -q"
-            app._agent = SimpleNamespace(harness=SimpleNamespace(child_tasks={record.child_id: record}))
+            log = tmp_path / "job.log"
+            log.write_text("Server listening on port 8765\n")
+            app._agent = SimpleNamespace(
+                harness=SimpleNamespace(child_tasks={record.child_id: record}),
+                bash_jobs=SimpleNamespace(logs={record.child_id: log}),
+            )
             topbar = app.query_one("#topbar", TopBar)
             topbar.set_context(tmp_path, "openai:gpt-test")
             topbar._refresh_background_tasks()
@@ -84,6 +90,19 @@ def test_click_background_task_opens_dashboard(tmp_path: Path, monkeypatch) -> N
             assert isinstance(app.screen, AgentDashboard)
             options = app.screen.query_one("#agent-dashboard")
             assert "pytest -q" in options.get_option_at_index(0).prompt.plain
+            assert "Server listening on port 8765" in options.get_option_at_index(0).prompt.plain
+            log.write_text("Request received\n")
+            app.screen.refresh_agents()
+            assert "Request received" in options.get_option_at_index(0).prompt.plain
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, JobLogScreen)
+            assert "Request received" in app.screen.query_one(TextArea).text
+            log.write_text("Another request\n")
+            app.screen.refresh_log()
+            assert "Another request" in app.screen.query_one(TextArea).text
+            await pilot.press("escape")
+            assert isinstance(app.screen, AgentDashboard)
             app._busy = True
             await pilot.press("escape")
             assert not isinstance(app.screen, AgentDashboard)
@@ -92,5 +111,26 @@ def test_click_background_task_opens_dashboard(tmp_path: Path, monkeypatch) -> N
             app._agent = None
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+
+
+def test_dashboard_opens_subagent(tmp_path: Path, monkeypatch) -> None:
+    from coding_agent.tui.runtime.subagent import SubagentRecord, SubagentScreen
+
+    monkeypatch.setattr("coding_agent.tui.screens.dashboard.list_active", lambda: [])
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 25)) as pilot:
+            child = _record("child", "running", None)
+            app._agent = SimpleNamespace(harness=SimpleNamespace(child_tasks={"child": child}), bash_jobs=None)
+            app._subagents["child"] = SubagentRecord(agent_id="child", parent_id="parent", label="Review", prompt="Review")
+            app.action_dashboard()
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, SubagentScreen)
+            app._agent = None
 
     asyncio.run(run())

@@ -10,6 +10,7 @@ from textual.app import App
 from coding_agent.addons.persistence.active import ActiveSession
 from coding_agent.resources.usage import AgentUsage
 from coding_agent.tui.screens.dashboard import AgentDashboard
+from core_harness.addons.subagent.background import ChildTask
 
 
 class Host(App[None]):
@@ -62,9 +63,9 @@ def test_dashboard_lists_only_live_background_tasks(monkeypatch) -> None:
         finished = asyncio.create_task(asyncio.sleep(0))
         await finished
         harness = SimpleNamespace(child_tasks={
-            "job": SimpleNamespace(status="background", task=running, label="bash:pytest -q", child_id="job12345"),
-            "agent": SimpleNamespace(status="running", task=None, label="review", child_id="agent123"),
-            "done": SimpleNamespace(status="background", task=finished, label="bash:done", child_id="done1234"),
+            "job": ChildTask("job12345", "parent", "session", "bash:pytest -q", status="background", task=running),
+            "agent": ChildTask("agent123", "parent", "session", "review"),
+            "done": ChildTask("done1234", "parent", "session", "bash:done", status="background", task=finished),
         })
         app = Host()
         try:

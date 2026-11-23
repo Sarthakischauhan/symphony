@@ -25,6 +25,8 @@ class ChildConfig:
     sink: Optional[EventSink] = None
     addons: Optional[Sequence[Addon]] = None
     addon_factory: Optional[Callable[[CoreHarness], Sequence[Addon]]] = None
+    system_prompt: Optional[str] = None
+    tool_names: Optional[Sequence[str]] = None
 
     def merge(self, override: ChildConfig) -> ChildConfig:
         """Fill empty fields from ``override``; keep this instance's values otherwise."""
@@ -35,6 +37,8 @@ class ChildConfig:
                 override.max_turns if override.max_turns is not None else self.max_turns
             ),
             sink=override.sink or self.sink,
+            system_prompt=override.system_prompt or self.system_prompt,
+            tool_names=override.tool_names if override.tool_names is not None else self.tool_names,
             addons=override.addons if override.addons is not None else self.addons,
             addon_factory=(
                 override.addon_factory
@@ -73,7 +77,7 @@ class SubagentAddon(Addon):
     def __init__(
         self,
         *,
-        exclude_tools: Sequence[str] = ("spawn_agent",),
+        exclude_tools: Sequence[str] = ("spawn_agent", "message_agent"),
         max_turns: Optional[int] = None,
         configure: Optional[Callable[..., Optional[ChildConfig]]] = None,
         background: bool = False,
@@ -85,6 +89,29 @@ class SubagentAddon(Addon):
 
     def attach(self, harness: Any) -> None:
         harness.register_tool(self.make_spawn_tool(harness))
+        if self.background:
+            harness.register_tool(self.make_message_tool(harness))
+
+    def make_message_tool(self, harness: Any) -> Tool:
+        async def message_agent(child_id: str, message: str = "") -> str:
+            if not child_id:
+                return json.dumps([record.snapshot() for record in harness.child_tasks.values()])
+            from core_harness.addons.subagent.background import continue_child
+            from core_harness.ops import UserInput
+
+            record = harness.child_tasks.get(child_id)
+            if record is None:
+                return "error: unknown child"
+            if not message.strip():
+                return "error: message cannot be empty"
+            if record.task is not None and not record.task.done():
+                return "Message queued" if record.child.submit(UserInput(message)) else "error: child is not accepting input"
+            if record.status != "completed":
+                return f"error: cannot continue child with status {record.status}"
+            await continue_child(harness, record, message)
+            return "Child continued"
+
+        return Tool(message_agent, name="message_agent", description="Send guidance to a running child, or continue a completed child with a follow-up task. Pass an empty child_id to list children and their status. Do not poll: results arrive automatically.", parameters={"type": "object", "properties": {"child_id": {"type": "string"}, "message": {"type": "string"}}, "required": ["child_id"], "additionalProperties": False})
 
     def fork_for_child(self, parent_harness: Any) -> None:
         del parent_harness
@@ -139,7 +166,7 @@ class SubagentAddon(Addon):
         return CoreHarness(
             registry=parent.registry,
             model_id=model_id or parent.model_id,
-            system_prompt=system_prompt or parent.config.subagent_system_prompt,
+            system_prompt=system_prompt or child_config.system_prompt or parent.config.subagent_system_prompt,
             config=parent.config.model_copy(
                 update={
                     "max_turns": child_turns,
@@ -149,9 +176,8 @@ class SubagentAddon(Addon):
                 }
             ),
             reasoning_effort=parent.reasoning_effort,
-            tools=self.child_tools(
-                parent, tools=tools, exclude_tools=exclude_tools
-            ),
+            tools=[tool for tool in self.child_tools(parent, tools=tools, exclude_tools=exclude_tools)
+                   if child_config.tool_names is None or tool.name in child_config.tool_names],
             sink=identity.sink,
             session_id=identity.agent_id,
             addons=self.child_addons(parent, child_config),
@@ -226,17 +252,21 @@ class SubagentAddon(Addon):
             model_id: str = "",
             max_turns: int = 0,
             background: bool = default_background,
+            profile: str = "",
         ) -> str:
             child_config = ChildConfig(
                 model_id=model_id or None,
                 max_turns=max_turns or None,
             )
+            if profile and configure is None:
+                return "error: named child profiles are not supported by this host"
             if configure is not None:
                 override = configure(
                     prompt=prompt,
                     label=label,
                     model_id=model_id or None,
                     max_turns=max_turns or None,
+                    **({"profile": profile} if profile else {}),
                 )
                 if override is not None:
                     child_config = child_config.merge(override)
@@ -261,7 +291,7 @@ class SubagentAddon(Addon):
             description=(
                 "Delegate one well-scoped subtask to a child agent. Give the child the "
                 "full task in prompt. A background call returns a child_id immediately "
-                "and its result arrives later; do not poll. "
+                "and its result arrives later; do not poll. Use profile for a named role when the host supports it. "
                 f"Background defaults to {default_background}. "
                 "Leave model_id empty: the child runs on a cheaper model than you. "
                 "Do not set it to your own model or a larger one. "
@@ -270,6 +300,7 @@ class SubagentAddon(Addon):
             parameters={
                 "type": "object",
                 "properties": {
+                    "profile": {"type": "string", "description": "Optional named child profile, if supported by the host."},
                     "background": {
                         "type": "boolean",
                         "description": "Return immediately with a child ID. False waits for completion.",

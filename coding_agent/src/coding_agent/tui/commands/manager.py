@@ -393,13 +393,12 @@ async def show_context(app: CodingAgentApp) -> None:
         return
     report = await app._agent.context_report()
     agent = app._agent
-    catalog = getattr(getattr(agent, "skills", None), "catalog", None)
-    skills_enabled = getattr(getattr(getattr(agent, "config", None), "skills", None), "enabled", True)
-    skills = tuple(entry.skill.name for entry in catalog.entries if entry.line) if catalog and skills_enabled else ()
-    skill_tokens = catalog.tokens if catalog and skills_enabled else 0
-    plugins = tuple(plugin.name for plugin in getattr(getattr(agent, "plugins", None), "plugins", ()) if plugin.enabled)
-    schema_source = getattr(agent.harness, "tool_schemas", None)
-    schemas = schema_source() if callable(schema_source) else []
+    catalog = agent.skills.catalog
+    skills_enabled = agent.config.skills.enabled
+    skills = tuple(entry.skill.name for entry in catalog.entries if entry.line) if skills_enabled else ()
+    skill_tokens = catalog.tokens if skills_enabled else 0
+    plugins = tuple(plugin.name for plugin in agent.plugins.plugins if plugin.enabled)
+    schemas = agent.harness.tool_schemas()
     tool_tokens = estimate_text_tokens(json.dumps(schemas, ensure_ascii=False)) if schemas else 0
     app.push_screen(ContextModal(report, skills=skills, skill_tokens=skill_tokens, plugins=plugins,
                                  tool_tokens=tool_tokens, tool_count=len(schemas)))

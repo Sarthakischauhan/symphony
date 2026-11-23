@@ -81,6 +81,7 @@ class CoreHarness:
         self._event_seq = 0
         self.child_tasks: Dict[str, Any] = {}
         self._child_results: List[Message] = []
+        self._child_result_ready = asyncio.Event()
         # Inbound side of a run: see ``submit``.
         self._run_task: Optional[asyncio.Task[Any]] = None
         self._interrupt_reason: Optional[str] = None
@@ -233,13 +234,14 @@ class CoreHarness:
         *,
         identity: ChildIdentity,
         announce: bool = True,
+        conversation: Optional[List[Message]] = None,
     ) -> HarnessResult:
         """Emit lifecycle events and await ``child.run``."""
         if announce:
             await self.announce_child(child, identity)
         child._last_run_status = "running"
         try:
-            result = await child.run(prompt)
+            result = await child.run(prompt, conversation=conversation)
         except asyncio.CancelledError:
             child._last_run_status = "cancelled"
             await self.emit("agent_failed", {
@@ -287,6 +289,7 @@ class CoreHarness:
 
     def drain_child_results(self) -> List[Message]:
         results, self._child_results = self._child_results, []
+        self._child_result_ready.clear()
         return results
 
     async def shutdown_children(self) -> None:

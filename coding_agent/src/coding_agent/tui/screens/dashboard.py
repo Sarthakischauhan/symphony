@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from rich.text import Text
-from textual.widgets import OptionList
+from textual.widgets import OptionList, TextArea
 from textual.widgets.option_list import Option
 
 from coding_agent.addons.persistence.active import ActiveSession, list_active
@@ -38,9 +38,10 @@ class AgentDashboard(ModalBase[None]):
     #agent-dashboard { width: 90%; height: 70%; border: round #484F58; background: #0A0A0A; }
     """
 
-    def __init__(self, harness: Harness | None = None) -> None:
+    def __init__(self, harness: Harness | None = None, jobs=None) -> None:
         super().__init__()
         self.harness = harness
+        self.jobs = jobs
         self._samples: dict[int, _Sample] = {}
 
     def compose(self):  # type: ignore[no-untyped-def]
@@ -71,12 +72,38 @@ class AgentDashboard(ModalBase[None]):
                 label = record.label.removeprefix("bash:") if kind == "job" else record.label
                 row = Text(f"{kind:8} running  ", style="#d7a84b")
                 row.append(f"{_clip(label, 70)} · {record.child_id[:8]}")
-                options.add_option(Option(row, id=f"task:{record.child_id}", disabled=True))
+                if kind == "subagent":
+                    activity = record.current_tool or "thinking"
+                    row.append(f"\n         {activity}", style="#a2adb8")
+                elif self.jobs is not None and record.child_id in self.jobs.logs:
+                    from coding_agent.tools.bash_jobs import log_tail
+
+                    try:
+                        output = log_tail(self.jobs.logs[record.child_id], 1024).strip()
+                    except OSError:
+                        output = ""
+                    row.append(f"\n         {_clip(output, 160) if output else 'No output yet'}", style="#a2adb8")
+                options.add_option(Option(row, id=f"task:{record.child_id}"))
                 task_count += 1
         if not records and not task_count:
             options.add_option(Option("No agents are running.", disabled=True))
-        elif records:
-            options.highlighted = min(highlighted or 0, len(records) - 1)
+        else:
+            options.highlighted = min(highlighted or 0, options.option_count - 1)
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        option_id = event.option.id or ""
+        if not option_id.startswith("task:") or self.harness is None:
+            return
+        child_id = option_id.removeprefix("task:")
+        record = self.harness.child_tasks.get(child_id)
+        if record is None:
+            return
+        if self.jobs is not None and child_id in self.jobs.logs:
+            self.app.push_screen(JobLogScreen(record.label.removeprefix("bash:"), self.jobs.logs[child_id]))
+        else:
+            child = self.app._subagents.get(child_id)
+            if child is not None:
+                self.app.open_subagent(child)
 
     def _row(self, record: ActiveSession) -> Text:
         previous = self._samples.get(record.pid, _Sample())
@@ -94,6 +121,40 @@ class AgentDashboard(ModalBase[None]):
         content.append(f"{_clip(record.model_id or 'model unset', 24):<24}", style="#737373")
         content.append(f"  {usage.line()}", style="#a2adb8")
         return content
+
+
+class JobLogScreen(ModalBase[None]):
+    """Scrollable, bounded live output for a background command."""
+
+    CSS = """
+    JobLogScreen { align: center middle; background: #000000 60%; }
+    #job-log { width: 90%; height: 70%; border: round #484F58; background: #0A0A0A; }
+    """
+
+    def __init__(self, command, path) -> None:
+        super().__init__()
+        self.command = command
+        self.path = path
+
+    def compose(self):
+        yield TextArea(read_only=True, id="job-log")
+
+    def on_mount(self) -> None:
+        self.query_one(TextArea).border_title = f"{_clip(self.command, 80)} · Esc back"
+        self.refresh_log()
+        self.set_interval(1, self.refresh_log)
+        self.query_one(TextArea).focus()
+
+    def refresh_log(self) -> None:
+        from coding_agent.tools.bash_jobs import log_tail
+
+        try:
+            output = log_tail(self.path, 65536)
+        except OSError as exc:
+            output = f"Unable to read log: {exc}"
+        area = self.query_one(TextArea)
+        if area.text != output:
+            area.load_text(output)
 
 
 def _workspace_name(workspace: str) -> str:

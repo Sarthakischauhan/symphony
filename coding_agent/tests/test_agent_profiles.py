@@ -42,6 +42,33 @@ def test_profile_filters_tools_and_adds_instructions(tmp_path: Path):
     agent.dispose_user_addons()
 
 
+def test_child_profile_cannot_expand_parent_tools(tmp_path: Path):
+    directory = tmp_path / ".symphony" / "agents"
+    directory.mkdir(parents=True)
+    (directory / "reviewer.yaml").write_text("instructions: Review carefully\ntools: [read_file]\n")
+    agent = CodingAgent(registry=ModelRegistry(), model_id="test:model", workspace=tmp_path)
+    config = agent._spawn_child_config(profile="reviewer")
+    assert config.tool_names == ("read_file",)
+    assert "Review carefully" in config.system_prompt
+    (directory / "reviewer.yaml").write_text("tools: [not_available]\n")
+    with pytest.raises(ValueError, match="unavailable tools"):
+        agent._spawn_child_config(profile="reviewer")
+    agent.dispose_user_addons()
+
+
+def test_subscription_does_not_assume_cheapest_model_is_supported(tmp_path: Path):
+    class Subscription:
+        def _uses_codex_responses(self):
+            return True
+
+    registry = ModelRegistry()
+    registry.register("openai", Subscription())
+    agent = CodingAgent(registry=registry, model_id="openai:gpt-5.6-luna", workspace=tmp_path)
+    with pytest.raises(ValueError, match="Cannot verify.*ChatGPT subscription"):
+        agent._spawn_child_config()
+    agent.dispose_user_addons()
+
+
 def test_unknown_profile_tool_fails(tmp_path: Path):
     with pytest.raises(ValueError, match="unknown profile tools: missing"):
         CodingAgent(registry=ModelRegistry(), model_id="test:model", workspace=tmp_path,

@@ -42,6 +42,36 @@ def test_clicking_subagent_opens_only_child_screen(monkeypatch, tmp_path: Path) 
     asyncio.run(run())
 
 
+def test_child_screen_routes_message(monkeypatch, tmp_path: Path) -> None:
+    from textual.widgets import Input
+    from core_harness import Tool
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = CodingAgentApp(workspace=tmp_path)
+    received = []
+
+    async def message_agent(child_id, message):
+        received.append((child_id, message))
+        return "Message queued"
+
+    async def run():
+        async with app.run_test(size=(120, 40)) as pilot:
+            app._agent = SimpleNamespace(harness=SimpleNamespace(tools={"message_agent": Tool(message_agent)}, child_tasks={}), sink=None)
+            record = SubagentRecord(agent_id="child", parent_id="parent", label="Inspector", prompt="Inspect")
+            app._subagents["child"] = record
+            app.open_subagent(record)
+            await pilot.pause()
+            field = app.screen.query_one("#child-message", Input)
+            field.value = "Focus on tests"
+            field.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert received == [("child", "Focus on tests")]
+            assert field.value == ""
+            app._agent = None
+    asyncio.run(run())
+
+
 def test_child_tool_argument_snapshots_replace_streamed_json() -> None:
     record = SubagentRecord(agent_id="child", parent_id="parent", label="Inspector", prompt="Inspect")
     call = {"tool_call_id": "read-1", "tool_name": "read_file"}

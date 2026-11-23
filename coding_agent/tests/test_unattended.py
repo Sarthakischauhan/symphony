@@ -68,7 +68,11 @@ def test_unattended_run_never_prompts_and_denies_in_parent_and_child(tmp_path: P
         sink=sink,
         config=_config(unattended=True),
     )
-    asyncio.run(agent.run("PARENT"))
+    async def run_parent_and_child() -> None:
+        await agent.run("PARENT")
+        await asyncio.gather(*(record.task for record in agent.harness.child_tasks.values() if record.task))
+
+    asyncio.run(run_parent_and_child())
 
     assert sink.questions == []
     types = [event.event_type for event in sink.events]
