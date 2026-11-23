@@ -3302,10 +3302,13 @@ def test_slash_menu_and_commands(
                 child_tasks={},
                 shutdown_children=_no_children,
                 drain_child_results=list,
+                tool_schemas=list,
             )
             self.learning_loop = None
             self.compacted = False
-            self.config = SimpleNamespace(personality="direct")
+            self.skills = SimpleNamespace(catalog=SimpleNamespace(entries=[], tokens=0))
+            self.plugins = SimpleNamespace(plugins=[])
+            self.config = SimpleNamespace(personality="direct", skills=SimpleNamespace(enabled=True))
             self.user_addons = no_user_addons()
 
         def apply_system_prompt(self) -> None:
