@@ -492,6 +492,16 @@ def test_tool_widget_only_treats_error_prefix_as_failed() -> None:
     assert widget.status == "failed"
 
 
+def test_ask_user_structured_validation() -> None:
+    from coding_agent.tools.ask_user import AskUserArgs
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="unique"):
+        AskUserArgs(questions=[{"id": "same", "question": "A?"}, {"id": "same", "question": "B?"}])
+    with pytest.raises(ValidationError, match="either"):
+        AskUserArgs(question="A?", questions=[{"id": "a", "question": "A?"}])
+
+
 def test_ask_user_without_an_answer_fails_the_call(tmp_path: Path) -> None:
     async def ask(tool: AskUserTool, **args: object) -> str:
         return await tool.execute(sink=None, args={"question": "Which db?", "activity": {"verb": "Asking", "reason": "Need a choice"}, **args})

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 
 from core_harness.events import EventSink
 from core_harness.tools import current_tool_call_id
-from pydantic import Field
+from pydantic import BaseModel, Field, model_validator
 
 from coding_agent.tools.base import ToolArgsModel, WorkspaceTool
 
@@ -20,10 +21,40 @@ class AskUserFailed(RuntimeError):
     """
 
 
+class QuestionOption(BaseModel):
+    label: str = Field(..., min_length=1)
+    description: str = ""
+    preview: str = Field(default="", description="Optional plain-text or Markdown visual preview.")
+
+
+class Question(BaseModel):
+    id: str = Field(..., min_length=1, description="Unique identifier used to map the answer.")
+    header: str = Field(default="", description="Short question label.")
+    question: str = Field(..., min_length=1)
+    options: list[QuestionOption] = Field(default_factory=list, max_length=4)
+    multi_select: bool = Field(default=False, description="Allow multiple selections.")
+
+
 class AskUserArgs(ToolArgsModel):
-    question: str = Field(..., min_length=1, description="Clarifying question to show the user.")
+    question: str = Field(default="", description="Single question (legacy form).")
+    questions: list[Question] = Field(default_factory=list, max_length=4, description="Up to four independent questions.")
     choices: list[str] = Field(default_factory=list, description="Optional preset answers to present.")
     default: str = Field(default="", description="Optional suggested answer.")
+
+    @model_validator(mode="after")
+    def validate_questions(self) -> "AskUserArgs":
+        if bool(self.question.strip()) == bool(self.questions):
+            raise ValueError("provide either question or questions")
+        ids = [item.id for item in self.questions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("question ids must be unique")
+        for item in self.questions:
+            if not item.id.strip() or not item.question.strip():
+                raise ValueError("question ids and text must not be blank")
+            labels = [option.label for option in item.options]
+            if any(not label.strip() for label in labels) or len(labels) != len(set(labels)):
+                raise ValueError("option labels must be non-blank and unique")
+        return self
 
 
 class AskUserTool(WorkspaceTool):
@@ -32,8 +63,10 @@ class AskUserTool(WorkspaceTool):
         "Ask the user one concise question when the task is blocked on a decision "
         "only they can make. Do not ask for facts you can look up in the repo, "
         "with search, or with web_search. Offer choices when there are a few real "
-        "options, and set default when one is sensible. In an unattended run nobody "
-        "answers; you get the default and choices back and must pick and continue."
+        "options, and set default when one is sensible. For multiple independent decisions, "
+        "use questions with IDs, described options and optional multi_select; users may "
+        "also type a custom answer. In an unattended run nobody answers; use the "
+        "provided context to pick and continue."
     )
     args_model = AskUserArgs
 
@@ -43,11 +76,42 @@ class AskUserTool(WorkspaceTool):
 
     async def run(
         self,
-        question: str,
+        question: str = "",
         choices: list[str] | None = None,
         default: str = "",
         sink: EventSink | None = None,
+        questions: list[dict] | None = None,
     ) -> str:
+        if questions:
+            if self.unattended:
+                raise AskUserFailed(f"{NO_HUMAN_ANSWER}\nquestions: {json.dumps(questions)}")
+            if sink is None:
+                raise AskUserFailed("interactive user questions require an interactive control plane")
+            answers = {}
+            for index, item in enumerate(questions, 1):
+                options = item.get("options") or []
+                labels = [option["label"] for option in options]
+                call_id = current_tool_call_id.get()
+                metadata = {"tool_call_id": call_id} if call_id else {}
+                metadata["question_options"] = options
+                metadata["multi_select"] = item.get("multi_select", False)
+                metadata["question_header"] = item.get("header", "")
+                metadata["question_index"] = index
+                metadata["question_count"] = len(questions)
+                answer = await sink.interaction.request_user_input(
+                    question=item["question"], choices=labels, metadata=metadata,
+                )
+                if item.get("multi_select"):
+                    try:
+                        selected = json.loads(answer)
+                    except (ValueError, TypeError):
+                        selected = None
+                    answers[item["id"]] = selected if isinstance(selected, list) and all(
+                        isinstance(value, str) for value in selected
+                    ) else [answer] if answer else []
+                else:
+                    answers[item["id"]] = answer
+            return json.dumps({"answers": answers}, ensure_ascii=False)
         question = question.strip()
         if not question:
             raise AskUserFailed("question must be a non-empty string")
@@ -66,7 +130,7 @@ class AskUserTool(WorkspaceTool):
         call_id = current_tool_call_id.get()
         answer = await sink.interaction.request_user_input(
             question=question,
-            choices=list(choices),
+            choices=list(choices or []),
             default=default,
             metadata={"tool_call_id": call_id} if call_id else None,
         )

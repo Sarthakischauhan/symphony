@@ -68,12 +68,40 @@ class PromptInput(TextArea):
 
     def on_key(self, event: events.Key) -> None:
         """Submit on Enter; preserve Shift+Enter for inserting a newline."""
+        from coding_agent.tui.composer.slash_menu import SlashMenu
+
+        menu = self.app.query_one("#slash-menu", SlashMenu)
+        pending = self.app._pending_question_id is not None
+        if pending and menu.display and menu._multi_select and event.key == "space" and not self.value:
+            choice = menu.selected_value
+            if choice in menu._selected_questions:
+                menu._selected_questions.remove(choice)
+            elif choice:
+                menu._selected_questions.add(choice)
+            menu._render_options()
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "shift+enter":
             self.insert("\n")
             event.prevent_default()
             event.stop()
             return
         if event.key != "enter":
+            return
+        if pending and menu.display and self.value.strip():
+            self.action_submit()
+            event.prevent_default()
+            event.stop()
+            return
+        if pending and menu.display and menu._multi_select:
+            import json
+
+            answer = json.dumps([choice for choice in menu._questions if choice in menu._selected_questions], ensure_ascii=False) if menu._selected_questions else ""
+            if answer:
+                self.app.call_later(self.app._answer_question, answer)
+            event.prevent_default()
+            event.stop()
             return
         # Voice mode is listening. Enter commits the utterance; it must not
         # submit the partial transcript as a typed turn.
@@ -84,8 +112,6 @@ class PromptInput(TextArea):
             event.prevent_default()
             event.stop()
             return
-        from coding_agent.tui.composer.slash_menu import SlashMenu
-
         approval_menu = self.app.query_one("#approval-menu", SlashMenu)
         if approval_menu.display and approval_menu.selected_value:
             self.app._choose_menu_option(approval_menu, submit=True)

@@ -256,7 +256,16 @@ class ComposerSurface:
         menu = event.option_list
         assert isinstance(menu, SlashMenu)
         if menu.select_option_index(event.option_index):
-            self._choose_menu_option(menu, submit=True)
+            if self._pending_question_id is not None and menu._multi_select:
+                choice = menu.selected_value
+                if choice in menu._selected_questions:
+                    menu._selected_questions.remove(choice)
+                else:
+                    menu._selected_questions.add(choice)
+                menu._render_options()
+                self.query_one("#prompt", PromptInput).focus()
+            else:
+                self._choose_menu_option(menu, submit=True)
         event.stop()
 
     def _submitted_question_answer(self, text: str) -> str:
