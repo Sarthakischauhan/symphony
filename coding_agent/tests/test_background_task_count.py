@@ -73,7 +73,12 @@ def test_click_background_task_opens_dashboard(tmp_path: Path, monkeypatch) -> N
             task = asyncio.create_task(asyncio.sleep(60))
             record = _record("job12345", "background", task)
             record.label = "bash:pytest -q"
-            app._agent = SimpleNamespace(harness=SimpleNamespace(child_tasks={record.child_id: record}))
+            log = tmp_path / "job.log"
+            log.write_text("Server listening on port 8765\n")
+            app._agent = SimpleNamespace(
+                harness=SimpleNamespace(child_tasks={record.child_id: record}),
+                bash_jobs=SimpleNamespace(logs={record.child_id: log}),
+            )
             topbar = app.query_one("#topbar", TopBar)
             topbar.set_context(tmp_path, "openai:gpt-test")
             topbar._refresh_background_tasks()
@@ -84,6 +89,10 @@ def test_click_background_task_opens_dashboard(tmp_path: Path, monkeypatch) -> N
             assert isinstance(app.screen, AgentDashboard)
             options = app.screen.query_one("#agent-dashboard")
             assert "pytest -q" in options.get_option_at_index(0).prompt.plain
+            assert "Server listening on port 8765" in options.get_option_at_index(0).prompt.plain
+            log.write_text("Request received\n")
+            app.screen.refresh_agents()
+            assert "Request received" in options.get_option_at_index(0).prompt.plain
             app._busy = True
             await pilot.press("escape")
             assert not isinstance(app.screen, AgentDashboard)

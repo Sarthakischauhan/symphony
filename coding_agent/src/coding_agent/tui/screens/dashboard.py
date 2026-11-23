@@ -38,9 +38,10 @@ class AgentDashboard(ModalBase[None]):
     #agent-dashboard { width: 90%; height: 70%; border: round #484F58; background: #0A0A0A; }
     """
 
-    def __init__(self, harness: Harness | None = None) -> None:
+    def __init__(self, harness: Harness | None = None, jobs=None) -> None:
         super().__init__()
         self.harness = harness
+        self.jobs = jobs
         self._samples: dict[int, _Sample] = {}
 
     def compose(self):  # type: ignore[no-untyped-def]
@@ -71,6 +72,17 @@ class AgentDashboard(ModalBase[None]):
                 label = record.label.removeprefix("bash:") if kind == "job" else record.label
                 row = Text(f"{kind:8} running  ", style="#d7a84b")
                 row.append(f"{_clip(label, 70)} · {record.child_id[:8]}")
+                if kind == "subagent":
+                    activity = record.current_tool or "thinking"
+                    row.append(f"\n         {activity}", style="#a2adb8")
+                elif self.jobs is not None and record.child_id in self.jobs.logs:
+                    from coding_agent.tools.bash_jobs import log_tail
+
+                    try:
+                        output = log_tail(self.jobs.logs[record.child_id], 1024).strip()
+                    except OSError:
+                        output = ""
+                    row.append(f"\n         {_clip(output, 160) if output else 'No output yet'}", style="#a2adb8")
                 options.add_option(Option(row, id=f"task:{record.child_id}", disabled=True))
                 task_count += 1
         if not records and not task_count:
