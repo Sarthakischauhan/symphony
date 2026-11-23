@@ -21,6 +21,7 @@ HEADLESS_MODULES = (
     "coding_agent.web.worker",
     "coding_agent.cli",
     "coding_agent.commands.themes_cli",
+    "coding_agent.doctor",
     "coding_agent.addons.voice.addon",
     "coding_agent.addons.voice.speak",
     "coding_agent.addons.voice.stream",
@@ -62,7 +63,7 @@ def test_stdio_server_and_voice_addon_together_leave_textual_unloaded() -> None:
     assert done.stdout.strip() == "False"
 
 
-@pytest.mark.parametrize("command", ["web", "stdio", "acp", "bench", "run"])
+@pytest.mark.parametrize("command", ["web", "stdio", "acp", "bench", "run", "doctor"])
 def test_symphony_subcommands_do_not_load_textual_or_the_tui(command: str) -> None:
     # Parsing --help imports the subcommand's module and exits before any work.
     script = (

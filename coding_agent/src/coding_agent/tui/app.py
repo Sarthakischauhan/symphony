@@ -50,6 +50,8 @@ from coding_agent.tui.theme.load import ThemeConfigError, ThemeDocument, theme_s
 from coding_agent.tui.theme.plugin_palette import ThemePalette
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.tools.images import dropped_image_paths
+from coding_agent.addons.persistence.jsonl import JsonlPersistence
+from coding_agent.tui.transcript.welcome import WelcomeSummary
 from coding_agent.tui.transcript import (
     AssistantMessage,
     ReasoningWidget,
@@ -150,6 +152,8 @@ class CodingAgentApp(
         self.sink = TextualEventSink(workspace=self.workspace)
         self._agent: Optional[CodingAgent] = None
         self._busy = False
+        # Set once the agent is built; the start screen reads it.
+        self.welcome_summary: WelcomeSummary | None = None
         self._escape_confirm_until = 0.0
         self._reload_queued = False
         # Prompts submitted while a turn is running are dispatched FIFO.
@@ -328,10 +332,25 @@ class CodingAgentApp(
         self._register_active_session()
         topbar.set_context(self.workspace, self._ui_state.model_id)
         self._presenter.refresh_chrome()
+        agent = self._agent
+        self.welcome_summary = WelcomeSummary(
+            skills=len(agent.skills.registry.skills),
+            plugins=sum(1 for plugin in agent.plugins.plugins if plugin.enabled),
+            personality=self.config.personality or "",
+            persistence=agent.persistence if isinstance(agent.persistence, JsonlPersistence) else None,
+        )
+        for welcome in self.query(Welcome):
+            welcome.refresh_facts()
         self._theme_timer = self.set_interval(0.5, self._reload_theme_if_changed)
         if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
+
+    def on_welcome_resume_requested(self, message: Welcome.ResumeRequested) -> None:
+        message.stop()
+        from coding_agent.tui.commands.manager import resume_session
+
+        self.run_worker(resume_session(self, message.session_id), exclusive=True, group="resume-session")
 
     def on_status_bar_cost_breakdown_requested(self, message: StatusBar.CostBreakdownRequested) -> None:
         message.stop()

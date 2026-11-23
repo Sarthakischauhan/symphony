@@ -22,8 +22,8 @@ from coding_agent.tui.transcript.messages import (
     Notice,
     RunSummary,
     SelectableStatic,
-    Welcome,
 )
+from coding_agent.tui.transcript.welcome import Welcome
 from coding_agent.tui.transcript.process import (
     ReasoningWidget,
     RunProcess,

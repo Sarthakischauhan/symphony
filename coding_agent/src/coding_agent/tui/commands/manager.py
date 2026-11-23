@@ -355,6 +355,35 @@ async def start_new_session(app: CodingAgentApp) -> None:
     app.action_clear_transcript()
     app.add_notice(f"New conversation · {session_id[:8]}", "success")
 
+
+async def resume_session(app: CodingAgentApp, session_id: str) -> None:
+    """Open a saved conversation in place, as ``symphony --resume`` would at startup."""
+    from coding_agent.addons.persistence.active import register_active
+
+    agent = app._agent
+    if agent is None:
+        app.add_notice(OFFLINE_HINT, "error")
+        return
+    if app._busy:
+        app.add_notice("Finish or cancel the current run before opening another conversation.", "warning")
+        return
+    if session_id == agent.session_id:
+        return
+    # Claim the session first: if another window owns it, nothing here has changed yet.
+    try:
+        register_active(session_id, workspace=app.workspace, kind="tui", model_id=agent.harness.model_id or "")
+    except RuntimeError:
+        app.add_notice("That conversation is open in another Symphony window.", "warning")
+        return
+    await agent.harness.shutdown_children()
+    agent.harness.drain_child_results()
+    app.session_id = session_id
+    agent.bind_session(session_id)
+    app._ui_state.model_id = agent.harness.model_id
+    app.action_clear_transcript()
+    app.load_session_history()  # a worker: it paints the history as it loads
+    app.query_one("#prompt").focus()
+
 # --- status.py ---
 def show_status(app: CodingAgentApp) -> None:
     if app._agent is None:
