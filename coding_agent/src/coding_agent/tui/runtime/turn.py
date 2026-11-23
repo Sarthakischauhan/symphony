@@ -39,6 +39,8 @@ class TurnSurface:
             question_pending=self._pending_question_id is not None,
             metrics=self._ui_state.metrics,
         )
+        if self._pending_question_id is not None and not self.query_one("#approval-menu").display:
+            hint = "↵ answer   ↑↓ choose   esc cancel"
         self.query_one("#status").update(
             render_footer(
                 self._ui_state,

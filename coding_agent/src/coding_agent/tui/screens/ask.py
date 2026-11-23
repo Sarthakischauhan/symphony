@@ -35,11 +35,21 @@ class QuestionSurface:
             "#approval-menu" if kind == "approval" else "#slash-menu",
             SlashMenu,
         )
+        options = payload.get("question_options") or []
+        descriptions = {str(option.get("label", "")): "\n".join(
+            str(value) for value in (option.get("description"), option.get("preview")) if value
+        ) for option in options if isinstance(option, dict)}
+        header = str(payload.get("question_header") or "")
+        count = payload.get("question_count")
+        index = payload.get("question_index")
+        progress = f"Question {index}/{count} · " if isinstance(count, int) and count > 1 else ""
         menu.set_question(
-            question,
+            f"{progress}{header + ' · ' if header else ''}{question}",
             choices,
             default=default,
             kind=kind,
+            descriptions=descriptions,
+            multi_select=bool(payload.get("multi_select")),
         )
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = kind == "approval"

@@ -45,6 +45,9 @@ class SlashMenu(OptionList):
         self._questions: tuple[str, ...] = ()
         self._question_text = ""
         self._question_kind = ""
+        self._question_descriptions: dict[str, str] = {}
+        self._multi_select = False
+        self._selected_questions: set[str] = set()
         self._current_model = ""
         self._current_personality = ""
         self._current_effort = ""
@@ -198,7 +201,12 @@ class SlashMenu(OptionList):
         *,
         default: str = "",
         kind: str = "",
+        descriptions: dict[str, str] | None = None,
+        multi_select: bool = False,
     ) -> None:
+        self._question_descriptions = descriptions or {}
+        self._multi_select = multi_select
+        self._selected_questions = set()
         selected_index = choices.index(default) if default in choices else 0
         self._replace_choices(
             questions=tuple(choices),
@@ -230,12 +238,19 @@ class SlashMenu(OptionList):
             rows = [self._approval_choice(choice) for choice in self._questions]
             return rows, self._approval_headers(), "   Enter confirm  ·  Esc deny"
 
-        rows = [Text(f"   {choice}", style="#c5c5c5") for choice in self._questions]
+        rows = []
+        for index, choice in enumerate(self._questions, 1):
+            mark = ("[x] " if choice in self._selected_questions else "[ ] ") if self._multi_select else ""
+            row = Text(f"   {index}. {mark}{choice}", style="#c5c5c5")
+            if self._question_descriptions.get(choice):
+                row.append(f"  — {self._question_descriptions[choice]}", style="#858585")
+            rows.append(row)
         headers = [Text(f"?  {self._question_text}", style="bold #d7d7d7")]
         hint = (
-            "   ↑/↓ select  ·  Enter choose"
-            if self._questions
-            else "   Type an answer  ·  Enter submit"
+            "   ↑/↓ move  ·  Space toggle  ·  Enter submit  ·  type a custom answer"
+            if self._multi_select else
+            "   ↑/↓ select  ·  Enter choose  ·  type a custom answer"
+            if self._questions else "   Type an answer  ·  Enter submit"
         )
         return rows, headers, hint
 

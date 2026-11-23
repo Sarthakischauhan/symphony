@@ -19,6 +19,16 @@ Symphony Code gives the model a set of tools for working in the selected workspa
 
 The exact tool schemas and options are defined in the coding-agent source and may change. The model generally chooses tools based on the task; it does not need users to specify an API call.
 
+## Questions
+
+`ask_user` can ask one question or up to four independent questions in sequence.
+Options can include descriptions, and questions can allow multiple selections.
+In the TUI, use ↑/↓ and Enter to choose; for multiple selections, use Space to
+mark choices and Enter to submit. Type a custom answer and press Enter instead
+when the options do not fit. Other hosts receive one question event at a time;
+for a multi-select question, an answer may be a JSON array of labels or a custom
+text answer. In unattended mode the tool does not wait for input.
+
 ## Paths and shell commands
 
 Relative paths use the chosen workspace as their base, but absolute paths and `~` paths are allowed. Bash runs with the permissions of the Symphony process. The workspace setting is **not a path jail**. Do not ask Symphony to inspect secrets or run a command you would not run yourself.

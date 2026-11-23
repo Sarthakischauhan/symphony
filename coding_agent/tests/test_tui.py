@@ -710,7 +710,7 @@ def test_composer_chrome_matches_mock(tmp_path: Path) -> None:
 
             app._pending_question_id = "q-1"
             app._update_composer_hint()
-            assert "esc deny" in _footer_text(app)
+            assert "esc cancel" in _footer_text(app)
 
     asyncio.run(_run())
 
@@ -2856,6 +2856,40 @@ def test_file_selector_scrolls_to_keep_selection_visible(
             )
             await pilot.pause()
             assert menu.selected_index == 12
+
+    asyncio.run(_run())
+
+
+def test_ask_user_structured_questions_through_tui(tmp_path: Path) -> None:
+    from coding_agent.tools.ask_user import AskUserTool
+    import json
+
+    app = CodingAgentApp(workspace=tmp_path)
+
+    async def _run() -> None:
+        async with app.run_test() as pilot:
+            task = asyncio.create_task(AskUserTool(str(tmp_path)).execute(sink=app.sink, args={
+                "questions": [
+                    {"id": "features", "header": "Features", "question": "Which features?",
+                     "options": [{"label": "A", "description": "First"}, {"label": "B", "description": "Second"}],
+                     "multi_select": True},
+                    {"id": "name", "question": "Which name?", "options": [{"label": "Default"}]},
+                ],
+            }))
+            for _ in range(30):
+                await pilot.pause()
+                if app._pending_question_id:
+                    break
+            menu = app.query_one("#slash-menu", SlashMenu)
+            assert "First" in str(menu.options[menu._option_offset].prompt)
+            await pilot.press("space", "down", "space", "enter")
+            for _ in range(30):
+                await pilot.pause()
+                if menu._question_text.endswith("Which name?"):
+                    break
+            await pilot.press("c", "u", "s", "t", "o", "m", "enter")
+            await pilot.pause()
+            assert json.loads(await asyncio.wait_for(task, 2)) == {"answers": {"features": ["A", "B"], "name": "custom"}}
 
     asyncio.run(_run())
 
