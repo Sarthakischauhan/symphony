@@ -513,7 +513,7 @@ class CodingAgentApp(
 
         self.push_screen(AgentDashboard(
             self._agent.harness if self._agent is not None else None,
-            getattr(self._agent, "bash_jobs", None),
+            self._agent.bash_jobs if self._agent is not None else None,
         ))
 
     def _register_active_session(self) -> None:

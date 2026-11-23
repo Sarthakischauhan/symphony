@@ -124,7 +124,7 @@ def test_dashboard_opens_subagent(tmp_path: Path, monkeypatch) -> None:
     async def run() -> None:
         async with app.run_test(size=(120, 25)) as pilot:
             child = _record("child", "running", None)
-            app._agent = SimpleNamespace(harness=SimpleNamespace(child_tasks={"child": child}))
+            app._agent = SimpleNamespace(harness=SimpleNamespace(child_tasks={"child": child}), bash_jobs=None)
             app._subagents["child"] = SubagentRecord(agent_id="child", parent_id="parent", label="Review", prompt="Review")
             app.action_dashboard()
             await pilot.pause()

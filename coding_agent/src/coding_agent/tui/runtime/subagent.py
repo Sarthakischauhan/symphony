@@ -255,7 +255,7 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         )
 
         runtime = None
-        agent = getattr(self.app, "_agent", None)
+        agent = self.app._agent
         if agent is not None:
             runtime = agent.harness.child_tasks.get(record.agent_id)
         status = runtime.snapshot() if runtime is not None else {}

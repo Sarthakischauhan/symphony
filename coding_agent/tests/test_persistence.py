@@ -48,7 +48,7 @@ def test_child_sessions_share_store_and_restore_transcripts_by_id(tmp_path: Path
             config=HarnessConfig(), session_id="parent-session", agent_id="parent",
             addons=[PersistenceAddon(restarted_store), SubagentAddon(background=True)],
         )
-        assert list(restarted.tools) == ["spawn_agent"]
+        assert set(restarted.tools) == {"spawn_agent", "message_agent"}
         assert children[0]["output_text"] == "hello"
 
     asyncio.run(run())
