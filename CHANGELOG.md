@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.0.9 — 2026-11-24
+
+Release notes for `symphony-code` and `symphony-harness`; core remains at 0.0.7.
+
+- Named agent profiles configure subagents, which can receive messages and be
+  monitored or continued through the background task dashboard.
+- The TUI has a start screen with recent conversations, a redesigned context
+  overview, and folded tool calls with descriptive group titles.
+- `symphony doctor` checks the local installation and configuration.
+- Ask-user questions and their TUI interaction are improved.
+- Background shell jobs no longer block TUI turns.
+
 ## 0.0.8 — 2026-11-22
 
 Hotfix for `symphony-code`; core and harness remain at 0.0.7.

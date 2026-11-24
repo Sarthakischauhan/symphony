@@ -1,6 +1,6 @@
 [project]
 name = "symphony-code"
-version = "0.0.8"
+version = "0.0.9"
 description = "Symphony coding agent: workspace tools, JSONL sessions, and a Textual TUI on top of symphony-harness (import as coding_agent; run as `symphony`)"
 readme = "README.md"
 license = "MIT"
@@ -11,7 +11,7 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "symphony-core>=0.0.7",
-    "symphony-harness>=0.0.7",
+    "symphony-harness>=0.0.9",
     "pillow>=12.3.0",
     "pydantic>=2.12.0",
     # coding_agent.tls: stdlib HTTPS on uv-managed Pythons without a CA store.
