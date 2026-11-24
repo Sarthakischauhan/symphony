@@ -2435,9 +2435,19 @@ def test_bash_card_uses_timeline_header_and_stays_after_the_stretch(
             assert app.query_one(BashToolWidget) is bash
             assert bash.status == "done"
             assert not list(app.query(ToolCallSummary))
+            # A click opens the finished card in place, like Grok Build.
             await pilot.click(header)
             await pilot.pause()
+            assert not bash.collapsed
+            assert not isinstance(app.screen, ToolCallModal)
+            await pilot.click(header)
+            await pilot.pause()
+            assert bash.collapsed
+            # A double-click opens the full details instead.
+            await pilot.click(header, times=2)
+            await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
+            assert bash.collapsed
             assert "clean" in _static_text(app.screen.query_one("#tool-detail", Static))
             await pilot.press("escape")
             await pilot.pause()
@@ -3747,6 +3757,11 @@ def test_patch_events_render_a_diff_card_in_place(
             assert widget.status == "done"
             await pilot.click(widget.query_one(".tool-call-header"))
             await pilot.pause()
+            # In place: the card's body shows the diff.
+            assert not widget.collapsed
+            assert '+    return f"hello {name}"' in _static_text(widget._body)
+            await pilot.click(widget.query_one(".tool-call-header"), times=2)
+            await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
             detail = _static_text(app.screen.query_one("#tool-detail", Static))
             assert '+    return f"hello {name}"' in detail
@@ -3987,7 +4002,7 @@ def test_parallel_subagent_rows_bind_by_label(
     asyncio.run(_run())
 
 
-def test_live_group_stays_open_until_text_interrupts(
+def test_live_group_starts_folded_under_one_counted_header(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -4009,8 +4024,12 @@ def test_live_group_stays_open_until_text_interrupts(
 
             assert not list(app.query(ToolCallWidget))
             group = app.query_one(ToolCallSummary)
-            assert group.is_expanded
+            # Folded from the start: one counted header for the whole run.
+            assert not group.is_expanded
+            assert group.render().plain == "Read 12 files"
+            group.toggle()
             assert "Read f7.py" in group.render().plain
+            group.toggle()
 
             app.set_assistant("Inspecting the CSS for spacing issues.", new=True)
             await pilot.pause()
@@ -4023,7 +4042,7 @@ def test_live_group_stays_open_until_text_interrupts(
                 f"read-{index}" for index in range(12)
             ]
             rendered = summaries[0].render().plain
-            assert "Explored · 12 tools" in rendered
+            assert "Read 12 files" in rendered
             assert "src/f7.py" not in rendered
 
     asyncio.run(_run())
@@ -4048,7 +4067,7 @@ def test_explored_splits_on_interleaved_text(
             await pilot.pause()
             first = app.query_one(ToolCallSummary)
             assert first.call_ids == ["a-0", "a-1", "a-2"]
-            assert first.is_expanded
+            assert not first.is_expanded
 
             app.set_assistant("The emoji width is the culprit.", new=True)
             await pilot.pause()
@@ -4065,7 +4084,7 @@ def test_explored_splits_on_interleaved_text(
             await pilot.pause()
             second = list(app.query(ToolCallSummary))[-1]
             assert second is not first
-            assert second.is_expanded
+            assert not second.is_expanded
 
             app.set_assistant("Spacing is now correct.", new=True)
             await pilot.pause()
@@ -4113,7 +4132,7 @@ def test_explored_splits_on_reasoning(
                 ["a-0", "a-1", "a-2"],
                 [f"b-{index}" for index in range(5)],
             ]
-            assert [summary.is_expanded for summary in summaries] == [False, True]
+            assert [summary.is_expanded for summary in summaries] == [False, False]
             assert not list(app.query(ToolCallWidget))
 
     asyncio.run(_run())
@@ -4263,14 +4282,14 @@ def test_explored_renders_folded_tool_snapshots_inline(
             summary = summaries[0]
             assert summary.call_ids == ["read-0", "read-1", "read-2"]
             closed = summary.render().plain
-            assert closed.startswith("Explored · 3 tools")
+            assert closed.startswith("Read 3 files")
             assert "[" not in closed
             assert "]" not in closed
 
             assert await pilot.click(summary)
             await pilot.pause()
             rendered = summary.render().plain
-            assert rendered.startswith("Explored · 3 tools")
+            assert rendered.startswith("Read 3 files")
             assert "Read f0.py" in rendered
             assert "Read f1.py" in rendered
             assert "Read f2.py" in rendered
@@ -4322,7 +4341,7 @@ def test_expanded_explored_rows_split_guide_verb_and_args(
 
             rendered = summary.render()
             header, *rows = rendered.plain.split("\n")
-            assert header.startswith("Explored · 2 tools")
+            assert header.startswith("Read 2 files")
             assert rows == ["├ Read f0.py", "└ Read f1.py"]
             assert "●" not in rendered.plain and "○" not in rendered.plain
 

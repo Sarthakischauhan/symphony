@@ -201,7 +201,7 @@ class TranscriptSurface:
         return tool
 
     def _show_tool(self, tool: ToolCallWidget) -> None:
-        """Mount an interactive card once, or place/update a row in its group."""
+        """Mount an action's card once, or place/update an exploring call in its group."""
         if tool.keep_in_transcript and not (
             self._process is not None and self._process.completed and tool.status in {"done", "failed"}
         ):
@@ -214,15 +214,9 @@ class TranscriptSurface:
             self._tool_groups[tool.call_id] = self._process.completed_summary or self._tool_groups.get(tool.call_id)
             return
         group = self._tool_groups.get(tool.call_id)
-        if group is not None and not (
-            group is self._open_tool_group and group.rejects_last(snapshot)
-        ):
+        if group is not None:
             group.update_call(snapshot)
             return
-        if group is not None:
-            # Activity arrived with the arguments and no longer matches the
-            # stretch this call joined while it was still preparing.
-            group.remove_call(tool.call_id)
         group = self._tool_group_for(snapshot)
         group.add_call(snapshot)
         self._tool_groups[tool.call_id] = group
@@ -233,7 +227,9 @@ class TranscriptSurface:
         group = self._open_tool_group
         if group is not None and group.accepts(snapshot):
             return group
-        group = ToolCallSummary(expanded=True)
+        # Folded from the start, like Grok Build: the counted header says what
+        # the run is doing; a click opens the rows.
+        group = ToolCallSummary(expanded=False)
         self._mount_process_item(group)
         self._open_tool_group = group
         return group

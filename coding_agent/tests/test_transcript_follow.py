@@ -147,7 +147,7 @@ def test_scrolled_up_reader_stays_put_while_rows_append_and_groups_fold(
                 await pilot.pause()
                 assert transcript.scroll_y == 5
             group = list(app.query(ToolCallSummary))[-1]
-            assert group.is_expanded
+            assert not group.is_expanded
             app.set_assistant("The late reads are done.", new=True)
             await pilot.pause()
             assert not group.is_expanded
@@ -266,7 +266,8 @@ def test_running_to_done_changes_text_without_remounting(
             assert app.query_one(GenerateImageWidget) is card
             assert group.calls[0].status == "done"
             assert card.status == "done"
-            assert group.render().plain == running_text
+            # Only the tense changes once nothing in the run is still going.
+            assert (running_text, group.render().plain) == ("Reading 1 file", "Read 1 file")
 
     asyncio.run(_run())
 
@@ -452,7 +453,7 @@ def test_patch_diff_card_updates_in_place(
             assert card.query_one(".tool-call-label", Static) is label
             assert card.status == "done"
             assert card.collapsed
-            await pilot.click(card.query_one(".tool-call-header"))
+            await pilot.click(card.query_one(".tool-call-header"), times=2)
             await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
             await pilot.press("escape")

@@ -1,30 +1,38 @@
-"""Tool and thought snapshots, and the Explored group row that displays them."""
+"""Tool and thought snapshots, and the folded group row that displays them.
+
+A group row folds a run of exploring calls under a counted header such as
+"Read 3 files, Searched 2 patterns" (see ``kinds``). The run's completed-run
+summary uses the same row to collect a whole turn's work.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from rich.style import Style
 from rich.text import Text
 from textual import events
 
-from coding_agent.tui.tools.activity import (
-    choose_completion_verb,
-    explored_activity,
-    explored_count_label,
-    explored_title,
-    format_explored_duration,
-    parse_activity,
-    same_activity_group,
-)
+from coding_agent.tui.tools.activity import choose_completion_verb, explored_count_label, parse_activity
+from coding_agent.tui.tools.kinds import CountedCall, counted_label, is_exploring
 from coding_agent.tui.tools.labels import header_target, patch_path, tool_detail, tool_label
+from coding_agent.tui.tools.records import ToolCallRecord
 from coding_agent.tui.transcript.messages import (
     SelectableStatic,
     clip_text,
     return_composer_focus,
 )
 from coding_agent.tui.transcript.thinking_markdown import thinking_plain_text
+
+
+LIVE_STATUSES = frozenset({"preparing", "running"})
+# The running heading's shimmer: the same warm sweep as the "Thinking…" status.
+SHIMMER_COLORS = ("#6f5930", "#94733a", "#bd9145", "#e2b85f", "#f0d58a", "#d7a84b", "#a77f3d")
+SHIMMER_SECONDS = 0.12
+# Style meta key on a group row: the index of the entry it draws. A click there
+# opens that call's details; anywhere else on the group toggles it.
+ROW_META = "tool_row"
 
 
 @dataclass(frozen=True)
@@ -49,6 +57,18 @@ class ToolCallSnapshot:
     activity_reason: str = ""
     activity_group: str = ""
     duration: float | None = None
+    # The file a read or edit touched, so fold headers count distinct files.
+    path: str = ""
+    # What reopens a finished call's details from its row. Not part of equality.
+    record: ToolCallRecord | None = field(default=None, compare=False, repr=False)
+
+    def counted(self) -> CountedCall:
+        return CountedCall(
+            self.tool_name,
+            path=self.path,
+            running=self.status in LIVE_STATUSES,
+            failed=self.status == "failed",
+        )
 
     def as_text(self) -> str:
         marker = "×" if self.status == "failed" else "✓"
@@ -77,6 +97,14 @@ def snapshot_from_call(
     detail = tool_detail(tool_name, display_arguments, raw_arguments)
     if tool_name == "patch" and not detail:
         detail = patch_path(display_arguments, raw_arguments, result)
+    record = ToolCallRecord(
+        call_id=call_id,
+        tool_name=tool_name,
+        arguments=display_arguments,
+        raw_arguments=raw_arguments,
+        result=result,
+        status=status,
+    )
     return ToolCallSnapshot(
         call_id=call_id,
         tool_name=tool_name,
@@ -88,6 +116,8 @@ def snapshot_from_call(
         activity_reason=parsed.reason,
         activity_group=parsed.group,
         duration=None,
+        path=str(display_arguments.get("path") or ""),
+        record=record if status not in LIVE_STATUSES else None,
     )
 
 
@@ -97,7 +127,6 @@ NESTED_ARGS = "tool-call-summary--args"
 NESTED_DETAIL = "tool-call-summary--detail"
 NESTED_VERB_FAILED = "tool-call-summary--verb-failed"
 NESTED_VERB_RUNNING = "tool-call-summary--verb-running"
-LIVE_STATUSES = frozenset({"preparing", "running"})
 # fx (vercel-labs/fx) draws a tree guide in front of grouped tool rows:
 # "├" for every row but the last, "└" for the last, and "│" under a
 # non-final row when it continues onto a second line.
@@ -110,6 +139,8 @@ GUIDE_END = " "
 UNMOUNTED_NESTED_STYLE = Style()
 # Nested rows stay regular weight while the focused/hovered header is bold.
 NESTED_WEIGHT = Style(bold=False)
+# The row under the pointer, when a click there opens its details.
+HOVER_STYLE = Style(bgcolor="#262626")
 
 
 def verb_component(status: str) -> str:
@@ -134,15 +165,27 @@ def guide_glyphs(is_last: bool) -> tuple[str, str]:
 
 
 def append_nested_row(
-    text: Text, styles: Mapping[str, Style], guide: str, status: str, verb: str, args: str
+    text: Text,
+    styles: Mapping[str, Style],
+    guide: str,
+    status: str,
+    verb: str,
+    args: str,
+    *,
+    row: Style | None = None,
 ) -> None:
-    """Append one row: guide, verb (coloured by status), then arguments."""
+    """Append one row: guide, verb (coloured by status), then arguments.
+
+    ``row`` is layered over the verb and arguments: the click target and the
+    hover highlight of a row that opens its call's details.
+    """
+    row = row or Style()
     text.append("\n")
     text.append(guide, style=styles[NESTED_GUIDE])
-    text.append(" ")
-    text.append(verb, style=styles[verb_component(status)])
+    text.append(" ", style=row)
+    text.append(verb, style=styles[verb_component(status)] + row)
     if args:
-        text.append(f" {args}", style=styles[NESTED_ARGS])
+        text.append(f" {args}", style=styles[NESTED_ARGS] + row)
 
 
 def append_continuation(text: Text, styles: Mapping[str, Style], guide: str, content: str) -> None:
@@ -153,7 +196,7 @@ def append_continuation(text: Text, styles: Mapping[str, Style], guide: str, con
 
 
 class ToolCallSummary(SelectableStatic, can_focus=True):
-    """One stretch of non-interactive tool calls, grouped at render time.
+    """One stretch of tool calls that share an activity, grouped at render time.
 
     The live transcript mounts a group once and updates its rows in place:
     ``update_call`` swaps a call's snapshot, so running → done is a text
@@ -161,8 +204,13 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
     ends unless the reader opened it themselves.
 
     Expanded rows start at the header's left edge behind an fx-style tree
-    guide, one line each: guide, verb, then arguments. The
-    ``tool-call-summary--*`` component classes in theme.toml colour each part.
+    guide, one line each: guide, verb, then arguments. A running command adds
+    its last output lines under its row. The ``tool-call-summary--*``
+    component classes in theme.toml colour each part.
+
+    A finished row is a click target: it opens that call's details (an
+    Update's diff, a command and its output) from the row's record. A click
+    anywhere else, or Enter, folds or unfolds the group.
     """
 
     COMPONENT_CLASSES = {
@@ -185,6 +233,11 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         self.is_expanded = expanded
         # Set when the reader toggles the group; ``close`` never folds it then.
         self.user_expanded = False
+        # Entry index of the clickable row under the pointer.
+        self._hover: int | None = None
+        # Animates the heading while a member runs; stopped once none does.
+        self._shimmer_step = 0
+        self._shimmer_timer = None
         super().__init__(classes="tool-call-summary", markup=False)
         # Restored/completed runs can contain thousands of entries. Build once
         # rather than rescanning the growing group for every snapshot.
@@ -202,33 +255,47 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
     def _thought_count(self) -> int:
         return sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
 
+    def heading(self) -> tuple[str, str]:
+        """(verb, reason) the header leads with: the model's own words for its latest step.
+
+        The rows under the header already show each call, so the header says
+        why, not what: "Searching · Find the rendering path". Calls the model
+        did not label fall back to counting the work: "Read 3 files".
+        """
+        for call in reversed(self.calls):
+            if call.activity_verb or call.activity_reason:
+                return call.activity_verb, call.activity_reason
+        label, _running, _failed = counted_label(call.counted() for call in self.calls)
+        return label or explored_count_label(tool_count=0, thought_count=self._thought_count()), ""
+
+    @property
+    def running(self) -> bool:
+        return any(call.status in LIVE_STATUSES for call in self.calls)
+
     def _summary_title(self) -> str:
-        return explored_title(self.calls, thought_count=self._thought_count())
+        verb, reason = self.heading()
+        title = " · ".join(part for part in (verb, reason) if part)
+        failed = sum(call.status == "failed" for call in self.calls)
+        return f"{title} · {failed} failed" if failed else title
 
     def accepts(self, snapshot: ToolCallSnapshot) -> bool:
-        """Return whether a call belongs in this activity's group."""
-        if not self.calls:
-            return True
-        return same_activity_group(explored_activity(self.calls), snapshot)
-
-    def rejects_last(self, snapshot: ToolCallSnapshot) -> bool:
-        """Whether this group's newest call no longer matches the calls before it."""
-        if len(self.calls) < 2 or self.calls[-1].call_id != snapshot.call_id:
-            return False
-        return not same_activity_group(explored_activity(self.calls[:-1]), snapshot)
+        """A group folds a run of exploring calls, whatever activity the model gave them."""
+        return is_exploring(snapshot.tool_name) and all(is_exploring(call.tool_name) for call in self.calls)
 
     def render(self) -> Text:
-        activity = explored_activity(self.calls)
-        heading = activity.verb or activity.reason or "Explored"
-        text = Text()
-        text.append(clip_text(heading, 96), style="bold #8ab4cf")
-        duration = format_explored_duration(self.calls)
-        timing = f" for {duration}" if duration else ""
-        count = explored_count_label(
-            tool_count=self.count, thought_count=self._thought_count()
-        )
-        text.append(f" · {count}{timing}", style="#a2adb8")
+        verb, reason = self.heading()
         failed = sum(call.status == "failed" for call in self.calls)
+        text = Text()
+        verb = clip_text(verb, 60)
+        if self.running:
+            for index, character in enumerate(verb):
+                color = SHIMMER_COLORS[(index + self._shimmer_step) % len(SHIMMER_COLORS)]
+                text.append(character, style=f"bold {color}")
+        else:
+            text.append(verb, style="bold #8ab4cf")
+        if reason:
+            text.append(" · " if verb else "", style="#a2adb8")
+            text.append(clip_text(reason, 120), style="#a2adb8")
         if failed:
             text.append(f" · {failed} failed", style="bold #d66b73")
         if not self.is_expanded:
@@ -263,8 +330,12 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
                 if entry.content:
                     append_continuation(text, styles, continuation, entry.content)
                 continue
+            opens = entry.record is not None
+            row = Style(meta={ROW_META: index}) if opens else None
+            if opens and index == self._hover:
+                row = (row or Style()) + HOVER_STYLE
             append_nested_row(
-                text, styles, guide, entry.status, entry.label, header_target(entry.detail)
+                text, styles, guide, entry.status, entry.label, header_target(entry.detail), row=row
             )
 
     @property
@@ -281,6 +352,7 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
             self.entries.append(snapshot)
         self.title = self._summary_title()
         self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        self._sync_shimmer()
         if layout and self.is_mounted:
             self.refresh(layout=True)
 
@@ -288,14 +360,35 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         """Swap in a call's newer snapshot; a status change only re-renders text."""
         index = self.call_ids.index(snapshot.call_id)
         previous = self.calls[index]
+        previous_title = self.title
         self.calls[index] = snapshot
         self.entries[self.entries.index(previous)] = snapshot
         self.title = self._summary_title()
         self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
-        reshaped = (previous.label, previous.detail) != (snapshot.label, snapshot.detail) or (
-            previous.status == "failed"
-        ) != (snapshot.status == "failed")
+        self._sync_shimmer()
+        reshaped = (
+            (previous.label, previous.detail) != (snapshot.label, snapshot.detail)
+            or (previous.status == "failed") != (snapshot.status == "failed")
+            or previous_title != self.title
+        )
         self.refresh(layout=reshaped)
+
+    def on_mount(self) -> None:
+        self._sync_shimmer()
+
+    def _sync_shimmer(self) -> None:
+        """Run the heading's shimmer exactly while a member is running."""
+        if not self.is_mounted:
+            return
+        if self.running and self._shimmer_timer is None:
+            self._shimmer_timer = self.set_interval(SHIMMER_SECONDS, self._advance_shimmer)
+        elif not self.running and self._shimmer_timer is not None:
+            self._shimmer_timer.stop()
+            self._shimmer_timer = None
+
+    def _advance_shimmer(self) -> None:
+        self._shimmer_step = (self._shimmer_step + 1) % len(SHIMMER_COLORS)
+        self.refresh()
 
     def remove_call(self, call_id: str) -> None:
         index = self.call_ids.index(call_id)
@@ -329,8 +422,35 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
+        index = event.style.meta.get(ROW_META)
+        if isinstance(index, int) and self.open_call(index):
+            return
         self.toggle()
         self.app.call_after_refresh(return_composer_focus, self)
+
+    def open_call(self, index: int) -> bool:
+        """Open the details of the finished call drawn at entry ``index``."""
+        from coding_agent.tui.tools.modal import ToolCallModal
+
+        if not 0 <= index < len(self.entries):
+            return False
+        entry = self.entries[index]
+        if not isinstance(entry, ToolCallSnapshot) or entry.record is None:
+            return False
+        self.app.push_screen(ToolCallModal(entry.record.widget()))
+        return True
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        index = event.style.meta.get(ROW_META)
+        hover = index if isinstance(index, int) else None
+        if hover != self._hover:
+            self._hover = hover
+            self.refresh()
+
+    def on_leave(self, event: events.Leave) -> None:
+        if self._hover is not None:
+            self._hover = None
+            self.refresh()
 
     def on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:
