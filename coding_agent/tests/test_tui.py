@@ -3755,7 +3755,8 @@ def test_patch_events_render_a_diff_card_in_place(
             await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
             detail = _static_text(app.screen.query_one("#tool-detail", Static))
-            assert '+    return f"hello {name}"' in detail
+            # The diff gutter shows the sign apart from the code.
+            assert '+     return f"hello {name}"' in detail
             assert "patched src/greeting.py" in detail
 
     asyncio.run(_run())

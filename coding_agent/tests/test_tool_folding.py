@@ -178,6 +178,42 @@ def test_a_folded_row_reopens_its_details_from_its_record(monkeypatch: pytest.Mo
             assert isinstance(app.screen, ToolCallModal)
             body = app.screen.query_one("#tool-detail")
             detail = "\n".join(body.render_line(y).text for y in range(body.size.height))
-            assert "+new" in detail and "-old" in detail
+            assert "+ new" in detail and "- old" in detail
 
     asyncio.run(run())
+
+
+def test_details_show_the_request_once_with_status_facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.add_tool("c1", "bash")
+            app.update_tool("c1", arguments={"command": "uv run ruff check src", "timeout": 60}, status="running")
+            app.update_tool("c1", status="failed", result="Found 1 error.")
+            await pilot.pause()
+            app._tools["c1"].open_detail()
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, ToolCallModal)
+            facts = str(screen.query_one("#tool-meta").render())
+            assert facts.startswith("✗ failed") and "timeout 60s" in facts
+            assert str(screen.query_one("#tool-command").render()) == "$ uv run ruff check src"
+            body = screen.query_one("#tool-detail")
+            detail = "\n".join(body.render_line(y).text for y in range(body.size.height))
+            # The output only: the command is not repeated in the body.
+            assert "Found 1 error." in detail and "ruff check" not in detail
+
+    asyncio.run(run())
+
+
+def test_diff_gutter_counts_file_lines_from_the_hunk() -> None:
+    from rich.console import Console
+
+    from coding_agent.tui.tools.code_view import diff_view
+
+    console = Console(width=60, record=True, color_system=None)
+    console.print(diff_view(["@@ -40,2 +40,3 @@", " keep", "-old", "+new", "+newer"]))
+    lines = [line.rstrip() for line in console.export_text().splitlines()]
+    assert lines[1:] == ["40 40   keep", "41    - old", "   41 + new", "   42 + newer"]

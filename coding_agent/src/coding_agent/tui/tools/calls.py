@@ -34,7 +34,7 @@ from coding_agent.tui.tools.labels import (
 )
 from coding_agent.tui.tools.modal import ToolCallModal
 from coding_agent.tui.tools.records import ToolCallRecord
-from coding_agent.tui.tools.code_view import code_view
+from coding_agent.tui.tools.code_view import code_view, diff_view
 from coding_agent.tui.tools.kinds import is_exploring
 from coding_agent.tui.tools.snapshots import LIVE_STATUSES, ToolCallSnapshot
 from coding_agent.tui.transcript.messages import (
@@ -183,16 +183,28 @@ class ToolCallWidget(Collapsible):
         label, target, status = self._header_values or (self._tool_title()[0], "", self.status)
         return tool_header_text(label, target, status)
 
-    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
-        rows: list[Any] = []
+    def detail_facts(self) -> list[tuple[str, str]]:
+        """Short (text, colour) facts the details modal shows under its title."""
+        facts = [("✗ failed", "#d66b73")] if self.status == "failed" else [("✓ done", "#72a57a")]
+        if self.exit_code not in (None, 0):
+            facts.append((f"exit {self.exit_code}", "#d66b73"))
+        if self._duration is not None:
+            facts.append((f"{self._duration:.1f}s", "#8a8a8a"))
+        timeout = self.arguments.get("timeout")
+        if timeout:
+            facts.append((f"timeout {timeout}s", "#8a8a8a"))
+        return facts
+
+    def detail_request(self) -> Text | None:
+        """What was asked, shown once above the result: a path, a query, a command."""
         request = self._summary()
-        if request:
-            rows.append(Text(request, style="bold #d0d0d0"))
-        if self.result:
-            if rows:
-                rows.append(Text())
-            rows.append(code_view(self.result, lexer="text", wrap=wrap))
-        return rows
+        return Text(request, style="#d8d8d8") if request else None
+
+    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
+        """The result only; the request is shown once above it."""
+        if not self.result:
+            return [Text("No result.", style="#686868")]
+        return [code_view(self.result, lexer="text", wrap=wrap)]
 
     def detail_plain(self) -> str:
         """Plain command/path and result for the card's copy binding."""
@@ -447,10 +459,9 @@ class ReadFileWidget(ToolCallWidget):
         return read_file_result(self.result, lines)
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
-        rows: list[Any] = [Text(self._summary() or "Read", style="bold #d0d0d0")]
-        if self.result:
-            rows.append(code_view(self.result, lexer=_lexer_for_path(self._summary()), wrap=wrap))
-        return rows
+        if not self.result:
+            return [Text("Nothing read.", style="#686868")]
+        return [code_view(self.result, lexer=_lexer_for_path(self._summary()), wrap=wrap)]
 
 
 def _lexer_for_path(path: str) -> str:
@@ -528,16 +539,23 @@ class BashToolWidget(ToolCallWidget):
         if bool(lines) != self._tail.display:
             self._tail.display = bool(lines)
 
-    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
-        rows: list[Any] = []
+    def detail_title(self) -> Text:
+        # ``_header_values`` here also carries the timing facts, so name the status directly.
+        return tool_header_text("Bash", header_target(clip_text(self._summary(), 180)), self.status)
+
+    def detail_request(self) -> Text | None:
         command = self._summary()
-        if command:
-            rows.append(code_view(command, lexer="bash", wrap=wrap))
-        if self.result:
-            if rows:
-                rows.append(Text())
-            rows.append(code_view(self.result, lexer="text", wrap=wrap))
-        return rows
+        if not command:
+            return None
+        request = Text("$ ", style="#6e6e6e")
+        request.append(command, style="#e8e8e8")
+        return request
+
+    def detail_rows(self, *, wrap: bool = False) -> list[Any]:
+        """The command's output; the command itself is shown once above it."""
+        if not self.result:
+            return [Text("No output.", style="#686868")]
+        return [code_view(self.result, lexer="text", wrap=wrap)]
 
     def refresh_content(self) -> None:
         target = header_target(clip_text(self._summary(), 180))
@@ -610,10 +628,21 @@ class PatchDiffWidget(ToolCallWidget):
         reported = self.summary["start_line"] if self.summary is not None else None
         return reported if reported is not None else 1
 
+    def detail_facts(self) -> list[tuple[str, str]]:
+        facts = super().detail_facts()
+        if self.summary is not None and self.summary["start_line"] is not None:
+            facts.insert(1, (f"line {self.summary['start_line']}", "#8a8a8a"))
+        return facts
+
+    def detail_request(self) -> Text | None:
+        path = self._patch_path()
+        return Text(path, style="#d8d8d8") if path else None
+
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
-        rows = [code_view("\n".join(self._diff()), lexer="diff", wrap=wrap)]
+        """The diff with the file's line numbers, then what the tool reported."""
+        rows: list[Any] = [diff_view(self._diff(), wrap=wrap)]
         if self.result:
-            rows.append(Text(self.result, style="#626262"))
+            rows += [Text(""), Text(self.result, style="#6e6e6e")]
         return rows
 
     def _diff_rows(self, *, limit: int, clip_result: bool) -> list[Any]:

@@ -34,10 +34,23 @@ class ToolCallModal(ModalBase[None]):
 
     CSS = CONTENT_MODAL_CSS + """
     ToolCallModal { align: center middle; background: rgba(0, 0, 0, 0.52); }
-    #tool-meta, #tool-command, #tool-detail { width: 100%; height: auto; background: #0d0d0d; }
-    #tool-detail { padding: 1 2; }
-    #tool-search { display: none; width: 100%; height: 1; }
-    .jump-chip { width: auto; height: 1; margin-right: 1; color: #87b5b1; }
+    #content-title { padding: 1 1 0 1; }
+    /* Status, exit code, duration: one quiet line under the title. */
+    #tool-meta { width: 100%; height: auto; padding: 0 1 1 1; background: #0A0A0A; }
+    /* What was asked, shown once: the command, the path or the query. */
+    #tool-command {
+        width: 100%;
+        height: auto;
+        margin: 0 1 1 1;
+        padding: 0 2;
+        background: #141414;
+        border-left: outer #3d3d3d;
+    }
+    #tool-detail { width: 100%; height: auto; padding: 0 1; background: #0A0A0A; }
+    #tool-jumps { height: 1; margin: 0 1 1 1; }
+    #tool-search { display: none; width: 100%; height: 1; margin: 0 1 1 1; }
+    .jump-chip { width: auto; height: 1; margin-right: 2; color: #87b5b1; }
+    #content-pane .modal-footer { border-top: solid #1e1e1e; }
     """
 
     def __init__(self, tool: ToolCallWidget) -> None:
@@ -49,10 +62,10 @@ class ToolCallModal(ModalBase[None]):
         with Container(id="content-pane", classes="modal-pane"):
             yield ModalCloseButton("Esc", id="modal-close")
             yield Static(self.tool.detail_title(), id="content-title", markup=False)
-            yield Static(self._meta(), id="tool-meta", markup=False)
-            command = self.tool._summary()
-            if command:
-                yield Static(command, id="tool-command", markup=False)
+            yield Static(self._facts(), id="tool-meta", markup=False)
+            request = self.tool.detail_request()
+            if request is not None:
+                yield Static(request, id="tool-command", markup=False)
             chips = self._jump_targets()
             if chips:
                 with Horizontal(id="tool-jumps"):
@@ -61,7 +74,7 @@ class ToolCallModal(ModalBase[None]):
             yield Input(placeholder="Search", id="tool-search")
             with ModalScroll(id="content-body", classes="modal-body"):
                 yield SelectableStatic(self._body(), id="tool-detail", markup=False)
-            yield Static("↑↓ scroll   ·   / search   ·   w wrap   ·   y copy   ·   Esc close", classes="modal-footer")
+            yield Static(self._footer(), classes="modal-footer", markup=False)
 
     def on_mount(self) -> None:
         self.query_one(ModalScroll).focus()
@@ -95,13 +108,26 @@ class ToolCallModal(ModalBase[None]):
         rows = self.tool.detail_rows(wrap=self._wrap) or [Text("No details yet.", style="#686868")]
         return Group(*rows)
 
-    def _meta(self) -> str:
-        lines = len(self.tool.detail_plain().splitlines())
-        timeout = self.tool.arguments.get("timeout")
-        parts = [f"{lines} lines"]
-        if timeout:
-            parts.insert(0, f"timeout {timeout}s")
-        return "  ·  ".join(parts)
+    def _facts(self) -> Text:
+        """Status first, then exit code, duration and limits, as a quiet chip line."""
+        text = Text()
+        for index, (fact, colour) in enumerate(self.tool.detail_facts()):
+            if index:
+                text.append("  ·  ", style="#3d3d3d")
+            text.append(fact, style=f"bold {colour}" if index == 0 else colour)
+        return text
+
+    @staticmethod
+    def _footer() -> Text:
+        text = Text()
+        for index, (key, action) in enumerate(
+            (("↑↓", "scroll"), ("/", "search"), ("w", "wrap"), ("y", "copy"), ("Esc", "close"))
+        ):
+            if index:
+                text.append("    ")
+            text.append(key, style="bold #c8c8c8")
+            text.append(f" {action}", style="#686868")
+        return text
 
     def _jump_targets(self) -> tuple[str, ...]:
         workspace = self.tool.workspace
