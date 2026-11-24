@@ -453,7 +453,7 @@ def test_patch_diff_card_updates_in_place(
             assert card.query_one(".tool-call-label", Static) is label
             assert card.status == "done"
             assert card.collapsed
-            await pilot.click(card.query_one(".tool-call-header"), times=2)
+            await pilot.click(card.query_one(".tool-call-header"))
             await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
             await pilot.press("escape")

@@ -51,29 +51,20 @@ LIVE_OUTPUT_LINE_CHARS: Final = 4096
 
 
 class BashToolHeader(Horizontal, can_focus=True):
-    """Focusable card header. A click or Enter opens the card in place; a
-    double-click or ``o`` opens its full details."""
+    """Focusable card header. A click, Enter or Space opens the finished call's details."""
 
     class Toggle(Message):
-        def __init__(self, *, full: bool = False, undo_first_click: bool = False) -> None:
-            self.full = full
-            # A double-click's first click already toggled the card in place.
-            self.undo_first_click = undo_first_click
-            super().__init__()
+        pass
 
     def _on_click(self, event: events.Click) -> None:
         event.stop()
-        double = event.chain >= 2
-        self.post_message(self.Toggle(full=double, undo_first_click=double))
+        self.post_message(self.Toggle())
         self.app.call_after_refresh(return_composer_focus, self)
 
     def _on_key(self, event: events.Key) -> None:
         if event.key in {"enter", "space"}:
             event.stop()
             self.post_message(self.Toggle())
-        elif event.key == "o":
-            event.stop()
-            self.post_message(self.Toggle(full=True))
 
 
 @dataclass(frozen=True)
@@ -180,12 +171,7 @@ class ToolCallWidget(Collapsible):
         event.stop()
         if self.status in LIVE_STATUSES:
             return
-        if event.undo_first_click:
-            self.collapsed = not self.collapsed
-        if event.full:
-            self.open_detail()
-            return
-        self.collapsed = not self.collapsed
+        self.open_detail()
 
     def open_detail(self) -> None:
         """Open a finished call in a card. Live calls stay in the transcript."""
