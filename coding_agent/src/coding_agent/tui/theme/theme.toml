@@ -730,15 +730,18 @@ composer = '''
     border: round #A371F7;
 }
 
+/* The approval card sits above the composer, flush with its edges. An amber
+   border and the tool's name on it mark it as a request, not output. */
 #approval-menu.permission-menu {
-    width: 100%;
-    max-width: 100%;
+    width: 1fr;
     height: auto;
-    max-height: 14;
-    margin: 0 0 $space-block 0;
+    max-height: 16;
+    margin: 0 $space-page 0 $space-page;
     offset-x: 0;
-    padding: $space-inset $space-inset 0 $space-inset;
-    border: round $panel-edge;
+    padding: 0 $space-inset;
+    border: round #a77f3d;
+    border-title-color: #e2b85f;
+    border-title-style: bold;
     background: $background;
 }
 

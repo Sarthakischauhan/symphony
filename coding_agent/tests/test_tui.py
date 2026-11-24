@@ -3063,10 +3063,14 @@ def test_permission_question_has_distinct_secure_design(
             assert menu.has_class("permission-menu")
             assert menu.selected_value == "Allow once"
             assert menu.highlighted == menu._option_offset
-            assert str(menu.options[0].prompt) == (
-                "  Allow Symphony to run the following command?"
-            )
-            assert "uv run pytest" in str(menu.options[1].prompt)
+            # A title that says what is asked, the tool on the border, the exact subject.
+            assert str(menu.options[0].prompt) == " Run this command?"
+            assert menu.border_title == "Bash"
+            assert "$ uv run pytest" in str(menu.options[1].prompt)
+            # Each choice says what it does; "Always allow" is not just for this command.
+            assert "just this call" in str(menu.options[menu._option_offset].prompt)
+            # The card sits directly above the composer.
+            assert menu.region.bottom <= app.query_one("#composer").region.y
             assert app.query_one("#prompt").value == ""
 
             assert await pilot.click(menu, offset=(4, 4))
@@ -4562,3 +4566,24 @@ def test_tui_rejects_saved_plan_session_before_enabling_agent(tmp_path, monkeypa
             assert path.read_text() == '{"mode": "plan"}'
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("question", "tool_name", "title", "subject", "label"),
+    [
+        ("Overwrite existing file `src/app.py`? (1,234 bytes)", "write_file", " Overwrite existing file?  1,234 bytes", "src/app.py", "Write"),
+        ("Apply a global patch to `src/app.py`?", "patch", " Apply a global patch?", "src/app.py", "Update"),
+        ("Allow web search once?\n`textual option list`", "web_search", " Search the web?", "textual option list", "Web Search"),
+        ("Allow mystery once?\n`x`", "mystery", " Allow mystery once?", "x", "Permission"),
+    ],
+)
+def test_approval_card_titles_each_kind_of_request(
+    question: str, tool_name: str, title: str, subject: str, label: str
+) -> None:
+    menu = SlashMenu(id="approval-menu")
+    menu.set_question(question, ["Allow once", "Always allow", "Deny"], default="Allow once", kind="approval", tool_name=tool_name)
+    assert str(menu.options[0].prompt) == title
+    assert subject in str(menu.options[1].prompt)
+    assert menu.border_title == label
+    assert [menu._questions[i] for i in range(3)] == ["Allow once", "Always allow", "Deny"]
+    assert menu.selected_value == "Allow once"

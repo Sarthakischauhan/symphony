@@ -267,9 +267,10 @@ class CodingAgentApp(
         yield SlashMenu(id="slash-menu")
         yield ComposerOverlay()
         yield QueuedPrompt(id="queued-prompt-row")
-        yield Composer(id="composer", voice_active=lambda: self._voice_active)
-        # Keep approval choices in their own full-width surface.
+        # Approval choices sit directly above the composer, where the eye is
+        # when the agent stops to ask.
         yield SlashMenu(id="approval-menu")
+        yield Composer(id="composer", voice_active=lambda: self._voice_active)
         yield StatusBar(id="status")
 
     def on_mount(self) -> None:
