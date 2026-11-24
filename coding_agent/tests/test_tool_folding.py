@@ -180,6 +180,77 @@ def test_a_folded_row_reopens_its_details_from_its_record(monkeypatch: pytest.Mo
             assert isinstance(app.screen, ToolCallModal)
             body = app.screen.query_one("#tool-detail")
             detail = "\n".join(body.render_line(y).text for y in range(body.size.height))
-            assert "+new" in detail and "-old" in detail
+            assert "+ new" in detail and "- old" in detail
 
     asyncio.run(run())
+
+
+def test_details_show_the_request_once_with_status_facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    app = _app(monkeypatch, tmp_path)
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.add_tool("c1", "bash")
+            app.update_tool("c1", arguments={"command": "uv run ruff check src", "timeout": 60}, status="running")
+            app.update_tool("c1", status="failed", result="Found 1 error.")
+            await pilot.pause()
+            app._tools["c1"].open_detail()
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, ToolCallModal)
+            # A status badge leads the title; the facts line carries the rest.
+            assert str(screen.query_one("#content-title").render()).startswith(" FAILED   Bash")
+            assert "timeout 60s" in str(screen.query_one("#tool-meta").render())
+            assert str(screen.query_one("#tool-command").render()) == "$ uv run ruff check src"
+
+            def body() -> str:
+                detail = screen.query_one("#tool-detail")
+                return "\n".join(detail.render_line(y).text for y in range(detail.size.height))
+
+            # The first view is the output only: the command is not repeated.
+            assert screen.view_name == "Output"
+            assert "Found 1 error." in body() and "ruff check" not in body()
+            # Tab and number keys switch views; the arguments are the model's JSON.
+            await pilot.press("tab")
+            await pilot.pause()
+            assert screen.view_name == "Command"
+            await pilot.press("3")
+            await pilot.pause()
+            assert screen.view_name == "Arguments"
+            assert '"timeout": 60' in body()
+            # A click on a view's name opens it.
+            tabs = screen.query_one("#detail-tabs")
+            line = tabs.render_line(0).text
+            await pilot.click(tabs, offset=(line.index("Output") + 1, 0))
+            await pilot.pause()
+            assert screen.view_name == "Output"
+
+    asyncio.run(run())
+
+
+def test_diff_gutter_counts_file_lines_from_the_hunk() -> None:
+    from rich.console import Console
+
+    from coding_agent.tui.tools.code_view import diff_view
+
+    console = Console(width=60, record=True, color_system=None)
+    console.print(diff_view(["@@ -40,2 +40,3 @@", " keep", "-old", "+new", "+newer"]))
+    lines = [line.rstrip() for line in console.export_text().splitlines()]
+    assert lines[1:] == ["40 40   keep", "41    - old", "   41 + new", "   42 + newer"]
+
+
+def test_split_view_pairs_each_removed_line_with_its_replacement() -> None:
+    from rich.console import Console
+
+    from coding_agent.tui.tools.code_view import split_diff_view
+
+    console = Console(width=70, record=True, color_system=None)
+    console.print(split_diff_view(["@@ -40,3 +40,4 @@", " keep", "-old one", "+new one", "+new two", " tail"]))
+    rows = [" ".join(line.split()) for line in console.export_text().splitlines()[1:]]
+    assert rows == [
+        "40 keep │ 40 keep",
+        "41 old one │ 41 new one",
+        "│ 42 new two",
+        "42 tail │ 43 tail",
+    ]

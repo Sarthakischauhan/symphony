@@ -50,6 +50,7 @@ class QuestionSurface:
             kind=kind,
             descriptions=descriptions,
             multi_select=bool(payload.get("multi_select")),
+            tool_name=str(payload.get("tool_name") or ""),
         )
         prompt = self.query_one("#prompt", PromptInput)
         prompt.submit_on_enter = kind == "approval"

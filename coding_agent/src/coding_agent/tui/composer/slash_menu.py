@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -18,6 +19,24 @@ from coding_agent.commands.catalog import (
 )
 from coding_agent.tui.screens.file_selector import FileOption
 from coding_agent.tui.theme import SYMPHONY_COLORS
+
+# Approval card copy. The choices, their order and the default are the
+# harness's (``addons/approvals.py``); this only words and marks them.
+APPROVAL_TOOLS: dict[str, tuple[str, str, str]] = {
+    # tool name: (border label, title, prefix for the subject line)
+    "bash": ("Bash", "Run this command?", "$ "),
+    "web_search": ("Web Search", "Search the web?", ""),
+    "write_file": ("Write", "", ""),
+    "generate_image": ("Image", "", ""),
+    "patch": ("Update", "", ""),
+}
+APPROVAL_CHOICES: dict[str, tuple[str, str]] = {
+    # choice: (colour, what it means)
+    "Allow once": ("#8fc49a", "just this call"),
+    "Always allow": ("#e0b66b", "stop asking for anything this session"),
+    "Deny": ("#df8b91", "skip it; the agent is told no"),
+}
+_SUBJECT = re.compile(r"`([^`]*)`")
 
 
 class SlashMenu(OptionList):
@@ -45,6 +64,7 @@ class SlashMenu(OptionList):
         self._questions: tuple[str, ...] = ()
         self._question_text = ""
         self._question_kind = ""
+        self._question_tool = ""
         self._question_descriptions: dict[str, str] = {}
         self._multi_select = False
         self._selected_questions: set[str] = set()
@@ -151,6 +171,7 @@ class SlashMenu(OptionList):
         self._question_kind = question_kind
         self.selected_index = selected_index
         self.set_class(question_kind == "approval", "permission-menu")
+        self.border_title = self.approval_label() if question_kind == "approval" else None
         self.set_class(bool(files), "file-menu")
 
         if self._choice_count or question_text:
@@ -163,6 +184,8 @@ class SlashMenu(OptionList):
         self.clear_options()
         self.remove_class("permission-menu")
         self.remove_class("file-menu")
+        self.border_title = None
+        self._question_tool = ""
         self.display = False
 
     def set_commands(self, commands: tuple[SlashCommand, ...]) -> None:
@@ -203,7 +226,9 @@ class SlashMenu(OptionList):
         kind: str = "",
         descriptions: dict[str, str] | None = None,
         multi_select: bool = False,
+        tool_name: str = "",
     ) -> None:
+        self._question_tool = tool_name
         self._question_descriptions = descriptions or {}
         self._multi_select = multi_select
         self._selected_questions = set()
@@ -236,7 +261,7 @@ class SlashMenu(OptionList):
     def _question_rows(self) -> tuple[list[Text], list[Text], str]:
         if self._question_kind == "approval":
             rows = [self._approval_choice(choice) for choice in self._questions]
-            return rows, self._approval_headers(), "   Enter confirm  ·  Esc deny"
+            return rows, self._approval_headers(), " ↑↓ choose  ·  Enter confirm  ·  Esc deny"
 
         rows = []
         for index, choice in enumerate(self._questions, 1):
@@ -256,13 +281,13 @@ class SlashMenu(OptionList):
 
     @staticmethod
     def _approval_choice(choice: str) -> Text:
-        if choice == "Allow once":
-            return Text("   ✓  Allow once", style="bold #8fc49a")
-        if choice == "Always allow":
-            return Text("   ⚡  Always allow", style="bold #e0b66b")
-        if choice == "Deny":
-            return Text("   ×  Deny", style="bold #df8b91")
-        return Text(f"   {choice}", style="#c5c5c5")
+        """One choice: the label, then what choosing it does."""
+        colour, meaning = APPROVAL_CHOICES.get(choice, ("#c5c5c5", ""))
+        row = Text(" ")
+        row.append(f"{choice:<14}", style=f"bold {colour}")
+        if meaning:
+            row.append(meaning, style="#6e6e6e")
+        return row
 
     def _choice_rows(self) -> list[Text]:
         if self._files:
@@ -342,15 +367,39 @@ class SlashMenu(OptionList):
         self.display = True
 
     def _approval_headers(self) -> list[Text]:
+        """A title that says what is being asked, then the exact subject.
+
+        The harness asks "Allow bash command once?" with the command on the
+        next line, or "Overwrite existing file `path`?" in one line. The title
+        drops the quoted subject; the subject gets a line of its own.
+        """
         summary, _, detail = self._question_text.partition("\n")
-        action = detail.strip().strip("`") or summary.replace("`", "")
-        preview = Text()
-        for index, line in enumerate(action.splitlines() or [action]):
-            if index:
-                preview.append("\n")
-            preview.append("  │ ", style="#666666")
-            preview.append(line, style="bold #d0d0d0")
-        return [
-            Text("  Allow Symphony to run the following command?", style="bold #d0d0d0"),
-            preview,
-        ]
+        # The TUI appends the size of a write: "… `a.py`? (1,234 bytes)".
+        size = re.search(r"\s*\(([\d,]+ bytes)\)\s*$", summary)
+        if size:
+            summary = summary[: size.start()]
+        _label, title, prefix = APPROVAL_TOOLS.get(self._question_tool, ("", "", ""))
+        quoted = _SUBJECT.search(summary)
+        subject = detail.strip().strip("`") or (quoted.group(1) if quoted else "")
+        if not title:
+            title = " ".join(_SUBJECT.sub("", summary).split()).replace(" to ?", "?").replace(" ?", "?")
+            title = title or "Allow this?"
+        heading = Text(f" {title}", style="bold #e8e8e8")
+        if size:
+            heading.append(f"  {size.group(1)}", style="#6e6e6e")
+        headers = [heading]
+        if subject:
+            block = Text()
+            for index, line in enumerate(subject.splitlines() or [subject]):
+                if index:
+                    block.append("\n")
+                block.append(" ┃ ", style="#a77f3d")
+                block.append(prefix if index == 0 else " " * len(prefix), style="#8a8a8a")
+                block.append(line, style="#d8d8d8")
+            headers.append(block)
+        headers.append(Text(""))  # breathing room before the choices
+        return headers
+
+    def approval_label(self) -> str:
+        """The tool named on the card's border, or "Permission" when unknown."""
+        return APPROVAL_TOOLS.get(self._question_tool, ("Permission", "", ""))[0] or "Permission"
