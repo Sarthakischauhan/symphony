@@ -1,7 +1,7 @@
 """Tool folding after Grok Build's scrollback.
 
 Exploring calls fold under a counted header ("Read 3 files, Searched 1 pattern").
-Every other call keeps a one-line card; a click opens its details. Past
+Every other call keeps a one-line card that opens in place. Past
 ``VISIBLE_ROWS`` rows in a run, the older rows fold behind a header that counts
 them ("Edited 2 files, Ran 1 command").
 """
@@ -135,7 +135,7 @@ def test_the_run_summary_takes_every_action_and_drops_the_fold(
     asyncio.run(run())
 
 
-def test_enter_on_a_card_opens_its_details(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_card_opens_in_place_and_o_opens_its_details(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     app = _app(monkeypatch, tmp_path)
 
     async def run() -> None:
@@ -148,8 +148,10 @@ def test_enter_on_a_card_opens_its_details(monkeypatch: pytest.MonkeyPatch, tmp_
             header.focus()
             await pilot.press("enter")
             await pilot.pause()
+            assert not card.collapsed
+            await pilot.press("o")
+            await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
-            assert card.collapsed
 
     asyncio.run(run())
 

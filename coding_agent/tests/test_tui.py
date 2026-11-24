@@ -2435,8 +2435,16 @@ def test_bash_card_uses_timeline_header_and_stays_after_the_stretch(
             assert app.query_one(BashToolWidget) is bash
             assert bash.status == "done"
             assert not list(app.query(ToolCallSummary))
-            # One click on a finished card opens its details (0.0.9 regression).
+            # A click opens the finished card in place, like Grok Build.
             await pilot.click(header)
+            await pilot.pause()
+            assert not bash.collapsed
+            assert not isinstance(app.screen, ToolCallModal)
+            await pilot.click(header)
+            await pilot.pause()
+            assert bash.collapsed
+            # A double-click opens the full details instead.
+            await pilot.click(header, times=2)
             await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
             assert bash.collapsed
@@ -3752,6 +3760,11 @@ def test_patch_events_render_a_diff_card_in_place(
             assert app.query_one(PatchDiffWidget) is widget
             assert widget.status == "done"
             await pilot.click(widget.query_one(".tool-call-header"))
+            await pilot.pause()
+            # In place: the card's body shows the diff.
+            assert not widget.collapsed
+            assert '+    return f"hello {name}"' in _static_text(widget._body)
+            await pilot.click(widget.query_one(".tool-call-header"), times=2)
             await pilot.pause()
             assert isinstance(app.screen, ToolCallModal)
             detail = _static_text(app.screen.query_one("#tool-detail", Static))
