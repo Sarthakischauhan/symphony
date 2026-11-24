@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from rich.console import Group
 from rich.padding import Padding
@@ -22,39 +23,71 @@ def code_view(
     lexer: str = "text",
     limit: int = MAX_CODE_LINES,
     wrap: bool = False,
+    start_line: int = 1,
 ) -> object:
-    """Render text as a numbered code view, truncating oversized results."""
+    """Render text as a highlighted, numbered code view, truncating oversized results.
+
+    ``start_line`` is the number the gutter starts at, so a read from line 40
+    is numbered from 40.
+    """
     lines = str(text or "").splitlines()
     if not lines:
         return Text("No details yet.", style="#686868")
     hidden = max(0, len(lines) - limit)
-    visible = "\n".join(lines[:limit])
-    if hidden == 0:
-        body: object = Syntax(
-            visible,
-            lexer,
-            theme=SYMPHONY_CODE_THEME,
-            line_numbers=True,
-            word_wrap=wrap,
-            background_color="#0d0d0d",
-        )
-    else:
-        body = _numbered(visible, wrap=wrap)
+    body = Syntax(
+        "\n".join(lines[:limit]),
+        lexer or "text",
+        theme=SYMPHONY_CODE_THEME,
+        line_numbers=True,
+        start_line=start_line,
+        word_wrap=wrap,
+        background_color="#0d0d0d",
+    )
     if hidden:
         return Group(body, Text(f"… {hidden} lines hidden", style="#555555"))
     return body
 
 
-def _numbered(text: str, *, wrap: bool) -> Text:
-    lines = text.splitlines() or [""]
-    width = max(2, len(str(len(lines))))
-    rendered = Text(no_wrap=not wrap, overflow="fold" if wrap else "crop")
-    for number, line in enumerate(lines, start=1):
-        rendered.append(f"{number:>{width}} │ ", style="#687e8b")
-        rendered.append(line, style="#d0d0d0")
-        if number != len(lines):
-            rendered.append("\n")
-    return rendered
+_READ_LINE = re.compile(r"^ *(\d+)\|")
+
+
+def strip_line_numbers(text: str) -> tuple[int, str, str]:
+    """Split read_file's ``N|line`` text into (first line number, source, note).
+
+    The tool numbers every line for the model; the code view draws its own
+    gutter, so the numbers come off here. A trailing line that is not numbered
+    (the truncation notice) is returned as the note. Text that is not numbered
+    this way comes back whole, starting at line 1.
+    """
+    lines = text.split("\n")
+    first = _READ_LINE.match(lines[0]) if lines else None
+    if first is None:
+        return 1, text, ""
+    start = expected = int(first.group(1))
+    source: list[str] = []
+    for index, line in enumerate(lines):
+        match = _READ_LINE.match(line)
+        if match is None or int(match.group(1)) != expected:
+            note = "\n".join(lines[index:]).strip()
+            return start, "\n".join(source), note
+        source.append(line[match.end():])
+        expected += 1
+    return start, "\n".join(source), ""
+
+
+def lexer_for_path(path: str, code: str = "") -> str:
+    """The Pygments lexer for a file name, or ``text`` when there is none."""
+    from pygments.lexers import get_lexer_for_filename
+    from pygments.util import ClassNotFound
+
+    name = Path(path.strip()).name
+    if not name:
+        return "text"
+    try:
+        lexer = get_lexer_for_filename(name, code)
+    except ClassNotFound:
+        return "text"
+    return lexer.aliases[0] if lexer.aliases else "text"
 
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
