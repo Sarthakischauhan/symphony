@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from time import monotonic
-from typing import Any, Final, Mapping
+from typing import Any, Callable, Final, Mapping
 
 from rich.console import Group
 from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.containers import Horizontal
+from textual.content import Content
 from textual.message import Message
 from textual.widgets import Collapsible, Static
 
@@ -34,7 +35,7 @@ from coding_agent.tui.tools.labels import (
 )
 from coding_agent.tui.tools.modal import ToolCallModal
 from coding_agent.tui.tools.records import ToolCallRecord
-from coding_agent.tui.tools.code_view import code_view, diff_view
+from coding_agent.tui.tools.code_view import arguments_view, code_view, diff_view, split_diff_view
 from coding_agent.tui.tools.kinds import is_exploring
 from coding_agent.tui.tools.snapshots import LIVE_STATUSES, ToolCallSnapshot
 from coding_agent.tui.transcript.messages import (
@@ -179,13 +180,27 @@ class ToolCallWidget(Collapsible):
             return
         self.app.push_screen(ToolCallModal(self))
 
-    def detail_title(self) -> Text:
+    def detail_title(self) -> Content:
         label, target, status = self._header_values or (self._tool_title()[0], "", self.status)
         return tool_header_text(label, target, status)
 
+    def detail_views(self) -> list[tuple[str, Callable[[bool], list[Any]]]]:
+        """The details drawer's views, first one shown: (name, rows for a wrap setting)."""
+        return [("Result", self._wrapped(self.detail_rows)), ("Arguments", self._argument_rows)]
+
+    @staticmethod
+    def _wrapped(rows: Callable[..., list[Any]]) -> Callable[[bool], list[Any]]:
+        return lambda wrap: rows(wrap=wrap)
+
+    def _argument_rows(self, wrap: bool) -> list[Any]:
+        return [arguments_view(dict(self.arguments), self.raw_arguments, wrap=wrap)]
+
     def detail_facts(self) -> list[tuple[str, str]]:
-        """Short (text, colour) facts the details modal shows under its title."""
-        facts = [("✗ failed", "#d66b73")] if self.status == "failed" else [("✓ done", "#72a57a")]
+        """Short (text, colour) facts the details drawer shows under its title.
+
+        The status itself is the drawer's badge, so it is not repeated here.
+        """
+        facts: list[tuple[str, str]] = []
         if self.exit_code not in (None, 0):
             facts.append((f"exit {self.exit_code}", "#d66b73"))
         if self._duration is not None:
@@ -458,6 +473,9 @@ class ReadFileWidget(ToolCallWidget):
         lines = self.summary["lines"] if self.summary is not None else None
         return read_file_result(self.result, lines)
 
+    def detail_views(self) -> list[tuple[str, Callable[[bool], list[Any]]]]:
+        return [("Content", self._wrapped(self.detail_rows)), ("Arguments", self._argument_rows)]
+
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         if not self.result:
             return [Text("Nothing read.", style="#686868")]
@@ -539,7 +557,7 @@ class BashToolWidget(ToolCallWidget):
         if bool(lines) != self._tail.display:
             self._tail.display = bool(lines)
 
-    def detail_title(self) -> Text:
+    def detail_title(self) -> Content:
         # ``_header_values`` here also carries the timing facts, so name the status directly.
         return tool_header_text("Bash", header_target(clip_text(self._summary(), 180)), self.status)
 
@@ -550,6 +568,13 @@ class BashToolWidget(ToolCallWidget):
         request = Text("$ ", style="#6e6e6e")
         request.append(command, style="#e8e8e8")
         return request
+
+    def detail_views(self) -> list[tuple[str, Callable[[bool], list[Any]]]]:
+        return [
+            ("Output", self._wrapped(self.detail_rows)),
+            ("Command", lambda wrap: [code_view(self._summary(), lexer="bash", wrap=wrap)]),
+            ("Arguments", self._argument_rows),
+        ]
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         """The command's output; the command itself is shown once above it."""
@@ -628,11 +653,19 @@ class PatchDiffWidget(ToolCallWidget):
         reported = self.summary["start_line"] if self.summary is not None else None
         return reported if reported is not None else 1
 
+    def detail_views(self) -> list[tuple[str, Callable[[bool], list[Any]]]]:
+        return [
+            ("Diff", self._wrapped(self.detail_rows)),
+            ("Split", lambda wrap: [split_diff_view(self._diff(), wrap=wrap)]),
+            ("Arguments", self._argument_rows),
+        ]
+
     def detail_facts(self) -> list[tuple[str, str]]:
-        facts = super().detail_facts()
+        added, removed = diff_stats(self._diff())
+        facts = [(f"+{added}", "#8fc49a"), (f"−{removed}", "#df8b91")]
         if self.summary is not None and self.summary["start_line"] is not None:
-            facts.insert(1, (f"line {self.summary['start_line']}", "#8a8a8a"))
-        return facts
+            facts.append((f"line {self.summary['start_line']}", "#8a8a8a"))
+        return facts + super().detail_facts()
 
     def detail_request(self) -> Text | None:
         path = self._patch_path()

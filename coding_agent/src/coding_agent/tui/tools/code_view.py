@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from rich.console import Group
+from rich.padding import Padding
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
@@ -94,3 +96,74 @@ def diff_view(lines: list[str], *, wrap: bool = False) -> object:
     if len(lines) > MAX_CODE_LINES:
         return Group(table, Text(f"… {len(lines) - MAX_CODE_LINES} lines hidden", style="#555555"))
     return table
+
+
+def _tinted(text: str, *, fg: str, bg: str | None, wrap: bool) -> object:
+    """A diff cell whose tint fills the whole column, not just the text."""
+    body = Text(text, style=fg, no_wrap=not wrap, overflow="fold" if wrap else "crop")
+    return Padding(body, (0, 0), style=bg, expand=True) if bg else body
+
+
+def split_diff_view(lines: list[str], *, wrap: bool = False) -> object:
+    """The same diff side by side: the old lines on the left, the new on the right.
+
+    Removed and added runs pair up row by row, so a changed line sits beside
+    its replacement. Numbers are the file's own lines, from the hunk headers.
+    """
+    if not lines:
+        return Text("No changes.", style="#686868")
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(justify="right", style="#4f5b63", no_wrap=True)
+    table.add_column(ratio=1)
+    table.add_column(width=1, style="#2a2a2a", no_wrap=True)
+    table.add_column(justify="right", style="#4f5b63", no_wrap=True)
+    table.add_column(ratio=1)
+    removed: list[tuple[int, str]] = []
+    added: list[tuple[int, str]] = []
+
+    def flush() -> None:
+        for index in range(max(len(removed), len(added))):
+            left = removed[index] if index < len(removed) else None
+            right = added[index] if index < len(added) else None
+            table.add_row(
+                str(left[0]) if left else "",
+                _tinted(left[1], fg="#f0c9cc", bg=DIFF_REMOVED, wrap=wrap) if left else "",
+                "│",
+                str(right[0]) if right else "",
+                _tinted(right[1], fg="#cfe8d4", bg=DIFF_ADDED, wrap=wrap) if right else "",
+            )
+        removed.clear()
+        added.clear()
+
+    old = new = 0
+    for line in lines[:MAX_CODE_LINES]:
+        hunk = _HUNK.match(line)
+        if hunk:
+            flush()
+            old, new = int(hunk.group(1)), int(hunk.group(2))
+            table.add_row("", Text(line, style="#4f6a85"), "│", "", "")
+            continue
+        sign, body = line[:1], line[1:]
+        if sign == "-":
+            removed.append((old, body))
+            old += 1
+        elif sign == "+":
+            added.append((new, body))
+            new += 1
+        else:
+            flush()
+            context = Text(body, style="#a8a8a8", no_wrap=not wrap, overflow="fold" if wrap else "crop")
+            table.add_row(str(old), context, "│", str(new), context.copy())
+            old += 1
+            new += 1
+    flush()
+    return table
+
+
+def arguments_view(arguments: dict, raw: str = "", *, wrap: bool = False) -> object:
+    """The call's arguments as the model sent them, as formatted JSON."""
+    if arguments:
+        return code_view(json.dumps(arguments, indent=2, ensure_ascii=False), lexer="json", wrap=wrap)
+    if raw:
+        return code_view(raw, lexer="json", wrap=wrap)
+    return Text("No arguments.", style="#686868")
