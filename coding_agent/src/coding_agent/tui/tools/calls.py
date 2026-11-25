@@ -34,8 +34,16 @@ from coding_agent.tui.tools.labels import (
     tool_label,
 )
 from coding_agent.tui.tools.modal import ToolCallModal
+from coding_agent.tui.tools.partial_args import string_field
 from coding_agent.tui.tools.records import ToolCallRecord
-from coding_agent.tui.tools.code_view import arguments_view, code_view, diff_view, split_diff_view
+from coding_agent.tui.tools.code_view import (
+    arguments_view,
+    code_view,
+    diff_view,
+    lexer_for_path,
+    split_diff_view,
+    strip_line_numbers,
+)
 from coding_agent.tui.tools.kinds import is_exploring
 from coding_agent.tui.tools.snapshots import LIVE_STATUSES, ToolCallSnapshot
 from coding_agent.tui.transcript.messages import (
@@ -490,25 +498,40 @@ class ReadFileWidget(ToolCallWidget):
     def detail_views(self) -> list[tuple[str, Callable[[bool], list[Any]]]]:
         return [("Content", self._wrapped(self.detail_rows)), ("Arguments", self._argument_rows)]
 
+    def _path(self) -> str:
+        path = self.arguments.get("path") or string_field(self.raw_arguments or "", "path")
+        return str(path or "")
+
+    def detail_request(self) -> Text | None:
+        """The path, and the lines that came back when it was not the whole file."""
+        path = self._path()
+        if not path:
+            return super().detail_request()
+        request = Text(path, style="#d8d8d8")
+        start, source, _note = strip_line_numbers(self.result)
+        partial = start > 1 or self.arguments.get("limit")
+        if self.result and not self.result.startswith("error:") and partial and source:
+            last = start + len(source.split("\n")) - 1
+            request.append(f"  lines {start}–{last}", style="#8a8a8a")
+        return request
+
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         if not self.result:
             return [Text("Nothing read.", style="#686868")]
-        return [code_view(self.result, lexer=_lexer_for_path(self._summary()), wrap=wrap)]
+        if self.result.startswith("error:"):
+            return [Text(self.result, style="#d66b73")]
+        start, source, note = strip_line_numbers(self.result)
+        rows: list[Any] = [
+            code_view(source, lexer=lexer_for_path(self._path(), source), wrap=wrap, start_line=start)
+        ]
+        if note:
+            rows.append(Text(note.strip("<>"), style="#686868"))
+        return rows
 
-
-def _lexer_for_path(path: str) -> str:
-    suffix = Path(path).suffix.lower()
-    return {
-        ".py": "python",
-        ".js": "javascript",
-        ".ts": "typescript",
-        ".json": "json",
-        ".md": "markdown",
-        ".toml": "toml",
-        ".yaml": "yaml",
-        ".yml": "yaml",
-        ".sh": "bash",
-    }.get(suffix, "")
+    def detail_plain(self) -> str:
+        """The file text as it is on disk, without the tool's line numbers."""
+        _start, source, _note = strip_line_numbers(self.result)
+        return "\n\n".join(part for part in (self._path(), source) if part)
 
 
 class BashToolWidget(ToolCallWidget):
