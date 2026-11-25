@@ -13,6 +13,7 @@ workspace = { members = ["coding_agent", "core_harness", "core_ai", "core_server
 dev = [
     "pytest>=9.1.1",
     "pytest-xdist>=3.8.0",
+    "pyte>=0.8.2",
     "ruff>=0.15.0",
 ]
 
