@@ -14,6 +14,24 @@ env:
   UV_VERSION: "0.12.10"
 
 jobs:
+  commit-messages:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Validate pull request commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          while IFS= read -r commit; do
+            git show -s --format=%B "$commit" > "$RUNNER_TEMP/commit-message"
+            echo "Checking $commit"
+            python3 .github/scripts/check-commit-message.py "$RUNNER_TEMP/commit-message" || exit 1
+          done < <(git rev-list "$BASE_SHA..$HEAD_SHA")
+
   lint:
     runs-on: ubuntu-latest
     steps:
