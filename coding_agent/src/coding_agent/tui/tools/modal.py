@@ -17,6 +17,8 @@ from textual.widgets import Input, Static
 
 from coding_agent.tui.screens.modal import ModalBase, ModalCloseButton, ModalScroll
 from coding_agent.tui.theme import CONTENT_MODAL_CSS
+from coding_agent.tui.theme.ansi_colors import textual_color
+from coding_agent.tui.tools.code_view import colour, note
 from coding_agent.tui.transcript.messages import SelectableStatic
 
 if TYPE_CHECKING:
@@ -65,6 +67,7 @@ class ToolCallModal(ModalBase[None]):
         *[Binding(str(number), f"show_view({number - 1})", show=False) for number in range(1, 10)],
     ]
 
+    # Layout only. Colours come from the active theme in ``restyle``.
     CSS = CONTENT_MODAL_CSS + """
     ToolCallModal { align: right top; background: rgba(0, 0, 0, 0.45); }
     ToolCallModal #content-pane {
@@ -73,36 +76,20 @@ class ToolCallModal(ModalBase[None]):
         height: 100%;
         padding: 0;
         border: none;
-        border-left: outer #3d3d3d;
-        background: #0b0b0b;
     }
-    ToolCallModal #content-pane.status-done { border-left: outer #4f7a57; }
-    ToolCallModal #content-pane.status-failed { border-left: outer #a8545b; }
-    #detail-head { width: 100%; height: auto; padding: 1 2 0 2; background: #0b0b0b; }
-    ToolCallModal #content-title { width: 1fr; height: auto; padding: 0; background: #0b0b0b; }
-    ToolCallModal #modal-close { dock: none; width: auto; margin-left: 2; background: #0b0b0b; }
+    #detail-head { width: 100%; height: auto; padding: 1 2 0 2; background: transparent; }
+    ToolCallModal #content-title { width: 1fr; height: auto; padding: 0; background: transparent; }
+    ToolCallModal #modal-close { dock: none; width: auto; margin-left: 2; background: transparent; }
     /* What was asked: the command, the path or the query. */
-    #tool-command { width: 100%; height: auto; padding: 1 2 0 2; color: #9a9a9a; background: #0b0b0b; }
-    #tool-meta { width: 100%; height: auto; padding: 1 2 0 2; background: #0b0b0b; }
+    #tool-command { width: 100%; height: auto; padding: 1 2 0 2; background: transparent; }
+    #tool-meta { width: 100%; height: auto; padding: 1 2 0 2; background: transparent; }
     #tool-jumps { height: 1; margin: 1 2 0 2; }
-    .jump-chip { width: auto; height: 1; margin-right: 2; color: #87b5b1; }
-    #detail-tabs {
-        width: 100%;
-        height: 2;
-        margin-top: 1;
-        padding: 0 2;
-        border-bottom: solid #1f1f1f;
-        background: #0b0b0b;
-    }
+    .jump-chip { width: auto; height: 1; margin-right: 2; }
+    #detail-tabs { width: 100%; height: 2; margin-top: 1; padding: 0 2; background: transparent; }
     #tool-search { display: none; width: 100%; height: 1; margin: 1 2 0 2; }
-    ToolCallModal #content-body { padding: 1 2 1 2; background: #0b0b0b; }
-    #tool-detail { width: 100%; height: auto; background: #0b0b0b; }
-    ToolCallModal .modal-footer {
-        height: 2;
-        padding: 1 2 0 2;
-        border-top: solid #1f1f1f;
-        background: #0b0b0b;
-    }
+    ToolCallModal #content-body { padding: 1 2 1 2; background: transparent; }
+    #tool-detail { width: 100%; height: auto; background: transparent; }
+    ToolCallModal .modal-footer { height: 2; padding: 1 2 0 2; background: transparent; }
     """
 
     def __init__(self, tool: ToolCallWidget) -> None:
@@ -136,7 +123,38 @@ class ToolCallModal(ModalBase[None]):
             yield Static(self._footer(), classes="modal-footer", markup=False)
 
     def on_mount(self) -> None:
+        self._paint()
         self.query_one(ModalScroll).focus()
+
+    def restyle(self) -> None:
+        """Repaint in the theme now in effect, after the app switches themes."""
+        self._paint()
+        self.query_one("#content-title", Static).update(self._title())
+        request = self.tool.detail_request()
+        for widget in self.query("#tool-command"):
+            if isinstance(widget, Static) and request is not None:
+                widget.update(request)
+        for widget in self.query("#tool-meta"):
+            if isinstance(widget, Static):
+                widget.update(self._facts())
+        self.query_one("#detail-tabs", Static).update(self._tabs())
+        self.query_one(".modal-footer", Static).update(self._footer())
+        self.query_one("#tool-detail", Static).update(self._body())
+
+    def _paint(self) -> None:
+        """The pane's colours from the palette: its background matches the
+        code views', and its left edge is the status colour."""
+        failed = self.tool.status == "failed"
+        pane = self.query_one("#content-pane")
+        pane.styles.background = textual_color(colour("background"))
+        pane.styles.border_left = ("outer", textual_color(colour("keyword" if failed else "string")))
+        edge = textual_color(colour("edge"))
+        self.query_one("#detail-tabs").styles.border_bottom = ("solid", edge)
+        self.query_one(".modal-footer").styles.border_top = ("solid", edge)
+        for widget in self.query("#tool-command"):
+            widget.styles.color = textual_color(colour("subtext"))
+        for widget in self.query(".jump-chip"):
+            widget.styles.color = textual_color(colour("tag"))
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "tool-search":
@@ -148,7 +166,7 @@ class ToolCallModal(ModalBase[None]):
             return
         lines = self.tool.detail_plain().splitlines()
         matches = [line for line in lines if query in line.lower()]
-        body.update(Text("\n".join(matches) or "No matches.", style="#d0d0d0"))
+        body.update(Text("\n".join(matches), style=colour("foreground")) if matches else note("No matches."))
 
     def action_focus_search(self) -> None:
         search = self.query_one("#tool-search", Input)
@@ -180,20 +198,21 @@ class ToolCallModal(ModalBase[None]):
 
     def _body(self) -> object:
         _name, rows = self._views[self._view]
-        return Group(*(rows(self._wrap) or [Text("No details yet.", style="#686868")]))
+        return Group(*(rows(self._wrap) or [note("No details yet.")]))
 
     def _title(self) -> Content:
         """A status badge, then the tool and its target."""
         failed = self.tool.status == "failed"
-        badge = (" FAILED " if failed else " DONE ", f"bold #0b0b0b on {'#d66b73' if failed else '#72a57a'}")
+        tint = textual_color(colour("keyword" if failed else "string"))
+        badge = (" FAILED " if failed else " DONE ", f"bold {textual_color(colour('background'))} on {tint}")
         return Content.assemble(badge, "  ", self.tool.detail_title())
 
     def _facts(self) -> Text:
         text = Text()
-        for index, (fact, colour) in enumerate(self.tool.detail_facts()):
+        for index, (fact, tint) in enumerate(self.tool.detail_facts()):
             if index:
-                text.append("   ", style="#3d3d3d")
-            text.append(fact, style=colour)
+                text.append("   ")
+            text.append(fact, style=tint)
         return text
 
     def _tabs(self) -> Text:
@@ -204,10 +223,11 @@ class ToolCallModal(ModalBase[None]):
             if index:
                 text.append("  ")
             if index == self._view:
-                text.append(f" {index + 1} {name} ", style=Style(color="#0b0b0b", bgcolor="#d0d0d0", bold=True) + click)
+                lit = Style(color=colour("background"), bgcolor=colour("foreground"), bold=True)
+                text.append(f" {index + 1} {name} ", style=lit + click)
             else:
-                text.append(f" {index + 1} ", style=Style(color="#5f5f5f") + click)
-                text.append(f"{name} ", style=Style(color="#9a9a9a") + click)
+                text.append(f" {index + 1} ", style=Style(color=colour("muted")) + click)
+                text.append(f"{name} ", style=Style(color=colour("subtext")) + click)
         return text
 
     @staticmethod
@@ -219,8 +239,8 @@ class ToolCallModal(ModalBase[None]):
         ):
             if index:
                 text.append("   ")
-            text.append(f" {key} ", style="bold #d0d0d0 on #262626")
-            text.append(f" {action}", style="#6e6e6e")
+            text.append(f" {key} ", style=Style(color=colour("foreground"), bgcolor=colour("overlay"), bold=True))
+            text.append(f" {action}", style=colour("muted"))
         return text
 
     def _jump_targets(self) -> tuple[str, ...]:
