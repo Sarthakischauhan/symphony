@@ -7,6 +7,7 @@ from typing import List, Optional
 import httpx
 import pytest
 
+from core_ai.models.types import ModelInfo
 from core_ai.providers.openai import OpenAIProvider
 from core_ai.types import Message
 
@@ -53,11 +54,19 @@ def test_responses_model_outside_the_catalog_gets_no_reasoning_param() -> None:
     assert "reasoning" not in _payload("gpt-4o-mini", "low")
 
 
+@pytest.fixture
+def chat_reasoning_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    model = ModelInfo(
+        id="test-reasoning-chat", provider="openai", api="chat_completions", reasoning=True,
+        thinking_level_map=(("off", None), ("medium", "medium"), ("high", "high")),
+    )
+    monkeypatch.setattr("core_ai.providers.openai.get_model", lambda provider, name: model if (provider, name) == ("openai", model.id) else None)
+
+
 @pytest.mark.parametrize(("effort", "expected"), [("high", "high"), (None, "medium")])
-def test_chat_reasoning_effort_uses_the_catalog_value(effort: Optional[str], expected: str) -> None:
-    assert _payload("o4-mini", effort)["reasoning_effort"] == expected
+def test_chat_reasoning_effort_uses_the_catalog_value(chat_reasoning_model: None, effort: Optional[str], expected: str) -> None:
+    assert _payload("test-reasoning-chat", effort)["reasoning_effort"] == expected
 
 
-def test_chat_effort_the_model_does_not_take_is_left_out() -> None:
-    # o4-mini maps "off" to no provider value.
-    assert "reasoning_effort" not in _payload("o4-mini", "off")
+def test_chat_effort_the_model_does_not_take_is_left_out(chat_reasoning_model: None) -> None:
+    assert "reasoning_effort" not in _payload("test-reasoning-chat", "off")
