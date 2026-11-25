@@ -16,7 +16,7 @@ uv run --package symphony-code symphony [options]
 | `--model ID` | Select a `provider:model` id; overrides the profile model |
 | `--profile NAME` | Load a named agent profile (also supported by `symphony run`) |
 | `--resume` | Choose a saved session |
-| `--resume --continue` | Continue the latest interrupted session unattended |
+| `--resume --continue` | Continue the latest interrupted or failed session unattended, using its saved conversation and checkpoint |
 | `--unattended` | Run without human prompts; see [Security](../../SECURITY.md) |
 | `--no-learning` | Disable automatic learning for this process (learning is on by default) |
 | `--jev` | Enable Jev findings (does not change the chat model) |
