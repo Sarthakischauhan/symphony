@@ -4,7 +4,7 @@ Symphony Code retains selected lessons between tasks, then uses relevant memory 
 
 ## What to expect
 
-The learning add-on can capture run evidence, prepare and consolidate candidate lessons, and retrieve relevant memory for a later task. Stored material is model-generated reference data: check it when it matters and do not treat it as policy. Memory scopes and settings are controlled by the coding agent configuration.
+The learning add-on can capture run evidence, prepare and consolidate candidate lessons, and retrieve relevant memory for a later task. It asks the current agent model to prioritize user preferences, corrections, and decisions not readily recoverable from the repository, and to skip temporary status and facts already in source or documentation. Extraction is selective and model-generated, so it can still miss useful facts or retain stale ones. Stored material is reference data: check it when it matters and do not treat it as policy. Memory scopes and settings are controlled by the coding agent configuration.
 
 The `/learning` command opens the learning interface. Session facts are markdown files in that session's `memories/` directory (`MEMORY.md`). Preferences that apply across sessions stay in `~/.symphony/memories/global/`. Use `/learning` to inspect those files rather than assuming every past conversation is automatically searched or replayed.
 

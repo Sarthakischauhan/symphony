@@ -32,13 +32,15 @@ uv sync                    # install all workspace packages + dev tools (locked)
 uv run pytest              # every suite; or pass a package's tests/ dir
 uv run ruff check .        # lint; CI runs exactly this
 uv run pytest -m "not slow" -n auto   # fast parallel subset; CI runs everything
-git config core.hooksPath .githooks   # pre-commit: ruff + fast tests of the touched packages
+git config core.hooksPath .githooks   # enable the conventional commit message hook
 uv build --package symphony-core -o dist   # same build CI and releases run
 uv run --package symphony-code symphony    # launch the TUI
 ```
 
 Tests do not need provider keys. Keep it that way: mock providers, never call
-a live API from a test.
+a live API from a test. Commit subjects must use Conventional Commits, for example
+`fix(memory): handle empty capture`; PR CI checks every commit. Merge commits
+must also have a conventional subject, so prefer rebasing onto the base branch.
 
 ## Conventions
 
