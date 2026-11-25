@@ -56,7 +56,7 @@ def test_child_profile_cannot_expand_parent_tools(tmp_path: Path):
     agent.dispose_user_addons()
 
 
-def test_subscription_does_not_assume_cheapest_model_is_supported(tmp_path: Path):
+def test_subscription_inherits_parent_or_uses_selected_model(tmp_path: Path):
     class Subscription:
         def _uses_codex_responses(self):
             return True
@@ -64,8 +64,16 @@ def test_subscription_does_not_assume_cheapest_model_is_supported(tmp_path: Path
     registry = ModelRegistry()
     registry.register("openai", Subscription())
     agent = CodingAgent(registry=registry, model_id="openai:gpt-5.6-luna", workspace=tmp_path)
-    with pytest.raises(ValueError, match="Cannot verify.*ChatGPT subscription"):
-        agent._spawn_child_config()
+    assert agent._spawn_child_config().model_id is None
+    assert agent._spawn_child_config(model_id="openai:gpt-5.6-luna").model_id == "openai:gpt-5.6-luna"
+    directory = tmp_path / ".symphony" / "agents"
+    directory.mkdir(parents=True)
+    (directory / "reviewer.yaml").write_text("model: openai:gpt-5.6-sol\n")
+    assert agent._spawn_child_config(profile="reviewer").model_id == "openai:gpt-5.6-sol"
+    assert agent._spawn_child_config(profile="reviewer", model_id="openai:gpt-5.6-luna").model_id == "openai:gpt-5.6-luna"
+    description = agent.harness.tools["spawn_agent"].description
+    assert "openai:gpt-5.4-mini" in description
+    assert "availability depends on your account" in description
     agent.dispose_user_addons()
 
 

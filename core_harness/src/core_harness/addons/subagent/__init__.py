@@ -245,6 +245,17 @@ class SubagentAddon(Addon):
         exclude_tools = self.exclude_tools
         configure = self.configure
         default_background = self.background
+        namespaces = getattr(harness.registry, "namespaces", lambda: ())()
+        models = getattr(harness.registry, "models", lambda _provider: ())
+        available_models = [
+            model.full_id for provider in namespaces for model in models(provider)
+            if not any(token in model.id for token in ("image", "realtime", "embed", "tts", "transcri"))
+        ]
+        model_choices = (
+            " Registered models for configured providers (availability depends on your account): "
+            + ", ".join(available_models) + "."
+            if available_models else ""
+        )
 
         async def spawn_agent(
             prompt: str,
@@ -293,9 +304,9 @@ class SubagentAddon(Addon):
                 "full task in prompt. A background call returns a child_id immediately "
                 "and its result arrives later; do not poll. Use profile for a named role when the host supports it. "
                 f"Background defaults to {default_background}. "
-                "Leave model_id empty: the child runs on a cheaper model than you. "
-                "Do not set it to your own model or a larger one. "
-                "Children cannot spawn further agents."
+                "Choose a suitable model_id from the registered models, or leave it empty "
+                "to inherit your model. Children cannot spawn further agents."
+                + model_choices
             ),
             parameters={
                 "type": "object",
@@ -315,7 +326,7 @@ class SubagentAddon(Addon):
                     },
                     "model_id": {
                         "type": "string",
-                        "description": "Leave empty. A child runs on the cheaper model of your provider; a larger model is rejected.",
+                        "description": "Optional provider:model ID. Leave empty to inherit the parent model, or use the named profile's model.",
                     },
                     "max_turns": {
                         "type": "integer",

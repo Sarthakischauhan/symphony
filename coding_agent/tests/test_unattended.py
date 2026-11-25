@@ -103,6 +103,31 @@ def test_unattended_run_never_prompts_and_denies_in_parent_and_child(tmp_path: P
     assert "exit_plan_mode" not in agent.harness.tools
 
 
+def test_parent_selected_model_reaches_child_end_to_end(tmp_path: Path) -> None:
+    class RecordingRegistry(ScriptedRegistry):
+        def __init__(self):
+            super().__init__({"PARENT": [[("spawn_agent", {
+                "prompt": "CHILD", "model_id": "openai:selected", "background": False,
+            })]]})
+            self.models_seen = []
+
+        async def stream(self, model_id, messages, tools=None, **kwargs):
+            self.models_seen.append((first_user_text(messages), model_id))
+            async for event in super().stream(model_id, messages, tools, **kwargs):
+                yield event
+
+    registry = RecordingRegistry()
+    agent = CodingAgent(
+        registry=registry, model_id="openai:parent", workspace=tmp_path,  # type: ignore[arg-type]
+        config=_config(unattended=True),
+    )
+    result = asyncio.run(agent.run("PARENT"))
+    assert result.output_text == "all done"
+    assert ("PARENT", "openai:parent") in registry.models_seen
+    assert ("CHILD", "openai:selected") in registry.models_seen
+    assert "Subagent child completed" in _tool_results(registry, "PARENT")[0]
+
+
 def test_deny_rules_apply_even_in_always_allow_and_survive_restart(tmp_path: Path) -> None:
     ensure_spawn_settings(
         tmp_path, overrides={"approvals": {"mode": "always_allow", "deny": ["git push*"], "allow": ["ls*"]}}

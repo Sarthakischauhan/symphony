@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[4]
 PROMPT = "Inspect the auth flow."
 CHILD = "Inspect auth and report the result."
 PARENT_MODEL = "openai:gpt-5.6-luna"
-CHILD_MODEL = "openai:gpt-5.4-mini"
+CHILD_MODEL = "openai:gpt-5.6-sol"
 
 
 def child(workspace: Path, log: Path) -> None:
