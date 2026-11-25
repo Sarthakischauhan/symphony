@@ -80,6 +80,16 @@ while read -r id; do
 done < bench/smoke_ids.txt
 ```
 
+## Memory extraction benchmark
+
+`uv run python bench/memory.py --model openai:gpt-6-luna` runs a small labeled
+set of synthetic transcripts through the actual capture queue and a live model.
+It prints saved facts, expected versus observed capture, and timings. Storage is
+temporary; provider calls require credentials and incur costs. Compare the same
+model and cases across revisions. A single run is diagnostic, not a statistically
+reliable accuracy or latency estimate. Inspect the facts as well as the score:
+the benchmark checks whether any fact was saved, not semantic correctness.
+
 ## Provider benchmark
 
 `run.py` measures Symphony's `core_ai` providers against openai-python,
