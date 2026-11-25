@@ -198,7 +198,7 @@ def test_tui_escape_stops_in_flight_turn(
     asyncio.run(_run())
 
 
-def test_queued_send_now_waits_for_previous_run_to_stop(
+def test_queued_send_now_adds_to_active_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -207,6 +207,12 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
     finished: list[str] = []
     concurrent = 0
     max_concurrent = 0
+    gate = asyncio.Event()
+    submitted: list[object] = []
+
+    def submit(op: object) -> bool:
+        submitted.append(op)
+        return True
 
     class FakeAgent:
         user_addons = no_user_addons()
@@ -214,7 +220,7 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
         async def shutdown(self) -> None:
             return None
 
-        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=_no_submit)
+        harness = SimpleNamespace(child_tasks={}, model_id="", shutdown_children=_no_children, submit=submit)
         async def run(self, user_input: object, **kwargs: object) -> HarnessResult:
             del kwargs
             nonlocal concurrent, max_concurrent
@@ -224,7 +230,7 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
             max_concurrent = max(max_concurrent, concurrent)
             try:
                 if label == "first":
-                    await asyncio.sleep(30)
+                    await gate.wait()
                 return HarnessResult(output_text=label, messages=[])
             finally:
                 concurrent -= 1
@@ -241,17 +247,19 @@ def test_queued_send_now_waits_for_previous_run_to_stop(
             app.queue_turn(QueuedTurn("second", "second", (), ()))
             await pilot.pause()
             app.query_one("#queued-send-now").press()
-            for _ in range(40):
-                await pilot.pause()
-                if started == ["first", "second"] and finished == ["first", "second"]:
-                    break
-            else:
-                raise AssertionError(
-                    f"steer did not run sequentially: started={started!r} finished={finished!r}"
-                )
-            assert max_concurrent == 1
+            await pilot.pause()
+            assert len(submitted) == 1
+            assert submitted[0].content == "second"
+            assert started == ["first"] and not finished
             assert not app._queued_turns
             assert not app.sink.cancelled
+            gate.set()
+            for _ in range(40):
+                await pilot.pause()
+                if finished:
+                    break
+            assert finished == ["first"]
+            assert max_concurrent == 1
 
     asyncio.run(_run())
 

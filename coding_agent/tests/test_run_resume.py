@@ -133,6 +133,20 @@ def test_goal_survives_forced_manual_compaction(tmp_path: Path) -> None:
     assert checkpoint.metadata["goal"] == GOAL
 
 
+def test_resume_continue_accepts_failed_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from core_harness import Checkpoint
+
+    store = JsonlPersistence(sessions_dir(tmp_path))
+    asyncio.run(store.save_checkpoint(checkpoint=Checkpoint(
+        session_id="failed-session", turn=0, status="failed", metadata={"goal": GOAL},
+    )))
+    calls = []
+    monkeypatch.setattr("coding_agent.run.cli.run_task", lambda *args, **kwargs: calls.append((args, kwargs)) or 0)
+    assert continue_interrupted(tmp_path) == 0
+    assert calls[0][1]["session_id"] == "failed-session"
+    assert GOAL in calls[0][0][1]
+
+
 def test_resume_continue_without_sessions_says_so(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert continue_interrupted(tmp_path) == 0
     assert "nothing to continue" in capsys.readouterr().out

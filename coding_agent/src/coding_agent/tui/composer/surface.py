@@ -26,6 +26,7 @@ from coding_agent.tui.screens.file_selector import (
 )
 from coding_agent.tui.tools.images import build_user_content
 from coding_agent.tui.transcript import UserMessage
+from core_harness import UserInput
 
 
 class ComposerSurface:
@@ -110,13 +111,11 @@ class ComposerSurface:
         if not self._busy:
             self._start_turn(self.pop_queued_turn())
             return
-        # Interrupt the in-flight run and leave the prompt queued. The
-        # cancelled worker starts it from ``finally`` only after the previous
-        # harness call has actually returned, so two runs cannot overlap.
-        self._pending_question_id = None
-        self._pending_question_default = ""
-        self._pending_question_agent_id = ""
-        self._cancel_active_run("queued_send_now")
+        turn = self._queued_turns[0]
+        if self.submit_op(UserInput(turn.content)):
+            self.pop_queued_turn()
+        else:
+            self.add_notice("Message remains queued until the current run finishes.")
 
     def _composer_menu(self) -> SlashMenu:
         approval_menu = self.query_one("#approval-menu", SlashMenu)

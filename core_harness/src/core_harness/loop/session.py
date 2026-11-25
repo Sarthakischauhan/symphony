@@ -91,13 +91,16 @@ async def run_session(
         messages=messages,
         emit=harness.emit,
     )
-    await harness._persist_conversation(active_session, messages)
-
     usage = UsageTotals()
     all_tool_calls: List[ToolCall] = []
     context_limit = harness.state.context_limit(harness.model_id)
     context_left: Optional[int] = None
     turn = 0
+    await harness._persist_state(
+        session_id=active_session, turn=turn, messages=messages, usage=usage,
+        context_limit=context_limit, context_left=context_left,
+        status="running", metadata={"run_id": run_id},
+    )
     deadline = None
     if harness.limits.max_runtime_seconds is not None:
         deadline = started_mono + harness.limits.max_runtime_seconds

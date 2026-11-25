@@ -120,6 +120,24 @@ def test_bare_task_cancel_still_reports_cancelled() -> None:
     assert [p["reason"] for p in _payloads(sink, "run_cancelled")] == ["cancelled"]
 
 
+def test_running_checkpoint_exists_before_first_model_call() -> None:
+    harness: CoreHarness
+    saved: list[Any] = []
+
+    async def save_checkpoint(*, checkpoint: Any) -> None:
+        saved.append(checkpoint)
+
+    async def on_call(call: int) -> None:
+        assert saved[-1].status == "running"
+        assert saved[-1].messages[-1].content == "go"
+        assert saved[-1].metadata["run_id"]
+
+    harness, _ = _harness(ScriptedRegistry([_text_turn()], on_call))
+    harness.persistence.save_checkpoint = save_checkpoint
+    asyncio.run(harness.run("go"))
+    assert saved[-1].status == "completed"
+
+
 def test_user_input_is_injected_before_the_next_turn() -> None:
     harness: CoreHarness
 

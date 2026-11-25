@@ -14,12 +14,12 @@ from coding_agent.addons.persistence.artifacts import safe_path
 
 
 async def interrupted_session(persistence: JsonlPersistence) -> Optional[tuple[SessionSummary, Checkpoint]]:
-    """Most recent session, only if its last checkpoint still says ``running``."""
+    """Return the most recent session if its run was interrupted or failed."""
     sessions = await persistence.list_sessions()
     if not sessions:
         return None
     checkpoint = await persistence.load_checkpoint(session_id=sessions[0].session_id)
-    if checkpoint is None or checkpoint.status != "running":
+    if checkpoint is None or checkpoint.status not in {"running", "failed"}:
         return None
     return sessions[0], checkpoint
 
