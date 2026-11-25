@@ -39,6 +39,7 @@ from coding_agent.tui.tools.records import ToolCallRecord
 from coding_agent.tui.tools.code_view import (
     arguments_view,
     code_view,
+    colour,
     diff_view,
     lexer_for_path,
     split_diff_view,
@@ -224,23 +225,23 @@ class ToolCallWidget(Collapsible):
         """
         facts: list[tuple[str, str]] = []
         if self.exit_code not in (None, 0):
-            facts.append((f"exit {self.exit_code}", "#d66b73"))
+            facts.append((f"exit {self.exit_code}", colour("keyword")))
         if self._duration is not None:
-            facts.append((f"{self._duration:.1f}s", "#8a8a8a"))
+            facts.append((f"{self._duration:.1f}s", colour("muted")))
         timeout = self.arguments.get("timeout")
         if timeout:
-            facts.append((f"timeout {timeout}s", "#8a8a8a"))
+            facts.append((f"timeout {timeout}s", colour("muted")))
         return facts
 
     def detail_request(self) -> Text | None:
         """What was asked, shown once above the result: a path, a query, a command."""
         request = self._summary()
-        return Text(request, style="#d8d8d8") if request else None
+        return Text(request, style=colour("foreground")) if request else None
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         """The result only; the request is shown once above it."""
         if not self.result:
-            return [Text("No result.", style="#686868")]
+            return [Text("No result.", style=colour("muted"))]
         return [code_view(self.result, lexer="text", wrap=wrap)]
 
     def detail_plain(self) -> str:
@@ -507,25 +508,25 @@ class ReadFileWidget(ToolCallWidget):
         path = self._path()
         if not path:
             return super().detail_request()
-        request = Text(path, style="#d8d8d8")
+        request = Text(path, style=colour("foreground"))
         start, source, _note = strip_line_numbers(self.result)
         partial = start > 1 or self.arguments.get("limit")
         if self.result and not self.result.startswith("error:") and partial and source:
             last = start + len(source.split("\n")) - 1
-            request.append(f"  lines {start}–{last}", style="#8a8a8a")
+            request.append(f"  lines {start}–{last}", style=colour("muted"))
         return request
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         if not self.result:
-            return [Text("Nothing read.", style="#686868")]
+            return [Text("Nothing read.", style=colour("muted"))]
         if self.result.startswith("error:"):
-            return [Text(self.result, style="#d66b73")]
+            return [Text(self.result, style=colour("keyword"))]
         start, source, note = strip_line_numbers(self.result)
         rows: list[Any] = [
             code_view(source, lexer=lexer_for_path(self._path(), source), wrap=wrap, start_line=start)
         ]
         if note:
-            rows.append(Text(note.strip("<>"), style="#686868"))
+            rows.append(Text(note.strip("<>"), style=colour("muted")))
         return rows
 
     def detail_plain(self) -> str:
@@ -602,8 +603,8 @@ class BashToolWidget(ToolCallWidget):
         command = self._summary()
         if not command:
             return None
-        request = Text("$ ", style="#6e6e6e")
-        request.append(command, style="#e8e8e8")
+        request = Text("$ ", style=colour("muted"))
+        request.append(command, style=colour("foreground"))
         return request
 
     def detail_views(self) -> list[tuple[str, Callable[[bool], list[Any]]]]:
@@ -616,7 +617,7 @@ class BashToolWidget(ToolCallWidget):
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         """The command's output; the command itself is shown once above it."""
         if not self.result:
-            return [Text("No output.", style="#686868")]
+            return [Text("No output.", style=colour("muted"))]
         return [code_view(self.result, lexer="text", wrap=wrap)]
 
     def refresh_content(self) -> None:
@@ -693,26 +694,29 @@ class PatchDiffWidget(ToolCallWidget):
     def detail_views(self) -> list[tuple[str, Callable[[bool], list[Any]]]]:
         return [
             ("Diff", self._wrapped(self.detail_rows)),
-            ("Split", lambda wrap: [split_diff_view(self._diff(), wrap=wrap)]),
+            ("Split", lambda wrap: [split_diff_view(self._diff(), wrap=wrap, lexer=self._lexer())]),
             ("Arguments", self._argument_rows),
         ]
 
     def detail_facts(self) -> list[tuple[str, str]]:
         added, removed = diff_stats(self._diff())
-        facts = [(f"+{added}", "#8fc49a"), (f"−{removed}", "#df8b91")]
+        facts = [(f"+{added}", colour("string")), (f"−{removed}", colour("keyword"))]
         if self.summary is not None and self.summary["start_line"] is not None:
-            facts.append((f"line {self.summary['start_line']}", "#8a8a8a"))
+            facts.append((f"line {self.summary['start_line']}", colour("muted")))
         return facts + super().detail_facts()
+
+    def _lexer(self) -> str:
+        return lexer_for_path(self._patch_path())
 
     def detail_request(self) -> Text | None:
         path = self._patch_path()
-        return Text(path, style="#d8d8d8") if path else None
+        return Text(path, style=colour("foreground")) if path else None
 
     def detail_rows(self, *, wrap: bool = False) -> list[Any]:
         """The diff with the file's line numbers, then what the tool reported."""
-        rows: list[Any] = [diff_view(self._diff(), wrap=wrap)]
+        rows: list[Any] = [diff_view(self._diff(), wrap=wrap, lexer=self._lexer())]
         if self.result:
-            rows += [Text(""), Text(self.result, style="#6e6e6e")]
+            rows += [Text(""), Text(self.result, style=colour("muted"))]
         return rows
 
     def _diff_rows(self, *, limit: int, clip_result: bool) -> list[Any]:

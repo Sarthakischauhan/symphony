@@ -50,6 +50,7 @@ from coding_agent.tui.theme.load import ThemeConfigError, ThemeDocument, theme_s
 from coding_agent.tui.theme.plugin_palette import ThemePalette
 from coding_agent.tui.tools import ToolCallSummary, ToolCallWidget
 from coding_agent.tui.tools.images import dropped_image_paths
+from coding_agent.tui.tools.modal import ToolCallModal
 from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.tui.transcript.welcome import WelcomeSummary
 from coding_agent.tui.transcript import (
@@ -437,6 +438,9 @@ class CodingAgentApp(
         self.stylesheet.reparse()
         for screen in self.screen_stack:
             self.stylesheet.update(screen)
+            # Code views bake their colours in when built, so rebuild an open drawer.
+            if isinstance(screen, ToolCallModal):
+                screen.restyle()
         self.refresh(repaint=True, layout=True)
         for topbar in self.query(TopBar):
             topbar.refresh_theme()

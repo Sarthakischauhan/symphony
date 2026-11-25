@@ -305,3 +305,48 @@ def test_a_read_drawer_numbers_lines_once_from_the_offset(monkeypatch: pytest.Mo
             assert rendered[:2] == ["7 import sys", "8 print(sys.argv)"]
 
     asyncio.run(run())
+
+
+def test_the_drawer_takes_its_colours_from_the_theme_and_follows_a_switch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from rich.console import Console
+
+    from coding_agent.tui.theme import SYMPHONY_COLORS
+    from coding_agent.tui.theme.base_palettes import base_palette
+    from coding_agent.tui.theme.plugin_palette import ThemePalette
+    from textual.color import Color
+
+    app = _app(monkeypatch, tmp_path)
+    light = ThemePalette(name="light", colors=base_palette("light"), ansi=False)
+    record = ToolCallRecord(
+        call_id="e1",
+        tool_name="patch",
+        arguments={"path": "src/app.py", "old_str": "x = 1\n", "new_str": "x = 'two'\n"},
+        result="patched src/app.py at line 3",
+    )
+
+    def string_colour_in(card: ToolCallWidget) -> bool:
+        console = Console(width=80, record=True, color_system="truecolor")
+        console.print(*card.detail_rows())
+        return SYMPHONY_COLORS["string"].lower() in console.export_html(inline_styles=True).lower()
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            card = record.widget(tmp_path)
+            app.push_screen(ToolCallModal(card))
+            await pilot.pause()
+            pane = app.screen.query_one("#content-pane")
+            assert pane.styles.background == Color.parse(SYMPHONY_COLORS["background"])
+            # The diff's code is highlighted: the string literal takes the theme's string colour.
+            assert string_colour_in(card)
+            try:
+                app.show_theme(light)
+                await pilot.pause()
+                assert pane.styles.background == Color.parse(light.colors["background"])
+                assert string_colour_in(card)
+            finally:
+                app.show_theme(None)
+
+    asyncio.run(run())
