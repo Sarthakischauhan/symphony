@@ -12,6 +12,7 @@ env:
 
 jobs:
   publish:
+    if: ${{ !startsWith(github.event.release.tag_name, 'symphony-core-v') }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write

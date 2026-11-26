@@ -72,6 +72,25 @@ def test_child_screen_routes_message(monkeypatch, tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("tool_name", ["write_file", "patch", "bash"])
+def test_child_file_changes_invalidate_parent_index(monkeypatch, tmp_path: Path, tool_name: str) -> None:
+    app = CodingAgentApp(workspace=tmp_path)
+    invalidations = []
+    monkeypatch.setattr(app._file_index, "invalidate", lambda: invalidations.append(True))
+
+    async def run() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            record = SubagentRecord(agent_id="child", parent_id="parent", label="Child", prompt="Edit")
+            app.open_subagent(record)
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, SubagentScreen)
+            screen.update_tool("call", tool_name=tool_name, status="done", result="ok")
+            assert invalidations == [True]
+
+    asyncio.run(run())
+
+
 def test_child_tool_argument_snapshots_replace_streamed_json() -> None:
     record = SubagentRecord(agent_id="child", parent_id="parent", label="Inspector", prompt="Inspect")
     call = {"tool_call_id": "read-1", "tool_name": "read_file"}

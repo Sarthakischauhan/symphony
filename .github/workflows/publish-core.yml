@@ -34,7 +34,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' core_ai/pyproject.toml)
-          if [ "$RELEASE_TAG" = "v$version" ]; then
+          if [ "$RELEASE_TAG" = "v$version" ] || [ "$RELEASE_TAG" = "symphony-core-v$version" ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "symphony-core is $version; $RELEASE_TAG does not release it."
