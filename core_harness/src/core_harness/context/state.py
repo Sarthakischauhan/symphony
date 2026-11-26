@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
 from core_ai.content import text_from_content
 from core_ai.types import Content, Message
-from core_ai.models.registry import context_limits
+from core_ai.models.registry import context_limits, get_model
 from core_harness.models import ToolCall
 from core_harness.context.compact import (
     estimate_message_tokens,
@@ -210,6 +210,11 @@ class HarnessState:
         model_name = model_id.split(":", 1)[-1]
         if model_name in self.context_limits:
             return self.context_limits[model_name]
+
+        provider, separator, name = model_id.partition(":")
+        model = get_model(provider, name) if separator else None
+        if model is not None and model.context_limit is not None:
+            return model.context_limit
 
         for known_model, limit in sorted(
             self.context_limits.items(), key=lambda item: len(item[0]), reverse=True
