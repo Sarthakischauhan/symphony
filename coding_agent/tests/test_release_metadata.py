@@ -16,6 +16,7 @@ def test_workspace_release_dependency_floors():
             projects[directory] = tomllib.load(file)["project"]
 
     assert Version(projects["core_harness"]["version"]) >= Version("0.0.10")
+    assert Version(projects["core_ai"]["version"]) >= Version("0.0.8")
     for directory, required in {
         "core_harness": ("symphony-core",),
         "coding_agent": ("symphony-core", "symphony-harness"),
@@ -25,7 +26,11 @@ def test_workspace_release_dependency_floors():
         dependencies = {req.name: req for req in map(Requirement, projects[directory]["dependencies"])}
         for name in required:
             specifier = dependencies[name].specifier
-            minimum = "0.0.10" if (directory, name) == ("coding_agent", "symphony-harness") else "0.0.7"
-            previous = "0.0.9" if minimum == "0.0.10" else "0.0.6"
+            if (directory, name) == ("coding_agent", "symphony-core"):
+                minimum, previous = "0.0.8", "0.0.7"
+            elif (directory, name) == ("coding_agent", "symphony-harness"):
+                minimum, previous = "0.0.10", "0.0.9"
+            else:
+                minimum, previous = "0.0.7", "0.0.6"
             assert Version(minimum) in specifier, (directory, name)
             assert Version(previous) not in specifier, (directory, name)

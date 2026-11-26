@@ -40,6 +40,16 @@ class _Stdin(io.StringIO):
         return self._tty
 
 
+def test_doctor_reports_missing_model_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "core_ai.models.discovery", None)
+    assert doctor.check_model_discovery in doctor.CHECKS
+    finding = _only(doctor.run_checks(_ctx(tmp_path), checks=[doctor.check_model_discovery]), "Model discovery")
+    assert finding.status == "fail"
+    assert "Reinstall" in finding.hint
+
+
 def test_broken_config_is_moved_aside_and_replaced_with_defaults(tmp_path: Path) -> None:
     home = symphony_dir()
     home.mkdir(parents=True)

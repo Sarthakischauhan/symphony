@@ -200,6 +200,9 @@ class SubagentScreen(TranscriptSurface, ModalBase[None]):
         self.refresh_record()
         self.set_interval(1, self.refresh_record)
 
+    def invalidate_workspace_caches(self) -> None:
+        self.app.invalidate_workspace_caches()
+
     def add_update(self, text: str, hint: str = "") -> None:
         """The child transcript has no composer banner, so banners and toasts are dropped."""
 

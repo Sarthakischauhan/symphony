@@ -146,6 +146,20 @@ def _fetch_latest() -> str:
     return latest
 
 
+def check_model_discovery(ctx: DoctorContext) -> Iterable[Finding]:
+    # This is imported lazily by the TUI worker, so checking provider setup alone
+    # does not reveal an incomplete or incompatible core_ai installation.
+    try:
+        from core_ai.models.discovery import refresh_models  # noqa: F401
+    except ImportError as exc:
+        yield Finding(
+            "Model discovery", "fail", f"cannot import model discovery: {_first_line(exc)}",
+            hint="Reinstall Symphony and its dependencies using your original installation method.",
+        )
+        return
+    yield Finding("Model discovery", "ok", "model discovery module loads")
+
+
 def check_python(ctx: DoctorContext) -> Iterable[Finding]:
     found = ".".join(str(part) for part in sys.version_info[:3])
     if sys.version_info < (3, 11):
@@ -416,6 +430,7 @@ def check_terminal(ctx: DoctorContext) -> Iterable[Finding]:
 
 CHECKS: tuple[Callable[[DoctorContext], Iterable[Finding]], ...] = (
     check_install,
+    check_model_discovery,
     check_python,
     check_home,
     check_config,
