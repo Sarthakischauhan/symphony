@@ -25,7 +25,7 @@ Set up a model provider, choose defaults, and decide how the coding agent asks b
 
 On first launch, Symphony can help configure a provider. In the TUI, use `/login` to add or change credentials and `/model` to choose a model. API keys can also be set in the process environment or `.env` files. Do not commit credentials. Provider priority, subscription login, local providers, and model overrides are documented in the [environment reference](../reference/environment.md).
 
-The TUI refreshes model metadata from the public [models.dev catalog](https://models.dev/) in the background at startup for configured OpenAI, Anthropic, Gemini and Grok providers. No provider credentials are sent to models.dev. If the refresh fails, the bundled catalog remains available. A listing does not guarantee that your API key, subscription, endpoint or account has access to that model; the provider determines access and may reject a request.
+The TUI refreshes model metadata from the public [models.dev catalog](https://models.dev/) in a background subprocess at startup for configured OpenAI, Anthropic, Gemini and Grok providers. Fetching and parsing do not run on the UI event loop. No provider credentials are sent to models.dev. If the refresh fails, the bundled catalog remains available. A listing does not guarantee that your API key, subscription, endpoint or account has access to that model; the provider determines access and may reject a request.
 
 ## Settings file
 

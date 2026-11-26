@@ -1,7 +1,11 @@
 """Refresh supported model metadata from the public models.dev catalog."""
 from __future__ import annotations
 
+import asyncio
+import json
 import re
+import sys
+from dataclasses import asdict
 
 import httpx
 
@@ -58,17 +62,57 @@ def parse_models(payload: object, providers: set[str]) -> tuple[ModelInfo, ...]:
                     price = ModelPrice(incoming, outgoing, rate("cache_read"), rate("cache_write"))
             model_api = "chat_completions" if provider == "openai" and model_id.startswith(("o1", "o3", "o4")) else api
             result.append(ModelInfo(id=model_id, provider=provider, api=model_api, reasoning=metadata.get("reasoning") is True, thinking_level_map=levels, context_limit=context, price=price))
+            if len(result) >= 2000:
+                return tuple(result)
     return tuple(result)
 
 
-async def refresh_models(providers: tuple[str, ...]) -> int:
-    """Fetch once on demand; retain the shipped catalog on failure or empty data."""
-    async with httpx.AsyncClient(timeout=8.0, follow_redirects=False) as client:
-        response = await client.get(_URL, headers={"Accept": "application/json"})
+def _fetch_models(providers: set[str]) -> tuple[ModelInfo, ...]:
+    """Run network I/O, JSON decoding and projection in the child process."""
+    with httpx.stream("GET", _URL, headers={"Accept": "application/json"}, timeout=8.0, follow_redirects=False) as response:
         response.raise_for_status()
-        models = parse_models(response.json(), set(providers))
+        content = bytearray()
+        for chunk in response.iter_bytes():
+            content.extend(chunk)
+            if len(content) > 16 * 1024 * 1024:
+                raise ValueError("models.dev catalog exceeds size limit")
+    return parse_models(json.loads(content), providers)
+
+
+async def refresh_models(providers: tuple[str, ...]) -> int:
+    """Refresh in a subprocess, leaving the UI loop and its GIL unblocked."""
+    supported = tuple(provider for provider in providers if provider in {item[0] for item in _PROVIDERS.values()})
+    if not supported:
+        return 0
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "core_ai.models.discovery", *supported,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        output, _ = await asyncio.wait_for(process.communicate(), timeout=20)
+    except (asyncio.CancelledError, TimeoutError):
+        if process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        await process.wait()
+        raise
+    if process.returncode:
+        raise ValueError("models.dev refresh failed")
+    records = json.loads(output)
+    models = tuple(ModelInfo(**{**record, "price": ModelPrice(**record["price"]) if record["price"] else None,
+                                "thinking_level_map": tuple(tuple(level) for level in record["thinking_level_map"])})
+                   for record in records)
     if not models:
         raise ValueError("models.dev returned no compatible models")
     for model in models:
         register_model(model)
     return len(models)
+
+
+if __name__ == "__main__":
+    try:
+        print(json.dumps([asdict(model) for model in _fetch_models(set(sys.argv[1:]))]))
+    except (ValueError, httpx.HTTPError, OSError):
+        sys.exit(1)

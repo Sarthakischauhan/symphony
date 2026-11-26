@@ -359,7 +359,7 @@ class CodingAgentApp(
             return
         try:
             await refresh_models(agent.registry.namespaces())
-        except (ValueError, OSError, httpx.HTTPError):
+        except (ValueError, OSError, TimeoutError, httpx.HTTPError):
             return  # The shipped catalog remains available offline.
         if self._agent is agent:
             self._model_options = model_options(agent.registry.namespaces())
