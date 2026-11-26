@@ -67,7 +67,7 @@ class TurnSurface:
             self._stream_flush_timer = None
             pending = self._stream_flush_callback
             self._stream_flush_callback = None
-            if pending is not None:
+            if pending is not None and self.query("#status"):
                 pending()
 
         self._stream_flush_timer = self.set_timer(STREAM_PAINT_INTERVAL_S, _run)
