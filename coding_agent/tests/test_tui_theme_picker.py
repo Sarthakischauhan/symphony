@@ -62,6 +62,7 @@ def test_the_picker_lists_default_and_plugin_themes_and_marks_the_current_one(wo
         prompts = [str(options.get_option_at_index(index).prompt) for index in range(options.option_count)]
         assert [text.split()[1] for text in prompts[:2]] == ["default", "dracula:Dracula"]
         assert prompts[0].startswith("●") and prompts[1].startswith("○")
+        assert any("symphony:bubblegum" in text for text in prompts)
         assert options.highlighted == 0
 
     drive(workspace, scenario)
@@ -129,6 +130,10 @@ def test_theme_with_a_name_switches_without_the_picker(workspace: Path) -> None:
         assert not isinstance(app.screen, ThemePickerScreen)
         assert SYMPHONY_COLORS["background"] == "#282a36"
         assert saved_config(workspace).theme == "dracula:Dracula"
+        await app._command_manager.run("/theme C/C++ Light")
+        await pilot.pause()
+        assert SYMPHONY_COLORS["background"] == "#ffffff"
+        assert saved_config(workspace).theme == "symphony:C/C++ Light"
         await app._command_manager.run("/theme default")
         await pilot.pause()
         assert SYMPHONY_COLORS["background"] == DEFAULT_BACKGROUND

@@ -83,10 +83,32 @@ def test_usage_mistakes_are_text_not_exits(workspace: Path) -> None:
     assert "list" in themes(workspace, "--help").text
 
 
-def test_plugins_switched_off_offer_no_themes(workspace: Path) -> None:
+def test_plugins_switched_off_still_offer_built_in_themes(workspace: Path) -> None:
     config = saved_config(workspace)
     off = config.model_copy(update={"plugins": config.plugins.model_copy(update={"enabled": False})})
-    assert available_themes(workspace, off) == ()
+    assert available_themes(workspace, off)
+    assert all(theme.plugin == "symphony" for theme in available_themes(workspace, off))
+
+
+@pytest.mark.parametrize(
+    ("name", "background"),
+    [
+        ("haSakura-theme", "#ffd2da"),
+        ("bubblegum", "#f9f9f9"),
+        ("Sakura", "#18131e"),
+        ("C/C++ Dark", "#1e1e1e"),
+        ("C/C++ Light", "#ffffff"),
+        ("C/C++ 2017 Dark", "#1e1e1e"),
+        ("C/C++ 2017 Light", "#ffffff"),
+    ],
+)
+def test_bundled_themes_are_listed_saved_and_applied(tmp_path: Path, name: str, background: str) -> None:
+    qualified = f"symphony:{name}"
+    assert qualified in themes(tmp_path, "list").text
+    assert choose_theme(tmp_path, name).theme == qualified
+    palette = selected_palette(saved_config(tmp_path), tmp_path)
+    assert palette is not None and palette.colors["background"] == background
+    assert background in load_active_theme(palette).app_css
 
 
 def test_the_chosen_theme_becomes_the_palette_and_default_is_none(workspace: Path) -> None:

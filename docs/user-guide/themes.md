@@ -2,6 +2,22 @@
 
 Plugins can ship color themes. Symphony reads them as data; installing a theme never runs code.
 
+## Built-in themes
+
+Open `/theme` to preview the built-in palettes, or set one from the CLI:
+
+```sh
+symphony themes use haSakura-theme
+symphony themes use bubblegum
+symphony themes use Sakura
+symphony themes use "C/C++ Dark"
+```
+
+Sakura uses Ghostty's terminal palette. haSakura-theme, bubblegum, and the
+C/C++ presets adapt VS Code palettes. The C/C++ presets include Dark, Light,
+2017 Dark, and 2017 Light. Use the `symphony:` prefix if a plugin has a theme
+with the same name.
+
 ## Use a theme from the Claude marketplace
 
 [claude-themes](https://github.com/matcra587/claude-themes) publishes Dracula, Nord, Gruvbox and others as plugins:
@@ -15,7 +31,7 @@ symphony themes use dracula
 
 Inside Symphony, `/theme` opens a picker. Moving the highlight previews each theme on the whole screen. Enter keeps it and Esc puts the old one back. `/theme dracula` switches without the picker.
 
-The choice is saved as `theme` in `config.json` (`"default"` unless you change it) and is applied the next time Symphony starts. Names are `<plugin>:<Theme Name>`, such as `dracula:Dracula (ANSI)`. A bare name works when only one plugin has it.
+The choice is saved as `theme` in `config.json` (`"default"` unless you change it) and is applied the next time Symphony starts. Names are `<plugin>:<Theme Name>`, such as `dracula:Dracula (ANSI)`. A bare name works when it uniquely identifies a theme.
 
 `~/.symphony/theme.toml` (or `$SYMPHONY_HOME/theme.toml`) still wins. If that file exists, it replaces the chosen theme completely and the picker says so.
 
