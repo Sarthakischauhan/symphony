@@ -337,8 +337,9 @@ class ToolCallWidget(Collapsible):
         if values == self._header_values:
             return
         header = tool_header_text(label, target, self.status)
-        # The header is one line and crops. A longer command must not relayout.
-        self._tool_label.update(header, layout=False)
+        # The label wraps to its text. A longer header needs a layout; a
+        # status-only recolor does not.
+        self._tool_label.update(header, layout=header.cell_length != self._header_cells)
         self._header_values = values
         self._header_cells = header.cell_length
 
@@ -642,8 +643,9 @@ class BashToolWidget(ToolCallWidget):
             # The command streams in and facts arrive at completion: relayout only when
             # the text length changes, so output-tail ticks stay layout-free.
             header = tool_header_text("Bash", target, self.status, facts)
-            # One cropped line. Output ticks and a longer command stay layout-free.
-            self._bash_label.update(header, layout=False)
+            # Output ticks keep the same length and stay layout-free. A longer
+            # command wraps, so that change lays out.
+            self._bash_label.update(header, layout=header.cell_length != self._header_cells)
             self._header_values = values
             self._header_cells = header.cell_length
         self._refresh_status_class()

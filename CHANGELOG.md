@@ -6,7 +6,7 @@
 
 Release notes for `symphony-code` and `symphony-harness`; core remains at 0.0.7.
 
-- The TUI paints a streaming row, a thought, and a cropped tool header in place when the height does not change. A tool card mounts in one batch, without its hidden collapsible title, and a folded tool group keeps a running tally instead of rescanning every call. Colors, rates, and the tail-follow animation are unchanged.
+- The TUI paints a streaming row or thought in place when its height does not change, and relayouts a tool header only when its text length changes. A tool card mounts in one batch, without its hidden collapsible title, and a folded tool group keeps a running tally instead of rescanning every call. Colors, rates, and the tail-follow animation are unchanged.
 - Tool details open in a full-height drawer beside the transcript. Views depend on the tool (diff, split, output, content, arguments) and follow the active theme, including diff colors and syntax highlighting. A file read is numbered once, from the read's offset, and highlighted by its file type.
 - An approval sits above the composer. Its title names the request, and "Always allow" says that it stops asking for anything this session.
 - `--resume --continue` continues the latest interrupted or failed session from its saved conversation and checkpoint.
