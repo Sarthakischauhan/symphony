@@ -160,12 +160,11 @@ class ToolCallWidget(Collapsible):
         self.activity_group = ""
         self._body_dirty = True
         self._header_values: tuple[str, str, str] | None = None
-        # Cells in the painted header. The label sizes and wraps to its text, so
-        # a change in length needs a relayout; a status-only recolor does not.
+        # Cells in the painted header. The line crops, so length changes paint
+        # in place; a status-only recolor does not relayout either.
         self._header_cells = -1
         self._styled_status: str | None = None
         super().__init__(
-            self._body,
             title=tool_label(tool_name)[0],
             collapsed=True,
             collapsed_symbol="",
@@ -178,9 +177,9 @@ class ToolCallWidget(Collapsible):
         return SelectableStatic(markup=False)
 
     def compose(self):  # type: ignore[no-untyped-def]
-        # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
-        # the timeline header is the visible control shared by every tool.
-        yield self._title
+        # The visible header is the timeline line. CollapsibleTitle is zero
+        # height and would still rewrite its label on mount, and each rewrite
+        # asks the screen to lay out. It stays unmounted.
         with BashToolHeader(classes="tool-call-header"):
             yield self._tool_label
         with self.Contents():
@@ -338,14 +337,22 @@ class ToolCallWidget(Collapsible):
         if values == self._header_values:
             return
         header = tool_header_text(label, target, self.status)
-        self._tool_label.update(header, layout=header.cell_length != self._header_cells)
+        # The header is one line and crops. A longer command must not relayout.
+        self._tool_label.update(header, layout=False)
         self._header_values = values
         self._header_cells = header.cell_length
 
     def _refresh_body(self) -> None:
         if self.collapsed or not self._body_dirty:
             return
-        self._body.update(Group(*self._body_rows()))
+        rows = Group(*self._body_rows())
+        # Collapsed cards hide the body. An open card grows only when the
+        # result wraps onto another line, which the fitted update measures.
+        # Image chips are plain Statics and keep Textual's own update.
+        if isinstance(self._body, SelectableStatic):
+            self._body._update_fitted(rows)
+        else:
+            self._body.update(rows)
         self._body_dirty = False
 
     def refresh_content(self) -> None:
@@ -635,7 +642,8 @@ class BashToolWidget(ToolCallWidget):
             # The command streams in and facts arrive at completion: relayout only when
             # the text length changes, so output-tail ticks stay layout-free.
             header = tool_header_text("Bash", target, self.status, facts)
-            self._bash_label.update(header, layout=header.cell_length != self._header_cells)
+            # One cropped line. Output ticks and a longer command stay layout-free.
+            self._bash_label.update(header, layout=False)
             self._header_values = values
             self._header_cells = header.cell_length
         self._refresh_status_class()
@@ -744,7 +752,13 @@ class PatchDiffWidget(ToolCallWidget):
         self._refresh_status_class()
         if self.collapsed or not self._body_dirty:
             return
-        self._body.update(Group(*self._diff_rows(limit=self.MAX_DIFF_LINES, clip_result=True)))
+        # The diff is hidden until the card opens. Measure it so a same-height
+        # result does not relayout the transcript.
+        rows = Group(*self._diff_rows(limit=self.MAX_DIFF_LINES, clip_result=True))
+        if isinstance(self._body, SelectableStatic):
+            self._body._update_fitted(rows)
+        else:
+            self._body.update(rows)
         self._body_dirty = False
 
 

@@ -292,8 +292,14 @@ class RunProcess(Container):
         self._items.append(widget)
         self._remember_entry(widget)
         if self.is_mounted:
-            self.mount(widget)
-        self._track_stretch(widget)
+            # Composing the card moves its header into place, and each move
+            # asks for a layout. Hold repaints until the row is complete so
+            # the screen lays out once.
+            with self.app.batch_update():
+                self.mount(widget)
+                self._track_stretch(widget)
+        else:
+            self._track_stretch(widget)
 
     def _track_stretch(self, widget: Widget) -> None:
         """Extend the dense run with a tool row, or end it with anything else."""
@@ -499,7 +505,9 @@ class ReasoningBody(SelectableStatic):
             return
         self._source = source
         self._streaming = streaming
-        self._invalidate_render_cache(layout=True)
+        # render() reads the source just stored and returns the cached
+        # markdown. The fitted update relayouts only when that grew a line.
+        self._update_fitted(self.render())
 
     def render(self) -> RenderableType:
         code_style = self.get_component_rich_style(REASONING_CODE, partial=True, default=Style())
@@ -544,7 +552,6 @@ class ReasoningWidget(Collapsible):
         self._started_at = monotonic()
         self._duration: float | None = None
         super().__init__(
-            self._scroll,
             title="Thinking…",
             collapsed=False,
             collapsed_symbol="",
@@ -554,9 +561,8 @@ class ReasoningWidget(Collapsible):
         self.set_content(content)
 
     def compose(self):  # type: ignore[no-untyped-def]
-        # Keep CollapsibleTitle in the DOM for keyboard/accessibility compatibility;
-        # the visible header matches the compact tool-call line.
-        yield self._title
+        # The visible header is the timeline line. CollapsibleTitle is zero
+        # height and rewrites its label on mount, which asks for a layout.
         with ReasoningHeader(classes="reasoning-header"):
             yield self._label
             yield self._status
