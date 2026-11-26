@@ -56,7 +56,8 @@ turns: each yield permits an intermediate repaint.
 - Update text with `layout=False` when the widget's size cannot change.
   `SelectableStatic._update_fitted` measures the new visual and requests a
   layout only when its height changed. Use that for `height: auto` rows
-  whose text streams. A one-line header that crops never needs a layout.
+  whose text streams. A tool header lays out only when its text length
+  changes, so a status recolor does not.
 - A streaming output tail should use a fixed-height window and replace its text
   in place. Do not append widgets for output chunks.
 - Do not rebuild a parent, the top bar, or the whole transcript for a status or

@@ -18,7 +18,8 @@ the same algorithmic behavior, not a rewrite in another language.
 
 - A stream paint, a tool-row update, and a thought update relayout only when
   the widget's fitted height changes. A same-height update dirties paint.
-- One-line tool and Bash headers never relayout as their text grows.
+- A tool or Bash header relayouts only when its text length changes, so a
+  status recolor stays a paint and a longer command still wraps.
 - A card mounts inside one update batch. Its hidden collapsible title is not
   mounted, so label rewrites during compose do not schedule extra layouts.
 - Folded tool groups keep a running tally. A status change no longer rescans

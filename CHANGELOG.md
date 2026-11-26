@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.0.10 — 2026-11-25
+
+Release notes for `symphony-code` and `symphony-harness`; core remains at 0.0.7.
+
+- The TUI paints a streaming row or thought in place when its height does not change, and relayouts a tool header only when its text length changes. A tool card mounts in one batch, without its hidden collapsible title, and a folded tool group keeps a running tally instead of rescanning every call. Colors, rates, and the tail-follow animation are unchanged.
+- Tool details open in a full-height drawer beside the transcript. Views depend on the tool (diff, split, output, content, arguments) and follow the active theme, including diff colors and syntax highlighting. A file read is numbered once, from the read's offset, and highlighted by its file type.
+- An approval sits above the composer. Its title names the request, and "Always allow" says that it stops asking for anything this session.
+- `--resume --continue` continues the latest interrupted or failed session from its saved conversation and checkpoint.
+- A child agent inherits the parent's selected model unless its profile sets one.
+- The TUI refreshes model metadata from the public models.dev catalog in a background process at startup. No credentials are sent. A failed refresh keeps the bundled catalog, and a listing still does not mean your account can use that model. The bundled Astra and Gemini catalog is updated.
+- Learning extraction prefers user preferences, corrections, and decisions that the repository does not already record, and skips temporary status.
+
 ## 0.0.9 — 2026-11-24
 
 Release notes for `symphony-code` and `symphony-harness`; core remains at 0.0.7.
