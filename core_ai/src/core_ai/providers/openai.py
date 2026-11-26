@@ -445,6 +445,7 @@ class OpenAIProvider(BaseProvider):
     @staticmethod
     def _chat_messages(messages: List[Message]) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
+        result_ids = OpenAIProvider._tool_result_ids(messages)
         pending_images: List[Dict[str, Any]] = []
 
         def flush_images() -> None:
@@ -477,7 +478,7 @@ class OpenAIProvider(BaseProvider):
             if message.tool_calls:
                 formatted["tool_calls"] = message.tool_calls
             items.append(formatted)
-            items.extend(OpenAIProvider._missing_chat_tool_messages(messages, message))
+            items.extend(OpenAIProvider._missing_chat_tool_messages(result_ids, message))
         flush_images()
         return items
 
@@ -488,6 +489,7 @@ class OpenAIProvider(BaseProvider):
         codex: bool = False,
     ) -> tuple[List[Dict[str, Any]], str]:
         items: List[Dict[str, Any]] = []
+        result_ids = OpenAIProvider._tool_result_ids(messages)
         pending_images: List[Dict[str, Any]] = []
         instructions_parts: List[str] = []
 
@@ -538,7 +540,7 @@ class OpenAIProvider(BaseProvider):
                         "arguments": function.get("arguments", "{}"),
                     }
                 )
-                missing = OpenAIProvider._missing_responses_output(messages, tool_call.get("id"))
+                missing = OpenAIProvider._missing_responses_output(result_ids, tool_call.get("id"))
                 if missing is not None:
                     items.append(missing)
         flush_images()
@@ -546,13 +548,13 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _missing_chat_tool_messages(
-        messages: List[Message],
+        result_ids: set[str],
         message: Message,
     ) -> List[Dict[str, Any]]:
         missing: List[Dict[str, Any]] = []
         for tool_call in message.tool_calls or []:
             call_id = tool_call.get("id")
-            if call_id is None or OpenAIProvider._has_tool_result(messages, call_id):
+            if call_id is None or str(call_id) in result_ids:
                 continue
             missing.append(
                 {
@@ -565,10 +567,10 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _missing_responses_output(
-        messages: List[Message],
+        result_ids: set[str],
         call_id: Any,
     ) -> Optional[Dict[str, Any]]:
-        if call_id is None or OpenAIProvider._has_tool_result(messages, call_id):
+        if call_id is None or str(call_id) in result_ids:
             return None
         return {
             "type": "function_call_output",
@@ -577,14 +579,12 @@ class OpenAIProvider(BaseProvider):
         }
 
     @staticmethod
-    def _has_tool_result(messages: List[Message], call_id: Any) -> bool:
-        expected = str(call_id)
-        return any(
-            message.role == "tool"
-            and message.tool_call_id is not None
-            and str(message.tool_call_id) == expected
+    def _tool_result_ids(messages: List[Message]) -> set[str]:
+        return {
+            str(message.tool_call_id)
             for message in messages
-        )
+            if message.role == "tool" and message.tool_call_id is not None
+        }
 
 
 def prompt_cache_key(

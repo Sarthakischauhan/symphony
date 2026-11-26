@@ -12,6 +12,7 @@ from coding_agent.addons.evaluation.policy import PolicyDecision
 from coding_agent.addons.evaluation.state import bound_text
 from coding_agent.addons.persistence.collection import is_collected
 from coding_agent.addons.voice.summary import SpokenSummaryStream, split_spoken_summary
+from coding_agent.commands.performance import RunPerformance
 from coding_agent.tools.bash import Stream
 from coding_agent.tui.runtime.state import UiRunState
 from coding_agent.tui.tools.calls import ToolOutcome
@@ -218,6 +219,7 @@ class EventPresenter:
         self._model_turns: set[int] = set()
         self._tool_executions: set[str] = set()
         self._usage_estimated = False
+        self.performance = RunPerformance()
         self._handlers: dict[str, Callable[[Mapping[str, Any]], None]] = {
             "artifact_created": self._on_artifact_created,
             "artifact_updated": self._on_artifact_updated,
@@ -295,6 +297,7 @@ class EventPresenter:
             # Mid-run work already folded into the completed-run collection.
             # Honour the sticky tag so resume cannot resurrect live cards.
             return
+        self.performance.observe(event_type, payload)
         before = self._chrome_snapshot()
         # Observations must not turn an interleaved stream into per-event paints.
         observational = event_type in {"usage", "context", "tool_execution_output"}

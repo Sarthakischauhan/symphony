@@ -427,3 +427,27 @@ def test_tool_execution_started_frame_carries_started_at(monkeypatch):
     assert isinstance(payload["started_at"], float)
     assert before <= payload["started_at"] <= time.time()
     assert payload["call_id"] == "call-1"
+
+
+def test_perf_reports_the_latest_journaled_run(tmp_path):
+    from coding_agent.addons.persistence import JsonlPersistence
+    from coding_agent.protocols.stdio import commands
+
+    async def scenario():
+        store = JsonlPersistence(tmp_path / "sessions")
+        agent = SimpleNamespace(persistence=store, session_id="session-test")
+        events = [
+            ("run_started", {}),
+            ("turn_completed", {"first_output_ms": 20, "duration_ms": 80}),
+            ("usage", {"cache_read_tokens": 200}),
+            ("run_completed", {"duration_ms": 100}),
+        ]
+        for seq, (event, payload) in enumerate(events, 1):
+            await store.append_event(event_type=event, payload={
+                "session_id": agent.session_id, "run_id": "one", "seq": seq, **payload,
+            })
+        report = await commands.execute(agent, "/perf")
+        assert "First model output · 1 samples · avg 20 ms" in report
+        assert "200 read · 0 written" in report
+
+    asyncio.run(scenario())

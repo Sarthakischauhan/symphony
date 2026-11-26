@@ -484,6 +484,11 @@ class CommandManager:
             app.add_notice("Slash commands\n" + "\n".join(lines))
         elif command == "status":
             show_status(app)
+        elif command == "perf":
+            if app._agent is None or app._presenter is None:
+                app.add_notice("No latency samples for this session yet.")
+            else:
+                app.add_notice(app._presenter.performance.report(app._agent.session_id))
         elif command == "dashboard":
             app.action_dashboard()
         elif command == "usage":

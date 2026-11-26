@@ -20,15 +20,14 @@ def dispatch_event(
 ) -> tuple[AddonFailure, ...]:
     """Call every active handler for ``event``. A raising handler only fails its own call."""
     failures: list[AddonFailure] = []
-    for addon in snapshot.loaded:
-        for subscription in addon.subscriptions:
-            if not subscription.active or subscription.event != event:
-                continue
-            try:
-                subscription.handler(event, payload)
-            except Exception as exc:  # noqa: BLE001 - addon code is untrusted
-                logger.warning("addon %s hook %s failed", addon.name, event, exc_info=True)
-                failures.append(AddonFailure(addon.name, "hook", _error(exc)))
+    for addon_name, subscription in snapshot._subscriptions_by_event.get(event, ()):
+        if not subscription.active:
+            continue
+        try:
+            subscription.handler(event, payload)
+        except Exception as exc:  # noqa: BLE001 - addon code is untrusted
+            logger.warning("addon %s hook %s failed", addon_name, event, exc_info=True)
+            failures.append(AddonFailure(addon_name, "hook", _error(exc)))
     return tuple(failures)
 
 

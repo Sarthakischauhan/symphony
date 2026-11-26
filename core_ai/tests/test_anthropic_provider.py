@@ -18,6 +18,7 @@ def test_anthropic_streams_text_tools_and_usage() -> None:
         assert request.headers["x-api-key"] == "test"
         payload = json.loads(request.content)
         assert payload["model"] == "claude-sonnet-5"
+        assert payload["cache_control"] == {"type": "ephemeral"}
         assert payload["max_tokens"] == 900
         assert payload["system"] == [
             {"type": "text", "text": "Be brief", "cache_control": {"type": "ephemeral"}}

@@ -10,6 +10,7 @@ from core_ai.content import text_from_content
 from core_ai.types import Content, Message
 from core_ai.models.registry import context_limits, get_model
 from core_harness.models import ToolCall
+from core_harness.timing import mono_now, with_ended
 from core_harness.context.compact import (
     estimate_message_tokens,
     estimate_prompt_tokens,
@@ -298,6 +299,7 @@ class HarnessState:
         }
         if manual:
             started["manual"] = True
+        started_mono = mono_now()
         await emit("compaction_started", started)
         compacted = await self.compactor.compact(
             messages,
@@ -317,5 +319,5 @@ class HarnessState:
         }
         if manual:
             completed["manual"] = True
-        await emit("compaction_completed", completed)
+        await emit("compaction_completed", with_ended(completed, started_mono))
         return compacted

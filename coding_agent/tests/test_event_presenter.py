@@ -770,3 +770,19 @@ def test_auto_decision_is_one_typed_line(payload: dict[str, Any], text: str) -> 
     presenter.handle("auto_decision", {**payload, "run_id": "r", "session_id": "s", "seq": 3})
     assert view.notices == [text]
     assert "{" not in view.notices[0]
+
+
+def test_performance_report_is_scoped_to_the_latest_run_and_session() -> None:
+    presenter, _, _ = _presenter()
+    presenter.handle("run_started", {"session_id": "first"})
+    presenter.handle("usage", {"cache_read_tokens": 200, "cache_write_tokens": 10})
+    presenter.handle("turn_completed", {"duration_ms": 80, "first_output_ms": 20})
+    presenter.handle("turn_completed", {"duration_ms": 120, "first_output_ms": 40})
+    presenter.handle("run_completed", {"duration_ms": 240})
+    report = presenter.performance.report("first")
+    assert "First model output · 2 samples · avg 30 ms · max 40 ms" in report
+    assert "Model turn · 2 samples · avg 100 ms · max 120 ms" in report
+    assert "200 read · 10 written" in report
+    assert "No latency samples" in presenter.performance.report("other")
+    presenter.handle("run_started", {"session_id": "first"})
+    assert "No latency samples" in presenter.performance.report("first")

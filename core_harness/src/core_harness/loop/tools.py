@@ -86,8 +86,8 @@ async def run_tool_calls(
             )
             await emit_tool_result(runner, tool_call, result)
         else:
-            result = await execute_tool(runner, tool_call)
             runner.tool_calls_so_far += 1
+            result = await execute_tool(runner, tool_call)
             if (
                 result.status == "timeout"
                 and runner.deadline is not None
@@ -111,11 +111,22 @@ async def run_tool_calls(
             while index < len(tool_calls) and tool_is_parallel(runner, tool_calls[index]):
                 batch.append(tool_calls[index])
                 index += 1
-            for offset in range(0, len(batch), runner.max_parallel_tool_calls):
-                chunk = batch[offset : offset + runner.max_parallel_tool_calls]
-                results = await asyncio.gather(*[run_one(call) for call in chunk])
-                for call, result in zip(chunk, results):
-                    await commit(call, result)
+            slots = asyncio.Semaphore(runner.max_parallel_tool_calls)
+
+            async def run_with_slot(call: ToolCall) -> ToolResult:
+                async with slots:
+                    return await run_one(call)
+
+            tasks = [asyncio.create_task(run_with_slot(call)) for call in batch]
+            try:
+                results = await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+            for call, result in zip(batch, results):
+                await commit(call, result)
         else:
             call = tool_calls[index]
             result = await run_one(call)
