@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import time
 import traceback
+
+import httpx
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -322,6 +324,7 @@ class CodingAgentApp(
 
         self._ui_state.model_id = self._agent.harness.model_id
         self._model_options = model_options(self._agent.registry.namespaces())
+        self.run_worker(self._refresh_model_catalog(), exclusive=True, group="model-catalog")
         self._ui_state.metrics.context_limit = self._agent.harness.state.context_limit(
             self._ui_state.model_id
         )
@@ -347,6 +350,19 @@ class CodingAgentApp(
         if self.session_id and self._resumed:
             self.load_session_history()
         self.query_one("#prompt", PromptInput).focus()
+
+    async def _refresh_model_catalog(self) -> None:
+        from core_ai.models.discovery import refresh_models
+
+        agent = self._agent
+        if agent is None:
+            return
+        try:
+            await refresh_models(agent.registry.namespaces())
+        except (ValueError, OSError, TimeoutError, httpx.HTTPError):
+            return  # The shipped catalog remains available offline.
+        if self._agent is agent:
+            self._model_options = model_options(agent.registry.namespaces())
 
     def on_welcome_resume_requested(self, message: Welcome.ResumeRequested) -> None:
         message.stop()
