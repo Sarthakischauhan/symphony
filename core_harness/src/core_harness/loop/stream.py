@@ -10,7 +10,7 @@ from core_ai.types import Message, StreamEvent
 
 from core_harness.context import estimate_completion_tokens, estimate_prompt_tokens
 from core_harness.models import PendingToolCall, StreamedTurn, UsageTotals
-from core_harness.timing import mono_now, with_ended
+from core_harness.timing import duration_ms, mono_now, with_ended
 
 
 async def stream_model_turn(
@@ -24,7 +24,14 @@ async def stream_model_turn(
     """Consume the provider stream; mutate ``usage``. Return text, calls, budget."""
     streamed = StreamedTurn(estimated_message_tokens=estimated_message_tokens)
     streamed.budget_tokens = estimated_message_tokens
+    model_started = mono_now()
+    first_output_ms = None
     async for event in iter_provider_events(runner, messages):
+        if first_output_ms is None and (
+            event.type == "toolcall_start"
+            or (event.type in {"text_delta", "reasoning_delta"} and event.delta)
+        ):
+            first_output_ms = duration_ms(model_started)
         await dispatch_stream_event(
             event,
             turn=turn,
@@ -43,7 +50,11 @@ async def stream_model_turn(
     await runner.emit(
         "turn_completed",
         with_ended(
-            {"turn": turn, "had_tool_calls": bool(streamed.pending_calls)},
+            {
+                "turn": turn,
+                "had_tool_calls": bool(streamed.pending_calls),
+                "first_output_ms": first_output_ms,
+            },
             float(started_mono),
         ),
     )
@@ -189,6 +200,8 @@ async def dispatch_stream_event(
                 "total_tokens": event.total_tokens or 0,
                 "cumulative_tokens": usage.total_tokens,
                 "estimated": False,
+                "cache_read_tokens": event.cache_read_tokens or 0,
+                "cache_write_tokens": event.cache_write_tokens or 0,
                 "model_id": model_id,
                 "session_cost": turn_cost(
                     model_id,
@@ -265,10 +278,8 @@ async def iter_provider_events(
                 if timeout is None:
                     event = await agen.__anext__()
                 else:
-                    event = await asyncio.wait_for(
-                        agen.__anext__(),
-                        timeout=max(timeout, 0.0),
-                    )
+                    async with asyncio.timeout(max(timeout, 0.0)):
+                        event = await agen.__anext__()
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:

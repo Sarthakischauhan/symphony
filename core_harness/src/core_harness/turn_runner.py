@@ -226,8 +226,9 @@ class TurnRunner:
                 tokens_used=compact_tokens_used,
                 context_left=compact_context_left,
             )
-        messages[:] = compacted
-        return estimate_prompt_tokens(messages)
+            messages[:] = compacted
+            return estimate_prompt_tokens(messages)
+        return estimated_message_tokens
 
     async def emit_context(
         self,

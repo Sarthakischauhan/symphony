@@ -107,6 +107,10 @@ class AnthropicProvider(BaseProvider):
             "stream": True,
             "messages": payload_messages,
         }
+        # Native Messages API moves this breakpoint with each new turn.
+        # Compatible gateways retain the existing explicit breakpoints.
+        if self.base_url == "https://api.anthropic.com":
+            payload["cache_control"] = _EPHEMERAL
         # Tools come before the system prompt in Anthropic's cache order, so
         # the breakpoint on the system block caches both. The one on the last
         # tool keeps the tools cached when the system prompt changes.

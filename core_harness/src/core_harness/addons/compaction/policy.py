@@ -79,7 +79,7 @@ def dropped_turn_facts(turns: Sequence[Sequence[Message]]) -> List[str]:
     """Deterministic facts about dropped turns: asks, tools used, paths seen."""
     asks: List[str] = []
     tools: Counter[str] = Counter()
-    observed: List[str] = []
+    observed: Dict[str, None] = {}
     names: Dict[str, str] = {}
     refs: Dict[str, str] = {}
     for turn in turns:
@@ -94,8 +94,8 @@ def dropped_turn_facts(turns: Sequence[Sequence[Message]]) -> List[str]:
                 name = names.get(str(message.tool_call_id or ""), "tool")
                 tools[name] += 1
                 ref = refs.get(str(message.tool_call_id or ""), "")
-                if ref and ref not in observed:
-                    observed.append(ref)
+                if ref:
+                    observed[ref] = None
 
     lines: List[str] = []
     if asks:
@@ -111,7 +111,7 @@ def dropped_turn_facts(turns: Sequence[Sequence[Message]]) -> List[str]:
         )
         lines.append(f"Tools used: {used}")
     if observed:
-        shown_obs = observed[:10]
+        shown_obs = list(observed)[:10]
         extra = f"; … ({len(observed) - 10} more)" if len(observed) > 10 else ""
         lines.append("Already observed: " + "; ".join(shown_obs) + extra)
     return lines

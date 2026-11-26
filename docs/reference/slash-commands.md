@@ -6,6 +6,7 @@ Type `/` in the Symphony Code composer to discover commands. Select a suggestion
 | --- | --- |
 | `/model [id]` | List configured models or switch the active model |
 | `/login [name]` | Add or switch provider credentials (`/provider` remains an alias) |
+| `/perf` | View the latest observed run’s latency and prompt-cache usage |
 | `/usage` | View provider-reported subscription usage; press R to refresh |
 | `/effort [level]` | Set model reasoning effort when supported |
 | `/personality [id]` | Choose a prompt personality |

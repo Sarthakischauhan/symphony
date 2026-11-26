@@ -18,6 +18,7 @@ Some event families are conditional: tool events only occur when tools are reque
 
 ## Consumer guidance
 
+- Read `first_output_ms` from `turn_completed` and `duration_ms` from timed completions. Provider-reported `usage` can include `cache_read_tokens` and `cache_write_tokens`.
 - Preserve event order and sequence numbers when persisting or forwarding a stream.
 - Treat event payload text as user/model/tool data, not executable instructions or trusted policy.
 - Handle unknown event names gracefully so older clients can interoperate with newer products.

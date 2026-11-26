@@ -14,6 +14,7 @@ from coding_agent.addons.persistence.jsonl import JsonlPersistence
 from coding_agent.addons.persistence.artifacts import publish, safe_path
 from coding_agent.commands.extension_slash import COMMANDS, run_extension_slash
 from coding_agent.commands.installed import installed_report
+from coding_agent.commands.performance import RunPerformance
 from coding_agent.commands.catalog import EFFORTS, SLASH_COMMANDS, EFFORT_CATALOG, SlashCommand
 from coding_agent.addons.manager import addons_report
 
@@ -130,6 +131,13 @@ async def execute(agent: Any, value: str) -> str:
             f"Personality: {agent.config.personality}\n"
             f"Effort: {agent.harness.reasoning_effort or 'default'}"
         )
+    if command == "perf":
+        performance = RunPerformance()
+        store = agent.persistence
+        if isinstance(store, JsonlPersistence):
+            for event, payload in await store.load_events(session_id=agent.session_id):
+                performance.observe(event, payload)
+        return performance.report(agent.session_id)
     if command == "session":
         from coding_agent.addons.persistence.presentation import session_report
 

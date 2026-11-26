@@ -130,6 +130,8 @@ def test_run_and_turn_and_tool_stamps() -> None:
             assert payload["duration_ms"] >= 0
             assert "duration_human" in payload
 
+    assert all(0 <= p["first_output_ms"] <= p["duration_ms"] for p in _payloads(sink, "turn_completed"))
+
     tool_started = _payloads(sink, "tool_execution_started")
     assert tool_started
     assert isinstance(tool_started[0].get("started_at"), (int, float))
@@ -178,3 +180,36 @@ def test_cancelled_run_emits_stamped_summary() -> None:
     assert isinstance(cancelled[0].get("ended_at"), (int, float))
     summaries = _payloads(sink, "run_summary")
     assert summaries and summaries[0]["status"] == "cancelled"
+
+
+def test_parallel_tool_slot_refills_before_an_earlier_tool_finishes() -> None:
+    async def run() -> None:
+        third_started = asyncio.Event()
+
+        async def work(index: int) -> str:
+            if index == 0:
+                await third_started.wait()
+            elif index == 2:
+                third_started.set()
+            return str(index)
+
+        calls = [
+            event
+            for index in range(3)
+            for event in (
+                StreamEvent(type="toolcall_start", content_index=index, tool_call_id=str(index), tool_name="work"),
+                StreamEvent(type="toolcall_delta", content_index=index, delta=f'{{"index": {index}}}'),
+            )
+        ]
+        harness = CoreHarness(
+            registry=ScriptedRegistry([calls, _text_turn()]),
+            model_id="fake:parallel",
+            system_prompt="test",
+            config=HarnessConfig(max_parallel_tool_calls=2),
+            tools=[Tool(work, parallel=True)],
+        )
+        result = await asyncio.wait_for(harness.run("go"), timeout=2)
+        outputs = [message.content for message in result.messages if message.role == "tool"]
+        assert outputs == ["0", "1", "2"]
+
+    asyncio.run(run())

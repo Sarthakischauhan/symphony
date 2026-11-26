@@ -99,6 +99,7 @@ SLASH_COMMANDS = (
     SlashCommand("voice", "Talk until you say done or press Ctrl+A again", ""),
     SlashCommand("effort", "Set model reasoning effort", "[level]"),
     SlashCommand("login", "Sign in or add a model provider", "[name]"),
+    SlashCommand("perf", "View latest run latency and prompt-cache usage"),
     SlashCommand("usage", "View provider subscription usage"),
     SlashCommand("langfuse", "Configure Langfuse telemetry and install the SDK", ""),
     SlashCommand("jev", "Set a Jev finish rule or toggle it", "[on|off|rule]"),

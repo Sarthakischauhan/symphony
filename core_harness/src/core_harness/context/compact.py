@@ -129,7 +129,7 @@ def normalize_tool_protocol(messages: List[Message]) -> List[Message]:
             # valid result and makes providers report that no output exists
             # for the function call.
             result_id = str(tool_message.tool_call_id) if tool_message.tool_call_id is not None else ""
-            if result_id in expected:
+            if result_id in expected and result_id not in results:
                 group.append(tool_message)
                 results.add(result_id)
             cursor += 1

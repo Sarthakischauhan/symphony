@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -55,6 +56,14 @@ class ExtensionSnapshot:
     @property
     def commands(self) -> tuple[CommandSpec, ...]:
         return tuple(command for addon in self.loaded for command in addon.commands)
+
+    @cached_property
+    def _subscriptions_by_event(self) -> dict[str, list[tuple[str, Subscription]]]:
+        by_event: dict[str, list[tuple[str, Subscription]]] = {}
+        for addon in self.loaded:
+            for subscription in addon.subscriptions:
+                by_event.setdefault(subscription.event, []).append((addon.name, subscription))
+        return by_event
 
     @property
     def tool_names(self) -> frozenset[str]:

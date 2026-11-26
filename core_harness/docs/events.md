@@ -158,12 +158,15 @@ the same snapshot more than once, or emit a snapshot without prior deltas.
   "payload": {
     "turn": 0,
     "had_tool_calls": true,
+    "first_output_ms": 150,
     "ended_at": 1715000001.2,
     "duration_ms": 1100,
     "duration_human": "1s"
   }
 }
 ```
+
+`first_output_ms` measures time to the first text, reasoning, or tool-call start in the provider stream. It is null if none arrived.
 
 ## `context`
 
@@ -268,6 +271,7 @@ the same snapshot more than once, or emit a snapshot without prior deltas.
     "message_count_after": 4,
     "estimated_tokens_before": 360000,
     "estimated_tokens_after": 24000,
+    "duration_ms": 420,
     "context_limit": 400000
   }
 }

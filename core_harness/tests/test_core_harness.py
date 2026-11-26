@@ -762,11 +762,12 @@ def test_tool_protocol_normalization_matches_stringified_tool_ids() -> None:
         ),
         # JSON persistence can contain a numeric id in legacy transcripts.
         Message.model_construct(role="tool", content="contents", tool_call_id=1),
+        Message(role="tool", content="contents", tool_call_id="1"),
     ]
 
     normalized = normalize_tool_protocol(messages)
 
-    assert [message.role for message in normalized] == ["assistant", "tool"]
+    assert normalized == messages[:2]
 
 
 def test_compactor_pins_original_task_and_summarizes_dropped_turns() -> None:

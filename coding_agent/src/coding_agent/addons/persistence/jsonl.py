@@ -1071,10 +1071,13 @@ class JsonlPersistence:
         await self.append_event(event_type="run_completed_meta", payload=payload)
 
     async def load_events(self, *, session_id: str) -> list[tuple[str, dict[str, Any]]]:
+        return await asyncio.to_thread(self._load_events, session_id)
+
+    def _load_events(self, session_id: str) -> list[tuple[str, dict[str, Any]]]:
         with self._lock:
-            entries = self._cached_entries(session_id)
+            entries = list(self._cached_entries(session_id))
             directory = self.session_dir(session_id)
-            collected = self._indexes[session_id].collected
+            collected = self._indexes[session_id].collected.copy()
         events = [
             (str(entry.get("event_type") or ""), entry.get("payload"))
             for entry in entries
@@ -1173,19 +1176,22 @@ class JsonlPersistence:
 
     async def load_conversation(self, *, session_id: str) -> List[Message]:
         """Load the reconstructed model context (runtime view)."""
-        _, context = self._load_messages(session_id, transcript=False)
+        _, context = await asyncio.to_thread(self._load_messages, session_id, transcript=False)
         return context
 
     async def load_transcript(self, *, session_id: str) -> List[Message]:
         """Load the complete persisted transcript for the TUI/history view."""
-        history, _ = self._load_messages(session_id, transcript=True)
+        history, _ = await self.load_resume(session_id=session_id)
         return history
 
     async def load_resume(self, *, session_id: str) -> tuple[List[Message], List[Message]]:
         """Load visible history and model context from one journal read."""
-        return self._load_messages(session_id, transcript=True)
+        return await asyncio.to_thread(self._load_messages, session_id, transcript=True)
 
     async def list_sessions(self) -> List[SessionSummary]:
+        return await asyncio.to_thread(self._list_sessions)
+
+    def _list_sessions(self) -> List[SessionSummary]:
         """List parent sessions, newest first. Child session files are omitted."""
         with self._lock:
             child_ids: set[str] = set()
@@ -1265,6 +1271,9 @@ class JsonlPersistence:
         return str(metadata.get("goal") or "") if isinstance(metadata, dict) else ""
 
     async def load_checkpoint(self, *, session_id: str) -> Optional[Checkpoint]:
+        return await asyncio.to_thread(self._load_checkpoint, session_id)
+
+    def _load_checkpoint(self, session_id: str) -> Optional[Checkpoint]:
         with self._lock:
             self._cached_entries(session_id)
             index = self._indexes[session_id]
