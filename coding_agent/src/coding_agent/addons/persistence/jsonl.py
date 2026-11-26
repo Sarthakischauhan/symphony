@@ -623,7 +623,12 @@ class JsonlPersistence:
         return entries
 
     def _artifacts(
-        self, session_id: str, entries: List[Dict[str, Any]], *, updated: bool = True
+        self,
+        session_id: str,
+        entries: List[Dict[str, Any]],
+        *,
+        updated: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Publish metadata, compaction and checkpoint snapshots for ``entries``.
 
@@ -633,7 +638,8 @@ class JsonlPersistence:
         differ from what the journal implies are rewritten (crash repair).
         """
         write = snapshot if updated else refresh_snapshot
-        metadata = self._require_version(session_id) or {}
+        if metadata is None:
+            metadata = self._require_version(session_id) or {}
         directory = self.session_dir(session_id)
         created = next((item.get("created_at") for item in entries
                         if item.get("type") == "header"), None) or _utc_now()
@@ -691,22 +697,27 @@ class JsonlPersistence:
             return index.entries
         return self._read_entries(session_id)
 
-    def _stamp_client(self, session_id: str) -> None:
+    def _stamp_client(self, session_id: str) -> Dict[str, Any]:
         """Record the product once. A later client must not overwrite it."""
-        client = self.client or ""
-        if not client:
-            return
         meta = self._ensure_metadata(session_id)
-        if meta.get("client"):
-            return
-        self._write_metadata(session_id, {**meta, "client": client, "updated_at": _utc_now()})
+        client = self.client or ""
+        if not client or meta.get("client"):
+            return meta
+        updated = {**meta, "client": client, "updated_at": _utc_now()}
+        self._write_metadata(session_id, updated)
+        return updated
 
-    def _append_entries(self, session_id: str, entries: List[Dict[str, Any]]) -> None:
+    def _append_entries(
+        self,
+        session_id: str,
+        entries: List[Dict[str, Any]],
+        *,
+        refresh_artifacts: bool = True,
+    ) -> None:
         if not entries:
             return
         with self._session_lock(session_id):
-            self._stamp_client(session_id)
-            self._ensure_metadata(session_id)
+            metadata = self._stamp_client(session_id)
             path = self._path(session_id)
             mark = self._mark(path)
             index = self._indexes.get(session_id)
@@ -720,8 +731,9 @@ class JsonlPersistence:
             entries = archive(entries, self.session_dir(session_id))
             append_bytes(path, separator + self._encode(entries))
             index.extend(entries, path.stat().st_size)
-            self._artifacts(session_id, entries)
-            self._refresh_listing(session_id)
+            if refresh_artifacts:
+                self._artifacts(session_id, entries, metadata=metadata)
+                self._refresh_listing(session_id)
 
     @staticmethod
     def _ends_with_newline(path: Path, size: int) -> bool:
@@ -990,7 +1002,11 @@ class JsonlPersistence:
                         "output_text": payload.get("output_text") or payload.get("message") or "",
                     }
                 )
-            self._append_entries(session_id, outgoing)
+            self._append_entries(
+                session_id,
+                outgoing,
+                refresh_artifacts=not entries or event_type == "agent_spawned",
+            )
             if event_type in TERMINAL_EVENT_TYPES:
                 self._append_collection_overlays(
                     session_id,
@@ -1044,7 +1060,7 @@ class JsonlPersistence:
                     },
                 }
             )
-        self._append_entries(session_id, overlays)
+        self._append_entries(session_id, overlays, refresh_artifacts=False)
         return pending
 
     async def annotate_run_completed(
