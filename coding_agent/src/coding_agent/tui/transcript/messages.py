@@ -311,7 +311,13 @@ class AssistantMessage(SelectableStatic):
             prose, diagrams = render_mermaid(content or " ")
             self._markdown = themed_markdown(prose)
             body = Group(self._markdown, *diagrams) if diagrams else self._markdown
-        self._update_fitted(Group(body))
+        # Finishing the stream swaps plain text for markdown. That is a new
+        # visual even when the source text is the same, so it lays out.
+        if streaming:
+            self._update_fitted(Group(body))
+        else:
+            self._invalidate_render_cache(layout=True)
+            self.update(Group(body))
 
     def on_click(self, event: events.Click) -> None:
         """Open the http(s) link under the pointer. Other clicks select text."""

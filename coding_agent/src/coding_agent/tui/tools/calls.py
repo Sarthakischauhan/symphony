@@ -349,11 +349,10 @@ class ToolCallWidget(Collapsible):
         # Collapsed cards hide the body. An open card grows only when the
         # result wraps onto another line, which the fitted update measures.
         # Image chips are plain Statics and keep Textual's own update.
-        update = getattr(self._body, "_update_fitted", None)
-        if update is None:
-            self._body.update(rows)
+        if isinstance(self._body, SelectableStatic):
+            self._body._update_fitted(rows)
         else:
-            update(rows)
+            self._body.update(rows)
         self._body_dirty = False
 
     def refresh_content(self) -> None:
@@ -755,12 +754,11 @@ class PatchDiffWidget(ToolCallWidget):
             return
         # The diff is hidden until the card opens. Measure it so a same-height
         # result does not relayout the transcript.
-        update = getattr(self._body, "_update_fitted", None)
         rows = Group(*self._diff_rows(limit=self.MAX_DIFF_LINES, clip_result=True))
-        if update is None:
-            self._body.update(rows)
+        if isinstance(self._body, SelectableStatic):
+            self._body._update_fitted(rows)
         else:
-            update(rows)
+            self._body.update(rows)
         self._body_dirty = False
 
 
