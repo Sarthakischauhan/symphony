@@ -2,8 +2,12 @@
 
 ## Unreleased
 
+## 0.0.11
+
+Hotfix for `symphony-code` 0.0.11 and `symphony-core` 0.0.8; harness remains at 0.0.10.
+
 - Fix crashes in the subagent screen when file-changing tools complete.
-- Require a core release containing model discovery and check its availability in `symphony doctor`.
+- Require core 0.0.8, which includes model discovery, and check its availability in `symphony doctor`.
 
 ## 0.0.10 — 2026-11-25
 
