@@ -23,16 +23,12 @@
 
 ---
 
-**Symphony Code** reads your project, edits files, runs commands, and checks its
-own work, all inside a terminal UI where you can see each step. It works with
-the model you already pay for, whether that's an API key, a ChatGPT, Claude, or Grok
-subscription, or a model running on your own machine.
+**Symphony Code** is a coding agent that runs in your terminal. Describe a
+change and it reads the project, edits files, and runs your tests. It asks
+before running shell commands or overwriting files.
 
-Under the hood is **Symphony Harness**, the engine that runs the agent. It talks to
-every provider through one API, turns plain Python functions into tools, compacts
-long conversations, saves and resumes sessions, runs subagents, and streams each
-step as a typed event. It has no built-in knowledge of files or terminals, so you
-can use it to build agents that have nothing to do with code.
+Use any model you have: an API key, a ChatGPT, Claude, or Grok subscription, or a
+model running locally.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Sarthakischauhan/symphony/main/install.sh | sh
@@ -126,8 +122,9 @@ workspace you don't trust or run it unattended.
 
 ## Build your own agent
 
-Symphony Code is one product built on a reusable stack. Each layer is published
-on its own:
+Symphony Code runs on **Symphony Harness**, an agent runtime that has no
+built-in knowledge of files or terminals. You can use it to build agents that
+have nothing to do with code. Each layer is published on its own:
 
 | Package | Import | What it gives you |
 | --- | --- | --- |
