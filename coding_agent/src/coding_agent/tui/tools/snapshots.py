@@ -15,7 +15,7 @@ from rich.text import Text
 from textual import events
 
 from coding_agent.tui.tools.activity import choose_completion_verb, explored_count_label, parse_activity
-from coding_agent.tui.tools.kinds import CountedCall, counted_label, is_exploring
+from coding_agent.tui.tools.kinds import CallTally, CountedCall, is_exploring
 from coding_agent.tui.tools.labels import header_target, patch_path, tool_detail, tool_label
 from coding_agent.tui.tools.records import ToolCallRecord
 from coding_agent.tui.transcript.messages import (
@@ -238,6 +238,8 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         # Animates the heading while a member runs; stopped once none does.
         self._shimmer_step = 0
         self._shimmer_timer = None
+        self._tally = CallTally()
+        self._thoughts = 0
         super().__init__(classes="tool-call-summary", markup=False)
         # Restored/completed runs can contain thousands of entries. Build once
         # rather than rescanning the growing group for every snapshot.
@@ -245,15 +247,17 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         for call in calls or ():
             if isinstance(call, ThoughtSnapshot):
                 self.entries.append(call)
+                self._thoughts += 1
             elif call.call_id not in seen:
                 seen.add(call.call_id)
                 self.calls.append(call)
                 self.entries.append(call)
+                self._tally.add(call.counted())
         self.title = self._summary_title()
-        self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        self.set_class(self._tally.failed > 0, "has-failures")
 
     def _thought_count(self) -> int:
-        return sum(isinstance(entry, ThoughtSnapshot) for entry in self.entries)
+        return self._thoughts
 
     def heading(self) -> tuple[str, str]:
         """(verb, reason) the header leads with: the model's own words for its latest step.
@@ -265,18 +269,39 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         for call in reversed(self.calls):
             if call.activity_verb or call.activity_reason:
                 return call.activity_verb, call.activity_reason
-        label, _running, _failed = counted_label(call.counted() for call in self.calls)
-        return label or explored_count_label(tool_count=0, thought_count=self._thought_count()), ""
+        return (
+            self._tally.label()
+            or explored_count_label(tool_count=0, thought_count=self._thoughts)
+        ), ""
+
+    def _refresh_rows(self, *, layout: bool) -> None:
+        if not self.is_mounted:
+            return
+        if layout:
+            self.refresh(layout=True)
+        else:
+            self._invalidate_render_cache(layout=False)
 
     @property
     def running(self) -> bool:
-        return any(call.status in LIVE_STATUSES for call in self.calls)
+        return self._tally.running > 0
 
     def _summary_title(self) -> str:
         verb, reason = self.heading()
         title = " · ".join(part for part in (verb, reason) if part)
-        failed = sum(call.status == "failed" for call in self.calls)
+        failed = self._tally.failed
         return f"{title} · {failed} failed" if failed else title
+
+    def _note_added(self, snapshot: ToolCallSnapshot) -> None:
+        self._tally.add(snapshot.counted())
+
+    def _note_removed(self, snapshot: ToolCallSnapshot) -> None:
+        self._tally.remove(snapshot.counted())
+
+    def _mark_failures(self) -> None:
+        failed = self._tally.failed > 0
+        if self.has_class("has-failures") != failed:
+            self.set_class(failed, "has-failures")
 
     def accepts(self, snapshot: ToolCallSnapshot) -> bool:
         """A group folds a run of exploring calls, whatever activity the model gave them."""
@@ -350,28 +375,27 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         if snapshot.call_id not in self.call_ids:
             self.calls.append(snapshot)
             self.entries.append(snapshot)
+            self._note_added(snapshot)
         self.title = self._summary_title()
-        self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        self._mark_failures()
         self._sync_shimmer()
-        if layout and self.is_mounted:
-            self.refresh(layout=True)
+        self._refresh_rows(layout=layout)
 
     def update_call(self, snapshot: ToolCallSnapshot) -> None:
         """Swap in a call's newer snapshot; a status change only re-renders text."""
         index = self.call_ids.index(snapshot.call_id)
         previous = self.calls[index]
-        previous_title = self.title
         self.calls[index] = snapshot
         self.entries[self.entries.index(previous)] = snapshot
+        self._note_removed(previous)
+        self._note_added(snapshot)
         self.title = self._summary_title()
-        self.set_class(any(item.status == "failed" for item in self.calls), "has-failures")
+        self._mark_failures()
         self._sync_shimmer()
-        reshaped = (
-            (previous.label, previous.detail) != (snapshot.label, snapshot.detail)
-            or (previous.status == "failed") != (snapshot.status == "failed")
-            or previous_title != self.title
-        )
-        self.refresh(layout=reshaped)
+        # A collapsed group is one cropped line, so a status change only
+        # repaints. An open group keeps the layout it had, because a row can
+        # wrap onto another line.
+        self._refresh_rows(layout=self.is_expanded)
 
     def on_mount(self) -> None:
         self._sync_shimmer()
@@ -392,8 +416,11 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
 
     def remove_call(self, call_id: str) -> None:
         index = self.call_ids.index(call_id)
-        self.entries.remove(self.calls.pop(index))
+        removed = self.calls.pop(index)
+        self.entries.remove(removed)
+        self._note_removed(removed)
         self.title = self._summary_title()
+        self._mark_failures()
         self.refresh(layout=True)
 
     def add_thought(
@@ -404,6 +431,7 @@ class ToolCallSummary(SelectableStatic, can_focus=True):
         layout: bool = True,
     ) -> None:
         self.entries.append(ThoughtSnapshot(title=title, content=content))
+        self._thoughts += 1
         self.title = self._summary_title()
         if layout:
             self.refresh(layout=True)

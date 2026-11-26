@@ -76,6 +76,28 @@ class SelectableStatic(Static):
     def _invalidate_render_cache(self, *, layout: bool = False) -> None:
         self.refresh(layout=layout)
 
+    def _update_fitted(self, content: object) -> None:
+        """Repaint, and relayout only when the fitted height actually changes.
+
+        Streaming text and tool rows use ``height: auto``. Textual relayouts
+        the whole screen whenever content is replaced, even if the widget
+        stays the same number of lines. Measuring the new visual once is far
+        cheaper than that pass, and a same-height update only dirties paint.
+        """
+        width = self.size.width or self.container_size.width
+        before = self.size.height if width and self.is_mounted else None
+        self.update(content, layout=False)
+        if before is None or not width:
+            self.refresh(layout=True)
+            return
+        try:
+            after = self.get_content_height(self.size, self.region.size, width)
+        except Exception:
+            self.refresh(layout=True)
+            return
+        if after != before:
+            self.refresh(layout=True)
+
     def freeze_render(self) -> None:
         """Compatibility hook for transcript completion; rendering remains lazy.
 
@@ -289,8 +311,7 @@ class AssistantMessage(SelectableStatic):
             prose, diagrams = render_mermaid(content or " ")
             self._markdown = themed_markdown(prose)
             body = Group(self._markdown, *diagrams) if diagrams else self._markdown
-        self._invalidate_render_cache(layout=True)
-        self.update(Group(body))
+        self._update_fitted(Group(body))
 
     def on_click(self, event: events.Click) -> None:
         """Open the http(s) link under the pointer. Other clicks select text."""
