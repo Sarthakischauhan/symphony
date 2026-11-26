@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import subprocess
 from pathlib import Path
@@ -18,9 +19,9 @@ from coding_agent.tui.theme import DIFF_MODAL_CSS, SYMPHONY_COLORS
 from coding_agent.tui.tools.calls import diff_stats
 
 
-# Cards mount in batches so a large diff never holds the UI loop for one
+# Cards mount in small batches so a large diff never holds the UI loop for one
 # long layout pass; the loop paints and takes keys between batches.
-CARD_MOUNT_BATCH = 16
+CARD_MOUNT_BATCH = 4
 _HUNK_RE = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)")
 # git diff runs in a worker thread; a hung git (lock, network FS) ends here
 # with a message instead of holding the worker forever.
@@ -250,6 +251,8 @@ class DiffModal(ModalBase[None]):
                 self._show_file(0, scroll=False)
             if not self.is_attached:
                 return
+            if start + CARD_MOUNT_BATCH < len(self._cards):
+                await asyncio.sleep(0)
 
     def on_key(self, event: events.Key) -> None:
         """Keep modal shortcuts active while the scroll container has focus."""
@@ -273,8 +276,8 @@ class DiffModal(ModalBase[None]):
         card = self._cards[self._file_index]
         card.remove_class("inactive")
         card.add_class("selected")
-        path, body = self._file_data[self._file_index]
-        additions, deletions = diff_stats(body.splitlines())
+        path, _body = self._file_data[self._file_index]
+        additions, deletions = card.additions, card.deletions
         self.query_one("#diff-path", Static).update(path)
         self.query_one("#diff-file-counter", Static).update(
             f"{self._file_index + 1} of {len(self._cards)} files"

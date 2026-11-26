@@ -271,20 +271,19 @@ async def iter_provider_events(
         **stream_options,
     )
     try:
-        while True:
-            runner._raise_if_runtime_exceeded()
-            timeout = runner._remaining_runtime()
+        runner._raise_if_runtime_exceeded()
+        timeout = runner._remaining_runtime()
+        if timeout is None:
+            async for event in agen:
+                yield event
+        else:
+            deadline = asyncio.get_running_loop().time() + max(timeout, 0.0)
             try:
-                if timeout is None:
-                    event = await agen.__anext__()
-                else:
-                    async with asyncio.timeout(max(timeout, 0.0)):
-                        event = await agen.__anext__()
-            except StopAsyncIteration:
-                break
+                async with asyncio.timeout_at(deadline):
+                    async for event in agen:
+                        yield event
             except asyncio.TimeoutError:
                 raise runner._runtime_exceeded_error() from None
-            yield event
     finally:
         try:
             await agen.aclose()
