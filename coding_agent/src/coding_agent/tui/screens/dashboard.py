@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 from textual.widgets import OptionList, TextArea
 from textual.widgets.option_list import Option
+from textual.worker import get_current_worker
 
 from coding_agent.addons.persistence.active import ActiveSession, list_active
 from coding_agent.resources.usage import sample_usage
@@ -49,23 +50,31 @@ class AgentDashboard(ModalBase[None]):
 
     def on_mount(self) -> None:
         self.query_one(OptionList).border_title = "Agents & background tasks · CPU  RAM  disk · Esc back"
-        self.refresh_agents()
-        self.set_interval(1, self.refresh_agents)
+        self._schedule_refresh()
+        self.set_interval(1, self._schedule_refresh)
         self.query_one(OptionList).focus()
 
-    def refresh_agents(self) -> None:
-        options = self.query_one(OptionList)
-        highlighted = options.highlighted
-        options.clear_options()
+    def _schedule_refresh(self) -> None:
+        if not self.is_attached:
+            return
+        self.run_worker(
+            self._collect_and_apply,
+            thread=True,
+            exclusive=True,
+            group="agent-dashboard-refresh",
+            exit_on_error=False,
+        )
+
+    def _collect_rows(self) -> tuple[list[tuple[Text, str]], dict[int, _Sample]]:
+        rows: list[tuple[Text, str]] = []
         records = list_active()
-        seen: set[int] = set()
+        next_samples: dict[int, _Sample] = {}
         for record in records:
-            seen.add(record.pid)
-            options.add_option(Option(self._row(record), id=str(record.pid)))
-        self._samples = {pid: sample for pid, sample in self._samples.items() if pid in seen}
-        task_count = 0
+            row, sample = self._row_with_sample(record)
+            next_samples[record.pid] = sample
+            rows.append((row, str(record.pid)))
         if self.harness is not None:
-            for record in self.harness.child_tasks.values():
+            for record in list(self.harness.child_tasks.values()):
                 if record.status not in {"running", "background"} or (record.task is not None and record.task.done()):
                     continue
                 kind = "job" if record.status == "background" else "subagent"
@@ -83,12 +92,31 @@ class AgentDashboard(ModalBase[None]):
                     except OSError:
                         output = ""
                     row.append(f"\n         {_clip(output, 160) if output else 'No output yet'}", style="#a2adb8")
-                options.add_option(Option(row, id=f"task:{record.child_id}"))
-                task_count += 1
-        if not records and not task_count:
+                rows.append((row, f"task:{record.child_id}"))
+        return rows, next_samples
+
+    def _apply_rows(self, rows: list[tuple[Text, str]], next_samples: dict[int, _Sample]) -> None:
+        if not self.is_attached:
+            return
+        self._samples = next_samples
+        options = self.query_one(OptionList)
+        highlighted = options.highlighted
+        options.clear_options()
+        if not rows:
             options.add_option(Option("No agents are running.", disabled=True))
         else:
+            for prompt, option_id in rows:
+                options.add_option(Option(prompt, id=option_id))
             options.highlighted = min(highlighted or 0, options.option_count - 1)
+
+    def _collect_and_apply(self) -> None:
+        rows, next_samples = self._collect_rows()
+        if not get_current_worker().is_cancelled and self.is_attached:
+            self.app.call_from_thread(self._apply_rows, rows, next_samples)
+
+    def refresh_agents(self) -> None:
+        rows, next_samples = self._collect_rows()
+        self._apply_rows(rows, next_samples)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         option_id = event.option.id or ""
@@ -105,7 +133,7 @@ class AgentDashboard(ModalBase[None]):
             if child is not None:
                 self.app.open_subagent(child)
 
-    def _row(self, record: ActiveSession) -> Text:
+    def _row_with_sample(self, record: ActiveSession) -> tuple[Text, _Sample]:
         previous = self._samples.get(record.pid, _Sample())
         usage, cpu_seconds, sampled_at = sample_usage(
             record.pid,
@@ -113,13 +141,18 @@ class AgentDashboard(ModalBase[None]):
             previous_cpu_seconds=previous.cpu_seconds,
             previous_at=previous.sampled_at,
         )
-        self._samples[record.pid] = _Sample(cpu_seconds, sampled_at)
+        sample = _Sample(cpu_seconds, sampled_at)
         color = _KIND_COLOR.get(record.kind, "#a2adb8")
         label = record.label.strip() or _workspace_name(record.workspace) or record.session_id[:8]
         content = Text(f"{record.kind:4} ", style=color)
         content.append(f"{_clip(label, 24):<24} ")
         content.append(f"{_clip(record.model_id or 'model unset', 24):<24}", style="#737373")
         content.append(f"  {usage.line()}", style="#a2adb8")
+        return content, sample
+
+    def _row(self, record: ActiveSession) -> Text:
+        content, sample = self._row_with_sample(record)
+        self._samples[record.pid] = sample
         return content
 
 
@@ -141,20 +174,43 @@ class JobLogScreen(ModalBase[None]):
 
     def on_mount(self) -> None:
         self.query_one(TextArea).border_title = f"{_clip(self.command, 80)} · Esc back"
-        self.refresh_log()
-        self.set_interval(1, self.refresh_log)
+        self._schedule_refresh()
+        self.set_interval(1, self._schedule_refresh)
         self.query_one(TextArea).focus()
 
-    def refresh_log(self) -> None:
+    def _schedule_refresh(self) -> None:
+        if not self.is_attached:
+            return
+        self.run_worker(
+            self._read_and_apply,
+            thread=True,
+            exclusive=True,
+            group="job-log-refresh",
+            exit_on_error=False,
+        )
+
+    def _read_log(self) -> str:
         from coding_agent.tools.bash_jobs import log_tail
 
         try:
-            output = log_tail(self.path, 65536)
+            return log_tail(self.path, 65536)
         except OSError as exc:
-            output = f"Unable to read log: {exc}"
+            return f"Unable to read log: {exc}"
+
+    def _apply_log(self, output: str) -> None:
+        if not self.is_attached:
+            return
         area = self.query_one(TextArea)
         if area.text != output:
             area.load_text(output)
+
+    def _read_and_apply(self) -> None:
+        output = self._read_log()
+        if not get_current_worker().is_cancelled and self.is_attached:
+            self.app.call_from_thread(self._apply_log, output)
+
+    def refresh_log(self) -> None:
+        self._apply_log(self._read_log())
 
 
 def _workspace_name(workspace: str) -> str:
