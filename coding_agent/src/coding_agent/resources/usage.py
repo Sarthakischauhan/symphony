@@ -77,6 +77,23 @@ def _windows_alive(pid: int) -> bool:
     return True
 
 
+_DISK_CACHE_TTL_S = 30.0
+_disk_cache: dict[str, tuple[float, int | None]] = {}
+
+
+def _cached_directory_size(path: str | Path | None) -> int | None:
+    if path is None:
+        return None
+    key = str(path)
+    now = time.monotonic()
+    cached = _disk_cache.get(key)
+    if cached is not None and now - cached[0] < _DISK_CACHE_TTL_S:
+        return cached[1]
+    size = directory_size(path)
+    _disk_cache[key] = (now, size)
+    return size
+
+
 def sample_usage(
     pid: int,
     *,
@@ -94,7 +111,7 @@ def sample_usage(
         return AgentUsage(pid=pid, alive=False), None, sampled_at
     cpu_seconds, rss = _process_counters(pid)
     cpu_percent = _cpu_percent(cpu_seconds, previous_cpu_seconds, sampled_at, previous_at)
-    disk = directory_size(workspace) if workspace else None
+    disk = _cached_directory_size(workspace) if workspace else None
     return (
         AgentUsage(pid=pid, alive=True, cpu_percent=cpu_percent, rss_bytes=rss, disk_bytes=disk),
         cpu_seconds,
@@ -132,12 +149,21 @@ def directory_size(path: str | Path | None) -> int | None:
         if not target.is_dir():
             return None
         total = 0
-        for root, _dirs, files in os.walk(target):
-            for name in files:
-                try:
-                    total += (Path(root) / name).stat().st_size
-                except OSError:
-                    continue
+        stack = [str(target)]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                total += entry.stat(follow_symlinks=False).st_size
+                        except OSError:
+                            continue
+            except OSError:
+                continue
         return total
     except OSError:
         return None
