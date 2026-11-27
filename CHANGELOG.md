@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.0.12
+
+Release notes for `symphony-code` 0.0.12, `symphony-harness` 0.0.11, and `symphony-core` 0.0.9.
+
+- **Harness & provider hot paths:** Linear-time OpenAI message/response conversion, single `asyncio.timeout_at` per streamed turn instead of per-delta timer setup, faster mixed-duration parallel tool execution, and cached extension dispatch.
+- **Session persistence:** Faster cold session resume without blocking the event loop, skipped redundant `metadata.json` / `listing.json` atomic fsync rewrites on intermediate lifecycle events, and fewer metadata disk reads per append.
+- **TUI responsiveness:** Offloaded `AgentDashboard` (`Ctrl+B`) and `JobLogScreen` polling to background worker threads, added a 30-second TTL cache + `os.scandir` for workspace disk usage, reduced `/diff` card mount batch size with event-loop yields, and measured `content_size` in `SelectableStatic._update_fitted`.
+- **Diagnostics:** Added `/performance` command and harness event timing instrumentation.
+
 ## 0.0.11
 
 Hotfix for `symphony-code` 0.0.11 and `symphony-core` 0.0.8; harness remains at 0.0.10.
