@@ -84,8 +84,8 @@ class SelectableStatic(Static):
         stays the same number of lines. Measuring the new visual once is far
         cheaper than that pass, and a same-height update only dirties paint.
         """
-        width = self.size.width or self.container_size.width
-        before = self.size.height if width and self.is_mounted else None
+        width = self.content_size.width or self.container_size.width
+        before = self.content_size.height if width and self.is_mounted else None
         self.update(content, layout=False)
         if before is None or not width:
             self.refresh(layout=True)
