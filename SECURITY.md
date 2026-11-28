@@ -40,3 +40,13 @@ historical sessions owned by a live TUI are read-only in Web. Closing a browser
 tab does not cancel a run; use Cancel execution or stop the server. Downloads
 are limited to observed successful file writes within the selected workspace,
 served as attachments. See [the Web guide](docs/developer-guide/web.md).
+
+## The macOS sandbox (`--sandbox`)
+
+`symphony run --sandbox` and `symphony stdio --sandbox` run under a Seatbelt profile
+(`coding_agent/run/sandbox.py`, `coding_agent/run/seatbelt.py`). That is a kernel-enforced limit
+on what the agent's process tree can write and read. Without the flag, Symphony still has no
+sandbox: workspace tools have no path jail, and `bash` runs as you.
+`--sandbox-github` deliberately lets sandboxed code read your GitHub CLI login. Approval prompts
+for `git push` / `gh` say what the agent means to do; they do not stop code it runs from using
+that login.

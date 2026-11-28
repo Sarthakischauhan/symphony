@@ -17,6 +17,12 @@ from core_server.config import (
     anonymous_run_context,
     build_config,
 )
+from core_server.durable import (
+    DurableRunBackend,
+    SQLiteDatabase,
+    SQLitePersistence,
+    SQLiteRunStore,
+)
 from core_server.execution import RunExecutor
 from core_server.models import (
     ModelRegistryResponse,
@@ -51,6 +57,10 @@ __all__ = [
     "RunCapacityError",
     "RunExecutor",
     "InProcessRunBackend",
+    "DurableRunBackend",
+    "SQLiteDatabase",
+    "SQLitePersistence",
+    "SQLiteRunStore",
     "RunManager",
     "RunStatus",
     "RunStatusResponse",
